@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#e9ebe7" />
+    <title>Serena Desktop</title>
+    <style>
+      html, body, #root { width: 100%; height: 100%; margin: 0; }
+      body { background: #e7e9e4; }
+      .startup-splash {
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        height: 100%;
+        gap: 14px;
+        color: #6d736b;
+        font: 13px "Segoe UI Variable", "Segoe UI", sans-serif;
+      }
+      .startup-splash__mark {
+        display: grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        border-radius: 8px;
+        color: #f0f2ec;
+        background: #252925;
+        font: 700 17px Consolas, monospace;
+        animation: startup-pulse 1.2s ease-in-out infinite;
+      }
+      .startup-splash p { margin: 0; }
+      @keyframes startup-pulse { 50% { opacity: 0.62; transform: scale(0.96); } }
+      @media (prefers-reduced-motion: reduce) { .startup-splash__mark { animation: none; } }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <main class="startup-splash" aria-label="Serena Desktop 正在启动">
+        <div class="startup-splash__mark">S</div>
+        <p>正在准备本机 Serena 环境…</p>
+      </main>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
