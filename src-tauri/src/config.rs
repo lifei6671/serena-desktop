@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    env, fs,
+    fs,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -9,6 +9,7 @@ use tempfile::NamedTempFile;
 
 #[derive(Debug, Clone)]
 pub struct AppPaths {
+    pub runtime_directory: PathBuf,
     pub config_file: PathBuf,
     pub log_directory: PathBuf,
     pub app_log: PathBuf,
@@ -26,10 +27,23 @@ impl AppPaths {
             .app_log_dir()
             .map_err(|error| format!("无法确定应用日志目录：{error}"))?;
         Ok(Self {
+            runtime_directory: app
+                .path()
+                .app_data_dir()
+                .map_err(|error| format!("无法确定应用数据目录：{error}"))?
+                .join("runtime"),
             config_file: config_directory.join("config.json"),
             app_log: log_directory.join("app.log"),
             serena_log: log_directory.join("serena.log"),
             log_directory,
+        })
+    }
+
+    pub fn managed_serena(&self) -> PathBuf {
+        self.runtime_directory.join("bin").join(if cfg!(windows) {
+            "serena.exe"
+        } else {
+            "serena"
         })
     }
 }
@@ -37,6 +51,8 @@ impl AppPaths {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ManagerConfig {
+    pub broker: BrokerConfig,
+    pub workspaces: Vec<Workspace>,
     pub serena_path: Option<PathBuf>,
     pub port: u16,
     pub dashboard_enabled: bool,
@@ -48,6 +64,8 @@ pub struct ManagerConfig {
 impl Default for ManagerConfig {
     fn default() -> Self {
         Self {
+            broker: BrokerConfig::default(),
+            workspaces: Vec::new(),
             serena_path: None,
             port: 9121,
             dashboard_enabled: true,
@@ -60,13 +78,22 @@ impl Default for ManagerConfig {
 
 impl ManagerConfig {
     pub fn validate(&self) -> Result<(), String> {
+        if self.broker.port < 1024 || (self.broker.enabled && self.broker.port == self.port) {
+            return Err("Broker 端口必须 >= 1024 且不同于 Serena 端口。".into());
+        }
+        let mut ids = std::collections::HashSet::new();
+        let mut roots = std::collections::HashSet::new();
+        for workspace in &self.workspaces {
+            if workspace.id.is_empty()
+                || workspace.name.trim().is_empty()
+                || !ids.insert(&workspace.id)
+                || !roots.insert(&workspace.root)
+            {
+                return Err("项目名称、ID 或路径重复/无效。".into());
+            }
+        }
         if self.port < 1024 {
             return Err("MCP 端口必须在 1024–65535 之间。".into());
-        }
-        if let Some(path) = &self.serena_path
-            && !path.is_file()
-        {
-            return Err(format!("Serena 可执行文件不存在：{}", path.display()));
         }
         if !self.dashboard_enabled && self.open_dashboard_on_launch {
             return Err("Dashboard 已关闭时不能配置为启动时自动打开。".into());
@@ -94,58 +121,6 @@ pub fn save(path: &Path, config: &ManagerConfig) -> Result<(), String> {
     atomic_write(path, &content)
 }
 
-pub fn apply_dashboard_setting(enabled: bool) -> Result<(), String> {
-    let config_file = serena_config_path()?;
-    if !config_file.is_file() {
-        return Err(format!(
-            "Serena 全局配置尚未初始化：{}",
-            config_file.display()
-        ));
-    }
-    let existing = fs::read_to_string(&config_file)
-        .map_err(|error| format!("无法读取 Serena 配置 {}：{error}", config_file.display()))?;
-    let updated = patch_dashboard_line(&existing, enabled);
-    atomic_write(&config_file, updated.as_bytes())
-        .map_err(|error| format!("无法更新 Serena Dashboard 配置：{error}"))
-}
-
-pub fn serena_config_path() -> Result<PathBuf, String> {
-    let serena_home = env::var_os("SERENA_HOME")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("USERPROFILE").map(|home| PathBuf::from(home).join(".serena")))
-        .ok_or_else(|| "无法确定 Serena 用户配置目录。".to_string())?;
-    Ok(serena_home.join("serena_config.yml"))
-}
-
-fn patch_dashboard_line(existing: &str, enabled: bool) -> String {
-    let newline = if existing.contains("\r\n") {
-        "\r\n"
-    } else {
-        "\n"
-    };
-    let replacement = format!("web_dashboard: {}", if enabled { "true" } else { "false" });
-    let mut found = false;
-    let mut lines = Vec::new();
-    for line in existing.lines() {
-        if !line.chars().next().is_some_and(char::is_whitespace)
-            && line.trim_start().starts_with("web_dashboard:")
-        {
-            if !found {
-                lines.push(replacement.clone());
-                found = true;
-            }
-        } else {
-            lines.push(line.to_string());
-        }
-    }
-    if !found {
-        lines.push(replacement);
-    }
-    let mut result = lines.join(newline);
-    result.push_str(newline);
-    result
-}
-
 fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
@@ -169,6 +144,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn missing_saved_executable_can_be_loaded_for_repair_in_ui() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let config = ManagerConfig {
+            serena_path: Some(dir.path().join("removed.exe")),
+            ..ManagerConfig::default()
+        };
+        save(&path, &config).unwrap();
+        assert_eq!(load(&path).unwrap(), config);
+    }
+
+    #[test]
+    fn old_serena_port_9120_loads_with_disabled_broker() {
+        let mut config: ManagerConfig = serde_json::from_str(r#"{"port":9120}"#).unwrap();
+        assert!(!config.broker.enabled);
+        assert!(config.validate().is_ok());
+        config.broker.enabled = true;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
     fn default_config_is_valid() {
         assert!(ManagerConfig::default().validate().is_ok());
     }
@@ -180,22 +176,6 @@ mod tests {
             ..ManagerConfig::default()
         };
         assert!(config.validate().unwrap_err().contains("1024"));
-    }
-
-    #[test]
-    fn dashboard_patch_preserves_other_lines_and_line_endings() {
-        let input = "language_backend: LSP\r\nweb_dashboard: true # old\r\nlog_level: 20\r\n";
-        let result = patch_dashboard_line(input, false);
-        assert_eq!(
-            result,
-            "language_backend: LSP\r\nweb_dashboard: false\r\nlog_level: 20\r\n"
-        );
-    }
-
-    #[test]
-    fn dashboard_patch_adds_missing_top_level_key() {
-        let result = patch_dashboard_line("log_level: 20\n", true);
-        assert_eq!(result, "log_level: 20\nweb_dashboard: true\n");
     }
 
     #[test]
@@ -222,5 +202,78 @@ mod tests {
                 .unwrap()
                 .contains("startMinimized")
         );
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BrokerConfig {
+    pub enabled: bool,
+    pub port: u16,
+}
+impl Default for BrokerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: 9120,
+        }
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Workspace {
+    pub id: String,
+    pub name: String,
+    pub root: PathBuf,
+}
+impl AppPaths {
+    pub fn serena_home(&self) -> PathBuf {
+        self.runtime_directory.join("serena-home")
+    }
+    pub fn broker_context(&self) -> PathBuf {
+        self.serena_home().join("broker.yml")
+    }
+    pub fn prepare_serena(&self, dashboard: bool) -> Result<(), String> {
+        let projects = match fs::read_to_string(self.serena_home().join("serena_config.yml")) {
+            Ok(text) => {
+                let previous: serde_yaml_ng::Value =
+                    serde_yaml_ng::from_str(&text).map_err(|e| e.to_string())?;
+                serde_json::to_value(&previous["projects"]).map_err(|e| e.to_string())?
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!([]),
+            Err(e) => return Err(e.to_string()),
+        };
+        let value = serde_json::json!({
+            "language_backend": "LSP", "trusted_project_path_patterns": [],
+            "web_dashboard": dashboard, "web_dashboard_open_on_launch": false,
+            "gui_log_window": false, "default_modes": [], "projects": projects,
+            "project_serena_folder_location": "$projectDir/.serena"
+        });
+        atomic_write(
+            &self.serena_home().join("serena_config.yml"),
+            serde_json::to_string_pretty(&value).unwrap().as_bytes(),
+        )?;
+        let context = serde_json::json!({"description":"Desktop Broker read-only backend", "prompt":"", "fixed_tools":["activate_project","get_current_config","read_file","list_dir","find_file","search_for_pattern","get_symbols_overview","find_symbol","find_referencing_symbols"], "single_project":false});
+        atomic_write(
+            &self.broker_context(),
+            serde_json::to_string_pretty(&context).unwrap().as_bytes(),
+        )
+    }
+}
+impl AppPaths {
+    pub fn verify_serena_config(&self) -> Result<(), String> {
+        let text = fs::read_to_string(self.serena_home().join("serena_config.yml"))
+            .map_err(|e| e.to_string())?;
+        let value: serde_yaml_ng::Value =
+            serde_yaml_ng::from_str(&text).map_err(|e| e.to_string())?;
+        if !value["trusted_project_path_patterns"]
+            .as_sequence()
+            .is_some_and(|v| v.is_empty())
+        {
+            return Err(
+                "BACKEND_INCOMPATIBLE: 受管 Serena 必须禁止项目信任命令，请重启服务恢复配置。"
+                    .into(),
+            );
+        }
+        Ok(())
     }
 }

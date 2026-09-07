@@ -1,6 +1,8 @@
 export type ServerStatus = "stopped" | "starting" | "running" | "error";
 
 export interface ManagerConfig {
+  broker: { enabled: boolean; port: number };
+  workspaces: Workspace[];
   serenaPath: string | null;
   port: number;
   dashboardEnabled: boolean;
@@ -10,12 +12,24 @@ export interface ManagerConfig {
 }
 
 export interface SerenaInstallation {
+  state: "missing" | "standard" | "invalid";
+  source: "managed" | "external" | "path";
+  context: string | null;
+  error: string | null;
   path: string;
   version: string;
 }
 
 export interface AppState {
   config: ManagerConfig;
+  git: {
+    status: "available" | "missing" | "error";
+    available: boolean;
+    path: string | null;
+    version: string | null;
+    error: string | null;
+  };
+  managedRuntimePresent: boolean;
   installation: SerenaInstallation | null;
   activeInstallation: SerenaInstallation | null;
   serverStatus: ServerStatus;
@@ -27,5 +41,21 @@ export interface AppState {
   logDirectory: string;
   autostartEnabled: boolean | null;
   autostartError: string | null;
+  lastError: string | null;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  root: string;
+}
+export interface BrokerState {
+  running: boolean;
+  port: number;
+  activeWorkspace: Workspace | null;
+  projectSources: string[];
+  syncWarnings: string[];
+  projects: (Workspace & { configured: boolean })[];
+  operation: string | null;
   lastError: string | null;
 }

@@ -1,3 +1,5 @@
+pub use crate::discovery::SerenaInstallation;
+use crate::discovery::{self, GitInstallation, InstallationState};
 use crate::{
     config::{self, AppPaths, ManagerConfig},
     logs,
@@ -22,13 +24,6 @@ use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 const DEFAULT_DASHBOARD_URL: &str = "http://127.0.0.1:24282/dashboard/index.html";
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SerenaInstallation {
-    pub path: PathBuf,
-    pub version: String,
-}
-
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ServerStatus {
@@ -48,6 +43,7 @@ struct ManagedProcess {
 struct Runtime {
     config: ManagerConfig,
     installation: Option<SerenaInstallation>,
+    git: GitInstallation,
     process: Option<ManagedProcess>,
     status: ServerStatus,
     last_error: Option<String>,
@@ -62,12 +58,14 @@ pub struct SupervisorState {
 
 #[derive(Debug, Clone)]
 pub struct SupervisorSnapshot {
+    pub git: GitInstallation,
     pub config: ManagerConfig,
     pub installation: Option<SerenaInstallation>,
     pub active_installation: Option<SerenaInstallation>,
     pub server_status: ServerStatus,
     pub managed_process_present: bool,
     pub active_port: u16,
+    pub process_id: Option<u32>,
     pub active_dashboard_enabled: bool,
     pub dashboard_url: String,
     pub last_error: Option<String>,
@@ -88,6 +86,7 @@ impl SupervisorState {
             runtime: Mutex::new(Runtime {
                 config,
                 installation: None,
+                git: GitInstallation::default(),
                 process: None,
                 status: ServerStatus::Stopped,
                 last_error: None,
@@ -118,6 +117,8 @@ impl SupervisorState {
             .map(|process| process.installation.clone())
             .or_else(|| runtime.installation.clone());
         SupervisorSnapshot {
+            process_id: runtime.process.as_ref().map(|p| p.child.id()),
+            git: runtime.git.clone(),
             config: runtime.config.clone(),
             installation: runtime.installation.clone(),
             active_installation,
@@ -141,7 +142,8 @@ impl SupervisorState {
             .expect("supervisor mutex poisoned")
             .config
             .clone();
-        let installation = detect(&config);
+        let installation = Some(discovery::detect(&config, &self.paths));
+        self.detect_git();
         self.commit_detection(&config, installation)
     }
 
@@ -155,7 +157,9 @@ impl SupervisorState {
             return runtime.installation.clone();
         }
         runtime.installation = installation.clone();
-        if installation.is_some()
+        if installation
+            .as_ref()
+            .is_some_and(|value| value.state == InstallationState::Standard)
             && runtime.status == ServerStatus::Error
             && runtime.process.is_none()
         {
@@ -165,18 +169,50 @@ impl SupervisorState {
         installation
     }
 
+    pub fn detect_git(&self) -> GitInstallation {
+        let git = discovery::detect_git();
+        self.runtime.lock().expect("supervisor mutex poisoned").git = git.clone();
+        git
+    }
+
+    pub fn install(&self) -> Result<(), String> {
+        let _operation = self.operation.lock().expect("operation mutex poisoned");
+        if self.snapshot().managed_process_present {
+            return Err("请先停止 Serena，再安装或修复 Managed 官方 Serena。".into());
+        }
+        let git = self.detect_git();
+        if !git.available {
+            return Err(git.error.unwrap_or_else(|| "Git 不可用。".into()));
+        }
+        let result = crate::installer::install_serena(&self.paths);
+        self.detect_serena();
+        result
+    }
+
+    pub fn replace_workspaces(
+        &self,
+        workspaces: Vec<crate::config::Workspace>,
+    ) -> Result<(), String> {
+        let _operation = self.operation.lock().expect("supervisor mutex poisoned");
+        let mut runtime = self.runtime.lock().expect("supervisor mutex poisoned");
+        let mut next = runtime.config.clone();
+        next.workspaces = workspaces;
+        next.validate()?;
+        config::save(&self.paths.config_file, &next)?;
+        runtime.config = next;
+        Ok(())
+    }
+
     pub fn replace_config(&self, next: ManagerConfig) -> Result<(), String> {
         let _operation = self.operation.lock().expect("operation mutex poisoned");
         next.validate()?;
-        let installation = match &next.serena_path {
-            Some(path) => Some(inspect_candidate(path).ok_or_else(|| {
-                format!(
-                    "指定文件无法作为 Serena 执行 `--version`：{}",
-                    path.display()
-                )
-            })?),
-            None => detect(&next),
-        };
+        let installation = discovery::detect(&next, &self.paths);
+        if next.serena_path.is_some() && installation.state != InstallationState::Standard {
+            return Err(installation
+                .error
+                .unwrap_or_else(|| "需要兼容的 官方 Serena。".into()));
+        }
+        let installation = Some(installation);
         config::save(&self.paths.config_file, &next)?;
         let mut runtime = self.runtime.lock().expect("supervisor mutex poisoned");
         runtime.config = next;
@@ -205,54 +241,38 @@ impl SupervisorState {
 
     fn start_unlocked(&self) -> Result<(), String> {
         self.refresh_process_status();
-        let (config, installation) = {
+        let config = {
             let mut runtime = self.runtime.lock().expect("supervisor mutex poisoned");
             if runtime.process.is_some() {
                 return Err("Serena 已经在运行。".into());
             }
-            let installation = runtime
-                .installation
-                .clone()
-                .ok_or_else(|| "未发现 Serena，请先安装或配置可执行文件路径。".to_string())?;
             runtime.status = ServerStatus::Starting;
             runtime.last_error = None;
-            (runtime.config.clone(), installation)
+            runtime.config.clone()
         };
+        // Re-probe on every start: a cached detection is not a launch guarantee.
+        let installation = discovery::detect(&config, &self.paths);
+        self.commit_detection(&config, Some(installation.clone()));
+        let preflight = validate_start(&installation, || self.detect_git(), &config);
+        if let Err(error) = preflight {
+            self.set_error(&error);
+            return Err(error);
+        }
 
         if let Err(error) = ensure_port_available(config.port) {
             self.set_error(&error);
             return Err(error);
         }
-        if let Err(error) = ensure_serena_initialized(&installation.path) {
-            self.set_error(&error);
-            return Err(error);
-        }
-        if let Err(error) = config::apply_dashboard_setting(config.dashboard_enabled) {
-            self.set_error(&error);
-            return Err(error);
-        }
-
-        let mut command = hidden_command(&installation.path);
+        self.paths
+            .prepare_serena(config.dashboard_enabled)
+            .inspect_err(|e| self.set_error(e))?;
+        let mut command = start_command(&installation.path, &config, &self.paths.broker_context());
         command
-            .args([
-                "start-mcp-server",
-                "--transport",
-                "streamable-http",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                &config.port.to_string(),
-                "--open-web-dashboard",
-                if config.open_dashboard_on_launch {
-                    "true"
-                } else {
-                    "false"
-                },
-            ])
+            .env("SERENA_HOME", self.paths.serena_home())
+            .env("FASTMCP_JSON_RESPONSE", "false")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-
         let mut child = command.spawn().map_err(|error| {
             let message = format!("无法启动 Serena：{error}");
             self.set_error(&message);
@@ -446,19 +466,47 @@ fn terminate_managed_process(child: &mut Child) -> Result<(), String> {
     child.kill().map_err(|error| error.to_string())
 }
 
-pub fn detect(config: &ManagerConfig) -> Option<SerenaInstallation> {
-    let candidates = config
-        .serena_path
-        .clone()
-        .into_iter()
-        .chain(find_executable("serena"))
-        .chain(user_local_candidate("serena"));
-    for candidate in candidates {
-        if let Some(installation) = inspect_candidate(&candidate) {
-            return Some(installation);
-        }
+fn validate_start(
+    installation: &SerenaInstallation,
+    detect_git: impl FnOnce() -> GitInstallation,
+    config: &ManagerConfig,
+) -> Result<(), String> {
+    if installation.state != InstallationState::Standard {
+        return Err(installation
+            .error
+            .clone()
+            .unwrap_or_else(|| "请先安装 官方 Serena。".into()));
     }
-    None
+    let git = detect_git();
+    if !git.available {
+        return Err(git.error.unwrap_or_else(|| "Git 不可用。".into()));
+    }
+    config.validate()
+}
+
+fn start_command(path: &Path, config: &ManagerConfig, context: &Path) -> Command {
+    let mut command = hidden_command(path);
+    command
+        .args(["start-mcp-server", "--context"])
+        .arg(context)
+        .args([
+            "--transport",
+            "streamable-http",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            &config.port.to_string(),
+            "--open-web-dashboard",
+            if config.open_dashboard_on_launch {
+                "true"
+            } else {
+                "false"
+            },
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command
 }
 
 pub fn find_executable(name: &str) -> Option<PathBuf> {
@@ -492,64 +540,6 @@ pub fn hidden_command(program: impl AsRef<OsStr>) -> Command {
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     command
-}
-
-fn read_version(path: &Path) -> Option<String> {
-    if !path.is_file() {
-        return None;
-    }
-    let mut command = hidden_command(path);
-    command.arg("--version");
-    let output = run_with_timeout(command, Duration::from_secs(5), "读取 Serena 版本").ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let bytes = if output.stdout.is_empty() {
-        &output.stderr
-    } else {
-        &output.stdout
-    };
-    let line = String::from_utf8_lossy(bytes)
-        .lines()
-        .next()?
-        .trim()
-        .to_string();
-    (!line.is_empty()).then_some(line)
-}
-
-fn inspect_candidate(path: &Path) -> Option<SerenaInstallation> {
-    read_version(path).map(|version| SerenaInstallation {
-        path: path.to_path_buf(),
-        version,
-    })
-}
-
-fn ensure_serena_initialized(serena_path: &Path) -> Result<(), String> {
-    let config_file = config::serena_config_path()?;
-    if config_file.is_file() {
-        return Ok(());
-    }
-
-    let mut command = hidden_command(serena_path);
-    command.arg("init");
-    let output = run_with_timeout(command, Duration::from_secs(60), "初始化 Serena")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let detail = if stderr.trim().is_empty() {
-            stdout.trim()
-        } else {
-            stderr.trim()
-        };
-        return Err(format!("初始化 Serena 失败（{}）：{detail}", output.status));
-    }
-    if !config_file.is_file() {
-        return Err(format!(
-            "Serena init 已完成，但未生成全局配置：{}",
-            config_file.display()
-        ));
-    }
-    Ok(())
 }
 
 pub fn run_with_timeout(
@@ -661,6 +651,87 @@ fn exit_message(status: ExitStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::discovery::InstallationSource;
+
+    #[test]
+    fn startup_checks_supported_version_then_git_then_configuration() {
+        let mut installation = SerenaInstallation {
+            state: InstallationState::Invalid,
+            source: InstallationSource::Path,
+            path: "standard.exe".into(),
+            version: "1.7.1".into(),
+            context: None,
+            error: Some("incompatible".into()),
+        };
+        assert_eq!(
+            validate_start(
+                &installation,
+                || panic!("incompatible Serena must fail before Git"),
+                &ManagerConfig::default()
+            )
+            .unwrap_err(),
+            "incompatible"
+        );
+        installation.state = InstallationState::Standard;
+        let config = ManagerConfig {
+            port: 80,
+            ..ManagerConfig::default()
+        };
+        assert!(
+            validate_start(&installation, GitInstallation::default, &config)
+                .unwrap_err()
+                .contains("Git")
+        );
+        assert!(
+            validate_start(
+                &installation,
+                || GitInstallation {
+                    available: true,
+                    ..GitInstallation::default()
+                },
+                &config
+            )
+            .unwrap_err()
+            .contains("1024")
+        );
+        assert!(
+            validate_start(
+                &installation,
+                || GitInstallation {
+                    available: true,
+                    ..GitInstallation::default()
+                },
+                &ManagerConfig::default()
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn launch_uses_private_context_and_loopback_without_project() {
+        let command = start_command(
+            Path::new("C:/managed runtime/bin/serena.exe"),
+            &ManagerConfig::default(),
+            Path::new("C:/runtime/serena-home/broker.yml"),
+        );
+        assert_eq!(command.get_program(), "C:/managed runtime/bin/serena.exe");
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            [
+                "start-mcp-server",
+                "--context",
+                "C:/runtime/serena-home/broker.yml",
+                "--transport",
+                "streamable-http",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "9121",
+                "--open-web-dashboard",
+                "false"
+            ]
+        );
+    }
 
     #[test]
     fn extracts_only_loopback_dashboard_url() {
@@ -675,16 +746,6 @@ mod tests {
     }
 
     #[test]
-    fn default_detection_does_not_accept_missing_custom_path() {
-        let config = ManagerConfig {
-            serena_path: Some(PathBuf::from("Z:/definitely/missing/serena.exe")),
-            ..ManagerConfig::default()
-        };
-        let result = detect(&config);
-        assert!(result.is_none() || result.unwrap().path != config.serena_path.unwrap());
-    }
-
-    #[test]
     fn background_start_rechecks_current_conditions() {
         let directory = tempfile::tempdir().unwrap();
         let config_file = directory.path().join("config.json");
@@ -694,6 +755,7 @@ mod tests {
         };
         config::save(&config_file, &config).unwrap();
         let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
             config_file,
             log_directory: directory.path().join("logs"),
             app_log: directory.path().join("logs").join("app.log"),
@@ -709,6 +771,7 @@ mod tests {
     fn stale_detection_does_not_overwrite_newer_config_state() {
         let directory = tempfile::tempdir().unwrap();
         let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
             config_file: directory.path().join("config.json"),
             log_directory: directory.path().join("logs"),
             app_log: directory.path().join("logs").join("app.log"),
@@ -719,6 +782,10 @@ mod tests {
         let current_installation = SerenaInstallation {
             path: PathBuf::from("current-serena.exe"),
             version: "current".into(),
+            state: InstallationState::Standard,
+            source: InstallationSource::External,
+            context: Some(discovery::SERENA_CONTEXT.into()),
+            error: None,
         };
         {
             let mut runtime = supervisor.runtime.lock().unwrap();
@@ -731,6 +798,10 @@ mod tests {
             Some(SerenaInstallation {
                 path: PathBuf::from("stale-serena.exe"),
                 version: "stale".into(),
+                state: InstallationState::Standard,
+                source: InstallationSource::External,
+                context: Some(discovery::SERENA_CONTEXT.into()),
+                error: None,
             }),
         );
 

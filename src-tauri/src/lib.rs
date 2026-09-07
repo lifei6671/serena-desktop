@@ -1,7 +1,9 @@
 mod commands;
 mod config;
+mod discovery;
 mod installer;
 mod logs;
+mod mcp;
 mod serena;
 mod tray;
 
@@ -41,7 +43,7 @@ pub(crate) fn request_exit(app: &AppHandle) {
         let _ = window.hide();
     }
     let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || match handle.state::<SupervisorState>().stop() {
+    tauri::async_runtime::spawn_blocking(move || match commands::shutdown_impl(&handle) {
         Ok(()) => {
             handle
                 .state::<ShutdownState>()
@@ -51,7 +53,10 @@ pub(crate) fn request_exit(app: &AppHandle) {
         }
         Err(error) => {
             logs::append(
-                &handle.state::<SupervisorState>().paths.app_log,
+                &handle
+                    .state::<std::sync::Arc<SupervisorState>>()
+                    .paths
+                    .app_log,
                 "shutdown",
                 &error,
             );
@@ -94,8 +99,22 @@ pub fn run() {
                 })?;
 
             let paths = AppPaths::resolve(app.handle()).map_err(std::io::Error::other)?;
-            let supervisor = SupervisorState::new(paths).map_err(std::io::Error::other)?;
-            app.manage(supervisor);
+            let supervisor =
+                std::sync::Arc::new(SupervisorState::new(paths).map_err(std::io::Error::other)?);
+            app.manage(supervisor.clone());
+            let broker = std::sync::Arc::new(mcp::Broker::new(supervisor));
+            app.manage(broker.clone());
+            let sync_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = commands::sync_workspaces(sync_app).await {
+                    *broker.sync_warnings.lock().unwrap() = vec![format!("同步失败：{e}")];
+                }
+                if broker.config().broker.enabled
+                    && let Err(e) = broker.start().await
+                {
+                    *broker.error.lock().unwrap() = Some(e);
+                }
+            });
             app.manage(ShutdownState::default());
             tray::create(app.handle())?;
 
@@ -109,14 +128,23 @@ pub fn run() {
 
             let handle = app.handle().clone();
             tauri::async_runtime::spawn_blocking(move || {
-                let installation = handle.state::<SupervisorState>().detect_serena();
-                if installation.is_some() {
-                    let supervisor = handle.state::<SupervisorState>();
-                    let result = supervisor.start_automatically_if(|| {
-                        !handle
-                            .state::<ShutdownState>()
-                            .started
-                            .load(Ordering::Acquire)
+                let installation = handle
+                    .state::<std::sync::Arc<SupervisorState>>()
+                    .detect_serena();
+                if installation
+                    .is_some_and(|value| value.state == discovery::InstallationState::Standard)
+                {
+                    let supervisor = handle.state::<std::sync::Arc<SupervisorState>>();
+                    let broker = mcp::get(&handle);
+                    let result = tauri::async_runtime::block_on(async {
+                        let _m = broker.management.lock().await;
+                        let _slot = broker.workspace.write().await;
+                        supervisor.start_automatically_if(|| {
+                            !handle
+                                .state::<ShutdownState>()
+                                .started
+                                .load(Ordering::Acquire)
+                        })
                     });
                     if let Err(error) = result {
                         logs::append(&supervisor.paths.app_log, "startup", &error);
@@ -130,7 +158,7 @@ pub fn run() {
                 api.prevent_close();
                 let app = window.app_handle();
                 let minimize = app
-                    .state::<SupervisorState>()
+                    .state::<std::sync::Arc<SupervisorState>>()
                     .snapshot()
                     .config
                     .minimize_to_tray;
@@ -143,7 +171,16 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_app_state,
+            commands::get_broker_state,
+            commands::get_mcp_logs,
+            commands::sync_workspaces,
+            commands::activate_workspace,
+            commands::deactivate_workspace,
+            commands::cancel_workspace_operation,
+            commands::set_broker,
             commands::detect_serena,
+            commands::detect_git,
+            commands::repair_serena,
             commands::install_serena,
             commands::start_serena,
             commands::stop_serena,

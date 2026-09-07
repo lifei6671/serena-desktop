@@ -74,7 +74,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             "restart" => {
                 let handle = app.clone();
                 tauri::async_runtime::spawn_blocking(move || {
-                    let result = handle.state::<SupervisorState>().restart();
+                    let result = commands::restart_impl(&handle);
                     if let Err(error) = result {
                         log_tray_error(&handle, &error);
                     }
@@ -106,6 +106,10 @@ pub fn show_main_window(app: &AppHandle) {
 }
 
 fn log_tray_error(app: &AppHandle, error: &str) {
-    let path = app.state::<SupervisorState>().paths.app_log.clone();
+    let path = app
+        .state::<std::sync::Arc<SupervisorState>>()
+        .paths
+        .app_log
+        .clone();
     logs::append(&path, "tray", error);
 }

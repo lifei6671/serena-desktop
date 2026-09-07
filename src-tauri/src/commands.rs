@@ -1,4 +1,4 @@
-use crate::{config::ManagerConfig, installer, serena::SupervisorState};
+use crate::{config::ManagerConfig, serena::SupervisorState};
 use serde::Serialize;
 use std::{path::Path, process::Stdio};
 use tauri::{AppHandle, Manager};
@@ -8,6 +8,8 @@ use tauri_plugin_autostart::ManagerExt;
 #[serde(rename_all = "camelCase")]
 pub struct AppState {
     config: ManagerConfig,
+    git: crate::discovery::GitInstallation,
+    managed_runtime_present: bool,
     installation: Option<crate::serena::SerenaInstallation>,
     active_installation: Option<crate::serena::SerenaInstallation>,
     server_status: crate::serena::ServerStatus,
@@ -23,7 +25,7 @@ pub struct AppState {
 }
 
 pub fn build_app_state(app: &AppHandle, known_autostart: Option<bool>) -> AppState {
-    let supervisor = app.state::<SupervisorState>();
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
     let snapshot = supervisor.snapshot();
     let (autostart_enabled, autostart_error) = resolve_autostart(known_autostart, || {
         app.autolaunch()
@@ -33,6 +35,8 @@ pub fn build_app_state(app: &AppHandle, known_autostart: Option<bool>) -> AppSta
     AppState {
         endpoint: format!("http://127.0.0.1:{}/mcp", snapshot.active_port),
         log_directory: supervisor.paths.log_directory.display().to_string(),
+        managed_runtime_present: supervisor.paths.runtime_directory.exists(),
+        git: snapshot.git,
         config: snapshot.config,
         installation: snapshot.installation,
         active_installation: snapshot.active_installation,
@@ -69,30 +73,48 @@ pub fn get_app_state(app: AppHandle) -> Result<AppState, String> {
 }
 
 #[tauri::command]
-pub fn detect_serena(app: AppHandle) -> Result<AppState, String> {
-    app.state::<SupervisorState>().detect_serena();
-    Ok(build_app_state(&app, None))
+pub async fn detect_serena(app: AppHandle) -> Result<AppState, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<std::sync::Arc<SupervisorState>>()
+            .detect_serena();
+        Ok(build_app_state(&app, None))
+    })
+    .await
+    .map_err(|error| format!("检测任务异常结束：{error}"))?
+}
+
+#[tauri::command]
+pub async fn detect_git(app: AppHandle) -> Result<AppState, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<std::sync::Arc<SupervisorState>>().detect_git();
+        Ok(build_app_state(&app, None))
+    })
+    .await
+    .map_err(|error| format!("Git 检测任务异常结束：{error}"))?
 }
 
 #[tauri::command]
 pub async fn install_serena(app: AppHandle) -> Result<AppState, String> {
-    let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let supervisor = handle.state::<SupervisorState>();
-        if supervisor.snapshot().installation.is_none() {
-            installer::install_serena(&supervisor.paths.app_log)?;
-            if supervisor.detect_serena().is_none() {
-                return Err("安装命令已完成，但重新检测后仍未发现 Serena。".into());
-            }
-        }
-        Ok(build_app_state(&handle, None))
+        app.state::<std::sync::Arc<SupervisorState>>().install()?;
+        Ok(build_app_state(&app, None))
     })
     .await
     .map_err(|error| format!("安装任务异常结束：{error}"))?
 }
 
+#[tauri::command]
+pub async fn repair_serena(app: AppHandle) -> Result<AppState, String> {
+    install_serena(app).await
+}
+
 pub fn start_impl(app: &AppHandle) -> Result<AppState, String> {
-    app.state::<SupervisorState>().start()?;
+    let broker = crate::mcp::get(app);
+    tauri::async_runtime::block_on(async {
+        let _m = broker.management.lock().await;
+        let _slot = broker.workspace.write().await;
+        app.state::<std::sync::Arc<SupervisorState>>().start()
+    })?;
     Ok(build_app_state(app, None))
 }
 
@@ -105,7 +127,13 @@ pub async fn start_serena(app: AppHandle) -> Result<AppState, String> {
 }
 
 pub fn stop_impl(app: &AppHandle) -> Result<AppState, String> {
-    app.state::<SupervisorState>().stop()?;
+    let broker = crate::mcp::get(app);
+    tauri::async_runtime::block_on(async {
+        let _m = broker.management.lock().await;
+        let mut slot = broker.workspace.write().await;
+        broker.clear_workspace(&mut slot);
+        app.state::<std::sync::Arc<SupervisorState>>().stop()
+    })?;
     Ok(build_app_state(app, None))
 }
 
@@ -121,7 +149,7 @@ pub async fn stop_serena(app: AppHandle) -> Result<AppState, String> {
 pub async fn restart_serena(app: AppHandle) -> Result<AppState, String> {
     let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        handle.state::<SupervisorState>().restart()?;
+        restart_impl(&handle)?;
         Ok(build_app_state(&handle, None))
     })
     .await
@@ -129,9 +157,30 @@ pub async fn restart_serena(app: AppHandle) -> Result<AppState, String> {
 }
 
 #[tauri::command]
-pub fn save_config(app: AppHandle, config: ManagerConfig) -> Result<AppState, String> {
-    app.state::<SupervisorState>().replace_config(config)?;
-    Ok(build_app_state(&app, None))
+pub async fn save_config(app: AppHandle, config: ManagerConfig) -> Result<AppState, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let broker = crate::mcp::get(&app);
+        tauri::async_runtime::block_on(async {
+            let _m = broker.management.lock().await;
+            let existing = broker.config();
+            if config.workspaces != existing.workspaces || config.broker != existing.broker {
+                return Err("配置已变化，请刷新后重试；项目/Broker 配置使用专用入口".into());
+            }
+            let mut slot = broker.workspace.write().await;
+            if config.port != existing.port
+                || config.serena_path != existing.serena_path
+                || config.dashboard_enabled != existing.dashboard_enabled
+            {
+                broker.clear_workspace(&mut slot);
+                app.state::<std::sync::Arc<SupervisorState>>().stop()?;
+            }
+            app.state::<std::sync::Arc<SupervisorState>>()
+                .replace_config(config)
+        })?;
+        Ok(build_app_state(&app, None))
+    })
+    .await
+    .map_err(|error| format!("保存配置任务异常结束：{error}"))?
 }
 
 #[tauri::command]
@@ -151,7 +200,7 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<AppState, String> 
 
 #[tauri::command]
 pub fn open_dashboard(app: AppHandle) -> Result<(), String> {
-    let snapshot = app.state::<SupervisorState>().snapshot();
+    let snapshot = app.state::<std::sync::Arc<SupervisorState>>().snapshot();
     if !snapshot.active_dashboard_enabled {
         return Err("Dashboard 已关闭。".into());
     }
@@ -163,7 +212,11 @@ pub fn open_dashboard(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn open_log_directory(app: AppHandle) -> Result<(), String> {
-    let path = app.state::<SupervisorState>().paths.log_directory.clone();
+    let path = app
+        .state::<std::sync::Arc<SupervisorState>>()
+        .paths
+        .log_directory
+        .clone();
     open_with_system(&path)
 }
 
@@ -172,6 +225,8 @@ pub fn open_external_url(target: &str) -> Result<(), String> {
     let url = match target {
         "docs" => "https://oraios.github.io/serena/02-usage/010_installation.html",
         "github" => "https://github.com/oraios/serena",
+        "git" => "https://git-scm.com/downloads",
+        "uv" => "https://docs.astral.sh/uv/getting-started/installation/",
         _ => return Err("不支持的外部链接。".into()),
     };
     open_with_system(url)
@@ -229,4 +284,100 @@ mod tests {
         assert_eq!(enabled, Some(true));
         assert_eq!(error, None);
     }
+}
+
+pub fn restart_impl(app: &AppHandle) -> Result<(), String> {
+    let broker = crate::mcp::get(app);
+    tauri::async_runtime::block_on(async {
+        let _m = broker.management.lock().await;
+        let mut slot = broker.workspace.write().await;
+        broker.clear_workspace(&mut slot);
+        app.state::<std::sync::Arc<SupervisorState>>().restart()
+    })
+}
+pub fn shutdown_impl(app: &AppHandle) -> Result<(), String> {
+    let broker = crate::mcp::get(app);
+    if let Some((_, token)) = broker.operation.lock().unwrap().as_ref() {
+        token.cancel();
+    }
+    tauri::async_runtime::block_on(async {
+        let _m = broker.management.lock().await;
+        broker.stop().await?;
+        app.state::<std::sync::Arc<SupervisorState>>().stop()
+    })
+}
+#[tauri::command]
+pub async fn get_broker_state(app: AppHandle) -> Result<crate::mcp::Snapshot, String> {
+    Ok(crate::mcp::get(&app).snapshot().await)
+}
+#[tauri::command]
+pub async fn sync_workspaces(app: AppHandle) -> Result<usize, String> {
+    let user_home = std::env::var_os("SERENA_HOME")
+        .filter(|s| !s.to_string_lossy().trim().is_empty())
+        .map(|s| std::path::PathBuf::from(s.to_string_lossy().trim()))
+        .map(Ok)
+        .unwrap_or_else(|| {
+            app.path()
+                .home_dir()
+                .map(|p| p.join(".serena"))
+                .map_err(|e| e.to_string())
+        })?;
+    let broker = crate::mcp::get(&app);
+    let sources = vec![
+        user_home.join("serena_config.yml"),
+        broker
+            .supervisor
+            .paths
+            .serena_home()
+            .join("serena_config.yml"),
+    ];
+    broker.sync_projects(sources).await
+}
+#[tauri::command]
+pub async fn activate_workspace(app: AppHandle, id: String) -> Result<(), String> {
+    let b = crate::mcp::get(&app);
+    b.call_tool(
+        "workspace_activate",
+        serde_json::json!({"id":id}),
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .map(|_| ())
+}
+#[tauri::command]
+pub async fn deactivate_workspace(app: AppHandle) -> Result<(), String> {
+    let b = crate::mcp::get(&app);
+    b.call_tool(
+        "workspace_deactivate",
+        serde_json::json!({}),
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .map(|_| ())
+}
+#[tauri::command]
+pub fn cancel_workspace_operation(app: AppHandle) {
+    if let Some((_, token)) = crate::mcp::get(&app).operation.lock().unwrap().as_ref() {
+        token.cancel();
+    }
+}
+#[tauri::command]
+pub async fn set_broker(app: AppHandle, enabled: bool, port: u16) -> Result<(), String> {
+    let b = crate::mcp::get(&app);
+    let _m = b.management.lock().await;
+    let mut c = b.config();
+    c.broker = crate::config::BrokerConfig { enabled, port };
+    c.validate()?;
+    b.stop().await?;
+    app.state::<std::sync::Arc<SupervisorState>>()
+        .replace_config(c)?;
+    if enabled {
+        b.start().await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_mcp_logs(app: AppHandle) -> Vec<String> {
+    crate::mcp::get(&app).log_snapshot()
 }
