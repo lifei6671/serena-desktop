@@ -80,6 +80,19 @@ pub fn run() {
             Some(vec!["--autostart"]),
         ))
         .setup(|app| {
+            #[cfg(windows)]
+            app.get_webview_window("main")
+                .expect("main webview window must exist")
+                .with_webview(|webview| unsafe {
+                    // Tauri runs this callback on the WebView2 UI thread.
+                    webview
+                        .controller()
+                        .CoreWebView2()
+                        .and_then(|core| core.Settings())
+                        .and_then(|settings| settings.SetAreDefaultContextMenusEnabled(false))
+                        .expect("failed to disable default WebView2 context menus");
+                })?;
+
             let paths = AppPaths::resolve(app.handle()).map_err(std::io::Error::other)?;
             let supervisor = SupervisorState::new(paths).map_err(std::io::Error::other)?;
             app.manage(supervisor);

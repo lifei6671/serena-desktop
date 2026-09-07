@@ -75,6 +75,7 @@ function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dashboardFrameKey, setDashboardFrameKey] = useState(0);
+  const [dashboardExpanded, setDashboardExpanded] = useState(false);
   const hydrated = useRef(false);
   const requestEpoch = useRef(0);
   const mutationActive = useRef(false);
@@ -282,9 +283,10 @@ function App() {
   const status = statusCopy[state.serverStatus];
   const isRunning = state.serverStatus === "running" || state.serverStatus === "starting" || state.managedProcessPresent;
   const isInstalled = state.activeInstallation !== null;
+  const dashboardFullscreen = dashboardExpanded && tab === "dashboard" && state.dashboardEnabled && state.serverStatus === "running";
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${dashboardFullscreen ? "dashboard-fullscreen" : ""}`}>
       {toast}
       <header className="titlebar">
         <div className="brand">
@@ -409,6 +411,20 @@ function App() {
                 <div className="dashboard-frame-bar">
                   <span>Dashboard 地址</span>
                   <code title={state.dashboardUrl}>{state.dashboardUrl}</code>
+                  <button
+                    type="button"
+                    className="dashboard-fullscreen-button"
+                    aria-label={dashboardFullscreen ? "退出全屏" : "全屏显示面板"}
+                    title={dashboardFullscreen ? "退出全屏" : "全屏显示面板"}
+                    aria-pressed={dashboardFullscreen}
+                    onClick={() => setDashboardExpanded((expanded) => !expanded)}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d={dashboardFullscreen
+                        ? "M3 8h5V3m8 0v5h5M3 16h5v5m8 0v-5h5"
+                        : "M8 3H3v5m13-5h5v5M3 16v5h5m8 0h5v-5"} />
+                    </svg>
+                  </button>
                 </div>
                 <iframe
                   key={`${state.dashboardUrl}-${dashboardFrameKey}`}

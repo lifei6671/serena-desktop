@@ -1,0 +1,58 @@
+name: Release Windows binary
+
+on:
+  push:
+    tags:
+      - '**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      RUSTUP_TOOLCHAIN: stable
+
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Test Rust
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Build Windows executable
+        run: npm run tauri build -- --ci --no-bundle -- --locked
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: src-tauri/target/release/serena-desktop.exe
+          fail_on_unmatched_files: true
+          generate_release_notes: true

@@ -40,3 +40,16 @@ npm run tauri build
 ```text
 src-tauri/target/release/serena-desktop.exe
 ```
+
+## 自动发布
+
+`.github/workflows/release.yml` 监听所有 tag 的 push 事件，在 Windows x64 上安装依赖、运行前端 lint 和 Rust 测试、构建 Release 二进制，然后创建对应 tag 的 GitHub Release 并上传 `serena-desktop.exe`，自动生成发布说明。任何检查或构建失败都会阻止发布。
+
+发布前先更新并提交项目版本号（`package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json`），再对包含工作流和待发布代码的提交打 tag 并推送，例如：
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+工作流使用自动提供的 `GITHUB_TOKEN` 和 `contents: write` 权限，不需要配置个人 Token。所有 tag 默认发布为正式 Release；tag 不会自动修改程序内版本号。重跑时会更新已有 Release 的同名附件（仓库启用不可变 Release 时，已发布附件不能覆盖，需使用新 tag）。
