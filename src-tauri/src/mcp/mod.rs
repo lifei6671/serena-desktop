@@ -98,7 +98,10 @@ impl Broker {
         append_log(&self.logs, message);
     }
     pub fn log_level(&self, level: &str, message: &str) {
-        append_log_level(&self.logs, level, message);
+        append_log_level(&self.logs, level, "MCP", message);
+    }
+    pub fn log_tool(&self, level: &str, message: &str) {
+        append_log_level(&self.logs, level, "TOOL", message);
     }
     pub fn log_snapshot(&self) -> Vec<String> {
         self.logs.lock().unwrap().iter().cloned().collect()
@@ -507,15 +510,15 @@ impl Broker {
     }
 }
 fn append_log(logs: &Mutex<VecDeque<String>>, message: &str) {
-    append_log_level(logs, "INFO", message);
+    append_log_level(logs, "INFO", "MCP", message);
 }
-fn append_log_level(logs: &Mutex<VecDeque<String>>, level: &str, message: &str) {
+fn append_log_level(logs: &Mutex<VecDeque<String>>, level: &str, category: &str, message: &str) {
     let mut logs = logs.lock().unwrap();
     if logs.len() == 500 {
         logs.pop_front();
     }
     logs.push_back(format!(
-        "{level:<5} {} [MCP] {message}",
+        "{level:<5} {} [{category}] {message}",
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f")
     ));
 }
@@ -898,6 +901,14 @@ mod integration_tests {
         assert!(logs.iter().any(|line| line.starts_with("INFO ")
             && line.contains("request=")
             && line.contains("入参={\"query\":\"x\"}")));
+        for line in &logs {
+            if line.contains("tools/call ") {
+                assert!(line.contains("[TOOL] tools/call "), "{line}");
+                assert!(!line.contains("[MCP]"), "{line}");
+            } else {
+                assert!(line.contains("[MCP]"), "{line}");
+            }
+        }
         assert!(
             logs.iter()
                 .any(|line| line.starts_with("ERROR ") && line.contains("WORKSPACE_NOT_ACTIVE"))

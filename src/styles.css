@@ -132,6 +132,9 @@ h3 {
   gap: 6px;
   overflow-y: auto;
 }
+.sidebar nav button:active {
+  translate: none;
+}
 .workspace {
   min-height: 0;
   overflow: auto;

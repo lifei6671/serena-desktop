@@ -73,13 +73,13 @@ impl ServerHandler for Handler {
         let started = std::time::Instant::now();
         let args = Value::Object(request.arguments.unwrap_or_default());
         let request_id = &context.id;
-        self.0.log(&format!(
+        self.0.log_tool("INFO", &format!(
             "tools/call request={request_id:?} tool={:?} · 入参={}",
             request.name,
             log_value(&args)
         ));
         registry::validate(&request.name, &args).map_err(|e| {
-            self.0.log_level("WARN", &format!(
+            self.0.log_tool("WARN", &format!(
                 "tools/call request={request_id:?} tool={:?} · 参数校验失败 · error={} · 耗时 {:.3} ms",
                 request.name, log_value(&json!(e)), started.elapsed().as_secs_f64() * 1000.0
             ));
@@ -90,7 +90,7 @@ impl ServerHandler for Handler {
             Ok(value) => value.get("error").cloned(),
             Err(error) => Some(json!(error)),
         };
-        self.0.log_level(
+        self.0.log_tool(
             if error.is_some() { "ERROR" } else { "INFO" },
             &format!(
                 "tools/call request={request_id:?} tool={:?} · {} · 耗时 {:.3} ms{}",
