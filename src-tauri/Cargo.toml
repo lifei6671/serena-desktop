@@ -1,6 +1,6 @@
 [package]
 name = "serena-desktop"
-version = "0.1.0"
+version = "0.3.0"
 description = "A lightweight desktop supervisor for Serena MCP Server"
 authors = ["lifei6671"]
 edition = "2024"
@@ -15,7 +15,7 @@ tauri-build = { version = "2.5.6", features = [] }
 [dependencies]
 axum = "0.8.9"
 chrono = { version = "0.4.42", default-features = false, features = ["clock"] }
-rmcp = { version = "3.2.0", features = ["client", "transport-streamable-http-server", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "3.2.0", features = ["client", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "transport-child-process", "which-command"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 serde_yaml_ng = "0.10.0"
@@ -28,4 +28,4 @@ tokio = { version = "1.53.1", features = ["process", "io-util", "net", "sync", "
 tokio-util = "0.7.19"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_System_Threading"] }
+windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_System_JobObjects", "Win32_Security"] }

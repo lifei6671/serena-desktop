@@ -38,6 +38,13 @@ pub struct ActivateArgs {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Empty {}
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GraphArgs {
+    pub query: String,
+    #[serde(rename = "maxFiles")]
+    pub max_files: Option<u32>,
+}
 pub const SOURCES: &[(&str, &str, &[&str], &[&str])] = &[
     (
         "source_read_file",
@@ -128,6 +135,16 @@ fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
         output["properties"]["hint"] = json!({"type":"string"});
         output["required"] = json!(["workspace", "text", "truncated"]);
     }
+    if name == "codegraph_explore" {
+        output = json!({"type":"object", "oneOf":[output, {
+            "type":"object", "required":["error"], "properties":{"error":{
+                "type":"object", "required":["code","message","workspace","recoverable"],
+                "properties":{"code":{"type":"string"},"message":{"type":"string"},
+                    "workspace":{"anyOf":[{"type":"object","required":["id","name"],"properties":{"id":{"type":"string"},"name":{"type":"string"}}},{"type":"null"}]},
+                    "recoverable":{"type":"boolean"}}
+            }}
+        }]});
+    }
     t.output_schema = Some(output.as_object().unwrap().clone().into());
     t
 }
@@ -199,6 +216,11 @@ pub fn list(upstream: &[Tool]) -> Result<Vec<Tool>, String> {
         };
         list.push(tool(name, description, s));
     }
+    list.push(tool(
+        "codegraph_explore",
+        "【做什么】\n探索当前活动 Workspace 的代码结构、跨函数/文件/模块调用路径、依赖关系和潜在影响范围。\n\n【什么时候使用】\n理解功能或模块如何工作、追踪完整调用链、分析修改影响或探索架构。已知文件路径、Symbol 名称，或只需读文件、直接 references 时优先使用 source_*。\n\n【关键约束】\n只查询当前活动项目；query 必填，maxFiles 默认 12。不接受 projectPath，不跨项目回退，不自动初始化索引。保留索引陈旧提示。启动中返回 CODEGRAPH_STARTING；运行故障每次调用最多恢复一次、查询最多重试一次，恢复有 30 秒冷却。错误以 error.code/message/workspace/recoverable 返回。",
+        schema::<GraphArgs>(),
+    ));
     Ok(list)
 }
 pub fn validate(name: &str, args: &Value) -> Result<(), String> {
@@ -224,6 +246,12 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
         }
         serde_json::from_value::<super::git::GitArgs>(args.clone())
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
+    } else if name == "codegraph_explore" {
+        let parsed = serde_json::from_value::<GraphArgs>(args.clone())
+            .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
+        if parsed.query.trim().is_empty() || parsed.max_files == Some(0) {
+            return Err("INVALID_PARAMS: query 不能为空，maxFiles 必须为正整数".into());
+        }
     } else if name == "workspace_activate" {
         let parsed = serde_json::from_value::<ActivateArgs>(args.clone())
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
@@ -252,14 +280,14 @@ mod tests {
     #[test]
     fn fixed_surface() {
         let tools = list(&upstream()).unwrap();
-        assert_eq!(tools.len(), 17);
+        assert_eq!(tools.len(), 18);
         assert_eq!(
             tools
                 .iter()
                 .map(|t| &t.name)
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
-            17
+            18
         );
         assert!(
             validate(
@@ -269,6 +297,30 @@ mod tests {
             .is_err()
         );
         assert!(validate("workspace_deactivate", &json!({})).is_ok());
+        let graph = tools
+            .iter()
+            .find(|t| t.name == "codegraph_explore")
+            .unwrap();
+        assert!(
+            graph.input_schema["properties"]
+                .get("projectPath")
+                .is_none()
+        );
+        assert!(
+            validate(
+                "codegraph_explore",
+                &json!({"query":"symbol", "maxFiles":2})
+            )
+            .is_ok()
+        );
+        for args in [
+            json!({}),
+            json!({"query":" "}),
+            json!({"query":"x","maxFiles":0}),
+            json!({"query":"x","projectPath":"elsewhere"}),
+        ] {
+            assert!(validate("codegraph_explore", &args).is_err());
+        }
     }
 
     #[test]

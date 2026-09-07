@@ -70,21 +70,37 @@ impl ServerHandler for Handler {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
+        let started = std::time::Instant::now();
         let args = Value::Object(request.arguments.unwrap_or_default());
         registry::validate(&request.name, &args).map_err(|e| {
-            self.0.log("tools/call · 参数校验失败");
+            self.0.log(&format!(
+                "tools/call · {:?} · 参数校验失败 · 耗时 {:.3} ms",
+                request.name,
+                started.elapsed().as_secs_f64() * 1000.0
+            ));
             ErrorData::invalid_params(e, None)
         })?;
         self.0.log(&format!("tools/call · {} · 开始", request.name));
         let result = self.0.call_tool(&request.name, args, context.ct).await;
         self.0.log(&format!(
-            "tools/call · {} · {}",
+            "tools/call · {} · {} · 耗时 {:.3} ms",
             request.name,
-            if result.is_ok() { "成功" } else { "失败" }
+            if result.as_ref().is_ok_and(|v| v.get("error").is_none()) {
+                "成功"
+            } else {
+                "失败"
+            },
+            started.elapsed().as_secs_f64() * 1000.0
         ));
         Ok(match result {
             Ok(v) => {
-                let mut result = CallToolResult::success(vec![ContentBlock::text(v.to_string())]);
+                let content = vec![ContentBlock::text(v.to_string())];
+                let mut result = if request.name == "codegraph_explore" && v.get("error").is_some()
+                {
+                    CallToolResult::error(content)
+                } else {
+                    CallToolResult::success(content)
+                };
                 result.structured_content = Some(v);
                 result
             }
@@ -136,12 +152,10 @@ impl Broker {
                             let cf_ip = header("cf-connecting-ip");
                             let forwarded_for = header("x-forwarded-for");
                             let forwarded_host = header("x-forwarded-host");
-                            let started = std::time::Instant::now();
                             let response = next.run(request).await;
                             broker.log(&format!(
-                                "HTTP {method} · {} · peer={peer} host={host:?} cf-connecting-ip={cf_ip:?} x-forwarded-for={forwarded_for:?} x-forwarded-host={forwarded_host:?} · 响应头 {} ms",
-                                response.status(),
-                                started.elapsed().as_millis()
+                                "HTTP {method} · {} · peer={peer} host={host:?} cf-connecting-ip={cf_ip:?} x-forwarded-for={forwarded_for:?} x-forwarded-host={forwarded_host:?}",
+                                response.status()
                             ));
                             response
                         }

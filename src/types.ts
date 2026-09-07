@@ -21,6 +21,7 @@ export interface SerenaInstallation {
 }
 
 export interface AppState {
+  codegraphVersion: string | null;
   config: ManagerConfig;
   git: {
     status: "available" | "missing" | "error";
@@ -53,6 +54,18 @@ export interface BrokerState {
   running: boolean;
   port: number;
   activeWorkspace: Workspace | null;
+  codegraph: {
+    status:
+      | "ready"
+      | "starting"
+      | "not_initialized"
+      | "unavailable"
+      | "start_failed"
+      | "runtime_lost";
+    workspaceId: string;
+    root: string;
+    generation: number;
+  } | null;
   projectSources: string[];
   syncWarnings: string[];
   projects: (Workspace & { configured: boolean })[];

@@ -7,6 +7,7 @@ use tauri_plugin_autostart::ManagerExt;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppState {
+    codegraph_version: Option<String>,
     config: ManagerConfig,
     git: crate::discovery::GitInstallation,
     managed_runtime_present: bool,
@@ -37,6 +38,7 @@ pub fn build_app_state(app: &AppHandle, known_autostart: Option<bool>) -> AppSta
         log_directory: supervisor.paths.log_directory.display().to_string(),
         managed_runtime_present: supervisor.paths.runtime_directory.exists(),
         git: snapshot.git,
+        codegraph_version: snapshot.codegraph_version,
         config: snapshot.config,
         installation: snapshot.installation,
         active_installation: snapshot.active_installation,
@@ -160,27 +162,29 @@ pub async fn restart_serena(app: AppHandle) -> Result<AppState, String> {
 pub async fn save_config(app: AppHandle, config: ManagerConfig) -> Result<AppState, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let broker = crate::mcp::get(&app);
-        tauri::async_runtime::block_on(async {
-            let _m = broker.management.lock().await;
-            let existing = broker.config();
-            if config.workspaces != existing.workspaces || config.broker != existing.broker {
-                return Err("配置已变化，请刷新后重试；项目/Broker 配置使用专用入口".into());
-            }
-            let mut slot = broker.workspace.write().await;
-            if config.port != existing.port
-                || config.serena_path != existing.serena_path
-                || config.dashboard_enabled != existing.dashboard_enabled
-            {
-                broker.clear_workspace(&mut slot);
-                app.state::<std::sync::Arc<SupervisorState>>().stop()?;
-            }
-            app.state::<std::sync::Arc<SupervisorState>>()
-                .replace_config(config)
-        })?;
+        tauri::async_runtime::block_on(save_config_impl(&broker, config))?;
         Ok(build_app_state(&app, None))
     })
     .await
     .map_err(|error| format!("保存配置任务异常结束：{error}"))?
+}
+
+pub(crate) async fn save_config_impl(
+    broker: &crate::mcp::Broker,
+    config: ManagerConfig,
+) -> Result<(), String> {
+    let _m = broker.management.lock().await;
+    let existing = broker.config();
+    if config.workspaces != existing.workspaces || config.broker != existing.broker {
+        return Err("配置已变化，请刷新后重试；项目/Broker 配置使用专用入口".into());
+    }
+    let mut slot = broker.workspace.write().await;
+    // Dashboard preferences apply on the next start; saving them must not stop the backend.
+    if config.port != existing.port || config.serena_path != existing.serena_path {
+        broker.clear_workspace(&mut slot);
+        broker.supervisor.stop()?;
+    }
+    broker.supervisor.replace_config(config)
 }
 
 #[tauri::command]
@@ -288,12 +292,37 @@ mod tests {
 
 pub fn restart_impl(app: &AppHandle) -> Result<(), String> {
     let broker = crate::mcp::get(app);
-    tauri::async_runtime::block_on(async {
-        let _m = broker.management.lock().await;
-        let mut slot = broker.workspace.write().await;
-        broker.clear_workspace(&mut slot);
-        app.state::<std::sync::Arc<SupervisorState>>().restart()
-    })
+    tauri::async_runtime::block_on(restart_serena_impl(&broker))
+}
+
+pub(crate) async fn restart_serena_impl(broker: &crate::mcp::Broker) -> Result<(), String> {
+    let _m = broker.management.lock().await;
+    let mut slot = broker.workspace.write().await;
+    let workspace = slot.as_ref().map(|active| active.workspace.clone());
+    broker.clear_workspace(&mut slot);
+    let supervisor = broker.supervisor.clone();
+    tauri::async_runtime::spawn_blocking(move || supervisor.restart())
+        .await
+        .map_err(|error| format!("重启任务异常结束：{error}"))??;
+    // Activation acquires the workspace lock itself. Keep management locked until commit
+    // so a concurrent activate/deactivate cannot be overwritten by this restoration.
+    drop(slot);
+    if let Some(workspace) = workspace {
+        let restore = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            Box::pin(broker.activate(&workspace.id, tokio_util::sync::CancellationToken::new())),
+        )
+        .await
+        .map_err(|_| "恢复项目超时".to_owned())
+        .and_then(|result| result.map(|_| ()));
+        if let Err(error) = restore {
+            let message = format!("Serena 已重启，但恢复项目 {} 失败：{error}", workspace.name);
+            broker.log(&message);
+            return Err(message);
+        }
+        broker.log(&format!("Serena 重启后已恢复项目 · {}", workspace.name));
+    }
+    Ok(())
 }
 pub fn shutdown_impl(app: &AppHandle) -> Result<(), String> {
     let broker = crate::mcp::get(app);
@@ -380,4 +409,9 @@ pub async fn set_broker(app: AppHandle, enabled: bool, port: u16) -> Result<(), 
 #[tauri::command]
 pub fn get_mcp_logs(app: AppHandle) -> Vec<String> {
     crate::mcp::get(&app).log_snapshot()
+}
+
+#[tauri::command]
+pub fn clear_mcp_logs(app: AppHandle) {
+    crate::mcp::get(&app).clear_logs();
 }

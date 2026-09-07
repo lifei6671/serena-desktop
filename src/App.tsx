@@ -1,4 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Spinner } from "@/components/ui/spinner";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { Switch } from "@/components/ui/switch";
+import {
+  Field,
+  FieldGroup,
+  FieldContent,
+  FieldLabel,
+  FieldDescription,
+} from "@/components/ui/field";
+import { toast } from "sonner";
 import { open } from "@tauri-apps/plugin-dialog";
 import { McpLogs } from "./McpLogs";
 import { ProjectPanel } from "./ProjectPanel";
@@ -26,7 +38,7 @@ const initialConfig: ManagerConfig = {
   minimizeToTray: true,
 };
 
-function Toggle({
+function SettingSwitch({
   checked,
   onChange,
   label,
@@ -39,60 +51,37 @@ function Toggle({
   hint: string;
   disabled?: boolean;
 }) {
+  const id = useId();
   return (
-    <label className={`toggle-row ${disabled ? "is-disabled" : ""}`}>
-      <span>
-        <strong>{label}</strong>
-        <small>{hint}</small>
-      </span>
-      <input
-        type="checkbox"
+    <Field orientation="horizontal" data-disabled={disabled}>
+      <FieldContent>
+        <FieldLabel htmlFor={id}>{label}</FieldLabel>
+        <FieldDescription id={`${id}-description`}>{hint}</FieldDescription>
+      </FieldContent>
+      <Switch
+        id={id}
+        aria-describedby={`${id}-description`}
         checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
+        onCheckedChange={onChange}
         disabled={disabled}
       />
-      <span className="toggle" aria-hidden="true">
-        <span />
-      </span>
-    </label>
-  );
-}
-
-function Toast({
-  message,
-  kind,
-  onClose,
-}: {
-  message: string;
-  kind: "error" | "notice";
-  onClose: () => void;
-}) {
-  return (
-    <div
-      className={`toast toast-${kind}`}
-      role={kind === "error" ? "alert" : "status"}
-    >
-      <span className="toast-indicator" aria-hidden="true" />
-      <span>{message}</span>
-      <button aria-label="关闭提醒" onClick={onClose}>
-        ×
-      </button>
-    </div>
+    </Field>
   );
 }
 
 function App() {
-  const [tab, setTab] = useState<"console" | "serena" | "settings" | "logs">("console");
+  const [tab, setTab] = useState<"console" | "serena" | "settings" | "logs">(
+    "console",
+  );
   const [state, setState] = useState<AppState | null>(null);
   const [draft, setDraft] = useState<ManagerConfig>(initialConfig);
   const [busy, setBusy] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [brokerPort, setBrokerPort] = useState(9120);
   const hydrated = useRef(false);
   const requestEpoch = useRef(0);
   const mutationActive = useRef(false);
   const pickerActive = useRef(false);
+  const [choosingExecutable, setChoosingExecutable] = useState(false);
 
   const applySnapshot = useCallback((next: AppState) => {
     if (!hydrated.current) {
@@ -110,16 +99,27 @@ function App() {
   };
 
   const brokerController = useBroker(refresh);
+  const updatingBroker = brokerController.busy === "更新连接入口";
 
   useEffect(() => {
     let active = true;
+    let lastReadError = "";
+    const reportReadError = (reason: unknown) => {
+      if (active && lastReadError !== String(reason)) {
+        lastReadError = String(reason);
+        toast.error(`服务状态读取失败：${lastReadError}`, {
+          id: "app-read-error",
+        });
+      }
+    };
     api
       .getState()
       .then((next) => {
         if (!active) return;
         applySnapshot(next);
+        lastReadError = "";
       })
-      .catch((reason: unknown) => active && setError(String(reason)));
+      .catch(reportReadError);
 
     const timer = window.setInterval(() => {
       if (!active || mutationActive.current) return;
@@ -127,9 +127,14 @@ function App() {
       api
         .getState()
         .then((next) => {
-          if (active && epoch === requestEpoch.current) applySnapshot(next);
+          if (active && epoch === requestEpoch.current) {
+            applySnapshot(next);
+            lastReadError = "";
+          }
         })
-        .catch(() => undefined);
+        .catch((reason: unknown) => {
+          if (epoch === requestEpoch.current) reportReadError(reason);
+        });
     }, 1500);
 
     return () => {
@@ -137,15 +142,6 @@ function App() {
       window.clearInterval(timer);
     };
   }, [applySnapshot]);
-
-  useEffect(() => {
-    if (!error && !notice) return;
-    const timer = window.setTimeout(() => {
-      setError(null);
-      setNotice(null);
-    }, 4500);
-    return () => window.clearTimeout(timer);
-  }, [error, notice]);
 
   const run = async (
     label: string,
@@ -155,14 +151,12 @@ function App() {
     requestEpoch.current += 1;
     mutationActive.current = true;
     setBusy(label);
-    setError(null);
-    setNotice(null);
     try {
       const next = await action();
       setState(next);
-      if (success) setNotice(success);
+      if (success) toast.success(success);
     } catch (reason) {
-      setError(String(reason));
+      toast.error(String(reason), { id: "app-feedback" });
       await refresh().catch(() => undefined);
     } finally {
       mutationActive.current = false;
@@ -180,15 +174,13 @@ function App() {
     requestEpoch.current += 1;
     mutationActive.current = true;
     setBusy("field");
-    setError(null);
-    setNotice(null);
     try {
       const snapshot = await api.saveConfig({ ...state.config, ...patch });
       setState(snapshot);
       setDraft((current) => ({ ...current, ...patch }));
-      setNotice(success);
+      toast.success(success);
     } catch (reason) {
-      setError(String(reason));
+      toast.error(String(reason), { id: "app-feedback" });
       await refresh().catch(() => undefined);
     } finally {
       mutationActive.current = false;
@@ -205,16 +197,14 @@ function App() {
     requestEpoch.current += 1;
     mutationActive.current = true;
     setBusy("toggle");
-    setError(null);
-    setNotice(null);
     try {
       const snapshot = await api.saveConfig(persisted);
       setState(snapshot);
       setDraft((current) => ({ ...current, ...patch }));
-      setNotice(success);
+      toast.success(success);
     } catch (reason) {
       setDraft(previous);
-      setError(String(reason));
+      toast.error(String(reason), { id: "app-feedback" });
       await refresh().catch(() => undefined);
     } finally {
       mutationActive.current = false;
@@ -224,11 +214,10 @@ function App() {
 
   const runSideEffect = async (label: string, action: () => Promise<void>) => {
     setBusy(label);
-    setError(null);
     try {
       await action();
     } catch (reason) {
-      setError(String(reason));
+      toast.error(String(reason), { id: "app-feedback" });
     } finally {
       setBusy(null);
     }
@@ -242,19 +231,17 @@ function App() {
     requestEpoch.current += 1;
     mutationActive.current = true;
     setBusy("autostart");
-    setError(null);
-    setNotice(null);
     try {
       const snapshot = await api.setAutostart(enabled);
       setState(snapshot);
-      setNotice(
+      toast.success(
         enabled ? "已启用 Windows 登录自启。" : "已关闭 Windows 登录自启。",
       );
     } catch (reason) {
       setState((current) =>
         current ? { ...current, autostartEnabled: previous } : current,
       );
-      setError(String(reason));
+      toast.error(String(reason), { id: "app-feedback" });
       await refresh().catch(() => undefined);
     } finally {
       mutationActive.current = false;
@@ -263,8 +250,8 @@ function App() {
   };
 
   const chooseSerenaExecutable = async () => {
-    setError(null);
     pickerActive.current = true;
+    setChoosingExecutable(true);
     try {
       const selected = await open({
         multiple: false,
@@ -282,30 +269,18 @@ function App() {
         );
       }
     } catch (reason) {
-      setError(String(reason));
+      toast.error(String(reason), { id: "app-feedback" });
     } finally {
       pickerActive.current = false;
+      setChoosingExecutable(false);
     }
   };
-
-  const toastMessage = error ?? notice;
-  const toast = toastMessage ? (
-    <Toast
-      message={toastMessage}
-      kind={error ? "error" : "notice"}
-      onClose={() => {
-        setError(null);
-        setNotice(null);
-      }}
-    />
-  ) : null;
 
   if (!state) {
     return (
       <main className="boot-screen">
         <img className="boot-mark" src={appLogo} alt="Serena Desktop" />
         <p>正在读取本机 Serena 状态…</p>
-        {toast}
       </main>
     );
   }
@@ -335,34 +310,46 @@ function App() {
     : "—";
   return (
     <div className="app-shell">
-      {toast}
       <aside className="sidebar">
         <div className="brand">
           <img className="brand-mark" src={appLogo} alt="" />
-          <span>Serena<small>Desktop</small></span>
+          <span>
+            Serena<small>Desktop</small>
+          </span>
         </div>
         <nav aria-label="主导航">
-          <button
-            className={tab === "console" ? "active" : ""}
+          <Button
+            variant={tab === "console" ? "secondary" : "ghost"}
+            className="justify-start"
+            aria-current={tab === "console" ? "page" : undefined}
             onClick={() => setTab("console")}
           >
             首页
-          </button>
-          <button
-            className={tab === "serena" ? "active" : ""}
+          </Button>
+          <Button
+            variant={tab === "serena" ? "secondary" : "ghost"}
+            className="justify-start"
+            aria-current={tab === "serena" ? "page" : undefined}
             onClick={() => setTab("serena")}
           >
-            Serena
-          </button>
-          <button
-            className={tab === "settings" ? "active" : ""}
+            状态
+          </Button>
+          <Button
+            variant={tab === "settings" ? "secondary" : "ghost"}
+            className="justify-start"
+            aria-current={tab === "settings" ? "page" : undefined}
             onClick={() => setTab("settings")}
           >
             设置
-          </button>
-          <button className={tab === "logs" ? "active" : ""} onClick={() => setTab("logs")}>
+          </Button>
+          <Button
+            variant={tab === "logs" ? "secondary" : "ghost"}
+            className="justify-start"
+            aria-current={tab === "logs" ? "page" : undefined}
+            onClick={() => setTab("logs")}
+          >
             日志
-          </button>
+          </Button>
         </nav>
       </aside>
 
@@ -374,6 +361,9 @@ function App() {
               controller={brokerController}
               onSettings={() => setTab("settings")}
               onSerena={() => setTab("serena")}
+              onCopied={() => {
+                toast.success("复制成功");
+              }}
             />
           </section>
         ) : tab === "serena" ? (
@@ -381,18 +371,22 @@ function App() {
             <div className="serena-controls">
               <div className="page-heading">
                 <div>
-                  <h1>Serena</h1>
+                  <h1>状态</h1>
                   <p>确认本机服务链路，完成启动、停止和故障定位。</p>
                 </div>
-                <button
-                  className="ghost-button"
+                <Button
+                  variant="outline"
                   disabled={busy !== null}
                   onClick={() =>
                     run("detect", api.detect, "已重新检测 Serena 和 Git。")
                   }
+                  aria-busy={busy === "detect"}
                 >
+                  {busy === "detect" && (
+                    <Spinner data-icon="inline-start" aria-hidden="true" />
+                  )}
                   重新检测
-                </button>
+                </Button>
               </div>
 
               <div className={`link-console status-${state.serverStatus}`}>
@@ -414,39 +408,60 @@ function App() {
                   {isInstalled || isRunning ? (
                     <div className="primary-actions">
                       {!isRunning ? (
-                        <button
-                          className="primary-button"
+                        <Button
+                          variant="default"
                           disabled={busy !== null || !canStart}
                           onClick={() =>
                             run("start", api.start, "Serena 已启动。")
                           }
+                          aria-busy={busy === "start"}
                         >
+                          {busy === "start" && (
+                            <Spinner
+                              data-icon="inline-start"
+                              aria-hidden="true"
+                            />
+                          )}
                           {busy === "start" ? "启动中…" : "启动 Serena"}
-                        </button>
+                        </Button>
                       ) : (
-                        <button
-                          className="danger-button"
+                        <Button
+                          variant="destructive"
                           disabled={busy !== null}
                           onClick={() =>
                             run("stop", api.stop, "Serena 已停止。")
                           }
+                          aria-busy={busy === "stop"}
                         >
+                          {busy === "stop" && (
+                            <Spinner
+                              data-icon="inline-start"
+                              aria-hidden="true"
+                            />
+                          )}
                           {busy === "stop" ? "停止中…" : "停止"}
-                        </button>
+                        </Button>
                       )}
-                      <button
-                        className="secondary-button"
+                      <Button
+                        variant="outline"
                         disabled={busy !== null || !canStart}
                         onClick={() =>
                           run("restart", api.restart, "Serena 已重新启动。")
                         }
+                        aria-busy={busy === "restart"}
                       >
+                        {busy === "restart" && (
+                          <Spinner
+                            data-icon="inline-start"
+                            aria-hidden="true"
+                          />
+                        )}
                         重新启动
-                      </button>
+                      </Button>
                     </div>
                   ) : (
-                    <button
-                      className="primary-button"
+                    <Button
+                      variant="default"
                       disabled={busy !== null || !state.git.available}
                       onClick={() =>
                         run(
@@ -459,13 +474,17 @@ function App() {
                             : "官方 Serena 已就绪。",
                         )
                       }
+                      aria-busy={busy === "install"}
                     >
+                      {busy === "install" && (
+                        <Spinner data-icon="inline-start" aria-hidden="true" />
+                      )}
                       {busy === "install"
                         ? "正在安装…"
                         : state.managedRuntimePresent
                           ? "修复 官方 Serena"
                           : "安装 官方 Serena"}
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>
@@ -520,23 +539,34 @@ function App() {
               <div className="quick-actions">
                 <span>快捷操作</span>
                 {!state.git.available && (
-                  <button
+                  <Button
+                    variant="ghost"
                     disabled={busy !== null}
                     onClick={() =>
                       runSideEffect("open-git", () => api.openExternal("git"))
                     }
+                    aria-busy={busy === "open-git"}
                   >
+                    {busy === "open-git" && (
+                      <Spinner data-icon="inline-start" aria-hidden="true" />
+                    )}
                     打开 Git 下载页面 ↗
-                  </button>
+                  </Button>
                 )}
-                <button
+                <Button
+                  variant="ghost"
                   disabled={busy !== null}
                   onClick={() => run("git", api.detectGit, "Git 检测完成。")}
+                  aria-busy={busy === "git"}
                 >
+                  {busy === "git" && (
+                    <Spinner data-icon="inline-start" aria-hidden="true" />
+                  )}
                   重新检测 Git
-                </button>
+                </Button>
                 {state.managedRuntimePresent && isInstalled && (
-                  <button
+                  <Button
+                    variant="ghost"
                     disabled={
                       busy !== null || isRunning || !state.git.available
                     }
@@ -547,21 +577,31 @@ function App() {
                         "Managed 官方 Serena 修复完成。",
                       )
                     }
+                    aria-busy={busy === "repair"}
                   >
+                    {busy === "repair" && (
+                      <Spinner data-icon="inline-start" aria-hidden="true" />
+                    )}
                     {busy === "repair" ? "正在修复…" : "修复 Managed Serena"}
-                  </button>
+                  </Button>
                 )}
                 {!isInstalled && (
-                  <button
+                  <Button
+                    variant="ghost"
                     disabled={busy !== null}
                     onClick={() =>
                       runSideEffect("open-uv", () => api.openExternal("uv"))
                     }
+                    aria-busy={busy === "open-uv"}
                   >
+                    {busy === "open-uv" && (
+                      <Spinner data-icon="inline-start" aria-hidden="true" />
+                    )}
                     uv 安装说明 ↗
-                  </button>
+                  </Button>
                 )}
-                <button
+                <Button
+                  variant="ghost"
                   disabled={
                     !state.dashboardEnabled ||
                     state.serverStatus !== "running" ||
@@ -570,54 +610,57 @@ function App() {
                   onClick={() =>
                     runSideEffect("open-dashboard", api.openDashboard)
                   }
+                  aria-busy={busy === "open-dashboard"}
                 >
+                  {busy === "open-dashboard" && (
+                    <Spinner data-icon="inline-start" aria-hidden="true" />
+                  )}
                   在浏览器中打开管理面板 ↗
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
                   disabled={busy !== null}
                   onClick={() => runSideEffect("open-logs", api.openLogs)}
+                  aria-busy={busy === "open-logs"}
                 >
+                  {busy === "open-logs" && (
+                    <Spinner data-icon="inline-start" aria-hidden="true" />
+                  )}
                   打开日志目录 ↗
-                </button>
+                </Button>
                 {!isInstalled && (
-                  <button
+                  <Button
+                    variant="ghost"
                     disabled={busy !== null}
                     onClick={() =>
                       runSideEffect("open-docs", () => api.openExternal("docs"))
                     }
+                    aria-busy={busy === "open-docs"}
                   >
+                    {busy === "open-docs" && (
+                      <Spinner data-icon="inline-start" aria-hidden="true" />
+                    )}
                     官方安装说明 ↗
-                  </button>
+                  </Button>
                 )}
                 {!isInstalled && (
-                  <button
+                  <Button
+                    variant="ghost"
                     disabled={busy !== null}
                     onClick={() =>
                       runSideEffect("open-github", () =>
                         api.openExternal("github"),
                       )
                     }
+                    aria-busy={busy === "open-github"}
                   >
+                    {busy === "open-github" && (
+                      <Spinner data-icon="inline-start" aria-hidden="true" />
+                    )}
                     GitHub ↗
-                  </button>
+                  </Button>
                 )}
               </div>
-
-              {(brokerController.error ||
-                brokerController.broker?.lastError) && (
-                <div className="project-error" role="alert">
-                  <strong>项目 / Broker 操作详情</strong>
-                  <p>
-                    {brokerController.error ||
-                      brokerController.broker?.lastError}
-                  </p>
-                  <button
-                    onClick={() => setTab("logs")}
-                  >
-                    查看 MCP 日志
-                  </button>
-                </div>
-              )}
             </div>
           </section>
         ) : tab === "logs" ? (
@@ -639,8 +682,8 @@ function App() {
                   <p>Windows 与应用生命周期</p>
                 </div>
               </header>
-              <div className="settings-body">
-                <Toggle
+              <FieldGroup className="settings-body">
+                <SettingSwitch
                   checked={state.autostartEnabled ?? false}
                   onChange={setAutostart}
                   disabled={busy !== null || state.autostartEnabled === null}
@@ -649,7 +692,7 @@ function App() {
                     state.autostartError ?? "由系统登录项启动 Serena Desktop"
                   }
                 />
-                <Toggle
+                <SettingSwitch
                   checked={draft.autoStartServer}
                   onChange={(value) =>
                     saveToggle(
@@ -663,7 +706,7 @@ function App() {
                   label="自动启动 Serena"
                   hint="应用启动后自动启动 Serena 代码分析服务"
                 />
-                <Toggle
+                <SettingSwitch
                   checked={draft.minimizeToTray}
                   onChange={(value) =>
                     saveToggle(
@@ -677,7 +720,7 @@ function App() {
                   label="关闭窗口时进入托盘"
                   hint="只有托盘菜单中的“退出”会结束应用"
                 />
-              </div>
+              </FieldGroup>
             </div>
 
             <div className="settings-section">
@@ -688,11 +731,13 @@ function App() {
                   <p>可执行文件发现</p>
                 </div>
               </header>
-              <div className="settings-body field-stack">
-                <div className="text-field">
-                  <label htmlFor="serena-executable">Executable</label>
+              <FieldGroup className="settings-body field-stack">
+                <Field className="text-field">
+                  <FieldLabel htmlFor="serena-executable">
+                    Executable
+                  </FieldLabel>
                   <div className="input-action-row">
-                    <input
+                    <Input
                       id="serena-executable"
                       disabled={busy !== null}
                       value={draft.serenaPath ?? ""}
@@ -720,11 +765,12 @@ function App() {
                       placeholder="使用 Managed 官方 Serena"
                       spellCheck={false}
                     />
-                    <button
+                    <Button
                       type="button"
-                      className="ghost-button"
+                      variant="outline"
                       data-executable-picker="true"
-                      disabled={busy !== null}
+                      aria-busy={choosingExecutable}
+                      disabled={busy !== null || choosingExecutable}
                       onClick={chooseSerenaExecutable}
                       onBlur={() => {
                         if (!pickerActive.current)
@@ -734,19 +780,22 @@ function App() {
                           );
                       }}
                     >
+                      {choosingExecutable && (
+                        <Spinner data-icon="inline-start" aria-hidden="true" />
+                      )}
                       选择…
-                    </button>
+                    </Button>
                   </div>
-                  <small>
+                  <FieldDescription>
                     留空时优先使用应用私有 runtime；未安装时检测
                     PATH。指定外部路径必须为受支持的官方 Serena 1.7.0 或以上。
-                  </small>
-                </div>
+                  </FieldDescription>
+                </Field>
                 <div className="detected-path">
                   <span>当前检测</span>
                   <code>{state.installation?.path ?? "未发现"}</code>
                 </div>
-              </div>
+              </FieldGroup>
             </div>
 
             <div className="settings-section">
@@ -757,14 +806,15 @@ function App() {
                   <p>提供代码分析能力，由 MCP 连接入口调用</p>
                 </div>
               </header>
-              <div className="settings-body field-stack">
-                <label className="text-field port-field">
-                  <span>内部服务端口</span>
-                  <input
+              <FieldGroup className="settings-body field-stack">
+                <Field className="max-w-md">
+                  <FieldLabel htmlFor="serena-port">内部服务端口</FieldLabel>
+                  <Input
                     disabled={busy !== null}
                     type="number"
                     min={1024}
                     max={65535}
+                    id="serena-port"
                     value={draft.port}
                     onChange={(event) =>
                       setDraft({ ...draft, port: Number(event.target.value) })
@@ -779,12 +829,12 @@ function App() {
                       if (event.key === "Enter") event.currentTarget.blur();
                     }}
                   />
-                  <small>
+                  <FieldDescription>
                     仅供本机内部通信，无需填入 Cloudflare。允许范围
                     1024–65535；变更后需重新启动 Serena。
-                  </small>
-                </label>
-                <Toggle
+                  </FieldDescription>
+                </Field>
+                <SettingSwitch
                   checked={draft.dashboardEnabled}
                   onChange={(value) =>
                     saveToggle(
@@ -793,14 +843,16 @@ function App() {
                         openDashboardOnLaunch:
                           value && state.config.openDashboardOnLaunch,
                       },
-                      value ? "已启用 Dashboard。" : "已关闭 Dashboard。",
+                      value
+                        ? "已保存：启用管理面板，重启 Serena 后生效。"
+                        : "已保存：关闭管理面板，重启 Serena 后生效。",
                     )
                   }
                   disabled={busy !== null}
                   label="启用浏览器管理面板"
                   hint="使用浏览器查看 Serena 运行信息；更改后需重新启动 Serena"
                 />
-                <Toggle
+                <SettingSwitch
                   checked={draft.openDashboardOnLaunch}
                   onChange={(value) =>
                     saveToggle(
@@ -814,7 +866,7 @@ function App() {
                   label="启动时在浏览器打开管理面板"
                   hint="默认关闭；也可从 Serena 页面或托盘手工打开"
                 />
-              </div>
+              </FieldGroup>
             </div>
 
             <div className="settings-section">
@@ -824,13 +876,14 @@ function App() {
                   <p>汇集 Serena 代码分析与 Git 查询能力</p>
                 </div>
               </header>
-              <div className="settings-body field-stack">
-                <label className="text-field port-field">
-                  <span>连接入口端口</span>
-                  <input
+              <FieldGroup className="settings-body field-stack">
+                <Field className="max-w-md">
+                  <FieldLabel htmlFor="broker-port">连接入口端口</FieldLabel>
+                  <Input
                     type="number"
                     min={1024}
                     max={65535}
+                    id="broker-port"
                     value={brokerPort}
                     disabled={
                       !!brokerController.busy ||
@@ -838,64 +891,48 @@ function App() {
                     }
                     onChange={(e) => setBrokerPort(Number(e.target.value))}
                   />
-                  <small>
+                  <FieldDescription>
                     Cloudflare MCP upstream
                     使用此入口，地址可在首页复制。仅监听本机
                     127.0.0.1；启用时应用端口设置。
-                  </small>
-                </label>
+                  </FieldDescription>
+                </Field>
                 <div>
-                  <button
-                    className="secondary-button"
+                  <Button
+                    variant="outline"
                     disabled={
                       busy !== null ||
                       !!brokerController.busy ||
                       !brokerController.broker
                     }
                     onClick={() =>
-                      brokerController.perform("更新连接入口", () =>
-                        api.setBroker(
-                          !brokerController.broker?.running,
-                          brokerPort,
-                        ),
+                      brokerController.perform(
+                        "更新连接入口",
+                        () =>
+                          api.setBroker(
+                            !brokerController.broker?.running,
+                            brokerPort,
+                          ),
+                        brokerController.broker?.running
+                          ? "MCP 连接入口已停止"
+                          : "MCP 连接入口已启用",
                       )
                     }
+                    aria-busy={updatingBroker}
                   >
-                    {brokerController.broker?.running
-                      ? "停止连接入口"
-                      : "启用连接入口"}
-                  </button>
+                    {updatingBroker ? (
+                      <>
+                        <Spinner data-icon="inline-start" aria-hidden="true" />
+                        处理中…
+                      </>
+                    ) : brokerController.broker?.running ? (
+                      "停止连接入口"
+                    ) : (
+                      "启用连接入口"
+                    )}
+                  </Button>
                 </div>
-                {brokerController.busy && (
-                  <p role="status">{brokerController.busy}…</p>
-                )}
-                {(brokerController.error ||
-                  brokerController.broker?.lastError) && (
-                  <p className="inline-error" role="alert">
-                    {brokerController.error ||
-                      brokerController.broker?.lastError}
-                  </p>
-                )}
-              </div>
-            </div>
-            <div className="settings-section">
-              <header>
-                <span>04</span>
-                <div>
-                  <h2>Logs</h2>
-                  <p>运行输出与故障定位</p>
-                </div>
-              </header>
-              <div className="settings-body log-location">
-                <code>{state.logDirectory}</code>
-                <button
-                  className="ghost-button"
-                  disabled={busy !== null}
-                  onClick={() => runSideEffect("open-logs", api.openLogs)}
-                >
-                  打开目录 ↗
-                </button>
-              </div>
+              </FieldGroup>
             </div>
           </section>
         )}

@@ -174,6 +174,28 @@ fn successful_text(output: CapturedOutput, action: &str) -> Result<String, Strin
     Ok(text)
 }
 
+pub fn detect_codegraph_version() -> Option<String> {
+    let mut command = rmcp::transport::which_command("codegraph").ok()?.into_std();
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
+    command.arg("--version");
+    codegraph_version(run_with_timeout(
+        command,
+        Duration::from_secs(5),
+        "读取 CodeGraph 版本",
+    ))
+}
+
+fn codegraph_version(output: Result<CapturedOutput, String>) -> Option<String> {
+    output
+        .ok()
+        .and_then(|out| successful_text(out, "codegraph --version").ok())
+        .map(|text| text.lines().next().unwrap_or_default().trim().to_string())
+}
+
 pub fn detect_git() -> GitInstallation {
     probe_git(find_executable("git"), run_with_timeout)
 }
@@ -225,6 +247,17 @@ mod tests {
             stdout: text.as_bytes().to_vec(),
             stderr: vec![],
         }
+    }
+
+    #[test]
+    fn codegraph_version_is_optional_and_uses_cli_output() {
+        assert_eq!(
+            codegraph_version(Ok(output(0, "1.6.0\n"))).as_deref(),
+            Some("1.6.0")
+        );
+        assert_eq!(codegraph_version(Ok(output(1, "failed"))), None);
+        assert_eq!(codegraph_version(Ok(output(0, ""))), None);
+        assert_eq!(codegraph_version(Err("timeout".into())), None);
     }
 
     #[test]

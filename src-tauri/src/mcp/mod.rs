@@ -1,3 +1,4 @@
+mod codegraph;
 pub mod git;
 pub mod process;
 pub mod projects;
@@ -14,7 +15,7 @@ use std::{
     collections::{HashMap, VecDeque},
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager};
 use tokio::sync::RwLock;
@@ -24,6 +25,8 @@ pub struct Active {
     pub workspace: Workspace,
     pub client: Arc<serena::Client>,
     pub pid: u32,
+    pub graph: codegraph::Binding,
+    pub generation: u64,
 }
 pub struct Broker {
     pub supervisor: Arc<SupervisorState>,
@@ -34,7 +37,8 @@ pub struct Broker {
     pub project_sources: Mutex<Vec<PathBuf>>,
     pub sync_warnings: Mutex<Vec<String>>,
     pub error: Mutex<Option<String>>,
-    logs: Mutex<VecDeque<String>>,
+    logs: Arc<Mutex<VecDeque<String>>>,
+    graph_generation: std::sync::atomic::AtomicU64,
     verified_configs: Mutex<HashMap<String, Vec<u8>>>,
     // Published binding for nonblocking UI reads while indexing owns the query lock.
     published: Mutex<Option<(Workspace, u32, std::sync::Weak<serena::Client>)>>,
@@ -45,6 +49,7 @@ pub struct Snapshot {
     pub running: bool,
     pub port: u16,
     pub active_workspace: Option<Workspace>,
+    pub codegraph: Option<Value>,
     pub projects: Vec<Project>,
     pub operation: Option<String>,
     pub last_error: Option<String>,
@@ -83,23 +88,20 @@ impl Broker {
             project_sources: Mutex::new(Vec::new()),
             sync_warnings: Mutex::new(Vec::new()),
             error: Mutex::new(None),
-            logs: Mutex::new(VecDeque::new()),
+            logs: Arc::new(Mutex::new(VecDeque::new())),
+            graph_generation: std::sync::atomic::AtomicU64::new(0),
             verified_configs: Mutex::new(HashMap::new()),
             published: Mutex::new(None),
         }
     }
     pub fn log(&self, message: &str) {
-        let mut logs = self.logs.lock().unwrap();
-        if logs.len() == 500 {
-            logs.pop_front();
-        }
-        logs.push_back(format!(
-            "【{}】 {message}",
-            chrono::Local::now().format("%H:%M:%S%.3f")
-        ));
+        append_log(&self.logs, message);
     }
     pub fn log_snapshot(&self) -> Vec<String> {
         self.logs.lock().unwrap().iter().cloned().collect()
+    }
+    pub fn clear_logs(&self) {
+        self.logs.lock().unwrap().clear();
     }
     pub fn config(&self) -> ManagerConfig {
         self.supervisor.snapshot().config
@@ -118,6 +120,16 @@ impl Broker {
             })
             .map(|(workspace, _, _)| workspace.clone());
         let listener = self.listener.lock().await;
+        // UI polling must not queue behind activation or a pending workspace writer.
+        let codegraph = self.workspace.try_read().ok().and_then(|slot| {
+            slot.as_ref()
+                .filter(|active| {
+                    current.as_ref().is_some_and(|w| {
+                        w.id == active.workspace.id && w.root == active.workspace.root
+                    })
+                })
+                .map(|active| active.graph.status(&active.workspace, active.generation))
+        });
         Snapshot {
             running: listener.as_ref().is_some_and(|(_, _, h)| !h.is_finished()),
             port: listener
@@ -125,6 +137,7 @@ impl Broker {
                 .map(|p| p.0)
                 .unwrap_or(snapshot.config.broker.port),
             active_workspace: current,
+            codegraph,
             projects: snapshot
                 .config
                 .workspaces
@@ -179,6 +192,7 @@ impl Broker {
         Ok(())
     }
     pub async fn activate(&self, id: &str, cancel: CancellationToken) -> Result<Value, String> {
+        let started = Instant::now();
         let mut slot = tokio::select! {
             biased;
             _ = cancel.cancelled() => return Err("CANCELLED".into()),
@@ -187,36 +201,83 @@ impl Broker {
         if cancel.is_cancelled() {
             return Err("CANCELLED".into());
         }
-        self.clear_workspace(&mut slot);
-        let w = self
+        self.log(&format!(
+            "项目激活耗时 · 等待工作区锁={}ms",
+            started.elapsed().as_millis()
+        ));
+        let preparation = Instant::now();
+        let mut w = self
             .config()
             .workspaces
             .into_iter()
             .find(|w| w.id == id)
             .ok_or("INVALID_WORKSPACE")?;
         let root = git::root(&w.root, cancel.clone()).await?;
+        w.root = root.clone();
         self.supervisor.paths.verify_serena_config()?;
         self.validate_project(&w, cancel.clone()).await?;
+        self.log(&format!(
+            "项目激活耗时 · 项目校验={}ms",
+            preparation.elapsed().as_millis()
+        ));
         let s = self.supervisor.snapshot();
         if s.server_status != ServerStatus::Running {
             return Err("BACKEND_UNAVAILABLE: 请先启动 Serena".into());
         }
+        let handshake = Instant::now();
         let client = Arc::new(serena::Client::connect(s.active_port).await?);
+        self.log(&format!(
+            "项目激活耗时 · Serena 握手及工具校验={}ms",
+            handshake.elapsed().as_millis()
+        ));
+        // The task owns only this generation's runtime, never the Active slot.
+        // Slow graph startup cannot consume Serena's activation timeout budget.
+        let generation = self
+            .graph_generation
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        let graph = codegraph::Binding::begin(&w, generation, self.logs.clone());
+        if cancel.is_cancelled() {
+            return Err("CANCELLED".into());
+        }
+        // Once Serena activation starts its outcome may be uncertain on failure/cancellation.
+        // Keep the old graph alive until commit, but never publish stale source/Git bindings.
+        let previous = slot.take();
+        *self.published.lock().unwrap() = None;
+        let activation = Instant::now();
         tokio::select! {
             result = client.activate(&root) => result?,
             _ = cancel.cancelled() => return Err("CANCELLED".into()),
         };
+        self.log(&format!(
+            "项目激活耗时 · Serena 激活及确认={}ms",
+            activation.elapsed().as_millis()
+        ));
         let pid = s.process_id.ok_or("BACKEND_UNAVAILABLE")?;
         if self.supervisor.snapshot().process_id != Some(pid) {
             return Err("BACKEND_UNAVAILABLE".into());
         }
         *self.published.lock().unwrap() = Some((w.clone(), pid, Arc::downgrade(&client)));
+        let graph_status = graph.status(&w, generation);
         *slot = Some(Active {
             workspace: w.clone(),
             client,
             pid,
+            graph,
+            generation,
         });
-        Ok(json!({"activeWorkspace":w,"status":"active","truncated":false}))
+        self.log(&format!(
+            "CodeGraph · binding switch · workspace={} generation={generation}",
+            w.id
+        ));
+        drop(previous);
+        self.log(&format!(
+            "项目激活耗时 · 总计={}ms",
+            started.elapsed().as_millis()
+        ));
+        Ok(
+            json!({"activeWorkspace":w,"status":"active","codegraph":graph_status,"truncated":false}),
+        )
     }
     pub async fn deactivate(&self) -> Result<Value, String> {
         self.clear_workspace(&mut *self.workspace.write().await);
@@ -228,9 +289,14 @@ impl Broker {
         args: Value,
         request_cancel: CancellationToken,
     ) -> Result<Value, String> {
+        if name == "codegraph_explore" {
+            // Graph owns a single 50-second budget including queueing and recovery.
+            return Box::pin(self.dispatch(name, args, request_cancel)).await;
+        }
         let cancel = request_cancel.child_token();
-        let work = self.dispatch(name, args, cancel.clone());
-        tokio::pin!(work);
+        // Keep the large dispatch future off the Windows UI/IPC thread's stack.
+        // This preserves polling, cancellation and the workspace lock lifetime.
+        let mut work = Box::pin(self.dispatch(name, args, cancel.clone()));
         tokio::select! {
             result = &mut work => result,
             _ = tokio::time::sleep(Duration::from_secs(60)) => {
@@ -252,14 +318,21 @@ impl Broker {
         cancel: CancellationToken,
     ) -> Result<Value, String> {
         registry::validate(name, &args)?;
+        if name == "codegraph_explore" {
+            return Ok(self.explore_graph(args, cancel).await);
+        }
         match name {
             "workspace_list" => {
                 return Ok(json!({"workspaces":self.config().workspaces,"truncated":false}));
             }
             "workspace_current" => {
-                return Ok(
-                    json!({"activeWorkspace":self.snapshot().await.active_workspace,"truncated":false}),
-                );
+                let slot = self.workspace.read().await;
+                let current = self.snapshot().await.active_workspace;
+                let graph = current
+                    .as_ref()
+                    .and_then(|_| slot.as_ref())
+                    .map(|a| a.graph.status(&a.workspace, a.generation));
+                return Ok(json!({"activeWorkspace":current,"codegraph":graph,"truncated":false}));
             }
             "workspace_activate" => {
                 let _management = self.management.lock().await;
@@ -361,6 +434,58 @@ impl Broker {
         }
         Ok(result)
     }
+    async fn clear_invalid_graph_workspace(&self, observed: &Workspace, generation: u64, pid: u32) {
+        let mut slot = self.workspace.write().await;
+        if let Some(active) = slot.as_ref() {
+            if active.workspace.id != observed.id
+                || active.workspace.root != observed.root
+                || active.generation != generation
+                || active.pid != pid
+            {
+                return;
+            }
+            let s = self.supervisor.snapshot();
+            if s.server_status != ServerStatus::Running
+                || s.process_id != Some(active.pid)
+                || active.client.closed()
+            {
+                self.clear_workspace(&mut slot);
+            }
+        }
+    }
+    async fn explore_graph(&self, args: Value, cancel: CancellationToken) -> Value {
+        let mut queried_workspace = None;
+        let query = async {
+            let slot = self.workspace.read().await;
+            let active = slot.as_ref().ok_or(codegraph::Error::WorkspaceNotActive)?;
+            let s = self.supervisor.snapshot();
+            if s.server_status != ServerStatus::Running
+                || s.process_id != Some(active.pid)
+                || active.client.closed()
+            {
+                let observed = (active.workspace.clone(), active.generation, active.pid);
+                drop(slot);
+                self.clear_invalid_graph_workspace(&observed.0, observed.1, observed.2)
+                    .await;
+                return Err(codegraph::Error::WorkspaceNotActive);
+            }
+            queried_workspace = Some(active.workspace.clone());
+            match active
+                .graph
+                .explore(&active.workspace, active.generation, args, cancel.clone())
+                .await
+            {
+                Ok(text) => Ok(json!({"workspace":active.workspace,"text":text,"truncated":false})),
+                Err(error) => Ok(error.value(Some(&active.workspace))),
+            }
+        };
+        let result = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(codegraph::Error::Cancelled),
+            result = tokio::time::timeout(Duration::from_secs(50), query) => result.unwrap_or(Err(codegraph::Error::Timeout)),
+        };
+        result.unwrap_or_else(|error| error.value(queried_workspace.as_ref()))
+    }
     pub async fn sync_projects(&self, sources: Vec<PathBuf>) -> Result<usize, String> {
         let _management = self.management.lock().await;
         *self.project_sources.lock().unwrap() = sources.clone();
@@ -377,6 +502,16 @@ impl Broker {
         self.log(&format!("已同步 {count} 个 Serena 项目"));
         Ok(count)
     }
+}
+fn append_log(logs: &Mutex<VecDeque<String>>, message: &str) {
+    let mut logs = logs.lock().unwrap();
+    if logs.len() == 500 {
+        logs.pop_front();
+    }
+    logs.push_back(format!(
+        "【{}】 {message}",
+        chrono::Local::now().format("%H:%M:%S%.3f")
+    ));
 }
 pub fn get(app: &AppHandle) -> Arc<Broker> {
     app.state::<Arc<Broker>>().inner().clone()
@@ -418,6 +553,21 @@ mod integration_tests {
         Arc::new(Broker::new(Arc::new(SupervisorState::new(paths).unwrap())))
     }
     #[test]
+    fn ipc_tool_future_fits_the_windows_ui_stack() {
+        let dir = tempfile::tempdir().unwrap();
+        let broker = fixture(dir.path(), None);
+        let work = broker.call_tool(
+            "workspace_activate",
+            json!({"id":"x"}),
+            CancellationToken::new(),
+        );
+        let size = std::mem::size_of_val(&work);
+        // Tauri constructs and moves this future on the UI thread before spawning it.
+        // The previous inline dispatch occupied 40 KiB and overflowed that stack.
+        assert!(size < 4096, "IPC tool future occupies {size} bytes");
+    }
+
+    #[test]
     fn managed_trust_configuration_is_explicit() {
         let dir = tempfile::tempdir().unwrap();
         let b = fixture(dir.path(), None);
@@ -428,6 +578,28 @@ mod integration_tests {
         assert!(b.supervisor.paths.verify_serena_config().is_err());
         b.supervisor.paths.prepare_serena(false).unwrap();
         assert!(b.supervisor.paths.verify_serena_config().is_ok());
+    }
+
+    #[tokio::test]
+    async fn failed_restart_keeps_workspace_unbound() {
+        let dir = tempfile::tempdir().unwrap();
+        let broker = fixture(dir.path(), Some(dir.path().join("missing-serena.exe")));
+        assert!(crate::commands::restart_serena_impl(&broker).await.is_err());
+        assert!(broker.workspace.read().await.is_none());
+        assert!(broker.published.lock().unwrap().is_none());
+        assert!(broker.snapshot().await.codegraph.is_none());
+    }
+
+    #[tokio::test]
+    async fn ui_snapshot_does_not_wait_for_workspace_transition() {
+        let dir = tempfile::tempdir().unwrap();
+        let broker = fixture(dir.path(), None);
+        let _transition = broker.workspace.write().await;
+        let snapshot = tokio::time::timeout(Duration::from_millis(100), broker.snapshot())
+            .await
+            .unwrap();
+        assert!(snapshot.active_workspace.is_none());
+        assert!(snapshot.codegraph.is_none());
     }
     #[test]
     fn mcp_logs_keep_recent_entries_in_order() {
@@ -443,6 +615,20 @@ mod integration_tests {
         assert!(logs[0].contains("】 entry-10"));
         assert!(logs[0].ends_with("entry-10"));
         assert!(logs[499].ends_with("entry-509"));
+    }
+
+    #[test]
+    fn clearing_mcp_logs_is_idempotent_and_keeps_new_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let broker = fixture(dir.path(), None);
+        broker.log("old entry");
+        broker.clear_logs();
+        assert!(broker.log_snapshot().is_empty());
+        broker.clear_logs();
+        broker.log("new entry");
+        let logs = broker.log_snapshot();
+        assert_eq!(logs.len(), 1);
+        assert!(logs[0].ends_with("new entry"));
     }
     #[tokio::test]
     async fn sync_updates_only_catalog_without_waiting_for_workspace_or_detecting_serena() {
@@ -655,15 +841,49 @@ mod integration_tests {
                 .to_string()
                 .contains("NO_ACTIVE_WORKSPACE")
         );
-        let r = client
-            .call_tool(CallToolRequestParams::new("workspace_deactivate"))
+        let graph = client
+            .call_tool(
+                CallToolRequestParams::new("codegraph_explore")
+                    .with_arguments(json!({"query":"x"}).as_object().unwrap().clone()),
+            )
             .await
             .unwrap();
+        assert_eq!(graph.is_error, Some(true));
+        assert_eq!(
+            graph.structured_content.unwrap()["error"]["code"],
+            "WORKSPACE_NOT_ACTIVE"
+        );
+        let guard = broker.workspace.write().await;
+        let (r, ()) = tokio::join!(
+            client.call_tool(CallToolRequestParams::new("workspace_deactivate")),
+            async {
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    while !broker
+                        .log_snapshot()
+                        .iter()
+                        .any(|line| line.contains("workspace_deactivate · 开始"))
+                    {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                drop(guard);
+            }
+        );
+        let r = r.unwrap();
         assert!(
             serde_json::to_value(r)
                 .unwrap()
                 .to_string()
                 .contains("inactive")
+        );
+        assert!(
+            client
+                .call_tool(CallToolRequestParams::new("workspace_activate"))
+                .await
+                .is_err()
         );
         let logs = broker.log_snapshot();
         assert!(logs.iter().any(|line| line.contains("MCP 已监听")));
@@ -674,6 +894,27 @@ mod integration_tests {
             logs.iter()
                 .any(|line| line.contains("workspace_deactivate · 成功"))
         );
+        for outcome in [
+            "git_status · 失败",
+            "workspace_deactivate · 成功",
+            "参数校验失败",
+        ] {
+            let line = logs.iter().find(|line| line.contains(outcome)).unwrap();
+            let elapsed: f64 = line
+                .split(" · 耗时 ")
+                .nth(1)
+                .unwrap()
+                .strip_suffix(" ms")
+                .unwrap()
+                .parse()
+                .unwrap();
+            assert!(elapsed >= 0.0);
+            if outcome == "workspace_deactivate · 成功" {
+                // Includes time waiting for the workspace lock, not just HTTP headers.
+                assert!(elapsed >= 40.0, "{line}");
+            }
+        }
+        assert!(!logs.iter().any(|line| line.contains("响应头")));
         drop(client);
         broker.stop().await.unwrap();
         assert!(!broker.snapshot().await.running);
@@ -746,11 +987,124 @@ mod integration_tests {
                     .await
                     .map_err(|e| e.to_string())?
                     .len(),
-                17
+                18
             );
             assert!(b.snapshot().await.active_workspace.is_none());
+            let activated = b.activate("project-1", CancellationToken::new()).await?;
+            let observed_a = {
+                let slot = b.workspace.read().await;
+                let active = slot.as_ref().unwrap();
+                (active.workspace.clone(), active.generation, active.pid)
+            };
+            assert_eq!(activated["codegraph"]["status"], "not_initialized");
+            assert_eq!(
+                b.snapshot().await.codegraph.unwrap()["status"],
+                "not_initialized"
+            );
+            assert_eq!(
+                b.dispatch(
+                    "codegraph_explore",
+                    json!({"query":"one"}),
+                    CancellationToken::new()
+                )
+                .await
+                .unwrap()["error"]["code"],
+                "CODEGRAPH_NOT_INITIALIZED"
+            );
+            assert!(
+                b.activate("missing", CancellationToken::new())
+                    .await
+                    .is_err()
+            );
+            assert_eq!(b.snapshot().await.active_workspace.unwrap().id, "project-1");
+            {
+                let mut slot = b.workspace.write().await;
+                let active = slot.as_mut().unwrap();
+                active.graph = codegraph::tests::fixture(
+                    &active.workspace,
+                    active.generation,
+                    "slow",
+                    b.logs.clone(),
+                );
+                assert_eq!(
+                    active.graph.status(&active.workspace, active.generation)["status"],
+                    "starting"
+                );
+            }
+            let starting = b
+                .dispatch(
+                    "codegraph_explore",
+                    json!({"query":"one"}),
+                    CancellationToken::new(),
+                )
+                .await?;
+            assert_eq!(starting["error"]["code"], "CODEGRAPH_STARTING");
+            assert_eq!(
+                b.dispatch("git_status", json!({}), CancellationToken::new())
+                    .await?["workspace"]["id"],
+                "project-1"
+            );
+            {
+                let mut slot = b.workspace.write().await;
+                let active = slot.as_mut().unwrap();
+                active.graph =
+                    codegraph::tests::mock(&active.workspace, active.generation, b.logs.clone())
+                        .await;
+                assert_eq!(
+                    active.graph.status(&active.workspace, active.generation)["status"],
+                    "ready"
+                );
+            }
+            let ui = b.snapshot().await;
+            assert_eq!(ui.codegraph.as_ref().unwrap()["status"], "ready");
+            assert_eq!(
+                ui.codegraph.unwrap()["workspaceId"],
+                ui.active_workspace.unwrap().id
+            );
+            // A UI refresh during a write must return promptly without exposing another binding.
+            {
+                let _transition = b.workspace.write().await;
+                let ui = tokio::time::timeout(Duration::from_millis(100), b.snapshot())
+                    .await
+                    .unwrap();
+                assert!(ui.codegraph.is_none());
+            }
+            let crashed = discovery
+                .call_tool(
+                    CallToolRequestParams::new("codegraph_explore")
+                        .with_arguments(json!({"query":"crash"}).as_object().unwrap().clone()),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+            assert_eq!(crashed.is_error, Some(true));
+            assert!(
+                serde_json::to_string(&crashed)
+                    .unwrap()
+                    .contains("CODEGRAPH_RUNTIME_LOST")
+            );
+            let error = crashed.structured_content.unwrap();
+            assert_eq!(error["error"]["code"], "CODEGRAPH_RUNTIME_LOST");
+            assert_eq!(error["error"]["workspace"]["id"], "project-1");
+            assert!(error["error"].get("root").is_none());
+            let current = discovery
+                .call_tool(CallToolRequestParams::new("workspace_current"))
+                .await
+                .map_err(|e| e.to_string())?;
+            let current = current.structured_content.unwrap();
+            assert_eq!(current["activeWorkspace"]["id"], "project-1");
+            assert_eq!(current["codegraph"]["workspaceId"], "project-1");
+            assert_eq!(current["codegraph"]["status"], "runtime_lost");
+            assert_eq!(
+                b.snapshot().await.codegraph.unwrap()["status"],
+                "runtime_lost"
+            );
+            assert!(b.snapshot().await.running);
+            assert_eq!(
+                b.dispatch("git_status", json!({}), CancellationToken::new())
+                    .await?["workspace"]["id"],
+                "project-1"
+            );
             drop(discovery);
-            b.activate("project-1", CancellationToken::new()).await?;
             let output = b
                 .dispatch(
                     "source_read_file",
@@ -865,7 +1219,7 @@ mod integration_tests {
                     .map_err(|e| e.to_string())?;
             let upstream = serena::Client::connect(b.supervisor.snapshot().active_port).await?;
             let advertised = client1.list_all_tools().await.map_err(|e| e.to_string())?;
-            assert_eq!(advertised.len(), 17);
+            assert_eq!(advertised.len(), 18);
             for (public_name, remote_name, _, _) in registry::SOURCES {
                 let original = upstream
                     .tools
@@ -941,7 +1295,120 @@ mod integration_tests {
                 )
                 .await?;
             assert!(output["text"].as_str().unwrap().contains("def two"));
+            // Preferences save without stopping the running PID or releasing its binding.
+            // Restart then reactivates the same workspace using the new process/generation.
+            for dashboard in [true, false] {
+                let (before_workspace, before_pid, before_generation, released) = {
+                    let slot = b.workspace.read().await;
+                    let active = slot.as_ref().unwrap();
+                    (
+                        active.workspace.clone(),
+                        active.pid,
+                        active.generation,
+                        codegraph::tests::release_signal(&active.graph),
+                    )
+                };
+                let mut next = b.config();
+                next.dashboard_enabled = dashboard;
+                next.open_dashboard_on_launch = false;
+                crate::commands::save_config_impl(&b, next).await?;
+                assert_eq!(b.supervisor.snapshot().process_id, Some(before_pid));
+                assert_eq!(b.supervisor.snapshot().server_status, ServerStatus::Running);
+                assert_eq!(b.supervisor.snapshot().active_dashboard_enabled, !dashboard);
+                assert!(!released.is_cancelled());
+                assert_eq!(
+                    b.workspace.read().await.as_ref().unwrap().generation,
+                    before_generation
+                );
+                crate::commands::restart_serena_impl(&b).await?;
+                let slot = b.workspace.read().await;
+                let restored = slot.as_ref().unwrap();
+                assert_eq!(restored.workspace, before_workspace);
+                assert_ne!(restored.pid, before_pid);
+                assert!(restored.generation > before_generation);
+                assert!(released.is_cancelled());
+                assert_eq!(b.supervisor.snapshot().active_dashboard_enabled, dashboard);
+                drop(slot);
+                let output = b
+                    .dispatch(
+                        "source_read_file",
+                        json!({"relative_path":"example.py"}),
+                        CancellationToken::new(),
+                    )
+                    .await?;
+                assert!(output["text"].as_str().unwrap().contains("def two"));
+                assert_eq!(
+                    b.dispatch("git_status", json!({}), CancellationToken::new())
+                        .await?["workspace"]["id"],
+                    "project-2"
+                );
+            }
+            let (workspace_b, generation_b, pid_b, released) = {
+                let mut slot = b.workspace.write().await;
+                let active = slot.as_mut().unwrap();
+                active.graph =
+                    codegraph::tests::mock(&active.workspace, active.generation, b.logs.clone())
+                        .await;
+                (
+                    active.workspace.clone(),
+                    active.generation,
+                    active.pid,
+                    codegraph::tests::release_signal(&active.graph),
+                )
+            };
+            // B has committed before the stale A observer obtains the write lock.
+            // Make B invalid too, so only identity rechecking can protect it.
+            let supervisor = b.supervisor.clone();
+            tauri::async_runtime::spawn_blocking(move || supervisor.stop())
+                .await
+                .unwrap()?;
+            b.clear_invalid_graph_workspace(&observed_a.0, observed_a.1, observed_a.2)
+                .await;
+            b.clear_invalid_graph_workspace(&workspace_b, generation_b - 1, pid_b)
+                .await;
+            {
+                let slot = b.workspace.read().await;
+                let active = slot.as_ref().unwrap();
+                assert_eq!(active.workspace.id, workspace_b.id);
+                assert_eq!(
+                    active.graph.status(&workspace_b, generation_b)["status"],
+                    "ready"
+                );
+                assert!(!released.is_cancelled());
+            }
+            assert_eq!(
+                b.dispatch(
+                    "codegraph_explore",
+                    json!({"query":"x"}),
+                    CancellationToken::new()
+                )
+                .await?["error"]["code"],
+                "WORKSPACE_NOT_ACTIVE"
+            );
+            assert!(b.workspace.read().await.is_none());
+            assert!(b.published.lock().unwrap().is_none());
+            assert!(released.is_cancelled());
+            assert!(b.snapshot().await.codegraph.is_none());
+            assert!(
+                b.dispatch(
+                    "source_read_file",
+                    json!({"relative_path":"example.py"}),
+                    CancellationToken::new()
+                )
+                .await
+                .unwrap_err()
+                .contains("NO_ACTIVE_WORKSPACE")
+            );
             b.deactivate().await?;
+            assert_eq!(
+                b.dispatch(
+                    "codegraph_explore",
+                    json!({"query":"one"}),
+                    CancellationToken::new()
+                )
+                .await?["error"]["code"],
+                "WORKSPACE_NOT_ACTIVE"
+            );
             assert!(
                 b.dispatch("git_status", json!({}), CancellationToken::new())
                     .await
@@ -954,6 +1421,16 @@ mod integration_tests {
                     .is_err()
             );
             assert!(b.snapshot().await.active_workspace.is_none());
+            // A restart without an active workspace must not resurrect a deactivated project.
+            crate::commands::restart_serena_impl(&b).await?;
+            assert!(b.snapshot().await.active_workspace.is_none());
+            b.activate("project-2", CancellationToken::new()).await?;
+            std::fs::remove_file(dir.path().join("two/.serena/project.yml")).unwrap();
+            let error = crate::commands::restart_serena_impl(&b).await.unwrap_err();
+            assert!(error.contains("Serena 已重启，但恢复项目"), "{error}");
+            assert_eq!(b.supervisor.snapshot().server_status, ServerStatus::Running);
+            assert!(b.workspace.read().await.is_none());
+            assert!(b.snapshot().await.codegraph.is_none());
             Ok::<_, String>(())
         }
         .await;

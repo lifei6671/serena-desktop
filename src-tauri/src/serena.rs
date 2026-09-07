@@ -35,6 +35,8 @@ pub enum ServerStatus {
 
 struct ManagedProcess {
     child: Child,
+    #[cfg(windows)]
+    _job: std::os::windows::io::OwnedHandle,
     port: u16,
     dashboard_enabled: bool,
     installation: SerenaInstallation,
@@ -44,6 +46,7 @@ struct Runtime {
     config: ManagerConfig,
     installation: Option<SerenaInstallation>,
     git: GitInstallation,
+    codegraph_version: Option<String>,
     process: Option<ManagedProcess>,
     status: ServerStatus,
     last_error: Option<String>,
@@ -59,6 +62,7 @@ pub struct SupervisorState {
 #[derive(Debug, Clone)]
 pub struct SupervisorSnapshot {
     pub git: GitInstallation,
+    pub codegraph_version: Option<String>,
     pub config: ManagerConfig,
     pub installation: Option<SerenaInstallation>,
     pub active_installation: Option<SerenaInstallation>,
@@ -87,6 +91,7 @@ impl SupervisorState {
                 config,
                 installation: None,
                 git: GitInstallation::default(),
+                codegraph_version: None,
                 process: None,
                 status: ServerStatus::Stopped,
                 last_error: None,
@@ -119,6 +124,7 @@ impl SupervisorState {
         SupervisorSnapshot {
             process_id: runtime.process.as_ref().map(|p| p.child.id()),
             git: runtime.git.clone(),
+            codegraph_version: runtime.codegraph_version.clone(),
             config: runtime.config.clone(),
             installation: runtime.installation.clone(),
             active_installation,
@@ -144,6 +150,11 @@ impl SupervisorState {
             .clone();
         let installation = Some(discovery::detect(&config, &self.paths));
         self.detect_git();
+        let version = discovery::detect_codegraph_version();
+        self.runtime
+            .lock()
+            .expect("supervisor mutex poisoned")
+            .codegraph_version = version;
         self.commit_detection(&config, installation)
     }
 
@@ -278,6 +289,15 @@ impl SupervisorState {
             self.set_error(&message);
             message
         })?;
+        #[cfg(windows)]
+        let job = contain_process(&child).map_err(|error| {
+            if terminate_managed_process(&mut child).is_ok() || child.kill().is_ok() {
+                let _ = child.wait();
+            }
+            let message = format!("无法绑定 Serena 进程生命周期：{error}");
+            self.set_error(&message);
+            message
+        })?;
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         spawn_log_reader(
@@ -297,6 +317,8 @@ impl SupervisorState {
             let mut runtime = self.runtime.lock().expect("supervisor mutex poisoned");
             runtime.process = Some(ManagedProcess {
                 child,
+                #[cfg(windows)]
+                _job: job,
                 port: config.port,
                 dashboard_enabled: config.dashboard_enabled,
                 installation: installation.clone(),
@@ -439,6 +461,38 @@ impl SupervisorState {
         runtime.status = ServerStatus::Error;
         runtime.last_error = Some(message.to_string());
         logs::append(&self.paths.app_log, "app", message);
+    }
+}
+
+#[cfg(windows)]
+fn contain_process(child: &Child) -> std::io::Result<std::os::windows::io::OwnedHandle> {
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        SetInformationJobObject,
+    };
+    // The unnamed handle is not inheritable. Windows closes it even on abort or
+    // TerminateProcess, killing this managed process and its descendants.
+    unsafe {
+        let raw = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if raw.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        let job = OwnedHandle::from_raw_handle(raw);
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if SetInformationJobObject(
+            job.as_raw_handle(),
+            JobObjectExtendedLimitInformation,
+            (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+            std::mem::size_of_val(&limits) as u32,
+        ) == 0
+            || AssignProcessToJobObject(job.as_raw_handle(), child.as_raw_handle()) == 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(job)
     }
 }
 
@@ -652,6 +706,59 @@ fn exit_message(status: ExitStatus) -> String {
 mod tests {
     use super::*;
     use crate::discovery::InstallationSource;
+
+    #[test]
+    #[cfg(windows)]
+    fn job_owner_fixture() {
+        let Some(signal) = std::env::var_os("SERENA_JOB_TEST_SIGNAL") else {
+            return;
+        };
+        let mut child = hidden_command("ping.exe")
+            .args(["-n", "60", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let _job = contain_process(&child).unwrap();
+        std::fs::write(signal, child.id().to_string()).unwrap();
+        child.wait().unwrap();
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn managed_process_dies_when_owner_is_terminated() {
+        use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let signal = dir.path().join("pid");
+        let mut owner = hidden_command(std::env::current_exe().unwrap())
+            .args(["--exact", "serena::tests::job_owner_fixture", "--nocapture"])
+            .env("SERENA_JOB_TEST_SIGNAL", &signal)
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !signal.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+        if !signal.exists() {
+            let _ = owner.kill();
+            let _ = owner.wait();
+            panic!("job fixture did not become ready");
+        }
+        let pid = std::fs::read_to_string(signal).unwrap().parse().unwrap();
+        // Hold the process handle before killing the owner to avoid PID reuse.
+        let raw = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+        owner.kill().unwrap(); // No Rust destructor runs in the owner.
+        owner.wait().unwrap();
+        assert!(!raw.is_null());
+        let child = unsafe { OwnedHandle::from_raw_handle(raw) };
+        assert_eq!(
+            unsafe { WaitForSingleObject(child.as_raw_handle(), 5000) },
+            0
+        );
+    }
 
     #[test]
     fn startup_checks_supported_version_then_git_then_configuration() {
