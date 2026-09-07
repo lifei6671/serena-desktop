@@ -152,6 +152,7 @@ impl Broker {
                         let broker = logging_broker.clone();
                         async move {
                             let method = request.method().clone();
+                            let path = request.uri().path().to_owned();
                             // Forwarded headers are diagnostic claims, not the TCP peer identity.
                             // Bound and quote values so headers cannot create arbitrary log lines.
                             let headers = request.headers();
@@ -164,7 +165,7 @@ impl Broker {
                             let forwarded_host = header("x-forwarded-host");
                             let response = next.run(request).await;
                             broker.log_level(if response.status().is_server_error() { "ERROR" } else if response.status().is_client_error() { "WARN" } else { "INFO" }, &format!(
-                                "HTTP {method} · {} · peer={peer} host={host:?} cf-connecting-ip={cf_ip:?} x-forwarded-for={forwarded_for:?} x-forwarded-host={forwarded_host:?}",
+                                "HTTP {method} · {} · path={path:?} peer={peer} host={host:?} cf-connecting-ip={cf_ip:?} x-forwarded-for={forwarded_for:?} x-forwarded-host={forwarded_host:?}",
                                 response.status()
                             ));
                             response

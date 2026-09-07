@@ -680,7 +680,7 @@ mod integration_tests {
         b.supervisor.paths.verify_serena_config().unwrap();
     }
     #[tokio::test]
-    async fn request_logs_distinguish_peer_from_forwarded_headers() {
+    async fn request_logs_include_missing_path_and_distinguish_peer_from_forwarded_headers() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let dir = tempfile::tempdir().unwrap();
         let broker = fixture(dir.path(), None);
@@ -691,7 +691,7 @@ mod integration_tests {
             .unwrap();
         let peer = stream.local_addr().unwrap();
         let request = format!(
-            "GET /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nCF-Connecting-IP: 203.0.113.8\r\nX-Forwarded-For: 203.0.113.8, 192.0.2.1\r\nX-Forwarded-Host: serena.example.com\r\nAuthorization: Bearer do-not-log\r\nConnection: close\r\n\r\n"
+            "GET /missing/resource?token=query-do-not-log HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nCF-Connecting-IP: 203.0.113.8\r\nX-Forwarded-For: 203.0.113.8, 192.0.2.1\r\nX-Forwarded-Host: serena.example.com\r\nAuthorization: Bearer do-not-log\r\nConnection: close\r\n\r\n"
         );
         stream.write_all(request.as_bytes()).await.unwrap();
         let mut response = Vec::new();
@@ -700,6 +700,9 @@ mod integration_tests {
             .unwrap()
             .unwrap();
         let logs = broker.log_snapshot().join("\n");
+        assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 404"));
+        assert!(logs.contains("HTTP GET · 404 Not Found · path=\"/missing/resource\""));
+        assert!(!logs.contains("token="));
         assert!(logs.contains(&format!("peer={peer}")));
         assert!(logs.contains(&format!("host=\"127.0.0.1:{port}\"")));
         assert!(logs.contains("cf-connecting-ip=\"203.0.113.8\""));
