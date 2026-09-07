@@ -174,6 +174,7 @@ pub fn run() {
             commands::get_broker_state,
             commands::get_mcp_logs,
             commands::clear_mcp_logs,
+            commands::download_mcp_logs,
             commands::sync_workspaces,
             commands::activate_workspace,
             commands::deactivate_workspace,

@@ -72,26 +72,36 @@ impl ServerHandler for Handler {
     ) -> Result<CallToolResponse, ErrorData> {
         let started = std::time::Instant::now();
         let args = Value::Object(request.arguments.unwrap_or_default());
+        let request_id = &context.id;
+        self.0.log(&format!(
+            "tools/call request={request_id:?} tool={:?} · 入参={}",
+            request.name,
+            log_value(&args)
+        ));
         registry::validate(&request.name, &args).map_err(|e| {
-            self.0.log(&format!(
-                "tools/call · {:?} · 参数校验失败 · 耗时 {:.3} ms",
-                request.name,
-                started.elapsed().as_secs_f64() * 1000.0
+            self.0.log_level("WARN", &format!(
+                "tools/call request={request_id:?} tool={:?} · 参数校验失败 · error={} · 耗时 {:.3} ms",
+                request.name, log_value(&json!(e)), started.elapsed().as_secs_f64() * 1000.0
             ));
             ErrorData::invalid_params(e, None)
         })?;
-        self.0.log(&format!("tools/call · {} · 开始", request.name));
         let result = self.0.call_tool(&request.name, args, context.ct).await;
-        self.0.log(&format!(
-            "tools/call · {} · {} · 耗时 {:.3} ms",
-            request.name,
-            if result.as_ref().is_ok_and(|v| v.get("error").is_none()) {
-                "成功"
-            } else {
-                "失败"
-            },
-            started.elapsed().as_secs_f64() * 1000.0
-        ));
+        let error = match &result {
+            Ok(value) => value.get("error").cloned(),
+            Err(error) => Some(json!(error)),
+        };
+        self.0.log_level(
+            if error.is_some() { "ERROR" } else { "INFO" },
+            &format!(
+                "tools/call request={request_id:?} tool={:?} · {} · 耗时 {:.3} ms{}",
+                request.name,
+                if error.is_some() { "失败" } else { "成功" },
+                started.elapsed().as_secs_f64() * 1000.0,
+                error
+                    .map(|e| format!(" · error={}", log_value(&e)))
+                    .unwrap_or_default()
+            ),
+        );
         Ok(match result {
             Ok(v) => {
                 let content = vec![ContentBlock::text(v.to_string())];
@@ -121,7 +131,7 @@ impl Broker {
         let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
             .await
             .map_err(|e| {
-                self.log(&format!("MCP 启动失败 · 端口 {port} · {e}"));
+                self.log_level("ERROR", &format!("MCP 启动失败 · 端口 {port} · {e}"));
                 format!("Broker 端口不可用: {e}")
             })?;
         let broker = self.clone();
@@ -153,7 +163,7 @@ impl Broker {
                             let forwarded_for = header("x-forwarded-for");
                             let forwarded_host = header("x-forwarded-host");
                             let response = next.run(request).await;
-                            broker.log(&format!(
+                            broker.log_level(if response.status().is_server_error() { "ERROR" } else if response.status().is_client_error() { "WARN" } else { "INFO" }, &format!(
                                 "HTTP {method} · {} · peer={peer} host={host:?} cf-connecting-ip={cf_ip:?} x-forwarded-for={forwarded_for:?} x-forwarded-host={forwarded_host:?}",
                                 response.status()
                             ));
@@ -171,7 +181,7 @@ impl Broker {
             .with_graceful_shutdown(quit.cancelled_owned())
             .await
             {
-                error_broker.log(&format!("MCP 监听异常 · {e}"));
+                error_broker.log_level("ERROR", &format!("MCP 监听异常 · {e}"));
                 *error_broker.error.lock().unwrap() = Some(e.to_string());
             }
         });
@@ -193,5 +203,36 @@ impl Broker {
         }
         self.clear_workspace(&mut *self.workspace.write().await);
         Ok(())
+    }
+}
+
+// JSON keeps user-controlled newlines escaped; bound each diagnostic payload.
+fn log_value(value: &Value) -> String {
+    let text = value.to_string();
+    if text.chars().count() <= 8192 {
+        return text;
+    }
+    format!(
+        "{}… [已截断，最多 8192 字符]",
+        text.chars().take(8192).collect::<String>()
+    )
+}
+
+#[cfg(test)]
+mod log_tests {
+    use super::*;
+    #[test]
+    fn arguments_remain_readable_and_cannot_forge_log_lines() {
+        let args =
+            json!({"relative_path":"src/main.rs", "query":"你好\nERROR forged", "maxFiles":12});
+        let logged = log_value(&args);
+        assert_eq!(serde_json::from_str::<Value>(&logged).unwrap(), args);
+        assert!(!logged.contains('\n'));
+    }
+    #[test]
+    fn oversized_unicode_arguments_are_explicitly_truncated() {
+        let logged = log_value(&json!({"query":"中".repeat(9000)}));
+        assert!(logged.ends_with("[已截断，最多 8192 字符]"));
+        assert!(logged.chars().count() < 8250);
     }
 }

@@ -3,6 +3,7 @@ import type { AppState, ManagerConfig, BrokerState } from "./types";
 
 export const api = {
   mcpLogs: () => invoke<string[]>("get_mcp_logs"),
+  downloadMcpLogs: () => invoke<boolean>("download_mcp_logs"),
   clearMcpLogs: () => invoke<void>("clear_mcp_logs"),
   broker: () => invoke<BrokerState>("get_broker_state"),
   syncProjects: () => invoke<number>("sync_workspaces"),

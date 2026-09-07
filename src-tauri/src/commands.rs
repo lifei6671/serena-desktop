@@ -415,3 +415,29 @@ pub fn get_mcp_logs(app: AppHandle) -> Vec<String> {
 pub fn clear_mcp_logs(app: AppHandle) {
     crate::mcp::get(&app).clear_logs();
 }
+
+#[tauri::command]
+pub async fn download_mcp_logs(app: AppHandle) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let text = crate::mcp::get(&app).log_snapshot().join("\n");
+    tauri::async_runtime::spawn_blocking(move || {
+        let name = format!(
+            "serena-mcp-{}.log",
+            chrono::Local::now().format("%Y%m%d-%H%M%S")
+        );
+        let Some(file) = app
+            .dialog()
+            .file()
+            .set_file_name(name)
+            .add_filter("日志", &["log"])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let path = file.into_path().map_err(|e| e.to_string())?;
+        std::fs::write(path, text).map_err(|e| format!("写入日志失败：{e}"))?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| format!("导出日志任务失败：{e}"))?
+}

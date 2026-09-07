@@ -378,7 +378,11 @@ function App() {
                   variant="outline"
                   disabled={busy !== null}
                   onClick={() =>
-                    run("detect", api.detect, "已重新检测 Serena 和 Git。")
+                    run(
+                      "detect",
+                      api.detect,
+                      "已重新检测 Serena、Git 和 CodeGraph。",
+                    )
                   }
                   aria-busy={busy === "detect"}
                 >
@@ -521,6 +525,10 @@ function App() {
                   <code title={state.git.path ?? undefined}>
                     {state.git.available ? state.git.version : state.git.error}
                   </code>
+                </div>
+                <div className="fact-row">
+                  <span>CodeGraph 版本</span>
+                  <code>{state.codegraphVersion ?? "版本未检测到"}</code>
                 </div>
                 <div className="fact-row">
                   <span>浏览器管理面板</span>

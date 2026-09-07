@@ -108,7 +108,7 @@ export function ProjectPanel({
     ? { label: "待激活", tone: "idle", detail: "激活项目后连接" }
     : graph
       ? {
-          ready: { label: "就绪", tone: "good", detail: "已绑定当前项目" },
+          ready: { label: "就绪", tone: "good", detail: "" },
           starting: {
             label: "启动中",
             tone: "waiting",
@@ -407,8 +407,12 @@ export function ProjectPanel({
                 {state.codegraphVersion
                   ? `CodeGraph ${state.codegraphVersion}`
                   : "版本未检测到"}
-                <br />
-                {graphState.detail}
+                {graphState.detail && (
+                  <>
+                    <br />
+                    {graphState.detail}
+                  </>
+                )}
               </span>
             </div>
             <div className="service-row">

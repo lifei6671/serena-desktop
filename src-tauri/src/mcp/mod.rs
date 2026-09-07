@@ -97,6 +97,9 @@ impl Broker {
     pub fn log(&self, message: &str) {
         append_log(&self.logs, message);
     }
+    pub fn log_level(&self, level: &str, message: &str) {
+        append_log_level(&self.logs, level, message);
+    }
     pub fn log_snapshot(&self) -> Vec<String> {
         self.logs.lock().unwrap().iter().cloned().collect()
     }
@@ -504,13 +507,16 @@ impl Broker {
     }
 }
 fn append_log(logs: &Mutex<VecDeque<String>>, message: &str) {
+    append_log_level(logs, "INFO", message);
+}
+fn append_log_level(logs: &Mutex<VecDeque<String>>, level: &str, message: &str) {
     let mut logs = logs.lock().unwrap();
     if logs.len() == 500 {
         logs.pop_front();
     }
     logs.push_back(format!(
-        "【{}】 {message}",
-        chrono::Local::now().format("%H:%M:%S%.3f")
+        "{level:<5} {} [MCP] {message}",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f")
     ));
 }
 pub fn get(app: &AppHandle) -> Arc<Broker> {
@@ -611,8 +617,8 @@ mod integration_tests {
         }
         let logs = broker.log_snapshot();
         assert_eq!(logs.len(), 500);
-        assert!(logs[0].starts_with("【"));
-        assert!(logs[0].contains("】 entry-10"));
+        assert!(logs[0].starts_with("INFO  "));
+        assert!(logs[0].contains("[MCP] entry-10"));
         assert!(logs[0].ends_with("entry-10"));
         assert!(logs[499].ends_with("entry-509"));
     }
@@ -861,7 +867,7 @@ mod integration_tests {
                     while !broker
                         .log_snapshot()
                         .iter()
-                        .any(|line| line.contains("workspace_deactivate · 开始"))
+                        .any(|line| line.contains("workspace_deactivate\" · 入参="))
                     {
                         tokio::task::yield_now().await;
                     }
@@ -886,17 +892,28 @@ mod integration_tests {
                 .is_err()
         );
         let logs = broker.log_snapshot();
+        assert!(logs.iter().any(|line| line.starts_with("INFO ")
+            && line.contains("request=")
+            && line.contains("入参={\"query\":\"x\"}")));
+        assert!(
+            logs.iter()
+                .any(|line| line.starts_with("ERROR ") && line.contains("WORKSPACE_NOT_ACTIVE"))
+        );
+        assert!(
+            logs.iter()
+                .any(|line| line.starts_with("WARN ") && line.contains("参数校验失败"))
+        );
         assert!(logs.iter().any(|line| line.contains("MCP 已监听")));
         assert!(logs.iter().any(|line| line.contains("HTTP POST")));
         assert!(logs.iter().any(|line| line.contains("tools/list")));
-        assert!(logs.iter().any(|line| line.contains("git_status · 失败")));
+        assert!(logs.iter().any(|line| line.contains("git_status\" · 失败")));
         assert!(
             logs.iter()
-                .any(|line| line.contains("workspace_deactivate · 成功"))
+                .any(|line| line.contains("workspace_deactivate\" · 成功"))
         );
         for outcome in [
-            "git_status · 失败",
-            "workspace_deactivate · 成功",
+            "git_status\" · 失败",
+            "workspace_deactivate\" · 成功",
             "参数校验失败",
         ] {
             let line = logs.iter().find(|line| line.contains(outcome)).unwrap();
@@ -904,12 +921,13 @@ mod integration_tests {
                 .split(" · 耗时 ")
                 .nth(1)
                 .unwrap()
-                .strip_suffix(" ms")
+                .split(" ms")
+                .next()
                 .unwrap()
                 .parse()
                 .unwrap();
             assert!(elapsed >= 0.0);
-            if outcome == "workspace_deactivate · 成功" {
+            if outcome == "workspace_deactivate\" · 成功" {
                 // Includes time waiting for the workspace lock, not just HTTP headers.
                 assert!(elapsed >= 40.0, "{line}");
             }

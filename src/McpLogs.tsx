@@ -1,3 +1,4 @@
+import { Copy, Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -7,6 +8,7 @@ import { api } from "./api";
 export function McpLogs() {
   const [lines, setLines] = useState<string[] | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [exporting, setExporting] = useState<"copy" | "download" | null>(null);
   const clearingRef = useRef(false);
   const readEpoch = useRef(0);
 
@@ -70,25 +72,32 @@ export function McpLogs() {
     }
   };
 
+  const exportLogs = async (action: "copy" | "download") => {
+    setExporting(action);
+    try {
+      if (action === "copy") {
+        await navigator.clipboard.writeText((lines ?? []).join("\n"));
+        toast.success("日志已复制");
+      } else if (await api.downloadMcpLogs()) {
+        toast.success("日志已保存");
+      }
+    } catch (reason) {
+      toast.error(
+        `${action === "copy" ? "复制" : "下载"}日志失败：${String(reason)}`,
+      );
+    } finally {
+      setExporting(null);
+    }
+  };
+
   return (
     <section className="logs-page">
       <div className="page-heading">
         <div>
           <h1>MCP 日志</h1>
-          <p>本次应用运行的 MCP 连接入口日志 · 保留最近 500 条</p>
+          <p>MCP 请求、入参及执行状态 · 保留最近 500 条</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant="outline"
-            disabled={clearing}
-            aria-busy={clearing}
-            onClick={() => void clear()}
-          >
-            {clearing && (
-              <Spinner data-icon="inline-start" aria-hidden="true" />
-            )}
-            {clearing ? "清空中…" : "清空日志"}
-          </Button>
           <Button
             variant="outline"
             onClick={() => {
@@ -102,27 +111,73 @@ export function McpLogs() {
         </div>
       </div>
 
-      <div
-        className="log-stream dark"
-        ref={viewport}
-        role="region"
-        aria-label="MCP 运行日志"
-        tabIndex={0}
-        onScroll={(event) => {
-          const node = event.currentTarget;
-          following.current =
-            node.scrollHeight - node.scrollTop - node.clientHeight < 32;
-        }}
-      >
-        {lines?.length ? (
-          <pre>{lines.join("\n")}</pre>
-        ) : (
-          <p className="log-empty">
-            {lines === null
-              ? "正在读取日志…"
-              : "暂无 MCP 日志，启动连接入口或发起请求后会在这里显示。"}
-          </p>
-        )}
+      <div className="log-viewer dark">
+        <div className="log-toolbar" role="group" aria-label="日志工具">
+          <Button
+            variant="outline"
+            size="icon"
+            title="复制日志"
+            aria-label="复制日志"
+            disabled={!lines?.length || clearing || exporting !== null}
+            aria-busy={exporting === "copy"}
+            onClick={() => void exportLogs("copy")}
+          >
+            {exporting === "copy" ? <Spinner /> : <Copy />}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            title="下载日志"
+            aria-label="下载日志"
+            disabled={!lines?.length || clearing || exporting !== null}
+            aria-busy={exporting === "download"}
+            onClick={() => void exportLogs("download")}
+          >
+            {exporting === "download" ? <Spinner /> : <Download />}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            title="清空日志"
+            aria-label="清空日志"
+            disabled={!lines?.length || clearing || exporting !== null}
+            aria-busy={clearing}
+            onClick={() => void clear()}
+          >
+            {clearing ? <Spinner /> : <Trash2 />}
+          </Button>
+        </div>
+        <div
+          className="log-stream"
+          ref={viewport}
+          role="region"
+          aria-label="MCP 运行日志"
+          tabIndex={0}
+          onScroll={(event) => {
+            const node = event.currentTarget;
+            following.current =
+              node.scrollHeight - node.scrollTop - node.clientHeight < 32;
+          }}
+        >
+          {lines?.length ? (
+            <pre>
+              {lines.map((line, index) => (
+                <span
+                  key={index}
+                  className={`log-entry log-${line.startsWith("ERROR ") ? "error" : line.startsWith("WARN ") ? "warn" : "info"}`}
+                >
+                  {line}
+                </span>
+              ))}
+            </pre>
+          ) : (
+            <p className="log-empty">
+              {lines === null
+                ? "正在读取日志…"
+                : "暂无 MCP 日志，启动连接入口或发起请求后会在这里显示。"}
+            </p>
+          )}
+        </div>
       </div>
     </section>
   );
