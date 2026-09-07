@@ -744,8 +744,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn bounded_command_returns_output() {
-        let mut command = hidden_command("powershell.exe");
-        command.args(["-NoProfile", "-Command", "Write-Output Serena"]);
+        let mut command = hidden_command("cmd.exe");
+        command.args(["/D", "/C", "echo Serena"]);
         let output = run_with_timeout(command, Duration::from_secs(3), "测试命令").unwrap();
         assert!(output.status.success());
         assert!(String::from_utf8_lossy(&output.stdout).contains("Serena"));
