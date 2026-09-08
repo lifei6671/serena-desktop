@@ -16,6 +16,7 @@ tauri-build = { version = "2.5.6", features = [] }
 axum = "0.8.9"
 base64 = "0.22.1"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp"] }
+if-addrs = "0.15.0"
 chrono = { version = "0.4.42", default-features = false, features = ["clock"] }
 rmcp = { version = "3.2.0", features = ["client", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "transport-child-process", "which-command"] }
 serde = { version = "1.0.228", features = ["derive"] }

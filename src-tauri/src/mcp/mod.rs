@@ -29,11 +29,17 @@ pub struct Active {
     pub graph: codegraph::Binding,
     pub generation: u64,
 }
+pub struct Listener {
+    address: std::net::SocketAddr,
+    lan_endpoints: Vec<String>,
+    cancel: CancellationToken,
+    handle: tokio::task::JoinHandle<()>,
+}
 pub struct Broker {
     pub supervisor: Arc<SupervisorState>,
     pub workspace: RwLock<Option<Active>>,
     pub management: tokio::sync::Mutex<()>,
-    pub listener: tokio::sync::Mutex<Option<(u16, CancellationToken, tokio::task::JoinHandle<()>)>>,
+    pub listener: tokio::sync::Mutex<Option<Listener>>,
     pub operation: Mutex<Option<(String, CancellationToken)>>,
     pub project_sources: Mutex<Vec<PathBuf>>,
     pub sync_warnings: Mutex<Vec<String>>,
@@ -49,6 +55,8 @@ pub struct Broker {
 pub struct Snapshot {
     pub running: bool,
     pub port: u16,
+    pub listen_address: String,
+    pub lan_endpoints: Vec<String>,
     pub active_workspace: Option<Workspace>,
     pub codegraph: Option<Value>,
     pub projects: Vec<Project>,
@@ -138,11 +146,22 @@ impl Broker {
                 .map(|active| active.graph.status(&active.workspace, active.generation))
         });
         Snapshot {
-            running: listener.as_ref().is_some_and(|(_, _, h)| !h.is_finished()),
+            running: listener.as_ref().is_some_and(|l| !l.handle.is_finished()),
             port: listener
                 .as_ref()
-                .map(|p| p.0)
+                .map(|l| l.address.port())
                 .unwrap_or(snapshot.config.broker.port),
+            listen_address: listener
+                .as_ref()
+                .map(|l| l.address)
+                .unwrap_or_else(|| snapshot.config.broker.bind_address())
+                .ip()
+                .to_string(),
+            lan_endpoints: listener
+                .as_ref()
+                .filter(|l| !l.handle.is_finished())
+                .map(|l| l.lan_endpoints.clone())
+                .unwrap_or_default(),
             active_workspace: current,
             codegraph,
             projects: snapshot
@@ -554,6 +573,7 @@ mod integration_tests {
             broker: BrokerConfig {
                 enabled: false,
                 port: port(),
+                allow_lan: false,
             },
             dashboard_enabled: false,
             auto_start_server: false,
@@ -965,6 +985,110 @@ mod integration_tests {
         broker.stop().await.unwrap();
         assert!(!broker.snapshot().await.running);
         assert!(broker.log_snapshot().last().unwrap().contains("MCP 已停止"));
+    }
+
+    #[tokio::test]
+    async fn broker_listener_scope_changes_after_restart() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let dir = tempfile::tempdir().unwrap();
+        let broker = fixture(dir.path(), None);
+        for allow_lan in [false, true, false] {
+            let mut config = broker.config();
+            config.broker.allow_lan = allow_lan;
+            broker.supervisor.replace_config(config).unwrap();
+            broker.start().await.unwrap();
+            let state = broker.snapshot().await;
+            assert!(state.running);
+            assert_eq!(
+                state.listen_address,
+                if allow_lan { "0.0.0.0" } else { "127.0.0.1" }
+            );
+            if !allow_lan {
+                assert!(state.lan_endpoints.is_empty());
+            }
+            let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", state.port))
+                .await
+                .unwrap();
+            socket
+                .write_all(
+                    b"GET /mcp HTTP/1.1\r\nHost: untrusted.example\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            let mut response = Vec::new();
+            tokio::time::timeout(Duration::from_secs(5), socket.read_to_end(&mut response))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 403"));
+            let client = ()
+                .serve(StreamableHttpClientTransport::from_uri(format!(
+                    "http://127.0.0.1:{}/mcp",
+                    state.port
+                )))
+                .await
+                .unwrap();
+            let result = client
+                .call_tool(CallToolRequestParams::new("workspace_current"))
+                .await
+                .unwrap();
+            assert_ne!(result.is_error, Some(true));
+            assert!(result.structured_content.unwrap()["activeWorkspace"].is_null());
+            drop(client);
+            broker.stop().await.unwrap();
+            assert!(!broker.snapshot().await.running);
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires BROKER_TEST_LAN_IP set to a local non-loopback IPv4 address"]
+    async fn broker_accepts_lan_address_only_when_enabled() {
+        let ip: std::net::Ipv4Addr = std::env::var("BROKER_TEST_LAN_IP")
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(!ip.is_loopback() && !ip.is_unspecified());
+        let dir = tempfile::tempdir().unwrap();
+        let broker = fixture(dir.path(), None);
+        for allow_lan in [false, true, false] {
+            let mut config = broker.config();
+            config.broker.allow_lan = allow_lan;
+            broker.supervisor.replace_config(config).unwrap();
+            broker.start().await.unwrap();
+            let port = broker.snapshot().await.port;
+            if allow_lan {
+                assert!(
+                    broker
+                        .snapshot()
+                        .await
+                        .lan_endpoints
+                        .contains(&format!("http://{ip}:{port}/mcp"))
+                );
+                let client = tokio::time::timeout(
+                    Duration::from_secs(10),
+                    ().serve(StreamableHttpClientTransport::from_uri(format!(
+                        "http://{ip}:{port}/mcp"
+                    ))),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+                let result = client
+                    .call_tool(CallToolRequestParams::new("workspace_current"))
+                    .await
+                    .unwrap();
+                assert_ne!(result.is_error, Some(true));
+                drop(client);
+            } else {
+                let connection = tokio::time::timeout(
+                    Duration::from_secs(2),
+                    tokio::net::TcpStream::connect((ip, port)),
+                )
+                .await;
+                assert!(!matches!(connection, Ok(Ok(_))));
+            }
+            broker.stop().await.unwrap();
+        }
     }
     #[tokio::test]
     #[ignore = "requires SERENA_TEST_EXE pointing at the official 1.7.0 test installation"]

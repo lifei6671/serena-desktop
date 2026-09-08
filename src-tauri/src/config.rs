@@ -170,6 +170,25 @@ mod tests {
     }
 
     #[test]
+    fn broker_lan_is_opt_in_and_persisted() {
+        let mut config: ManagerConfig =
+            serde_json::from_str(r#"{"broker":{"enabled":true,"port":9120}}"#).unwrap();
+        assert!(!config.broker.allow_lan);
+        assert_eq!(config.broker.bind_address().to_string(), "127.0.0.1:9120");
+        config.broker.allow_lan = true;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        save(&path, &config).unwrap();
+        let loaded = load(&path).unwrap();
+        assert!(loaded.broker.allow_lan);
+        assert_eq!(loaded.broker.bind_address().to_string(), "0.0.0.0:9120");
+        assert_eq!(
+            serde_json::to_value(&loaded).unwrap()["broker"]["allowLan"],
+            true
+        );
+    }
+
+    #[test]
     fn rejects_reserved_port() {
         let config = ManagerConfig {
             port: 80,
@@ -210,13 +229,25 @@ mod tests {
 pub struct BrokerConfig {
     pub enabled: bool,
     pub port: u16,
+    pub allow_lan: bool,
 }
 impl Default for BrokerConfig {
     fn default() -> Self {
         Self {
             enabled: false,
             port: 9120,
+            allow_lan: false,
         }
+    }
+}
+impl BrokerConfig {
+    pub fn bind_address(&self) -> std::net::SocketAddr {
+        let ip = if self.allow_lan {
+            std::net::Ipv4Addr::UNSPECIFIED
+        } else {
+            std::net::Ipv4Addr::LOCALHOST
+        };
+        (ip, self.port).into()
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

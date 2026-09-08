@@ -28,7 +28,7 @@ const statusCopy: Record<ServerStatus, { label: string; detail: string }> = {
 };
 
 const initialConfig: ManagerConfig = {
-  broker: { enabled: false, port: 9120 },
+  broker: { enabled: false, port: 9120, allowLan: false },
   workspaces: [],
   serenaPath: null,
   port: 9121,
@@ -77,6 +77,7 @@ function App() {
   const [draft, setDraft] = useState<ManagerConfig>(initialConfig);
   const [busy, setBusy] = useState<string | null>(null);
   const [brokerPort, setBrokerPort] = useState(9120);
+  const [brokerAllowLan, setBrokerAllowLan] = useState(false);
   const hydrated = useRef(false);
   const requestEpoch = useRef(0);
   const mutationActive = useRef(false);
@@ -88,6 +89,7 @@ function App() {
       hydrated.current = true;
       setDraft(next.config);
       setBrokerPort(next.config.broker.port);
+      setBrokerAllowLan(next.config.broker.allowLan);
     }
     setState(next);
   }, []);
@@ -901,10 +903,18 @@ function App() {
                   />
                   <FieldDescription>
                     Cloudflare MCP upstream
-                    使用此入口，地址可在首页复制。仅监听本机
-                    127.0.0.1；启用时应用端口设置。
+                    使用此入口，本机地址可在首页复制。停止入口后可修改端口和访问范围，重新启用时生效。
                   </FieldDescription>
                 </Field>
+                <SettingSwitch
+                  label="允许局域网连接"
+                  checked={brokerAllowLan}
+                  onChange={setBrokerAllowLan}
+                  disabled={!!brokerController.busy || !!brokerController.broker?.running}
+                  hint={brokerAllowLan
+                    ? `开启后监听所有 IPv4 网卡（0.0.0.0）。其他电脑使用 http://本机局域网IPv4地址:${brokerPort}/mcp。服务无内置认证，能访问端口的设备可读取和切换共享工作区，请仅在可信网络启用；如被防火墙拦截，需手动允许对应端口。`
+                    : "关闭时仅本机可连接（127.0.0.1），其他电脑无法访问。"}
+                />
                 <div>
                   <Button
                     variant="outline"
@@ -920,6 +930,7 @@ function App() {
                           api.setBroker(
                             !brokerController.broker?.running,
                             brokerPort,
+                            brokerAllowLan,
                           ),
                         brokerController.broker?.running
                           ? "MCP 连接入口已停止"

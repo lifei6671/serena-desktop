@@ -10,8 +10,8 @@ export const api = {
   activateProject: (id: string) => invoke<void>("activate_workspace", { id }),
   deactivateProject: () => invoke<void>("deactivate_workspace"),
   cancelProject: () => invoke<void>("cancel_workspace_operation"),
-  setBroker: (enabled: boolean, port: number) =>
-    invoke<void>("set_broker", { enabled, port }),
+  setBroker: (enabled: boolean, port: number, allowLan: boolean) =>
+    invoke<void>("set_broker", { enabled, port, allowLan }),
   getState: () => invoke<AppState>("get_app_state"),
   detect: () => invoke<AppState>("detect_serena"),
   detectGit: () => invoke<AppState>("detect_git"),

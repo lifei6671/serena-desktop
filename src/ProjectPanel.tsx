@@ -170,11 +170,10 @@ export function ProjectPanel({
       setCancelling(false);
     }
   };
-  const copyEndpoint = async () => {
-    if (!endpoint) return;
+  const copyEndpoint = async (address: string) => {
     setCopyingEndpoint(true);
     try {
-      await navigator.clipboard.writeText(endpoint);
+      await navigator.clipboard.writeText(address);
       onCopied();
     } catch {
       toast.error("复制失败，请手动选择地址复制。");
@@ -444,7 +443,7 @@ export function ProjectPanel({
                   variant="outline"
                   disabled={copyingEndpoint}
                   aria-busy={copyingEndpoint}
-                  onClick={() => void copyEndpoint()}
+                  onClick={() => void copyEndpoint(endpoint)}
                 >
                   {copyingEndpoint && (
                     <Spinner data-icon="inline-start" aria-hidden="true" />
@@ -453,6 +452,22 @@ export function ProjectPanel({
                 </Button>
               </div>
               <p className="helper">供 Cloudflare MCP upstream 使用。</p>
+              <p className="helper">
+                {broker?.listenAddress === "0.0.0.0"
+                  ? "已允许局域网连接。请选择与另一台电脑同网段的地址；切换网络后请重新启用连接入口。"
+                  : "当前仅允许本机连接；可在设置中开启局域网访问。"}
+              </p>
+              {broker?.lanEndpoints.map((address) => (
+                <div className="endpoint-copy" key={address}>
+                  <code>{address}</code>
+                  <Button variant="outline" disabled={copyingEndpoint} onClick={() => void copyEndpoint(address)}>
+                    复制局域网地址
+                  </Button>
+                </div>
+              ))}
+              {broker?.listenAddress === "0.0.0.0" && broker.lanEndpoints.length === 0 && (
+                <p className="helper">未发现可用的 IPv4 网卡地址，请连接网络后重新启用入口。</p>
+              )}
             </>
           ) : (
             <div className="connection-stopped">

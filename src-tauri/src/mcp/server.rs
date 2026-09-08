@@ -138,20 +138,38 @@ impl ServerHandler for Handler {
 impl Broker {
     pub async fn start(self: &Arc<Self>) -> Result<(), String> {
         let mut current = self.listener.lock().await;
-        if current.as_ref().is_some_and(|(_, _, h)| !h.is_finished()) {
+        if current.as_ref().is_some_and(|l| !l.handle.is_finished()) {
             return Ok(());
         }
-        let port = self.config().broker.port;
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
-            .await
-            .map_err(|e| {
-                self.log_level("ERROR", &format!("MCP 启动失败 · 端口 {port} · {e}"));
-                format!("Broker 端口不可用: {e}")
-            })?;
+        let address = self.config().broker.bind_address();
+        let mut lan_ips = Vec::new();
+        if address.ip().is_unspecified() {
+            for interface in
+                if_addrs::get_if_addrs().map_err(|e| format!("无法读取本机网卡地址: {e}"))?
+            {
+                if let std::net::IpAddr::V4(ip) = interface.ip()
+                    && !ip.is_loopback()
+                    && !ip.is_unspecified()
+                {
+                    lan_ips.push(ip);
+                }
+            }
+            lan_ips.sort_unstable();
+            lan_ips.dedup();
+        }
+        let listener = tokio::net::TcpListener::bind(address).await.map_err(|e| {
+            self.log_level("ERROR", &format!("MCP 启动失败 · 地址 {address} · {e}"));
+            format!("Broker 监听地址不可用: {e}")
+        })?;
         let broker = self.clone();
         let token = CancellationToken::new();
         let mut config = StreamableHttpServerConfig::default();
         config.cancellation_token = token.child_token();
+        // Preserve rmcp's Host validation; permit only addresses owned by this host
+        // at listener startup. Never disable the allowlist for LAN access.
+        config
+            .allowed_hosts
+            .extend(lan_ips.iter().map(ToString::to_string));
         let service = StreamableHttpService::new(
             move || Ok(Handler(broker.clone())),
             Arc::new(LocalSessionManager::default()),
@@ -200,13 +218,24 @@ impl Broker {
                 *error_broker.error.lock().unwrap() = Some(e.to_string());
             }
         });
-        *current = Some((port, token, handle));
-        self.log(&format!("MCP 已监听 · http://127.0.0.1:{port}/mcp"));
+        *current = Some(Listener {
+            address,
+            lan_endpoints: lan_ips
+                .iter()
+                .map(|ip| format!("http://{ip}:{}/mcp", address.port()))
+                .collect(),
+            cancel: token,
+            handle,
+        });
+        self.log(&format!("MCP 已监听 · http://{address}/mcp"));
         Ok(())
     }
     pub async fn stop(&self) -> Result<(), String> {
-        if let Some((_, token, mut handle)) = self.listener.lock().await.take() {
-            token.cancel();
+        if let Some(Listener {
+            cancel, mut handle, ..
+        }) = self.listener.lock().await.take()
+        {
+            cancel.cancel();
             if tokio::time::timeout(Duration::from_secs(5), &mut handle)
                 .await
                 .is_err()

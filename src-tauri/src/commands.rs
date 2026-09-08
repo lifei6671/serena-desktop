@@ -391,11 +391,20 @@ pub fn cancel_workspace_operation(app: AppHandle) {
     }
 }
 #[tauri::command]
-pub async fn set_broker(app: AppHandle, enabled: bool, port: u16) -> Result<(), String> {
+pub async fn set_broker(
+    app: AppHandle,
+    enabled: bool,
+    port: u16,
+    allow_lan: bool,
+) -> Result<(), String> {
     let b = crate::mcp::get(&app);
     let _m = b.management.lock().await;
     let mut c = b.config();
-    c.broker = crate::config::BrokerConfig { enabled, port };
+    c.broker = crate::config::BrokerConfig {
+        enabled,
+        port,
+        allow_lan,
+    };
     c.validate()?;
     b.stop().await?;
     app.state::<std::sync::Arc<SupervisorState>>()
