@@ -1,4 +1,4 @@
-import { Copy, Download, Trash2 } from "lucide-react";
+import { Check, Copy, Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -8,12 +8,19 @@ import { api } from "./api";
 export function McpLogs() {
   const [lines, setLines] = useState<string[] | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [exporting, setExporting] = useState<"copy" | "download" | null>(null);
   const clearingRef = useRef(false);
   const readEpoch = useRef(0);
 
   const viewport = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
 
   useEffect(() => {
     let active = true;
@@ -74,9 +81,11 @@ export function McpLogs() {
 
   const exportLogs = async (action: "copy" | "download") => {
     setExporting(action);
+    if (action === "copy") setCopied(false);
     try {
       if (action === "copy") {
         await navigator.clipboard.writeText((lines ?? []).join("\n"));
+        setCopied(true);
         toast.success("日志已复制");
       } else if (await api.downloadMcpLogs()) {
         toast.success("日志已保存");
@@ -116,13 +125,19 @@ export function McpLogs() {
           <Button
             variant="outline"
             size="icon"
-            title="复制日志"
-            aria-label="复制日志"
+            title={copied ? "日志已复制" : "复制日志"}
+            aria-label={copied ? "日志已复制" : "复制日志"}
             disabled={!lines?.length || clearing || exporting !== null}
             aria-busy={exporting === "copy"}
             onClick={() => void exportLogs("copy")}
           >
-            {exporting === "copy" ? <Spinner /> : <Copy />}
+            {exporting === "copy" ? (
+              <Spinner />
+            ) : copied ? (
+              <Check className="text-emerald-400 motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-75 motion-safe:duration-200" />
+            ) : (
+              <Copy />
+            )}
           </Button>
           <Button
             variant="outline"
