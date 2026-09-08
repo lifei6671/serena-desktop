@@ -73,11 +73,14 @@ impl ServerHandler for Handler {
         let started = std::time::Instant::now();
         let args = Value::Object(request.arguments.unwrap_or_default());
         let request_id = &context.id;
-        self.0.log_tool("INFO", &format!(
-            "tools/call request={request_id:?} tool={:?} · 入参={}",
-            request.name,
-            log_value(&args)
-        ));
+        self.0.log_tool(
+            "INFO",
+            &format!(
+                "tools/call request={request_id:?} tool={:?} · 入参={}",
+                request.name,
+                log_value(&args)
+            ),
+        );
         registry::validate(&request.name, &args).map_err(|e| {
             self.0.log_tool("WARN", &format!(
                 "tools/call request={request_id:?} tool={:?} · 参数校验失败 · error={} · 耗时 {:.3} ms",
@@ -85,9 +88,30 @@ impl ServerHandler for Handler {
             ));
             ErrorData::invalid_params(e, None)
         })?;
-        let result = self.0.call_tool(&request.name, args, context.ct).await;
+        let result = if request.name == "media_read_image" {
+            self.0.read_image(args, context.ct).await
+        } else {
+            self.0
+                .call_tool(&request.name, args, context.ct)
+                .await
+                .map(|v| {
+                    let content = vec![ContentBlock::text(v.to_string())];
+                    let mut result =
+                        if request.name == "codegraph_explore" && v.get("error").is_some() {
+                            CallToolResult::error(content)
+                        } else {
+                            CallToolResult::success(content)
+                        };
+                    result.structured_content = Some(v);
+                    result
+                })
+        };
         let error = match &result {
-            Ok(value) => value.get("error").cloned(),
+            Ok(value) => value
+                .structured_content
+                .as_ref()
+                .and_then(|v| v.get("error"))
+                .cloned(),
             Err(error) => Some(json!(error)),
         };
         self.0.log_tool(
@@ -103,17 +127,7 @@ impl ServerHandler for Handler {
             ),
         );
         Ok(match result {
-            Ok(v) => {
-                let content = vec![ContentBlock::text(v.to_string())];
-                let mut result = if request.name == "codegraph_explore" && v.get("error").is_some()
-                {
-                    CallToolResult::error(content)
-                } else {
-                    CallToolResult::success(content)
-                };
-                result.structured_content = Some(v);
-                result
-            }
+            Ok(v) => v,
             Err(e) => {
                 CallToolResult::error(vec![ContentBlock::text(json!({"error":e}).to_string())])
             }

@@ -1,5 +1,6 @@
 mod codegraph;
 pub mod git;
+mod media;
 pub mod process;
 pub mod projects;
 pub mod registry;
@@ -835,6 +836,19 @@ mod integration_tests {
             broker.config().broker.port
         ));
         let client = ().serve(transport).await.unwrap();
+        let image = client
+            .call_tool(
+                CallToolRequestParams::new("media_read_image")
+                    .with_arguments(json!({"path":"test.png"}).as_object().unwrap().clone()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(image.is_error, Some(true));
+        assert!(
+            serde_json::to_string(&image)
+                .unwrap()
+                .contains("NO_ACTIVE_WORKSPACE")
+        );
         assert!(
             client
                 .list_all_tools()
@@ -1019,10 +1033,31 @@ mod integration_tests {
                     .await
                     .map_err(|e| e.to_string())?
                     .len(),
-                18
+                19
             );
             assert!(b.snapshot().await.active_workspace.is_none());
             let activated = b.activate("project-1", CancellationToken::new()).await?;
+            // Real local HTTP Broker -> rmcp -> native ImageContent POC.
+            // The downstream Serena only establishes the normal active binding;
+            // no downstream or test double manufactures an image Tool Result.
+            for (file, format, mime) in [
+                ("image-poc.png", image::ImageFormat::Png, "image/png"),
+                ("image-poc.jpg", image::ImageFormat::Jpeg, "image/jpeg"),
+                ("image-poc.webp", image::ImageFormat::WebP, "image/png"),
+            ] {
+                media::tests::poc_image().save_with_format(dir.path().join("one").join(file), format).unwrap();
+                let result = discovery.call_tool(CallToolRequestParams::new("media_read_image").with_arguments(json!({"path":file}).as_object().unwrap().clone())).await.map_err(|e| e.to_string())?;
+                let decoded = media::tests::assert_image(&result, mime);
+                assert_eq!((decoded.width(), decoded.height()), (640, 320));
+                let pixel = decoded.to_rgb8().get_pixel(320, 230).0;
+                assert!(pixel[0] > 240 && pixel[1] < 15 && pixel[2] < 15);
+                println!("MCP ImageContent POC: {file}, {mime}, 640x320; SERENA IMAGE TEST / 9274 / red circle");
+            }
+            for (path, code) in [("../outside.png", "INVALID_PATH"), ("missing.png", "INVALID_PATH"), ("example.py", "UNSUPPORTED_MEDIA_TYPE")] {
+                let result = discovery.call_tool(CallToolRequestParams::new("media_read_image").with_arguments(json!({"path":path}).as_object().unwrap().clone())).await.map_err(|e| e.to_string())?;
+                assert_eq!(result.is_error, Some(true));
+                assert!(serde_json::to_string(&result).unwrap().contains(code));
+            }
             let observed_a = {
                 let slot = b.workspace.read().await;
                 let active = slot.as_ref().unwrap();
@@ -1251,7 +1286,7 @@ mod integration_tests {
                     .map_err(|e| e.to_string())?;
             let upstream = serena::Client::connect(b.supervisor.snapshot().active_port).await?;
             let advertised = client1.list_all_tools().await.map_err(|e| e.to_string())?;
-            assert_eq!(advertised.len(), 18);
+            assert_eq!(advertised.len(), 19);
             for (public_name, remote_name, _, _) in registry::SOURCES {
                 let original = upstream
                     .tools
