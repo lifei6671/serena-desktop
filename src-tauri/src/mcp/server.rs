@@ -56,8 +56,8 @@ impl ServerHandler for Handler {
                 None,
             ));
         }
-        let tools =
-            registry::list(&client.tools).map_err(|e| ErrorData::internal_error(e, None))?;
+        let tools = registry::list(&client.tools, self.0.config().agent_enabled)
+            .map_err(|e| ErrorData::internal_error(e, None))?;
         self.0
             .log("tools/list · 返回工具列表（Serena 描述原样传递）");
         Ok(ListToolsResult {
@@ -96,12 +96,14 @@ impl ServerHandler for Handler {
                 .await
                 .map(|v| {
                     let content = vec![ContentBlock::text(v.to_string())];
-                    let mut result =
-                        if request.name == "codegraph_explore" && v.get("error").is_some() {
-                            CallToolResult::error(content)
-                        } else {
-                            CallToolResult::success(content)
-                        };
+                    let mut result = if (request.name == "codegraph_explore"
+                        && v.get("error").is_some())
+                        || (request.name == "agent" && v["ok"] == false)
+                    {
+                        CallToolResult::error(content)
+                    } else {
+                        CallToolResult::success(content)
+                    };
                     result.structured_content = Some(v);
                     result
                 })

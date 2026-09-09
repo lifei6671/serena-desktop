@@ -148,8 +148,23 @@ fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
     t.output_schema = Some(output.as_object().unwrap().clone().into());
     t
 }
-pub fn list(upstream: &[Tool]) -> Result<Vec<Tool>, String> {
+pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String> {
+    let mut agent = Tool::new(
+        "agent",
+        "【做什么】\n创建、继续、观察和取消 Agent Execution。start 异步返回 receipt，不等待 Turn 完成。\n\n【什么时候使用】\n新 fresh lineage 使用新的 agentId；重试复用原 agentId/requestKey/prompt。已有 lineage 的新 Turn 使用 continue；crash 前未派发的原 Execution 使用 resume_pending。observe/list 只读，cancel 只取消 exact executionId。\n\n【关键约束】\nagentId 固定 Workspace/Thread lineage，不跨 Workspace 或 fresh Thread。已有 Execution 使用 persisted snapshot。后端不静默替换 agentId。Tool 调用取消/断开不取消 Execution。unknown 不可 Force Unlock。仅 codex/read_only/default profile。",
+        schema::<crate::agent::product::Action>()
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    agent.annotations = Some(ToolAnnotations::default().read_only(false));
+    let mut output = schema::<crate::agent::product::Envelope>();
+    for variant in output["anyOf"].as_array_mut().unwrap() {
+        variant["properties"]["ok"]["const"] = json!(variant["properties"].get("data").is_some());
+    }
+    agent.output_schema = Some(output.as_object().unwrap().clone().into());
     let mut list = vec![
+        agent,
         tool(
             "workspace_list",
             "【做什么】\n列出 Desktop 已从 Serena 同步的项目，返回项目 ID、名称和根目录。\n\n【什么时候使用】\n查找可激活的项目，或在调用 workspace_activate 前获取项目 ID。\n\n【关键约束】\n只读取已同步列表，不扫描目录、不初始化项目，也不切换当前活动项目。新项目需先在 Serena 初始化，再由 Desktop 同步。",
@@ -228,9 +243,13 @@ pub fn list(upstream: &[Tool]) -> Result<Vec<Tool>, String> {
     );
     media.output_schema = None;
     list.push(media);
+    if !agent_enabled { list.retain(|tool| tool.name != "agent"); }
     Ok(list)
 }
 pub fn validate(name: &str, args: &Value) -> Result<(), String> {
+    if name == "agent" {
+        return Ok(());
+    } // Product Service owns DTO errors and its stable envelope.
     if let Some((_, _, allowed, required)) = SOURCES.iter().find(|t| t.0 == name) {
         let object = args.as_object().ok_or("INVALID_PARAMS: 参数必须是对象")?;
         if object.keys().any(|k| !allowed.contains(&k.as_str()))
@@ -289,9 +308,10 @@ mod tests {
     }
     #[test]
     fn fixed_surface() {
-        let tools = list(&upstream()).unwrap();
-        assert_eq!(tools.len(), 19);
+        let tools = list(&upstream(), true).unwrap();
+        assert_eq!(tools.len(), 20);
         let mut expected = vec![
+            "agent",
             "workspace_list",
             "workspace_current",
             "workspace_activate",
@@ -332,7 +352,7 @@ mod tests {
                 .map(|t| &t.name)
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
-            19
+            20
         );
         assert!(
             validate(
@@ -371,7 +391,7 @@ mod tests {
     #[test]
     fn forwarded_descriptions_are_exact_and_local_descriptions_have_three_sections() {
         let upstream = upstream();
-        let tools = list(&upstream).unwrap();
+        let tools = list(&upstream, true).unwrap();
         for (name, remote, _, _) in SOURCES {
             let exposed = tools.iter().find(|t| t.name == *name).unwrap();
             let original = upstream.iter().find(|t| t.name == *remote).unwrap();
@@ -405,10 +425,10 @@ mod tests {
 
     #[test]
     fn missing_upstream_tool_fails_instead_of_using_a_placeholder() {
-        assert!(list(&[]).unwrap_err().contains("missing read_file"));
+        assert!(list(&[], true).unwrap_err().contains("missing read_file"));
         let mut upstream = upstream();
         upstream[0].description = None;
-        let tools = list(&upstream).unwrap();
+        let tools = list(&upstream, true).unwrap();
         assert!(
             tools
                 .iter()
@@ -417,5 +437,45 @@ mod tests {
                 .description
                 .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod agent_contract_tests {
+    use super::*;
+    #[test]
+    fn one_mutating_agent_tool_with_product_schema() {
+        let upstream = SOURCES
+            .iter()
+            .map(|(_, name, _, _)| Tool::new(*name, "upstream", serde_json::Map::new()))
+            .collect::<Vec<_>>();
+        let tools = list(&upstream, true).unwrap();
+        let disabled = list(&upstream, false).unwrap();
+        assert!(!disabled.iter().any(|tool| tool.name == "agent"));
+        assert_eq!(tools.len(), disabled.len() + 1);
+        let agent = tools
+            .iter()
+            .filter(|t| t.name == "agent")
+            .collect::<Vec<_>>();
+        assert_eq!(agent.len(), 1);
+        let agent = agent[0];
+        assert_eq!(
+            agent.annotations.as_ref().unwrap().read_only_hint,
+            Some(false)
+        );
+        let input = serde_json::to_string(&agent.input_schema).unwrap();
+        for action in [
+            "start",
+            "continue",
+            "resume_pending",
+            "observe",
+            "cancel",
+            "list",
+        ] {
+            assert!(input.contains(action));
+        }
+        let output = serde_json::to_string(&agent.output_schema).unwrap();
+        assert!(output.contains("ExecutionView"));
+        assert!(!output.contains("truncated"));
     }
 }

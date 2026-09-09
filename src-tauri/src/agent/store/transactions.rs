@@ -2,6 +2,7 @@
 use super::*;
 use crate::agent::execution::state::*;
 use serde_json::json;
+pub mod product;
 
 // One live Host owns dispatch. Covers separate StateStore connections as well as
 // clones; DB facts remain authoritative. Never persisted as an Execution state.

@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppState, ManagerConfig, BrokerState } from "./types";
+import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope } from "./types";
 
 export const api = {
+  codexVersion: () => invoke<string>("get_codex_version"),
+  agent: (request: AgentAction) => invoke<AgentEnvelope>("agent_operation", { request }),
   mcpLogs: () => invoke<string[]>("get_mcp_logs"),
   downloadMcpLogs: () => invoke<boolean>("download_mcp_logs"),
   clearMcpLogs: () => invoke<void>("clear_mcp_logs"),
@@ -26,6 +28,6 @@ export const api = {
     invoke<AppState>("set_autostart", { enabled }),
   openDashboard: () => invoke<void>("open_dashboard"),
   openLogs: () => invoke<void>("open_log_directory"),
-  openExternal: (target: "docs" | "github" | "git" | "uv") =>
+  openExternal: (target: "docs" | "github" | "codegraph" | "git" | "uv") =>
     invoke<void>("open_external_url", { target }),
 };

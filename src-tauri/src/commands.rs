@@ -75,6 +75,19 @@ pub fn get_app_state(app: AppHandle) -> Result<AppState, String> {
 }
 
 #[tauri::command]
+pub async fn get_codex_version() -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let executable = crate::agent::codex::discovery::discover().await?;
+        let evidence = crate::agent::codex::app_server::managed::verify(executable)
+            .await.map_err(|e| e.to_string())?;
+        Ok(evidence.identity.version)
+    }
+    #[cfg(not(windows))]
+    Err("当前平台不支持本地 Codex Agent".into())
+}
+
+#[tauri::command]
 pub async fn detect_serena(app: AppHandle) -> Result<AppState, String> {
     tauri::async_runtime::spawn_blocking(move || {
         app.state::<std::sync::Arc<SupervisorState>>()
@@ -229,6 +242,7 @@ pub fn open_external_url(target: &str) -> Result<(), String> {
     let url = match target {
         "docs" => "https://oraios.github.io/serena/02-usage/010_installation.html",
         "github" => "https://github.com/oraios/serena",
+        "codegraph" => "https://github.com/colbymchenry/codegraph",
         "git" => "https://git-scm.com/downloads",
         "uv" => "https://docs.astral.sh/uv/getting-started/installation/",
         _ => return Err("不支持的外部链接。".into()),
@@ -449,4 +463,9 @@ pub async fn download_mcp_logs(app: AppHandle) -> Result<bool, String> {
     })
     .await
     .map_err(|e| format!("导出日志任务失败：{e}"))?
+}
+
+#[tauri::command]
+pub async fn agent_operation(app: AppHandle, request: serde_json::Value) -> serde_json::Value {
+    crate::mcp::get(&app).agent_operation(request).await
 }

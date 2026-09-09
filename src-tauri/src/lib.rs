@@ -108,6 +108,31 @@ pub fn run() {
                 std::sync::Arc::new(SupervisorState::new(paths).map_err(std::io::Error::other)?);
             app.manage(supervisor.clone());
             let broker = std::sync::Arc::new(mcp::Broker::new(supervisor));
+            let store = tauri::async_runtime::block_on(agent::store::StateStore::open_for_app(
+                app.handle(),
+            ))
+            .map_err(std::io::Error::other)?;
+            let (product, outcomes) = tauri::async_runtime::block_on(
+                agent::product::AgentProductService::initialize(store),
+            ).map_err(std::io::Error::other)?;
+            if let Some(error) = product.backend_diagnostic() {
+                logs::append(&app.state::<std::sync::Arc<SupervisorState>>().paths.app_log, "agent backend", &format!("Agent backend unavailable: {error}"));
+            }
+            for outcome in outcomes {
+                use agent::task_manager::recovery::RecoveryOutcome::*;
+                let (kind, id) = match &outcome {
+                    Released { execution_id } => ("released", execution_id),
+                    Inconsistent { execution_id, .. } => ("inconsistent; claim retained", execution_id),
+                    PendingExplicitResume { execution_id } => ("pending explicit resume", execution_id),
+                    Unknown { execution_id, .. } => ("unknown; claim retained", execution_id),
+                    RuntimeFailure { execution_id, .. } => ("runtime failure; claim retained", execution_id),
+                    Interrupted { execution, .. } => ("interrupted; safely released", &execution.id),
+                };
+                logs::append(&app.state::<std::sync::Arc<SupervisorState>>().paths.app_log, "agent recovery", &format!("{id}: {kind}"));
+            }
+            let product = std::sync::Arc::new(product);
+            let _ = broker.product.set(product.clone());
+            app.manage(product);
             app.manage(broker.clone());
             let sync_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -175,7 +200,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::agent_operation,
             commands::get_app_state,
+            commands::get_codex_version,
             commands::get_broker_state,
             commands::get_mcp_logs,
             commands::clear_mcp_logs,

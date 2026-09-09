@@ -51,6 +51,7 @@ impl AppPaths {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ManagerConfig {
+    pub agent_enabled: bool,
     pub broker: BrokerConfig,
     pub workspaces: Vec<Workspace>,
     pub serena_path: Option<PathBuf>,
@@ -65,6 +66,7 @@ impl Default for ManagerConfig {
     fn default() -> Self {
         Self {
             broker: BrokerConfig::default(),
+            agent_enabled: false,
             workspaces: Vec::new(),
             serena_path: None,
             port: 9121,
@@ -167,6 +169,18 @@ mod tests {
     #[test]
     fn default_config_is_valid() {
         assert!(ManagerConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn agent_tools_are_opt_in_and_persisted() {
+        let mut config: ManagerConfig = serde_json::from_str("{}").unwrap();
+        assert!(!config.agent_enabled);
+        config.agent_enabled = true;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        save(&path, &config).unwrap();
+        assert!(load(&path).unwrap().agent_enabled);
+        assert_eq!(serde_json::to_value(&config).unwrap()["agentEnabled"], true);
     }
 
     #[test]

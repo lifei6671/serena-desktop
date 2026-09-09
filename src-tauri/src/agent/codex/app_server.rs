@@ -117,6 +117,20 @@ impl Drop for Client {
 impl Client {
     /// Transport attachment is crate-internal; production callers use managed::connect,
     /// which verifies the executable and exports schema before launching the Runtime.
+    #[cfg(test)]
+    pub(crate) fn product_test_transport<R, W, E>(
+        runtime_id: String,
+        reader: R,
+        writer: W,
+        stderr: E,
+    ) -> Self
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        W: AsyncWrite + Unpin + Send + 'static,
+        E: AsyncRead + Unpin + Send + 'static,
+    {
+        Self::transport(runtime_id, reader, writer, stderr)
+    }
     pub(super) fn transport<R, W, E>(runtime_id: String, reader: R, writer: W, stderr: E) -> Self
     where
         R: AsyncRead + Unpin + Send + 'static,

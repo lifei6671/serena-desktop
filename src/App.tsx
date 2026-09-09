@@ -1,3 +1,5 @@
+import { AgentPanel } from "./AgentPanel";
+import { House, Activity, Settings, ScrollText, Bot } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -28,6 +30,7 @@ const statusCopy: Record<ServerStatus, { label: string; detail: string }> = {
 };
 
 const initialConfig: ManagerConfig = {
+  agentEnabled: false,
   broker: { enabled: false, port: 9120, allowLan: false },
   workspaces: [],
   serenaPath: null,
@@ -70,7 +73,7 @@ function SettingSwitch({
 }
 
 function App() {
-  const [tab, setTab] = useState<"console" | "serena" | "settings" | "logs">(
+  const [tab, setTab] = useState<"console" | "serena" | "settings" | "logs" | "agent">(
     "console",
   );
   const [state, setState] = useState<AppState | null>(null);
@@ -83,6 +86,22 @@ function App() {
   const mutationActive = useRef(false);
   const pickerActive = useRef(false);
   const [choosingExecutable, setChoosingExecutable] = useState(false);
+  const [codexVersion, setCodexVersion] = useState("");
+  const [codexError, setCodexError] = useState("");
+  const [codexLoading, setCodexLoading] = useState(false);
+  const codexDetection = useRef<Promise<void> | null>(null);
+  const detectCodex = useCallback((force = false) => {
+    if (codexDetection.current && !force) return codexDetection.current;
+    setCodexLoading(true);
+    codexDetection.current = api.codexVersion()
+      .then(version => { setCodexVersion(version); setCodexError(""); })
+      .catch(error => { setCodexVersion(""); setCodexError(String(error)); })
+      .finally(() => setCodexLoading(false));
+    return codexDetection.current;
+  }, []);
+  useEffect(() => {
+    if (tab === "serena") void detectCodex();
+  }, [tab, detectCodex]);
 
   const applySnapshot = useCallback((next: AppState) => {
     if (!hydrated.current) {
@@ -326,7 +345,7 @@ function App() {
             aria-current={tab === "console" ? "page" : undefined}
             onClick={() => setTab("console")}
           >
-            首页
+            <House aria-hidden="true" />首页
           </Button>
           <Button
             variant={tab === "serena" ? "secondary" : "ghost"}
@@ -334,7 +353,7 @@ function App() {
             aria-current={tab === "serena" ? "page" : undefined}
             onClick={() => setTab("serena")}
           >
-            状态
+            <Activity aria-hidden="true" />状态
           </Button>
           <Button
             variant={tab === "settings" ? "secondary" : "ghost"}
@@ -342,7 +361,7 @@ function App() {
             aria-current={tab === "settings" ? "page" : undefined}
             onClick={() => setTab("settings")}
           >
-            设置
+            <Settings aria-hidden="true" />设置
           </Button>
           <Button
             variant={tab === "logs" ? "secondary" : "ghost"}
@@ -350,8 +369,9 @@ function App() {
             aria-current={tab === "logs" ? "page" : undefined}
             onClick={() => setTab("logs")}
           >
-            日志
+            <ScrollText aria-hidden="true" />日志
           </Button>
+          <Button className="justify-start" aria-current={tab === "agent" ? "page" : undefined} variant={tab === "agent" ? "secondary" : "ghost"} onClick={() => setTab("agent")}><Bot aria-hidden="true" />Agent</Button>
         </nav>
       </aside>
 
@@ -378,12 +398,15 @@ function App() {
                 </div>
                 <Button
                   variant="outline"
-                  disabled={busy !== null}
+                  disabled={busy !== null || codexLoading}
                   onClick={() =>
                     run(
                       "detect",
-                      api.detect,
-                      "已重新检测 Serena、Git 和 CodeGraph。",
+                      async () => {
+                        const [next] = await Promise.all([api.detect(), detectCodex(true)]);
+                        return next;
+                      },
+                      "检测已完成，请查看各项状态。",
                     )
                   }
                   aria-busy={busy === "detect"}
@@ -532,6 +555,10 @@ function App() {
                   <span>CodeGraph 版本</span>
                   <code>{state.codegraphVersion ?? "版本未检测到"}</code>
                 </div>
+                <div className={`fact-row ${codexError ? "error-row" : ""}`}>
+                  <span>本地 Codex 版本</span>
+                  <code title={codexError || undefined}>{codexError ? `不可用：${codexError}` : codexVersion || "正在检测…"}</code>
+                </div>
                 <div className="fact-row">
                   <span>浏览器管理面板</span>
                   <code>
@@ -653,7 +680,6 @@ function App() {
                     官方安装说明 ↗
                   </Button>
                 )}
-                {!isInstalled && (
                   <Button
                     variant="ghost"
                     disabled={busy !== null}
@@ -667,12 +693,17 @@ function App() {
                     {busy === "open-github" && (
                       <Spinner data-icon="inline-start" aria-hidden="true" />
                     )}
-                    GitHub ↗
+                    Serena GitHub ↗
                   </Button>
-                )}
+                <Button variant="ghost" disabled={busy !== null} aria-busy={busy === "open-codegraph"} onClick={() => runSideEffect("open-codegraph", () => api.openExternal("codegraph"))}>
+                  {busy === "open-codegraph" && <Spinner data-icon="inline-start" aria-hidden="true" />}
+                  CodeGraph GitHub ↗
+                </Button>
               </div>
             </div>
           </section>
+        ) : tab === "agent" ? (
+          <AgentPanel workspace={brokerController.broker?.activeWorkspace ?? null} onSelectWorkspace={() => setTab("console")} />
         ) : tab === "logs" ? (
           <McpLogs />
         ) : (
@@ -693,6 +724,13 @@ function App() {
                 </div>
               </header>
               <FieldGroup className="settings-body">
+                <SettingSwitch
+                  checked={draft.agentEnabled}
+                  onChange={value => saveToggle({ agentEnabled: value }, value ? "已开启 Agent 对外工具。" : "已关闭 Agent 对外工具。")}
+                  disabled={busy !== null}
+                  label="开启 Agent"
+                  hint="允许 MCP 客户端使用 Agent 工具。关闭后拒绝新的工具请求；不取消已有任务，桌面端仍可管理任务。客户端需刷新工具列表。"
+                />
                 <SettingSwitch
                   checked={state.autostartEnabled ?? false}
                   onChange={setAutostart}

@@ -27,6 +27,13 @@ impl From<String> for ExecutionFailure {
 }
 impl CodexProvider {
     pub async fn execute(&self, id: &str) -> Result<ExecutionRecord, ExecutionFailure> {
+        self.execute_with_acceptance(id, &mut None).await
+    }
+    pub(crate) async fn execute_with_acceptance(
+        &self,
+        id: &str,
+        acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<ExecutionRecord, ExecutionFailure> {
         let row = self.row(id).await?;
         if row.status == "cancelled" && row.dispatch_state == "not_dispatched" {
             return Ok(row);
@@ -50,7 +57,9 @@ impl CodexProvider {
                 return Err(ExecutionFailure::Runtime(error));
             }
         };
-        let result = self.run_client(id, &managed.client).await;
+        let result = self
+            .run_client_with_acceptance(id, &managed.client, acceptance)
+            .await;
         managed
             .shutdown()
             .await
@@ -66,7 +75,7 @@ impl CodexProvider {
     async fn event(&self, id: &str, event: Transition) -> Result<(), String> {
         self.store.provider_event(id.into(), event, now()).await
     }
-    async fn failed(&self, id: &str) -> Result<(), String> {
+    pub(crate) async fn failed(&self, id: &str) -> Result<(), String> {
         let row = self.row(id).await?;
         if matches!(
             row.status.as_str(),
@@ -119,7 +128,15 @@ impl CodexProvider {
         id: &str,
         client: &Client,
     ) -> Result<ExecutionRecord, String> {
-        let outcome = self.run_active_client(id, client).await;
+        self.run_client_with_acceptance(id, client, &mut None).await
+    }
+    pub(crate) async fn run_client_with_acceptance(
+        &self,
+        id: &str,
+        client: &Client,
+        acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<ExecutionRecord, String> {
+        let outcome = self.run_active_client(id, client, acceptance).await;
         if outcome.is_err() {
             self.failed(id).await?;
         }
@@ -129,6 +146,7 @@ impl CodexProvider {
         &self,
         id: &str,
         client: &Client,
+        acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<ExecutionRecord, String> {
         let row = self.row(id).await?;
         if row.status == "cancelled" && row.dispatch_state == "not_dispatched" {
@@ -150,11 +168,28 @@ impl CodexProvider {
             }
             return Err(error);
         }
-        let thread = client
-            .thread_start(&row.canonical_workspace_root)
-            .await
-            .map_err(|e| e.to_string())?;
+        let thread = if let Some(thread_id) = &row.thread_id {
+            let thread = client
+                .thread_resume(thread_id)
+                .await
+                .map_err(|e| e.to_string())?;
+            if thread.history_mode != super::protocol::HistoryMode::Paginated {
+                return Err(
+                    "CODEX_APP_SERVER_INCOMPATIBLE: continuation requires paginated history".into(),
+                );
+            }
+            thread
+        } else {
+            client
+                .thread_start(&row.canonical_workspace_root)
+                .await
+                .map_err(|e| e.to_string())?
+        };
         self.bind(id, client, &thread.id, None).await?;
+        // Product continue is accepted only after exact managed Thread validation.
+        if let Some(receipt) = acceptance.take() {
+            let _ = receipt.send(Ok(()));
+        }
         let (flushed_tx, mut flushed_rx) = tokio::sync::oneshot::channel();
         let request = client.turn_start_observed(&thread.id, id, &row.prompt, flushed_tx);
         tokio::pin!(request);

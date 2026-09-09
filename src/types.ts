@@ -1,6 +1,7 @@
 export type ServerStatus = "stopped" | "starting" | "running" | "error";
 
 export interface ManagerConfig {
+  agentEnabled: boolean;
   broker: { enabled: boolean; port: number; allowLan: boolean };
   workspaces: Workspace[];
   serenaPath: string | null;
@@ -74,3 +75,21 @@ export interface BrokerState {
   operation: string | null;
   lastError: string | null;
 }
+
+export type AgentAction =
+  | { action: "start"; agentId: string; requestKey: string; prompt: string }
+  | { action: "continue"; executionId: string; requestKey: string; prompt: string }
+  | { action: "observe" | "cancel" | "resume_pending"; executionId: string }
+  | { action: "list"; agentId?: string; workspaceId?: string; limit?: number };
+export interface ExecutionView {
+  prompt: string; canonicalWorkspaceRoot: string;
+  executionId: string; agentId: string; workspaceId: string; status: string;
+  dispatchState: string; threadId: string | null; turnId: string | null;
+  providerTerminalStatus: string | null; resultCompleteness: string; finalResult: unknown | null;
+  interruptRequested: boolean; interruptAcknowledged: boolean; interruptTimedOut: boolean;
+  attention: "none" | "pending_explicit_resume" | "manual_resolution_required";
+  availableActions: { canCancel: boolean; canContinue: boolean; canResumePending: boolean };
+  createdAt: number; updatedAt: number; completedAt: number | null;
+}
+export type AgentEnvelope = { ok: true; data: ExecutionView | { executions: ExecutionView[] } }
+  | { ok: false; error: { code: string; message: string; executionId?: string } };

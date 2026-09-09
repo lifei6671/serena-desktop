@@ -148,6 +148,21 @@ impl AgentTaskManager {
                 match scope {
                     Err(error) => diagnostic = Some(error.to_string()),
                     Ok(scope) => {
+                        if let Some(error) = &self.backend_error {
+                            outcomes.push(RecoveryOutcome::RuntimeFailure {
+                                execution_id: id,
+                                failure: runtime::RuntimeFailure {
+                                    code: if error.starts_with("CODEX_APP_SERVER_INCOMPATIBLE") {
+                                        "CODEX_APP_SERVER_INCOMPATIBLE"
+                                    } else {
+                                        "BACKEND_UNAVAILABLE"
+                                    },
+                                    message: error.clone(),
+                                    runtime: None,
+                                },
+                            });
+                            continue;
+                        }
                         let managed = match managed::connect(
                             self.store.clone(),
                             self.owner.clone(),

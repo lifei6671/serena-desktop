@@ -36,6 +36,7 @@ pub struct Listener {
     handle: tokio::task::JoinHandle<()>,
 }
 pub struct Broker {
+    pub product: std::sync::OnceLock<Arc<crate::agent::product::AgentProductService>>,
     pub supervisor: Arc<SupervisorState>,
     pub workspace: RwLock<Option<Active>>,
     pub management: tokio::sync::Mutex<()>,
@@ -90,6 +91,7 @@ impl Broker {
     pub fn new(supervisor: Arc<SupervisorState>) -> Self {
         Self {
             supervisor,
+            product: std::sync::OnceLock::new(),
             workspace: RwLock::new(None),
             management: tokio::sync::Mutex::new(()),
             listener: tokio::sync::Mutex::new(None),
@@ -309,6 +311,25 @@ impl Broker {
         self.clear_workspace(&mut *self.workspace.write().await);
         Ok(json!({"activeWorkspace":null,"status":"inactive","truncated":false}))
     }
+    pub async fn agent_operation(&self, args: Value) -> Value {
+        let Some(product) = self.product.get() else {
+            return crate::agent::product::failure(
+                "BACKEND_UNAVAILABLE: Agent service not initialized".into(),
+                None,
+            );
+        };
+        let workspace = if args["action"] == "start" {
+            self.workspace.read().await.as_ref().map(|active| {
+                crate::agent::store::transactions::product::WorkspaceSnapshot {
+                    id: active.workspace.id.clone(),
+                    root: active.workspace.root.to_string_lossy().into_owned(),
+                }
+            })
+        } else {
+            None
+        };
+        product.operation(args, workspace).await
+    }
     pub async fn call_tool(
         &self,
         name: &str,
@@ -343,6 +364,12 @@ impl Broker {
         args: Value,
         cancel: CancellationToken,
     ) -> Result<Value, String> {
+        if name == "agent" {
+            if !self.config().agent_enabled {
+                return Ok(json!({"ok":false,"error":{"code":"AGENT_DISABLED","message":"Agent 工具未开启，请在 Serena Desktop 设置中开启 Agent。"}}));
+            }
+            return Ok(self.agent_operation(args).await);
+        }
         registry::validate(name, &args)?;
         if name == "codegraph_explore" {
             return Ok(self.explore_graph(args, cancel).await);
@@ -1157,7 +1184,7 @@ mod integration_tests {
                     .await
                     .map_err(|e| e.to_string())?
                     .len(),
-                19
+                20
             );
             assert!(b.snapshot().await.active_workspace.is_none());
             let activated = b.activate("project-1", CancellationToken::new()).await?;
@@ -1410,7 +1437,7 @@ mod integration_tests {
                     .map_err(|e| e.to_string())?;
             let upstream = serena::Client::connect(b.supervisor.snapshot().active_port).await?;
             let advertised = client1.list_all_tools().await.map_err(|e| e.to_string())?;
-            assert_eq!(advertised.len(), 19);
+            assert_eq!(advertised.len(), 19); // Agent is opt-in.
             for (public_name, remote_name, _, _) in registry::SOURCES {
                 let original = upstream
                     .tools
@@ -1639,5 +1666,60 @@ mod integration_tests {
         }
         assert!(!dir.path().join("one/activation-marker.txt").exists());
         result.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod agent_adapter_tests {
+    use super::*;
+    #[test]
+    fn mcp_and_tauri_entry_share_product_envelope_without_active_workspace() {
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let temp = tempfile::tempdir().unwrap();
+            let paths = crate::config::AppPaths {
+                runtime_directory: temp.path().join("runtime"),
+                config_file: temp.path().join("config.json"),
+                log_directory: temp.path().join("logs"),
+                app_log: temp.path().join("app.log"),
+                serena_log: temp.path().join("serena.log"),
+            };
+            let broker = Broker::new(Arc::new(SupervisorState::new(paths).unwrap()));
+            for request in [json!({"action":"list"}), json!({"action":"cancel","executionId":"x"}), json!({"action":"invalid"})] {
+                let denied = broker.call_tool("agent", request, CancellationToken::new()).await.unwrap();
+                assert_eq!(denied, json!({"ok":false,"error":{"code":"AGENT_DISABLED","message":"Agent 工具未开启，请在 Serena Desktop 设置中开启 Agent。"}}));
+            }
+            let mut config = broker.config();
+            config.agent_enabled = true;
+            broker.supervisor.replace_config(config).unwrap();
+            let store = crate::agent::store::StateStore::open(temp.path().join("agent"))
+                .await
+                .unwrap();
+            let _ = broker
+                .product
+                .set(Arc::new(crate::agent::product::AgentProductService::new(
+                    store,
+                )));
+            for request in [
+                json!({"action":"list"}),
+                json!({"action":"observe","executionId":"missing"}),
+                json!({"action":"start","agentId":"a","requestKey":"k","prompt":"p"}),
+                json!({"action":"list","limit":101}),
+                json!({"action":"start","provider":"other"}),
+            ] {
+                let tauri = broker.agent_operation(request.clone()).await;
+                let mcp = broker
+                    .call_tool("agent", request, CancellationToken::new())
+                    .await
+                    .unwrap();
+                assert_eq!(tauri, mcp);
+                assert!(tauri.get("ok").is_some());
+                assert!(tauri.get("truncated").is_none());
+            }
+            let mut config = broker.config();
+            config.agent_enabled = false;
+            broker.supervisor.replace_config(config).unwrap();
+            assert_eq!(broker.call_tool("agent", json!({"action":"list"}), CancellationToken::new()).await.unwrap()["error"]["code"], "AGENT_DISABLED");
+            assert_eq!(broker.agent_operation(json!({"action":"list"})).await["ok"], true);
+        });
     }
 }
