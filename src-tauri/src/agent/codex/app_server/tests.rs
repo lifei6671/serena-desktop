@@ -1148,6 +1148,210 @@ fn recovery_and_cleanup_page_failures_never_produce_complete_evidence() {
 }
 
 #[test]
+fn items_pagination_transport_failures_discard_accumulated_results() {
+    run(async {
+        for failure in ["rpc", "timeout", "oversize", "disconnect"] {
+            assert_items_page_failure(failure).await;
+        }
+    });
+}
+
+#[test]
+fn items_pagination_obeys_remaining_total_recovery_deadline() {
+    run(assert_items_page_failure("deadline"));
+}
+
+async fn assert_items_page_failure(failure: &'static str) {
+    let temp = tempfile::tempdir().unwrap();
+    let store = crate::agent::store::StateStore::open(temp.path().into())
+        .await
+        .unwrap();
+    persisted_execution(
+        temp.path(),
+        "E-items",
+        Some("R1"),
+        Some("T"),
+        Some("target"),
+        Some("completed"),
+        Some("R1"),
+    );
+    let scope = recovery::RecoveryScope::same_runtime_for_execution(&store, "E-items", "R1")
+        .await
+        .unwrap();
+    let before = store.execution("E-items".into()).await.unwrap();
+    let (client, server) = pair();
+    let (second_page, observed_second_page) = oneshot::channel();
+    let fake = tokio::spawn(async move {
+        let mut s = BufReader::new(server);
+        handshake(&mut s).await;
+        let req = recv(&mut s).await;
+        assert_eq!(req["method"], "thread/read");
+        assert_eq!(req["params"], json!({"threadId":"T","includeTurns":false}));
+        reply(&mut s, &req, metadata("T", "paginated")).await;
+        let req = recv(&mut s).await;
+        assert_eq!(req["method"], "thread/turns/list");
+        assert_eq!(req["params"]["threadId"], "T");
+        assert_eq!(req["params"]["cursor"], Value::Null);
+        reply(
+            &mut s,
+            &req,
+            json!({"data":[turn_value("target","completed")],"nextCursor":null}),
+        )
+        .await;
+        let req = recv(&mut s).await;
+        assert_eq!(req["method"], "thread/items/list");
+        assert_eq!(req["params"]["threadId"], "T");
+        assert_eq!(req["params"]["turnId"], "target");
+        assert_eq!(req["params"]["cursor"], Value::Null);
+        if failure == "deadline" {
+            // Spend half of the 8s recovery budget before delivering page one.
+            // Page two must inherit the remaining ~4s, not a fresh 8s or 15s RPC budget.
+            tokio::time::sleep(Duration::from_secs(4)).await;
+        }
+        reply(
+            &mut s,
+            &req,
+            json!({"data":[{"turnId":"target","item":final_item()}],"nextCursor":"i2"}),
+        )
+        .await;
+        let req = recv(&mut s).await;
+        assert_eq!(req["method"], "thread/items/list");
+        assert_eq!(req["params"]["threadId"], "T");
+        assert_eq!(req["params"]["turnId"], "target");
+        assert_eq!(req["params"]["cursor"], "i2");
+        second_page.send(Instant::now()).unwrap();
+        match failure {
+            "rpc" => s
+                .write_all(
+                    &encode(&json!({"id":req["id"],"error":{"code":-32000,"message":"items page failed"}}))
+                        .unwrap(),
+                )
+                .await
+                .unwrap(),
+            "oversize" => {
+                // Raw bytes exceed framing limit; no invalid JSON parse is needed.
+                let _ = s.write_all(&vec![b'x'; MAX_MESSAGE + 1]).await;
+            }
+            "disconnect" => {
+                // Close server stdout only, retaining stdin to detect any replay/fallback.
+                s.get_mut().shutdown().await.unwrap();
+            }
+            "timeout" | "deadline" => {}
+            _ => unreachable!(),
+        }
+        // No response for timeout cases: a 25s server delay exceeds both the
+        // ordinary 15s RPC deadline and the remaining total deadline. EOF must
+        // arrive first. Keep observing stdin, including after stdout disconnect.
+        let mut extra = String::new();
+        let n = timeout_at(
+            Instant::now() + Duration::from_secs(25),
+            s.read_line(&mut extra),
+        )
+        .await
+        .expect("Client did not close failed items transport")
+        .unwrap();
+        assert_eq!(
+            n, 0,
+            "Unexpected replay/fallback/latest/legacy request: {extra}"
+        );
+    });
+    client.initialize().await.unwrap();
+    let failure_signal = client.failure();
+    let started = Instant::now();
+    let budget = Duration::from_secs(8);
+    let watchdog = if failure == "deadline" {
+        // 2s scheduling margin on Windows; still below a reset 8s page budget
+        // after the first 4s delay (~12s), and far below a fresh 15s RPC timer.
+        budget + Duration::from_secs(2)
+    } else {
+        RPC_TIMEOUT + Duration::from_secs(5)
+    };
+    let result = timeout_at(started + watchdog, async {
+        if failure == "deadline" {
+            client.recover_until(scope.clone(), started + budget).await
+        } else {
+            client.recover_result(scope.clone()).await
+        }
+    })
+    .await
+    .expect("Recovery exceeded its deadline plus scheduling margin");
+    let elapsed = started.elapsed();
+    // Err is the only returned value: no RecoveredResult (complete or otherwise)
+    // can escape with the first page's already accumulated final_answer item.
+    let error = result.expect_err("Partial items must never become a complete RecoveredResult");
+    let expected = match failure {
+        "rpc" => "CODEX_RPC_FAILED",
+        "timeout" | "deadline" => "CODEX_RPC_TIMEOUT",
+        "oversize" => "CODEX_PROTOCOL_MESSAGE_TOO_LARGE",
+        "disconnect" => "CODEX_STDIO_EOF",
+        _ => unreachable!(),
+    };
+    assert_eq!(error.code, expected);
+    let second_at = observed_second_page.await.unwrap();
+    if failure == "deadline" {
+        assert!(second_at.duration_since(started) >= Duration::from_secs(4));
+        assert!(
+            second_at < started + budget,
+            "Second page must start inside total budget"
+        );
+        assert!(elapsed >= budget);
+    } else if failure == "timeout" {
+        assert!(elapsed >= RPC_TIMEOUT);
+    }
+    eprintln!(
+        "items failure={failure}; second_page_after={:?}; elapsed={elapsed:?}; watchdog={watchdog:?}; error={expected}",
+        second_at.duration_since(started)
+    );
+    assert!(!client.is_ready());
+    assert_eq!(failure_signal.borrow().as_ref().unwrap().code, expected);
+    assert!(client.shared.cancel.is_cancelled());
+    assert!(client.shared.pending.lock().unwrap().is_empty());
+    assert_eq!(
+        client.recover_result(scope.clone()).await.unwrap_err().code,
+        expected
+    );
+    assert_eq!(store.execution("E-items".into()).await.unwrap(), before);
+    timeout_at(Instant::now() + Duration::from_secs(5), fake)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // A healthy, initialized R2 still cannot continue the failed R1 scope.
+    // Observe its actual writer: no fresh scan, empty page or fallback may be requested.
+    let (r2_io, r2_server) = tokio::io::duplex(128 * 1024);
+    let (r2_read, r2_write) = tokio::io::split(r2_io);
+    let r2 = Client::transport("R2".into(), r2_read, r2_write, tokio::io::empty());
+    let r2_fake = tokio::spawn(async move {
+        let mut s = BufReader::new(r2_server);
+        handshake(&mut s).await;
+        let mut extra = String::new();
+        let n = timeout_at(
+            Instant::now() + Duration::from_secs(5),
+            s.read_line(&mut extra),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(n, 0, "R2 must not replace/continue R1 scan: {extra}");
+    });
+    r2.initialize().await.unwrap();
+    assert!(r2.is_ready());
+    assert_eq!(
+        r2.recover_result(scope).await.unwrap_err().code,
+        "CODEX_APP_SERVER_INCOMPATIBLE"
+    );
+    assert!(r2.shared.pending.lock().unwrap().is_empty());
+    assert_eq!(
+        recovery::RecoveryScope::after_termination_for_execution(&store, "E-items", "R2")
+            .await
+            .unwrap_err()
+            .code,
+        "CODEX_RESULT_RECOVERY_UNSAFE"
+    );
+    r2_fake.await.unwrap();
+}
+
+#[test]
 fn total_deadline_and_metadata_contract_are_explicit() {
     run(async {
         let (client, _server) = pair();
