@@ -1,7 +1,7 @@
 export type ServerStatus = "stopped" | "starting" | "running" | "error";
 
 export interface ManagerConfig {
-  broker: { enabled: boolean; port: number };
+  broker: { enabled: boolean; port: number; allowLan: boolean };
   workspaces: Workspace[];
   serenaPath: string | null;
   port: number;
@@ -53,6 +53,8 @@ export interface Workspace {
 export interface BrokerState {
   running: boolean;
   port: number;
+  listenAddress: string;
+  lanEndpoints: string[];
   activeWorkspace: Workspace | null;
   codegraph: {
     status:

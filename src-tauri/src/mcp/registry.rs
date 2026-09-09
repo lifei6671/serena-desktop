@@ -221,6 +221,13 @@ pub fn list(upstream: &[Tool]) -> Result<Vec<Tool>, String> {
         "【做什么】\n探索当前活动 Workspace 的代码结构、跨函数/文件/模块调用路径、依赖关系和潜在影响范围。\n\n【什么时候使用】\n理解功能或模块如何工作、追踪完整调用链、分析修改影响或探索架构。已知文件路径、Symbol 名称，或只需读文件、直接 references 时优先使用 source_*。\n\n【关键约束】\n只查询当前活动项目；query 必填，maxFiles 默认 12。不接受 projectPath，不跨项目回退，不自动初始化索引。保留索引陈旧提示。启动中返回 CODEGRAPH_STARTING；运行故障每次调用最多恢复一次、查询最多重试一次，恢复有 30 秒冷却。错误以 error.code/message/workspace/recoverable 返回。",
         schema::<GraphArgs>(),
     ));
+    let mut media = tool(
+        "media_read_image",
+        "【做什么】\nRead an image from the active workspace and return it as MCP image content for visual inspection.\n\n【什么时候使用】\n查看当前项目中的截图或图片。\n\n【关键约束】\n仅支持 Workspace 相对路径；只读 PNG/JPEG/WebP。输入最多 20 MiB、40 MP，最长边缩至 2560 px，重编码并剥离原始 metadata；输出最多 6 MiB。WebP 返回 PNG。",
+        schema::<super::media::MediaReadImageArgs>(),
+    );
+    media.output_schema = None;
+    list.push(media);
     Ok(list)
 }
 pub fn validate(name: &str, args: &Value) -> Result<(), String> {
@@ -245,6 +252,9 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
             return Err("INVALID_PARAMS: 此工具不支持该参数".into());
         }
         serde_json::from_value::<super::git::GitArgs>(args.clone())
+            .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
+    } else if name == "media_read_image" {
+        serde_json::from_value::<super::media::MediaReadImageArgs>(args.clone())
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
     } else if name == "codegraph_explore" {
         let parsed = serde_json::from_value::<GraphArgs>(args.clone())
@@ -280,14 +290,49 @@ mod tests {
     #[test]
     fn fixed_surface() {
         let tools = list(&upstream()).unwrap();
-        assert_eq!(tools.len(), 18);
+        assert_eq!(tools.len(), 19);
+        let mut expected = vec![
+            "workspace_list",
+            "workspace_current",
+            "workspace_activate",
+            "workspace_deactivate",
+            "codegraph_explore",
+            "media_read_image",
+        ];
+        expected.extend(SOURCES.iter().map(|s| s.0));
+        expected.extend(GITS.iter().copied());
+        let names: std::collections::HashSet<_> = tools.iter().map(|t| t.name.as_ref()).collect();
+        assert_eq!(names, expected.into_iter().collect());
+        let media = tools.iter().find(|t| t.name == "media_read_image").unwrap();
+        assert!(media.output_schema.is_none());
+        assert_eq!(
+            media.annotations.as_ref().unwrap().read_only_hint,
+            Some(true)
+        );
+        assert_eq!(media.input_schema["additionalProperties"], false);
+        assert_eq!(media.input_schema["required"], json!(["path"]));
+        assert_eq!(
+            media.input_schema["properties"],
+            json!({"path":{"type":"string","description":"Image path relative to the active workspace root."}})
+        );
+        assert!(validate("media_read_image", &json!({"path":"a.png"})).is_ok());
+        for args in [
+            json!({}),
+            json!({"path":null}),
+            json!({"path":3}),
+            json!({"path":"a.png","root":"x"}),
+            json!({"path":"a.png","workspaceId":"x"}),
+            json!({"path":"a.png","absolutePath":"x"}),
+        ] {
+            assert!(validate("media_read_image", &args).is_err());
+        }
         assert_eq!(
             tools
                 .iter()
                 .map(|t| &t.name)
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
-            18
+            19
         );
         assert!(
             validate(
