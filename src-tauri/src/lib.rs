@@ -1,3 +1,8 @@
+#[allow(
+    dead_code,
+    reason = "TASK-001 foundation is retained without production consumers until Agent lifecycle integration"
+)]
+mod agent;
 mod commands;
 mod config;
 mod discovery;

@@ -18,14 +18,16 @@ chrono = { version = "0.4.42", default-features = false, features = ["clock"] }
 rmcp = { version = "3.2.0", features = ["client", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "transport-child-process", "which-command"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+sha2 = "0.11.0"
 serde_yaml_ng = "0.10.0"
 tauri = { version = "2.11.5", features = ["tray-icon"] }
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tempfile = "3.23.0"
-tokio = { version = "1.53.1", features = ["process", "io-util", "net", "sync", "time"] }
+tokio = { version = "1.53.1", features = ["process", "io-util", "net", "sync", "time", "fs"] }
 tokio-util = "0.7.19"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_System_JobObjects", "Win32_Security"] }
+windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_RemoteDesktop", "Win32_System_SystemServices", "Win32_Security"] }
