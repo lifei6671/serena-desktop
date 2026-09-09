@@ -40,6 +40,7 @@ pub struct ExecutionRecord {
     pub release_evidence_kind: Option<String>,
     pub release_evidence_json: Option<String>,
     pub result_completeness: String,
+    pub final_result_json: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -272,7 +273,7 @@ fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<Executi
             "SELECT id, agent_id, request_key, request_hash, prompt, execution_profile_json,
              workspace_id, canonical_workspace_root, provider, mode, thread_id,
              runtime_instance_id, status, dispatch_state, revision, background_cleanup_state,
-             release_evidence_state, release_evidence_kind, release_evidence_json, result_completeness, turn_id, provider_terminal_status, provider_terminal_evidence_runtime_instance_id
+             release_evidence_state, release_evidence_kind, release_evidence_json, result_completeness, turn_id, provider_terminal_status, provider_terminal_evidence_runtime_instance_id, final_result_json
              FROM executions WHERE id = ?1", [&id], |r| Ok(ExecutionRecord {
                 id: r.get(0)?, agent_id: r.get(1)?, request_key: r.get(2)?, request_hash: r.get(3)?,
                 prompt: r.get(4)?, execution_profile_json: r.get(5)?, workspace_id: r.get(6)?,
@@ -280,6 +281,6 @@ fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<Executi
                 thread_id: r.get(10)?, runtime_instance_id: r.get(11)?, status: r.get(12)?,
                 dispatch_state: r.get(13)?, revision: r.get(14)?, background_cleanup_state: r.get(15)?,
                 release_evidence_state: r.get(16)?, release_evidence_kind: r.get(17)?,
-                release_evidence_json: r.get(18)?, result_completeness: r.get(19)?, turn_id: r.get(20)?, provider_terminal_status: r.get(21)?, provider_terminal_evidence_runtime_instance_id: r.get(22)?,
+                release_evidence_json: r.get(18)?, result_completeness: r.get(19)?, turn_id: r.get(20)?, provider_terminal_status: r.get(21)?, provider_terminal_evidence_runtime_instance_id: r.get(22)?, final_result_json: r.get(23)?,
             })).optional()
 }

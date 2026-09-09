@@ -2,3 +2,6 @@
 pub mod execution;
 pub mod store;
 pub mod codex;
+pub mod coordinator;
+#[cfg(windows)]
+pub mod task_manager;

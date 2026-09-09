@@ -104,7 +104,7 @@ pub struct Event {
 }
 pub struct Client {
     shared: Arc<Shared>,
-    events: mpsc::Receiver<Event>,
+    events: tokio::sync::Mutex<mpsc::Receiver<Event>>,
 }
 impl Drop for Client {
     fn drop(&mut self) {
@@ -232,7 +232,10 @@ impl Client {
                 }
             }
         });
-        Self { shared, events }
+        Self {
+            shared,
+            events: tokio::sync::Mutex::new(events),
+        }
     }
     pub fn runtime_id(&self) -> &str {
         &self.shared.runtime_id
@@ -253,10 +256,15 @@ impl Client {
         self.shared.stderr.lock().unwrap().iter().copied().collect()
     }
     pub async fn next_event(&mut self) -> Result<Event> {
+        self.receive_event().await
+    }
+    /// Allows the serial Provider dispatcher to observe events while an ACK is pending.
+    pub(crate) async fn receive_event(&self) -> Result<Event> {
+        let mut events = self.events.lock().await;
         tokio::select! {
             biased;
             _ = self.shared.cancel.cancelled() => Err(self.shared.failure.borrow().clone().unwrap()),
-            event = self.events.recv() => event.ok_or_else(|| ProtocolError::new("CODEX_STDIO_EOF", "Notification dispatcher closed")),
+            event = events.recv() => event.ok_or_else(|| ProtocolError::new("CODEX_STDIO_EOF", "Notification dispatcher closed")),
         }
     }
     async fn rpc(
@@ -266,6 +274,18 @@ impl Client {
         execution: Option<String>,
         deadline: Instant,
         initializing: bool,
+    ) -> Result<Value> {
+        self.rpc_with_flush(method, params, execution, deadline, initializing, None)
+            .await
+    }
+    async fn rpc_with_flush(
+        &self,
+        method: &str,
+        params: Value,
+        execution: Option<String>,
+        deadline: Instant,
+        initializing: bool,
+        flushed: Option<oneshot::Sender<()>>,
     ) -> Result<Value> {
         self.shared.check()?;
         if !initializing && !self.is_ready() {
@@ -314,6 +334,11 @@ impl Client {
             written
                 .await
                 .map_err(|_| ProtocolError::new("CODEX_STDIO_WRITE_FAILED", "Writer closed"))??;
+            if let Some(flushed) = flushed {
+                flushed.send(()).map_err(|_| {
+                    ProtocolError::new("CODEX_REQUEST_CANCELLED", "Dispatch observer dropped")
+                })?;
+            }
             rx.await
                 .map_err(|_| ProtocolError::invalid("Pending response closed"))?
         };
@@ -406,6 +431,26 @@ impl Client {
             )
             .await?;
         self.validated(turn_response(v))
+    }
+    /// Flush evidence only; the Provider persists Dispatch state through StateStore.
+    pub(crate) async fn turn_start_observed(
+        &self,
+        thread: &str,
+        execution: &str,
+        text: &str,
+        flushed: oneshot::Sender<()>,
+    ) -> Result<Turn> {
+        let value = self
+            .rpc_with_flush(
+                "turn/start",
+                json!({"threadId":thread,"input":[{"type":"text","text":text,"text_elements":[]}]}),
+                Some(execution.into()),
+                Instant::now() + RPC_TIMEOUT,
+                false,
+                Some(flushed),
+            )
+            .await?;
+        self.validated(turn_response(value))
     }
     pub async fn turn_interrupt(&self, thread: &str, turn: &str) -> Result<()> {
         let v = self

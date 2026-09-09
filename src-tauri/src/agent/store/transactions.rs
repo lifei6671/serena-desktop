@@ -28,6 +28,33 @@ pub enum ClaimRecovery {
 }
 
 impl StateStore {
+    /// Fill identity from verified Provider responses without changing lifecycle or Runtime.
+    pub(crate) async fn bind_protocol_identity(
+        &self,
+        id: String,
+        revision: i64,
+        runtime: String,
+        thread: String,
+        turn: Option<String>,
+        now: i64,
+    ) -> Result<(), String> {
+        self.write(move |tx| {
+            let row = execution_record(tx, &id).map_err(|e| e.to_string())?.ok_or("EXECUTION_NOT_FOUND")?;
+            if row.revision != revision { return Err("EXECUTION_REVISION_CONFLICT".into()); }
+            owns_claim(tx, &id)?;
+            if row.runtime_instance_id.as_deref() != Some(&runtime) || thread.is_empty()
+                || turn.as_ref().is_some_and(String::is_empty)
+                || row.thread_id.as_ref().is_some_and(|v| v != &thread)
+                || row.turn_id.as_ref().is_some_and(|v| Some(v) != turn.as_ref())
+                || !matches!(row.status.as_str(), "dispatch_pending" | "running" | "finalizing") {
+                return Err("EXECUTION_PROTOCOL_IDENTITY_MISMATCH".into());
+            }
+            if row.thread_id.as_ref() == Some(&thread) && row.turn_id == turn { return Ok(()); }
+            tx.execute("UPDATE executions SET thread_id=?2,turn_id=COALESCE(turn_id,?3),revision=revision+1,updated_at=?4 WHERE id=?1", params![id,thread,turn,now]).map_err(|e| e.to_string())?;
+            Ok(())
+        }).await
+    }
+
     async fn write<T: Send + 'static>(
         &self,
         operation: impl FnOnce(&Transaction<'_>) -> Result<T, String> + Send + 'static,

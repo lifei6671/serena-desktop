@@ -1,0 +1,192 @@
+//! Maps one persisted Execution to one original Runtime/Thread/Turn.
+use super::{
+    app_server::{CleanupScope, Client, managed, recovery::RecoveryScope},
+    protocol::{Notification, TurnStatus},
+};
+use crate::agent::{
+    coordinator::{WorkspaceExecutionCoordinator, now},
+    execution::state::{DispatchState, Status, Transition},
+    store::{ExecutionRecord, StateStore},
+};
+use std::{path::PathBuf, time::Duration};
+
+pub(crate) struct CodexProvider {
+    pub store: StateStore,
+    pub executable: PathBuf,
+    pub owner: String,
+}
+#[derive(Debug)]
+pub enum ExecutionFailure {
+    State(String),
+    Runtime(super::runtime::RuntimeFailure),
+}
+impl From<String> for ExecutionFailure {
+    fn from(error: String) -> Self {
+        Self::State(error)
+    }
+}
+impl CodexProvider {
+    pub async fn execute(&self, id: &str) -> Result<ExecutionRecord, ExecutionFailure> {
+        let row = self.row(id).await?;
+        let managed = match managed::connect(
+            self.store.clone(),
+            self.owner.clone(),
+            format!("runtime-{id}"),
+            self.executable.clone(),
+            PathBuf::from(&row.canonical_workspace_root),
+        )
+        .await
+        {
+            Ok(managed) => managed,
+            Err(mut error) => {
+                if let Err(state) = self.failed(id).await {
+                    error
+                        .message
+                        .push_str(&format!("; reconciliation persistence: {state}"));
+                }
+                return Err(ExecutionFailure::Runtime(error));
+            }
+        };
+        let result = self.run_client(id, &managed.client).await;
+        let persistence = if result.is_err() {
+            self.failed(id).await
+        } else {
+            Ok(())
+        };
+        managed
+            .shutdown()
+            .await
+            .map_err(ExecutionFailure::Runtime)?;
+        persistence?;
+        result.map_err(ExecutionFailure::State)
+    }
+    async fn row(&self, id: &str) -> Result<ExecutionRecord, String> {
+        self.store
+            .execution(id.into())
+            .await?
+            .ok_or_else(|| "EXECUTION_NOT_FOUND".into())
+    }
+    async fn event(&self, id: &str, event: Transition) -> Result<(), String> {
+        self.store
+            .transition_execution(id.into(), self.row(id).await?.revision, event, now())
+            .await
+    }
+    async fn failed(&self, id: &str) -> Result<(), String> {
+        let row = self.row(id).await?;
+        if row.dispatch_state == "dispatching" {
+            self.event(
+                id,
+                Transition::Dispatch {
+                    to: DispatchState::Uncertain,
+                    runtime_id: None,
+                },
+            )
+            .await?;
+        }
+        if self.row(id).await?.status != "reconciling" {
+            self.event(id, Transition::Reconcile).await?;
+        }
+        Ok(())
+    }
+    async fn bind(
+        &self,
+        id: &str,
+        client: &Client,
+        thread: &str,
+        turn: Option<String>,
+    ) -> Result<(), String> {
+        self.store
+            .bind_protocol_identity(
+                id.into(),
+                self.row(id).await?.revision,
+                client.runtime_id().into(),
+                thread.into(),
+                turn,
+                now(),
+            )
+            .await
+    }
+    pub(crate) async fn run_client(
+        &self,
+        id: &str,
+        client: &Client,
+    ) -> Result<ExecutionRecord, String> {
+        let row = self.row(id).await?;
+        self.event(
+            id,
+            Transition::Dispatch {
+                to: DispatchState::Dispatching,
+                runtime_id: Some(client.runtime_id().into()),
+            },
+        )
+        .await?;
+        let thread = client
+            .thread_start(&row.canonical_workspace_root)
+            .await
+            .map_err(|e| e.to_string())?;
+        self.bind(id, client, &thread.id, None).await?;
+        let (flushed_tx, mut flushed_rx) = tokio::sync::oneshot::channel();
+        let request = client.turn_start_observed(&thread.id, id, &row.prompt, flushed_tx);
+        tokio::pin!(request);
+        let (mut flushed, mut acknowledged, mut terminal) = (false, false, false);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+        while !(flushed && acknowledged && terminal) {
+            tokio::select! {
+                biased;
+                outcome = &mut flushed_rx, if !flushed => {
+                    outcome.map_err(|_| "TURN_FLUSH_NOT_CONFIRMED")?;
+                    self.event(id, Transition::Dispatch {to: DispatchState::Dispatched, runtime_id: None}).await?;
+                    flushed = true;
+                }
+                outcome = &mut request, if !acknowledged => {
+                    let turn = outcome.map_err(|e| e.to_string())?;
+                    self.bind(id, client, &thread.id, Some(turn.id)).await?;
+                    acknowledged = true;
+                    // Late ACK fills identity only; it cannot undo finalizing.
+                }
+                event = client.receive_event() => {
+                    let event = event.map_err(|e| e.to_string())?;
+                    if event.runtime_id != client.runtime_id() { return Err("PROVIDER_RUNTIME_MISMATCH".into()); }
+                    let terminal_event = matches!(&event.notification, Notification::TurnCompleted { .. });
+                    match event.notification {
+                        Notification::TurnStarted { thread_id, turn } | Notification::TurnCompleted { thread_id, turn } => {
+                            if thread_id != thread.id { return Err("PROVIDER_THREAD_MISMATCH".into()); }
+                            self.bind(id, client, &thread.id, Some(turn.id)).await?;
+                            if !terminal_event {
+                                if turn.status != TurnStatus::InProgress { return Err("PROVIDER_STARTED_STATUS_INVALID".into()); }
+                                if self.row(id).await?.status == "dispatch_pending" { self.event(id, Transition::Running).await?; }
+                            } else {
+                                    let status = match turn.status {TurnStatus::Completed => Status::Completed, TurnStatus::Failed => Status::Failed, TurnStatus::Interrupted => Status::Interrupted, _ => return Err("PROVIDER_TERMINAL_STATUS_INVALID".into())};
+                                    self.event(id, Transition::ProviderTerminal {runtime_id: client.runtime_id().into(), status}).await?;
+                                    if status != Status::Completed { return Err(format!("PROVIDER_TERMINAL_{}", status.as_str())); }
+                                    terminal = true;
+                            }
+                        }
+                        Notification::ThreadStarted(t) if t.id != thread.id => return Err("PROVIDER_THREAD_MISMATCH".into()),
+                        _ => {}
+                    }
+                }
+                _ = tokio::time::sleep_until(deadline) => return Err("PROVIDER_TERMINAL_TIMEOUT".into()),
+            }
+        }
+        let scope = RecoveryScope::same_runtime_for_execution(&self.store, id, client.runtime_id())
+            .await
+            .map_err(|e| e.to_string())?;
+        let result = client
+            .recover_result(scope)
+            .await
+            .map_err(|e| e.to_string())?;
+        let scope = CleanupScope::for_execution(&self.store, id)
+            .await
+            .map_err(|e| e.to_string())?;
+        let empty = client.cleanup(scope).await.map_err(|e| e.to_string())?;
+        WorkspaceExecutionCoordinator {
+            store: self.store.clone(),
+        }
+        .finish(id, result, empty)
+        .await
+    }
+}
+
+#[cfg(test)]
+mod tests;

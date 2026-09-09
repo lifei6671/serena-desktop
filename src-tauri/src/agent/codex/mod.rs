@@ -4,3 +4,5 @@ pub mod runtime;
 pub mod windows_launcher;
 pub mod protocol;
 pub mod app_server;
+#[cfg(windows)]
+pub mod provider;
