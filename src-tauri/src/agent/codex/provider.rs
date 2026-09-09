@@ -181,7 +181,11 @@ impl CodexProvider {
             thread
         } else {
             client
-                .thread_start(&row.canonical_workspace_root)
+                .thread_start(
+                    &row.canonical_workspace_root,
+                    serde_json::from_value(serde_json::json!(row.mode))
+                        .map_err(|e| e.to_string())?,
+                )
                 .await
                 .map_err(|e| e.to_string())?
         };

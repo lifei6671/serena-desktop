@@ -2,6 +2,8 @@ use super::*;
 use crate::agent::{codex::app_server::Client, coordinator::now};
 use std::{sync::Arc, time::Duration};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[path = "workspace_write_tests.rs"]
+mod workspace_write_tests;
 fn run(f: impl std::future::Future<Output = ()>) {
     tokio::runtime::Runtime::new().unwrap().block_on(f)
 }
@@ -61,6 +63,18 @@ fn lineage_atomic_guards_and_read_projection() {
             Err(err) => (b.unwrap(), err),
         };
         assert_eq!(err, "AGENT_LINEAGE_CONFLICT");
+        assert_eq!(ok.execution.mode, "workspace_write");
+        assert_eq!(ok.execution.provider, "codex");
+        assert_eq!(ok.execution.execution_profile_json, "{}");
+        let canonical = crate::agent::execution::canonicalize_request(
+            serde_json::from_value(json!({
+                "agent_id":"a", "request_key":ok.execution.request_key,
+                "prompt":"hello", "execution_profile":{}, "workspace_id":"W1",
+                "canonical_workspace_root":temp.path(), "provider":"codex",
+                "mode":"workspace_write", "thread_id":null
+            })).unwrap()
+        ).unwrap();
+        assert_eq!(ok.execution.request_hash, canonical.request_hash());
         let key = ok.execution.request_key.clone();
         let retry = store
             .product_create_fresh("x".into(), "a".into(), key.clone(), "hello".into(), None, 2)
@@ -220,6 +234,12 @@ async fn fake_service(
                 }
                 "initialized" => continue,
                 "thread/start" | "thread/resume" => {
+                    if m == "thread/start" {
+                        assert_eq!(v["params"]["sandbox"], "workspace-write");
+                        assert_eq!(v["params"]["approvalPolicy"], "never");
+                        assert_eq!(v["params"]["ephemeral"], false);
+                        assert_eq!(v["params"]["historyMode"], "paginated");
+                    }
                     assert_eq!(
                         m,
                         if resume {
@@ -293,6 +313,12 @@ fn async_receipt_idempotency_and_exact_continuation() {
         release.send(()).unwrap();
         let first = final_row(&s, &id).await;
         assert!(first.available_actions.can_continue);
+        let source = store.execution(id.clone()).await.unwrap().unwrap();
+        assert_eq!(source.mode, "workspace_write");
+        assert!(continuation_eligible(&source));
+        let mut legacy_provenance = source.clone();
+        legacy_provenance.mode = "read_only".into();
+        assert!(!continuation_eligible(&legacy_provenance));
         assert_eq!(
             s.operation(start("a", "new"), None).await["error"]["code"],
             "AGENT_LINEAGE_CONFLICT"
@@ -323,6 +349,10 @@ fn async_receipt_idempotency_and_exact_continuation() {
         assert_eq!(second.workspace_id, first.workspace_id);
         assert_eq!(second.thread_id, first.thread_id);
         assert_ne!(second.turn_id, first.turn_id);
+        let continued = store.execution(id2.clone()).await.unwrap().unwrap();
+        assert_eq!(continued.mode, "workspace_write");
+        assert_eq!(continued.canonical_workspace_root, source.canonical_workspace_root);
+        assert_ne!(continued.runtime_instance_id, source.runtime_instance_id);
         assert_eq!(second.result_completeness, "complete");
         assert!(
             store

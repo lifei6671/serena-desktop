@@ -595,7 +595,7 @@ fn crash_host() {
             .unwrap();
         let thread = managed
             .client
-            .thread_start(root.join("workspace").to_str().unwrap())
+            .thread_start(root.join("workspace").to_str().unwrap(), crate::agent::execution::ExecutionMode::ReadOnly)
             .await
             .unwrap();
         let row = store.execution(id.clone()).await.unwrap().unwrap();

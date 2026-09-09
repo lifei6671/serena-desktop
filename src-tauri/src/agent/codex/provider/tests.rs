@@ -79,6 +79,9 @@ async fn slice_case(case: &'static str) {
         assert_eq!(req["method"], "thread/start");
         assert_eq!(req["params"]["historyMode"], "paginated");
         assert_eq!(req["params"]["ephemeral"], false);
+        assert_eq!(req["params"]["sandbox"], "read-only");
+        assert_eq!(req["params"]["cwd"], request2.canonical_workspace_root);
+        assert_eq!(req["params"]["approvalPolicy"], "never");
         let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
         assert_eq!(row.runtime_instance_id.as_deref(), Some("R1"));
         assert_eq!(row.dispatch_state, "dispatching");

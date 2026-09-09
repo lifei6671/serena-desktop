@@ -405,8 +405,16 @@ impl Client {
         }
         result
     }
-    pub async fn thread_start(&self, cwd: &str) -> Result<Thread> {
-        let value = self.control("thread/start", json!({"cwd":cwd,"ephemeral":false,"historyMode":"paginated","approvalPolicy":"never","sandbox":"read-only"})).await?;
+    pub async fn thread_start(
+        &self,
+        cwd: &str,
+        mode: crate::agent::execution::ExecutionMode,
+    ) -> Result<Thread> {
+        let sandbox = match mode {
+            crate::agent::execution::ExecutionMode::ReadOnly => "read-only",
+            crate::agent::execution::ExecutionMode::WorkspaceWrite => "workspace-write",
+        };
+        let value = self.control("thread/start", json!({"cwd":cwd,"ephemeral":false,"historyMode":"paginated","approvalPolicy":"never","sandbox":sandbox})).await?;
         self.validated(thread_response(value).and_then(|thread| {
             if thread.id.is_empty() || thread.history_mode != HistoryMode::Paginated {
                 Err(ProtocolError::incompatible(

@@ -572,7 +572,7 @@ fn managed_thread_requires_explicit_paginated_response() {
                 json!({"thread":{"id":"T","turns":[],"historyMode":mode}})
             };
             let (client, fake) = ready_script(vec![("thread/start", response)]).await;
-            let result = client.thread_start("C:\\test").await;
+            let result = client.thread_start("C:\\test", crate::agent::execution::ExecutionMode::ReadOnly).await;
             assert_eq!(result.is_ok(), mode == "paginated");
             if let Err(e) = result {
                 assert_eq!(e.code, "CODEX_APP_SERVER_INCOMPATIBLE");
@@ -951,7 +951,7 @@ fn real_fixed_binary_contract() {
             "R1 fresh whitelist/schema export + initialize/initialized experimentalApi PASS".into(),
         );
         let observed=async {
-            let thread=r1.client.thread_start(temp.path().to_str().unwrap()).await?;assert_eq!(thread.history_mode,HistoryMode::Paginated);
+            let thread=r1.client.thread_start(temp.path().to_str().unwrap(), crate::agent::execution::ExecutionMode::ReadOnly).await?;assert_eq!(thread.history_mode,HistoryMode::Paginated);
             assert_eq!(r1.client.thread_read(&thread.id).await?.id,thread.id);
 
             log.push("explicit paginated managed Thread; metadata PASS".into());

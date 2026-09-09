@@ -25,7 +25,7 @@ pub fn continuation_eligible(row: &ExecutionRecord) -> bool {
         "completed" | "failed" | "cancelled" | "interrupted"
     ) || row.release_evidence_state != "complete"
         || row.provider != "codex"
-        || row.mode != "read_only"
+        || row.mode != "workspace_write"
         || row.execution_profile_json != "{}"
         || row.thread_id.as_deref().is_none_or(str::is_empty)
         || row.turn_id.as_deref().is_none_or(str::is_empty)
@@ -66,18 +66,20 @@ fn input(
     key: String,
     prompt: String,
     thread: Option<String>,
-) -> CreateExecutionInput {
-    CreateExecutionInput {
+) -> Result<CreateExecutionInput, String> {
+    Ok(CreateExecutionInput {
         agent_id: row.agent_id.clone(),
         request_key: key,
         prompt,
-        execution_profile: serde_json::json!({}),
+        execution_profile: serde_json::from_str(&row.execution_profile_json)
+            .map_err(|e| e.to_string())?,
         workspace_id: row.workspace_id.clone(),
         canonical_workspace_root: row.canonical_workspace_root.clone(),
-        provider: Provider::Codex,
-        mode: ExecutionMode::ReadOnly,
+        provider: serde_json::from_value(serde_json::json!(row.provider))
+            .map_err(|e| e.to_string())?,
+        mode: serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?,
         thread_id: thread,
-    }
+    })
 }
 fn prior_outcome(
     row: ExecutionRecord,
@@ -104,7 +106,7 @@ impl StateStore {
     ) -> Result<CreateOutcome, String> {
         self.write(move |tx| {
             if let Some(row) = key(tx, &agent, &request_key)? {
-                let request = canonicalize_request(input(&row, request_key, prompt, None))?;
+                let request = canonicalize_request(input(&row, request_key, prompt, None)?)?;
                 return prior_outcome(row, &request);
             }
             let history: bool = tx
@@ -126,7 +128,7 @@ impl StateStore {
                 workspace_id: w.id,
                 canonical_workspace_root: w.root,
                 provider: Provider::Codex,
-                mode: ExecutionMode::ReadOnly,
+                mode: ExecutionMode::WorkspaceWrite,
                 thread_id: None,
             })?;
             create(tx, &id, &request, now)
@@ -150,7 +152,7 @@ impl StateStore {
                 request_key.clone(),
                 prompt,
                 row.thread_id.clone(),
-            ))?;
+            )?)?;
             if let Some(prior) = key(tx, &row.agent_id, &request_key)? {
                 return prior_outcome(prior, &request);
             }
