@@ -28,6 +28,52 @@ pub enum ClaimRecovery {
 }
 
 impl StateStore {
+    /// Cancel and dispatch serialize on the same SQLite transaction boundary.
+    pub(crate) async fn request_cancel(
+        &self,
+        id: String,
+        now: i64,
+    ) -> Result<ExecutionRecord, String> {
+        self.write(move |tx| {
+            let row = execution_record(tx, &id)
+                .map_err(|e| e.to_string())?
+                .ok_or("EXECUTION_NOT_FOUND")?;
+            let mutation = if row.status == "dispatch_pending"
+                && row.dispatch_state == "not_dispatched"
+            {
+                Some(Mutation::CancelBeforeDispatch)
+            } else if row.provider_terminal_status.is_none()
+                && (row.status == "running"
+                    || (row.status == "dispatch_pending" && row.interrupt_requested_at.is_none()))
+            {
+                Some(Mutation::Event(Transition::RequestCancel))
+            } else {
+                None
+            };
+            if let Some(mutation) = mutation {
+                transition_execution(tx, &id, row.revision, mutation, now)?;
+            }
+            execution_record(tx, &id)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| "EXECUTION_NOT_FOUND".into())
+        })
+        .await
+    }
+
+    /// Single Provider event, serialized with concurrent cancellation intent.
+    pub(crate) async fn provider_event(
+        &self,
+        id: String,
+        event: Transition,
+        now: i64,
+    ) -> Result<(), String> {
+        self.write(move |tx| {
+            let row = load(tx, &id)?;
+            transition_execution(tx, &id, row.revision, Mutation::Event(event), now)
+        })
+        .await
+    }
+
     /// Fill identity from verified Provider responses without changing lifecycle or Runtime.
     pub(crate) async fn bind_protocol_identity(
         &self,
@@ -46,7 +92,7 @@ impl StateStore {
                 || turn.as_ref().is_some_and(String::is_empty)
                 || row.thread_id.as_ref().is_some_and(|v| v != &thread)
                 || row.turn_id.as_ref().is_some_and(|v| Some(v) != turn.as_ref())
-                || !matches!(row.status.as_str(), "dispatch_pending" | "running" | "finalizing") {
+                || !matches!(row.status.as_str(), "dispatch_pending" | "running" | "cancel_requested" | "cancelling" | "finalizing" | "reconciling") {
                 return Err("EXECUTION_PROTOCOL_IDENTITY_MISMATCH".into());
             }
             if row.thread_id.as_ref() == Some(&thread) && row.turn_id == turn { return Ok(()); }

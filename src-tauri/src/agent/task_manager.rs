@@ -1,4 +1,4 @@
-//! Minimal internal entry point. No scheduler, cancellation or recovery manager.
+//! Internal execution and exact-id cancellation entry points. No scheduler.
 use super::{
     codex::provider::CodexProvider,
     coordinator::WorkspaceExecutionCoordinator,
@@ -13,6 +13,14 @@ pub struct AgentTaskManager {
     owner: String,
 }
 impl AgentTaskManager {
+    pub async fn cancel(
+        &self,
+        execution_id: &str,
+    ) -> Result<super::store::ExecutionRecord, String> {
+        self.store
+            .request_cancel(execution_id.into(), super::coordinator::now())
+            .await
+    }
     pub fn new(store: StateStore, executable: PathBuf) -> Self {
         Self {
             store,

@@ -1,4 +1,4 @@
-//! Internal success-path coordination; all Claim writes remain in StateStore.
+//! Internal finalization coordination; all Claim writes remain in StateStore.
 use super::{
     codex::app_server::{EmptyEvidence, recovery::RecoveredResult},
     execution::{CanonicalRequest, state::*},
@@ -37,15 +37,21 @@ impl WorkspaceExecutionCoordinator {
             .runtime_instance_id
             .as_deref()
             .ok_or("RUNTIME_REQUIRED")?;
+        let terminal = match row.provider_terminal_status.as_deref() {
+            Some("completed") => Status::Completed,
+            Some("failed") => Status::Failed,
+            Some("interrupted") if row.interrupt_requested_at.is_some() => Status::Cancelled,
+            Some("interrupted") => Status::Interrupted,
+            _ => return Err("EXECUTION_RESULT_IDENTITY_MISMATCH".into()),
+        };
         if value["executionId"] != id
             || value["executionRevision"] != row.revision
             || value["threadId"].as_str() != row.thread_id.as_deref()
             || value["turnId"].as_str() != row.turn_id.as_deref()
             || value["sourceRuntimeId"] != runtime
             || value["recoveredByRuntimeId"] != runtime
-            || value["terminalTurn"]["status"] != "completed"
+            || value["terminalTurn"]["status"].as_str() != row.provider_terminal_status.as_deref()
             || value["resultCompleteness"] != "complete"
-            || row.provider_terminal_status.as_deref() != Some("completed")
             || row
                 .provider_terminal_evidence_runtime_instance_id
                 .as_deref()
@@ -72,7 +78,7 @@ impl WorkspaceExecutionCoordinator {
                 id.into(),
                 row.revision + 1,
                 Finalization {
-                    terminal: Status::Completed,
+                    terminal,
                     basis: ReleaseBasis::SameRuntimeCleanup,
                     result: Some(value),
                     completeness: ResultCompleteness::Complete,

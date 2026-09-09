@@ -28,6 +28,9 @@ impl From<String> for ExecutionFailure {
 impl CodexProvider {
     pub async fn execute(&self, id: &str) -> Result<ExecutionRecord, ExecutionFailure> {
         let row = self.row(id).await?;
+        if row.status == "cancelled" && row.dispatch_state == "not_dispatched" {
+            return Ok(row);
+        }
         let managed = match managed::connect(
             self.store.clone(),
             self.owner.clone(),
@@ -48,16 +51,10 @@ impl CodexProvider {
             }
         };
         let result = self.run_client(id, &managed.client).await;
-        let persistence = if result.is_err() {
-            self.failed(id).await
-        } else {
-            Ok(())
-        };
         managed
             .shutdown()
             .await
             .map_err(ExecutionFailure::Runtime)?;
-        persistence?;
         result.map_err(ExecutionFailure::State)
     }
     async fn row(&self, id: &str) -> Result<ExecutionRecord, String> {
@@ -67,12 +64,16 @@ impl CodexProvider {
             .ok_or_else(|| "EXECUTION_NOT_FOUND".into())
     }
     async fn event(&self, id: &str, event: Transition) -> Result<(), String> {
-        self.store
-            .transition_execution(id.into(), self.row(id).await?.revision, event, now())
-            .await
+        self.store.provider_event(id.into(), event, now()).await
     }
     async fn failed(&self, id: &str) -> Result<(), String> {
         let row = self.row(id).await?;
+        if matches!(
+            row.status.as_str(),
+            "completed" | "failed" | "cancelled" | "interrupted"
+        ) {
+            return Ok(());
+        }
         if row.dispatch_state == "dispatching" {
             self.event(
                 id,
@@ -83,7 +84,8 @@ impl CodexProvider {
             )
             .await?;
         }
-        if self.row(id).await?.status != "reconciling" {
+        let row = self.row(id).await?;
+        if row.status != "reconciling" && row.provider_terminal_status.is_none() {
             self.event(id, Transition::Reconcile).await?;
         }
         Ok(())
@@ -95,31 +97,59 @@ impl CodexProvider {
         thread: &str,
         turn: Option<String>,
     ) -> Result<(), String> {
-        self.store
-            .bind_protocol_identity(
-                id.into(),
-                self.row(id).await?.revision,
-                client.runtime_id().into(),
-                thread.into(),
-                turn,
-                now(),
-            )
-            .await
+        loop {
+            let outcome = self
+                .store
+                .bind_protocol_identity(
+                    id.into(),
+                    self.row(id).await?.revision,
+                    client.runtime_id().into(),
+                    thread.into(),
+                    turn.clone(),
+                    now(),
+                )
+                .await;
+            if outcome.as_ref().err().map(String::as_str) != Some("EXECUTION_REVISION_CONFLICT") {
+                return outcome;
+            }
+        }
     }
     pub(crate) async fn run_client(
         &self,
         id: &str,
         client: &Client,
     ) -> Result<ExecutionRecord, String> {
+        let outcome = self.run_active_client(id, client).await;
+        if outcome.is_err() {
+            self.failed(id).await?;
+        }
+        outcome
+    }
+    async fn run_active_client(
+        &self,
+        id: &str,
+        client: &Client,
+    ) -> Result<ExecutionRecord, String> {
         let row = self.row(id).await?;
-        self.event(
-            id,
-            Transition::Dispatch {
-                to: DispatchState::Dispatching,
-                runtime_id: Some(client.runtime_id().into()),
-            },
-        )
-        .await?;
+        if row.status == "cancelled" && row.dispatch_state == "not_dispatched" {
+            return Ok(row);
+        }
+        let dispatch = self
+            .event(
+                id,
+                Transition::Dispatch {
+                    to: DispatchState::Dispatching,
+                    runtime_id: Some(client.runtime_id().into()),
+                },
+            )
+            .await;
+        if let Err(error) = dispatch {
+            let row = self.row(id).await?;
+            if row.status == "cancelled" && row.dispatch_state == "not_dispatched" {
+                return Ok(row);
+            }
+            return Err(error);
+        }
         let thread = client
             .thread_start(&row.canonical_workspace_root)
             .await
@@ -129,10 +159,55 @@ impl CodexProvider {
         let request = client.turn_start_observed(&thread.id, id, &row.prompt, flushed_tx);
         tokio::pin!(request);
         let (mut flushed, mut acknowledged, mut terminal) = (false, false, false);
+        // One owner, one interrupt future. The DB is authoritative; polling also
+        // observes intent committed before this Provider began receiving events.
+        let mut interrupt: Option<
+            std::pin::Pin<
+                Box<dyn std::future::Future<Output = super::protocol::Result<()>> + Send + '_>,
+            >,
+        > = None;
+        let mut interrupt_sent = false;
+        let mut interrupt_done = false;
+        let mut cancel_poll = tokio::time::interval(Duration::from_millis(100));
+        cancel_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
-        while !(flushed && acknowledged && terminal) {
+        while !(flushed && acknowledged && terminal && (!interrupt_sent || interrupt_done)) {
+            let row = self.row(id).await?;
+            if !interrupt_sent
+                && row.interrupt_requested_at.is_some()
+                && row.provider_terminal_status.is_none()
+                && matches!(
+                    row.status.as_str(),
+                    "dispatch_pending" | "running" | "cancel_requested"
+                )
+                && let (Some(thread), Some(turn)) = (row.thread_id, row.turn_id)
+            {
+                if row.runtime_instance_id.as_deref() != Some(client.runtime_id()) {
+                    return Err("PROVIDER_RUNTIME_MISMATCH".into());
+                }
+                if row.status == "dispatch_pending" {
+                    self.event(id, Transition::Running).await?;
+                }
+                self.store.request_cancel(id.into(), now()).await?;
+                interrupt_sent = true;
+                interrupt = Some(Box::pin(async move {
+                    client.turn_interrupt(&thread, &turn).await
+                }));
+            }
             tokio::select! {
                 biased;
+                outcome = async { interrupt.as_mut().unwrap().await }, if interrupt_sent && !interrupt_done => {
+                    interrupt_done = true;
+                    match outcome {
+                        Ok(()) => self.event(id, Transition::InterruptAck).await?,
+                        Err(error) if error.code == "CODEX_RPC_TIMEOUT" => {
+                            self.event(id, Transition::InterruptTimeout {diagnostic: error.to_string()}).await?;
+                            if self.row(id).await?.provider_terminal_status.is_some() { return Err("INTERRUPT_TIMEOUT_AFTER_TERMINAL".into()); }
+                            return Err(error.to_string());
+                        }
+                        Err(error) => return Err(error.to_string()),
+                    }
+                }
                 outcome = &mut flushed_rx, if !flushed => {
                     outcome.map_err(|_| "TURN_FLUSH_NOT_CONFIRMED")?;
                     self.event(id, Transition::Dispatch {to: DispatchState::Dispatched, runtime_id: None}).await?;
@@ -158,7 +233,7 @@ impl CodexProvider {
                             } else {
                                     let status = match turn.status {TurnStatus::Completed => Status::Completed, TurnStatus::Failed => Status::Failed, TurnStatus::Interrupted => Status::Interrupted, _ => return Err("PROVIDER_TERMINAL_STATUS_INVALID".into())};
                                     self.event(id, Transition::ProviderTerminal {runtime_id: client.runtime_id().into(), status}).await?;
-                                    if status != Status::Completed { return Err(format!("PROVIDER_TERMINAL_{}", status.as_str())); }
+                                    if status == Status::Failed && !interrupt_sent { return Err(format!("PROVIDER_TERMINAL_{}", status.as_str())); }
                                     terminal = true;
                             }
                         }
@@ -167,6 +242,7 @@ impl CodexProvider {
                     }
                 }
                 _ = tokio::time::sleep_until(deadline) => return Err("PROVIDER_TERMINAL_TIMEOUT".into()),
+                _ = cancel_poll.tick() => {},
             }
         }
         let scope = RecoveryScope::same_runtime_for_execution(&self.store, id, client.runtime_id())
@@ -180,13 +256,20 @@ impl CodexProvider {
             .await
             .map_err(|e| e.to_string())?;
         let empty = client.cleanup(scope).await.map_err(|e| e.to_string())?;
-        WorkspaceExecutionCoordinator {
+        let row = WorkspaceExecutionCoordinator {
             store: self.store.clone(),
         }
         .finish(id, result, empty)
-        .await
+        .await?;
+        if row.status == "failed" {
+            return Err("PROVIDER_TERMINAL_failed".into());
+        }
+        Ok(row)
     }
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod cancellation_tests;

@@ -123,6 +123,8 @@ impl Client {
         W: AsyncWrite + Unpin + Send + 'static,
         E: AsyncRead + Unpin + Send + 'static,
     {
+        #[cfg(test)]
+        let writer = tests::record_stdin(writer, &runtime_id);
         let (write_tx, mut write_rx) =
             mpsc::channel::<Queued<(Vec<u8>, oneshot::Sender<Result<()>>)>>(QUEUE_COUNT);
         let (events_tx, events) = mpsc::channel(QUEUE_COUNT);

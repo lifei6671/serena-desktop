@@ -714,6 +714,8 @@ finalizing
 
 后续取消相关事件不得再退回执行阶段。
 
+**TASK-007 Cancellation Business Terminal Mapping Amendment（2026-09-09）：** Provider Terminal Evidence 与 Execution Business Terminal 是两层事实。`provider_terminal_status` 始终保存原 Codex Turn 的真实 `completed / failed / interrupted`，Recovered Result 的 `terminalTurn.status` 也保持该真实值，禁止为了业务取消将 Provider `interrupted` 重写为 `cancelled`。业务终态按第 22 节映射确定，不要求与 Provider terminal 字符串相同。
+
 ---
 
 # 19. Cancel ACK 状态规则
@@ -894,6 +896,25 @@ safeToReleaseWorkspace = true
 ```
 
 才进入业务终态。
+
+### TASK-007 Cancellation Business Terminal Mapping
+
+| 事实与路径 | Execution 业务终态 |
+| --- | --- |
+| 第 25 节 cancel-before-dispatch | `cancelled` |
+| 用户取消意图已先持久化，随后原 Provider terminal 为 `completed` | `completed` |
+| 用户取消意图已先持久化，随后原 Provider terminal 为 `failed` | `failed` |
+| 用户取消意图已先持久化，随后原 Provider terminal 为 `interrupted` | `cancelled` |
+| Provider terminal 为 `interrupted`，且不存在先行的用户取消意图 | `interrupted` |
+| Runtime termination recovery | 保持第 26 节既有 `reconciling → interrupted` |
+
+`cancelled` 表示 SerenaDesktop 已知的用户主动取消结果；`interrupted` 表示不归因于用户取消的 Provider / Runtime 中断。Runtime termination recovery 的终态规则优先于用户取消归因，不因存在取消意图而改为 `cancelled`。
+
+取消归因使用 StateStore 中先于 Provider Terminal Evidence 持久化的用户取消意图（既有 `interrupt_requested_at`），不使用内存信号、interrupt ACK 或调用方补传的归因。先后关系按同一 Execution 的 StateStore 事务序列确定，不依赖两个毫秒时间戳严格大小比较。Provider Terminal Evidence 已形成并进入 finalizing，或 Execution 已为四个 absorbing terminal 时，late cancel 不建立新的用户取消归因，不改写既有 Provider Evidence，不将既定 `completed / failed / interrupted` 改为 `cancelled`。未持久化的外部事件到达先后不能替代 StateStore 的已序列化事实。
+
+对于先行用户取消意图 + 原 Provider `interrupted`，仍须先完成 historyMode-aware Final Result Recovery、原 Runtime/原 Thread/原 Execution 的 sealed Background Cleanup 全分页 empty evidence 及适用 safe release 验证，再调用 `finalize_and_release_execution(... terminal=Cancelled, basis=SameRuntimeCleanup ...)`，在同一 SQLite transaction 中保存业务终态、原始 Final Result、完整 release evidence 并删除 Claim。interrupt ACK/timeout 不产生 safe terminal 或 release evidence；第 19–21、23–25、32 节竞态、单调性与原子释放契约不变。
+
+本 Amendment 仅补充业务归因映射，不增加 Execution Status，不修改 allowed transition graph、Dispatch State graph、SQLite Schema、Runtime/Job Evidence ownership、Cleanup ownership、Atomic Claim Release、Cross-Runtime Recovery 或 unknown fail-closed。
 
 ---
 
@@ -2125,6 +2146,8 @@ thread/turns/list 与 thread/items/list 沿用固定 binary 的严格分页契�
 
 `final_result_json` 必须明确绑定 threadId、turnId、historyMode、terminal Turn，以及完整 target-Turn persisted items / protocol-derived final result；不能仅保存无身份来源的文本字符串。具体 Rust representation 留给实现。
 
+TASK-007 的业务 `Execution.status=cancelled` 可以与 `provider_terminal_status=interrupted`、`final_result_json.terminalTurn.status=interrupted` 同时成立。结果仍保留 exact threadId、exact turnId、historyMode、original Runtime、完整 target-Turn items 和经验证的 `resultCompleteness=complete`。Result identity 校验比较 Provider terminal fact 与 recovered terminal Turn，不以 Execution business terminal 替换历史终态，也不因合法业务映射差异报告 Evidence conflict。
+
 只有 exact target turn found + terminal status verified + 所需 items 完整（分页路径完整结束）+ 无 Evidence conflict，才允许 `result_completeness = complete`。其余只能为 partial 或 unknown。结果恢复成功不等于 Workspace safe release：Job evidence、Background Terminal Cleanup、Atomic Claim Release、immutable runtime_instance_id、Cross-Runtime Evidence ownership 和 unknown fail-closed 契约均保持不变。
 
 ---
@@ -3005,6 +3028,8 @@ provider terminal race
 ```
 
 并通过第 32 节竞态矩阵。
+
+TASK-007 cancellation terminal mapping 按第 18、22、40.5 节执行：先行 persisted user cancel intent + Provider `interrupted` 映射为业务 `cancelled`；Provider Evidence 和 Recovered Result 保持 `interrupted`。`completed / failed` 以真实 Provider terminal 为准；late cancel 不建立归因；无先行取消意图的 Provider 中断及 Runtime termination recovery 保持 `interrupted`。该 Amendment 的独立 Review 与批准不等于实现、测试或 Cancellation Race Gate 通过；本轮实现保持 `PAUSED_PENDING_AMENDMENT_APPROVAL`，不进入 Phase 6/7。
 
 ---
 

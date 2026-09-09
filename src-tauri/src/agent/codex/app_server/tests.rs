@@ -785,6 +785,55 @@ fn cross_runtime_scope_requires_confirmed_job_evidence() {
     });
 }
 
+pub(super) fn record_stdin<W: tokio::io::AsyncWrite + Unpin + Send + 'static>(
+    writer: W,
+    id: &str,
+) -> Box<dyn tokio::io::AsyncWrite + Unpin + Send> {
+    use std::io::Write;
+    struct Tee<W> {
+        inner: W,
+        file: std::fs::File,
+    }
+    impl<W: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for Tee<W> {
+        fn poll_write(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &[u8],
+        ) -> std::task::Poll<std::io::Result<usize>> {
+            let result = std::pin::Pin::new(&mut self.inner).poll_write(cx, buf);
+            if let std::task::Poll::Ready(Ok(n)) = result {
+                self.file.write_all(&buf[..n])?;
+                self.file.flush()?;
+            }
+            result
+        }
+        fn poll_flush(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+        }
+        fn poll_shutdown(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+        }
+    }
+    if let Some(dir) = std::env::var_os("SERENA_CONTRACT_RAW_DIR") {
+        Box::new(Tee {
+            inner: writer,
+            file: std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(std::path::PathBuf::from(dir).join(format!("{id}.stdin.raw.jsonl")))
+                .unwrap(),
+        })
+    } else {
+        Box::new(writer)
+    }
+}
+
 #[cfg(windows)]
 pub(super) fn record_stdout<R: tokio::io::AsyncRead + Unpin + Send + 'static>(
     reader: R,
