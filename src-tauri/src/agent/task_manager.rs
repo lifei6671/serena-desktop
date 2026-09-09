@@ -7,10 +7,14 @@ use super::{
 };
 use std::path::PathBuf;
 
+pub mod recovery;
+
 pub struct AgentTaskManager {
     store: StateStore,
     executable: PathBuf,
     owner: String,
+    #[cfg(test)]
+    pub(crate) test_client: Option<(std::sync::Arc<super::codex::app_server::Client>, PathBuf)>,
 }
 impl AgentTaskManager {
     pub async fn cancel(
@@ -26,6 +30,8 @@ impl AgentTaskManager {
             store,
             executable,
             owner: Self::id("host"),
+            #[cfg(test)]
+            test_client: None,
         }
     }
     fn id(prefix: &str) -> String {
@@ -62,13 +68,44 @@ impl AgentTaskManager {
         if !outcome.created {
             return Ok(outcome);
         }
-        outcome.execution = CodexProvider {
+        outcome.execution = self
+            .dispatch_pending_execution(&outcome.execution_id)
+            .await?;
+        Ok(outcome)
+    }
+    pub async fn resume_pending_execution(
+        &self,
+        execution_id: &str,
+    ) -> Result<super::store::ExecutionRecord, super::codex::provider::ExecutionFailure> {
+        self.dispatch_pending_execution(execution_id).await
+    }
+    async fn dispatch_pending_execution(
+        &self,
+        execution_id: &str,
+    ) -> Result<super::store::ExecutionRecord, super::codex::provider::ExecutionFailure> {
+        let provider = CodexProvider {
             store: self.store.clone(),
             executable: self.executable.clone(),
             owner: self.owner.clone(),
-        }
-        .execute(&outcome.execution_id)
-        .await?;
-        Ok(outcome)
+        };
+        let id = execution_id.to_owned();
+        #[cfg(test)]
+        let test_client = self.test_client.clone();
+        // The owned worker retains the permit even if its caller stops waiting.
+        // Provider/ManagedClient continue to own Runtime and Job convergence.
+        tokio::spawn(async move {
+            let _permit = provider.store.guard_pending_dispatch(id.clone()).await?;
+            #[cfg(test)]
+            if let Some((client, database)) = test_client {
+                // Test-only Runtime creation boundary; reuse the TASK-006 Fake wire pipeline.
+                rusqlite::Connection::open(database).unwrap().execute(
+                    "INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES (?1,'fixture','running',1,1)",
+                    [client.runtime_id()],
+                ).unwrap();
+                client.initialize().await.map_err(|e| super::codex::provider::ExecutionFailure::State(e.to_string()))?;
+                return provider.run_client(&id, &client).await.map_err(super::codex::provider::ExecutionFailure::State);
+            }
+            provider.execute(&id).await
+        }).await.map_err(|e| super::codex::provider::ExecutionFailure::State(e.to_string()))?
     }
 }

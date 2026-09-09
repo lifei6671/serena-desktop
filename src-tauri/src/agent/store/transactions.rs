@@ -3,6 +3,17 @@ use super::*;
 use crate::agent::execution::state::*;
 use serde_json::json;
 
+// One live Host owns dispatch. Covers separate StateStore connections as well as
+// clones; DB facts remain authoritative. Never persisted as an Execution state.
+static PENDING_DISPATCH: std::sync::LazyLock<Mutex<std::collections::HashSet<(String, String)>>> =
+    std::sync::LazyLock::new(|| Mutex::new(std::collections::HashSet::new()));
+pub(crate) struct PendingDispatchPermit((String, String));
+impl Drop for PendingDispatchPermit {
+    fn drop(&mut self) {
+        PENDING_DISPATCH.lock().unwrap().remove(&self.0);
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct CreateOutcome {
     pub execution_id: String,
@@ -12,6 +23,9 @@ pub struct CreateOutcome {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClaimRecovery {
+    PendingExplicitResume {
+        execution_id: String,
+    },
     Pending {
         execution_id: String,
     },
@@ -28,6 +42,35 @@ pub enum ClaimRecovery {
 }
 
 impl StateStore {
+    pub(crate) async fn guard_pending_dispatch(
+        &self,
+        id: String,
+    ) -> Result<PendingDispatchPermit, String> {
+        let database = self.database_identity.to_string_lossy().to_lowercase();
+        self.write(move |tx| {
+            let row = execution_record(tx, &id)
+                .map_err(|e| e.to_string())?
+                .ok_or("EXECUTION_NOT_FOUND")?;
+            if row.status != "dispatch_pending"
+                || row.dispatch_state != "not_dispatched"
+                || row.runtime_instance_id.is_some()
+                || row.provider_terminal_status.is_some()
+            {
+                return Err("PENDING_RESUME_REJECTED".into());
+            }
+            owns_claim(tx, &id)?;
+            let key = (database, id);
+            if !PENDING_DISPATCH
+                .lock()
+                .map_err(|e| e.to_string())?
+                .insert(key.clone())
+            {
+                return Err("PENDING_RESUME_REJECTED".into());
+            }
+            Ok(PendingDispatchPermit(key))
+        })
+        .await
+    }
     /// Cancel and dispatch serialize on the same SQLite transaction boundary.
     pub(crate) async fn request_cancel(
         &self,
@@ -203,6 +246,19 @@ impl StateStore {
                     {
                         delete_claim(tx, &id)?;
                         recovered.push(ClaimRecovery::Released { execution_id: id });
+                    } else {
+                        recovered.push(ClaimRecovery::Inconsistent {
+                            execution_id: id,
+                            code: "WORKSPACE_CLAIM_INCONSISTENT",
+                        });
+                    }
+                } else if row.status == Status::DispatchPending
+                    && row.dispatch == DispatchState::NotDispatched
+                    && row.runtime.is_none()
+                    && row.terminal.is_none()
+                {
+                    if owns_claim(tx, &id).is_ok() {
+                        recovered.push(ClaimRecovery::PendingExplicitResume { execution_id: id });
                     } else {
                         recovered.push(ClaimRecovery::Inconsistent {
                             execution_id: id,
@@ -622,6 +678,10 @@ fn transition_execution(
     if next.terminal() && next != row.status && release.is_none() {
         return Err("SAFE_RELEASE_EVIDENCE_REQUIRED".into());
     }
+    #[cfg(test)]
+    if release.is_some() {
+        crash_checkpoint("before_terminal");
+    }
     let changed=tx.execute("UPDATE executions SET status=?2,dispatch_state=?3,runtime_instance_id=?4,revision=revision+1,updated_at=?5 WHERE id=?1 AND revision=?6 AND status=?7 AND dispatch_state=?8",
         params![id,next.as_str(),dispatch.as_str(),runtime,now,revision,row.status.as_str(),row.dispatch.as_str()]).map_err(|e|e.to_string())?;
     if changed != 1 {
@@ -631,6 +691,8 @@ fn transition_execution(
         #[cfg(test)]
         crash_checkpoint("after_terminal");
         tx.execute("UPDATE executions SET completed_at=?2,release_evidence_state='complete',release_evidence_kind=?3,release_evidence_json=?4 WHERE id=?1",params![id,now,kind,evidence]).map_err(|e|e.to_string())?;
+        #[cfg(test)]
+        crash_checkpoint("before_delete");
         delete_claim(tx, id)?;
         #[cfg(test)]
         crash_checkpoint("after_delete");

@@ -1853,3 +1853,68 @@ fn recovery_uses_persisted_identity_and_cannot_hide_provider_evidence() {
         }
     });
 }
+
+#[cfg(windows)]
+#[test]
+fn task008_cross_runtime_result_and_release_are_separate_identity_bound_facts() {
+    run(async {
+        for scenario in ["success", "stale", "rollback"] {
+            let temp = tempfile::tempdir().unwrap();
+            let store = crate::agent::store::StateStore::open(temp.path().into()).await.unwrap();
+            persisted_execution(temp.path(), "E1", Some("R1"), Some("T1"), Some("TURN1"), Some("interrupted"), Some("R1"));
+            let db = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
+            db.execute_batch("UPDATE executions SET status='reconciling',dispatch_state='uncertain',interrupt_requested_at=1; INSERT INTO workspace_claims VALUES ('E1','E1','exclusive_execution',1);").unwrap();
+            assert!(recovery::RecoveryScope::after_termination_for_execution(&store,"E1","R2").await.is_err());
+            db.execute_batch("UPDATE runtime_instances SET state='terminated',termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',termination_evidence_at=2;").unwrap();
+            let scope = recovery::RecoveryScope::after_termination_for_execution(&store,"E1","R2").await.unwrap();
+            let (wire, server) = tokio::io::duplex(128*1024);
+            let (read,write) = tokio::io::split(wire);
+            let client = Client::transport("R2".into(),read,write,tokio::io::empty());
+            let fake=tokio::spawn(async move {
+                let mut s=BufReader::new(server);
+                handshake(&mut s).await;
+                let req=recv(&mut s).await;
+                assert_eq!(req["method"],"thread/read");
+                assert_eq!(req["params"]["includeTurns"],false);
+                reply(&mut s,&req,metadata("T1","paginated")).await;
+                let req=recv(&mut s).await;
+                assert_eq!(req["method"],"thread/turns/list");
+                reply(&mut s,&req,json!({"data":[turn_value("TURN1","interrupted")],"nextCursor":null})).await;
+                for cursor in [Value::Null,json!("i2")] {
+                    let req=recv(&mut s).await;
+                    assert_eq!(req["method"],"thread/items/list");
+                    assert_eq!(req["params"]["turnId"],"TURN1");
+                    assert_eq!(req["params"]["cursor"],cursor);
+                    reply(&mut s,&req,json!({"data":if cursor.is_null(){json!([{"turnId":"TURN1","item":final_item()}])}else{json!([])},"nextCursor":if cursor.is_null(){json!("i2")}else{Value::Null}})).await;
+                }
+                let mut extra=String::new();
+                assert_eq!(s.read_line(&mut extra).await.unwrap(),0,"No resume/start/cleanup fallback: {extra}");
+            });
+            client.initialize().await.unwrap();
+            let result=client.recover_result(scope).await.unwrap();
+            assert!(store.workspace_claim("E1".into()).await.unwrap().is_some(),"Result alone does not release");
+            if scenario=="stale" {db.execute("UPDATE executions SET revision=revision+1",[]).unwrap();}
+            if scenario=="rollback" {db.execute_batch("CREATE TRIGGER fault AFTER DELETE ON workspace_claims BEGIN SELECT RAISE(ABORT,'rollback'); END;").unwrap();}
+            let outcome=crate::agent::coordinator::WorkspaceExecutionCoordinator {store:store.clone()}.finish_runtime_terminated("E1",0,Some(result)).await;
+            let row=store.execution("E1".into()).await.unwrap().unwrap();
+            if scenario=="success" {
+                outcome.unwrap();
+                assert_eq!(row.status,"interrupted");
+                assert_eq!(row.runtime_instance_id.as_deref(),Some("R1"));
+                let result:Value=serde_json::from_str(row.final_result_json.as_ref().unwrap()).unwrap();
+                assert_eq!(result["sourceRuntimeId"],"R1");
+                assert_eq!(result["recoveredByRuntimeId"],"R2");
+                assert_eq!(result["terminalTurn"]["status"],"interrupted");
+                assert_eq!(row.result_completeness,"complete");
+                assert!(store.workspace_claim("E1".into()).await.unwrap().is_none());
+            } else {
+                assert!(outcome.is_err());
+                assert_eq!(row.status,"reconciling");
+                assert!(row.final_result_json.is_none());
+                assert_eq!(row.release_evidence_state,"incomplete");
+                assert!(store.workspace_claim("E1".into()).await.unwrap().is_some());
+            }
+            drop(client);fake.await.unwrap();
+        }
+    });
+}

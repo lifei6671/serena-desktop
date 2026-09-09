@@ -46,13 +46,22 @@ async fn slice_case(case: &'static str) {
         created.execution_id
     );
     let connection = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
-    connection.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES ('R1','fixture','running',1,1)",[]).unwrap();
+    if case != "resume" {
+        connection.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES ('R1','fixture','running',1,1)",[]).unwrap();
+    }
     if case == "rollback" {
         connection.execute_batch("CREATE TRIGGER test_rollback BEFORE DELETE ON workspace_claims BEGIN SELECT RAISE(ABORT,'injected final rollback'); END;").unwrap();
     }
     let (wire, server) = tokio::io::duplex(128 * 1024);
     let (read, write) = tokio::io::split(wire);
-    let client = Client::transport("R1".into(), read, write, tokio::io::empty());
+    let client = std::sync::Arc::new(Client::transport(
+        "R1".into(),
+        read,
+        write,
+        tokio::io::empty(),
+    ));
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (continue_tx, continue_rx) = tokio::sync::oneshot::channel();
     let fake_store = store.clone();
     let id = created.execution_id.clone();
     let request2 = request.clone();
@@ -60,6 +69,10 @@ async fn slice_case(case: &'static str) {
         let mut s = BufReader::new(server);
         let req = recv(&mut s).await;
         assert_eq!(req["method"], "initialize");
+        if case == "resume" {
+            entered_tx.send(()).unwrap();
+            continue_rx.await.unwrap();
+        }
         reply(&mut s,&req,json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"})).await;
         assert_eq!(recv(&mut s).await["method"], "initialized");
         let req = recv(&mut s).await;
@@ -70,6 +83,14 @@ async fn slice_case(case: &'static str) {
         assert_eq!(row.runtime_instance_id.as_deref(), Some("R1"));
         assert_eq!(row.dispatch_state, "dispatching");
         assert_eq!(row.status, "dispatch_pending");
+        if case == "resume" {
+            assert!(
+                AgentTaskManager::new(fake_store.clone(), "unused".into())
+                    .resume_pending_execution(&id)
+                    .await
+                    .is_err()
+            );
+        }
         reply(
             &mut s,
             &req,
@@ -157,24 +178,97 @@ async fn slice_case(case: &'static str) {
             "extra dispatch/fallback: {extra}"
         );
     });
-    client.initialize().await.unwrap();
     let provider = CodexProvider {
         store: store.clone(),
         executable: "unused".into(),
         owner: "fixture".into(),
     };
-    let outcome = tokio::time::timeout(
-        Duration::from_secs(15),
-        provider.run_client(&created.execution_id, &client),
-    )
-    .await
-    .unwrap();
+    let outcome = if case == "resume" {
+        for _ in 0..3 {
+            assert!(matches!(
+                &manager.recover_startup().await.unwrap()[0],
+                crate::agent::task_manager::recovery::RecoveryOutcome::PendingExplicitResume { .. }
+            ));
+        }
+        let duplicate = manager.execute(request.clone()).await.unwrap();
+        assert!(!duplicate.created);
+        assert_eq!(duplicate.execution, created.execution);
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM runtime_instances", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(3));
+        let mut handles = Vec::new();
+        for connection_store in [
+            store.clone(),
+            StateStore::open(temp.path().into()).await.unwrap(),
+        ] {
+            let mut resume_manager = AgentTaskManager::new(connection_store, "unused".into());
+            resume_manager.test_client = Some((client.clone(), temp.path().join("agent-state.db")));
+            let barrier = barrier.clone();
+            let id = created.execution_id.clone();
+            handles.push(tokio::spawn(async move {
+                barrier.wait().await;
+                resume_manager.resume_pending_execution(&id).await
+            }));
+        }
+        let mut one = handles.remove(0);
+        let mut two = handles.remove(0);
+        barrier.wait().await;
+        tokio::time::timeout(Duration::from_secs(5), entered_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        // Winner is held before initialize reply, still not_dispatched/runtime NULL.
+        // The other call must reject NOW, not only after the winner has dispatched.
+        let (rejected, first) = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::select! {r=&mut one=>(r.unwrap(),true),r=&mut two=>(r.unwrap(),false)}
+        })
+        .await
+        .unwrap();
+        assert!(
+            matches!(rejected,Err(ExecutionFailure::State(ref e)) if e=="PENDING_RESUME_REJECTED")
+        );
+        assert_eq!(
+            store
+                .execution(created.execution_id.clone())
+                .await
+                .unwrap()
+                .unwrap(),
+            created.execution
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM runtime_instances", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        continue_tx.send(()).unwrap();
+        let completed = if first {
+            two.await.unwrap()
+        } else {
+            one.await.unwrap()
+        };
+        completed.map_err(|e| format!("{e:?}"))
+    } else {
+        client.initialize().await.unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(15),
+            provider.run_client(&created.execution_id, &client),
+        )
+        .await
+        .unwrap()
+    };
     let row = store
         .execution(created.execution_id.clone())
         .await
         .unwrap()
         .unwrap();
-    if case == "success" {
+    if matches!(case, "success" | "resume") {
         assert!(outcome.is_ok(), "{outcome:?}");
         assert_eq!(row.status, "completed");
         assert_eq!(row.result_completeness, "complete");
@@ -209,6 +303,21 @@ async fn slice_case(case: &'static str) {
     let duplicate = manager.execute(request).await.unwrap();
     assert!(!duplicate.created);
     assert_eq!(duplicate.execution_id, created.execution_id);
+    if case == "resume" {
+        assert!(
+            manager
+                .resume_pending_execution(&created.execution_id)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT count(*) FROM runtime_instances", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+    }
     drop(client);
     fake.await.unwrap();
 }
@@ -216,6 +325,10 @@ async fn slice_case(case: &'static str) {
 #[test]
 fn terminal_before_ack_and_idempotent_success() {
     run(slice_case("success"));
+}
+#[test]
+fn explicit_resume_concurrent_callers_share_one_first_dispatch_and_complete() {
+    run(slice_case("resume"));
 }
 #[test]
 fn final_transaction_rollback_retains_claim_and_result_unknown() {
@@ -233,6 +346,16 @@ fn provider_failure_is_not_empty_success() {
 #[test]
 #[ignore = "Explicit isolated codex-cli 0.153.4 vertical slice; run alone"]
 fn real_fixed_binary_vertical_slice() {
+    real_slice(false);
+}
+
+#[test]
+#[ignore = "Explicit isolated codex-cli 0.153.4 pending Resume; run alone"]
+fn real_fixed_binary_explicit_resume() {
+    real_slice(true);
+}
+
+fn real_slice(explicit_resume: bool) {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
@@ -250,7 +373,11 @@ fn real_fixed_binary_vertical_slice() {
     )
     .unwrap();
     let evidence = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../docs/tasks/evidence/TASK-006/implementation-2026-09-09")
+        .join(if explicit_resume {
+            "../docs/tasks/evidence/TASK-008/explicit-resume-2026-09-09"
+        } else {
+            "../docs/tasks/evidence/TASK-006/implementation-2026-09-09"
+        })
         .join(format!("run-{}-{}", std::process::id(), now()));
     std::fs::create_dir_all(&evidence).unwrap();
     struct Environment(Vec<(&'static str, Option<std::ffi::OsString>)>);
@@ -293,7 +420,27 @@ fn real_fixed_binary_vertical_slice() {
         );
         let manager = AgentTaskManager::new(store.clone(), exe);
         let request = input(&workspace);
-        let result = manager.execute(request.clone()).await;
+        let result = if explicit_resume {
+            let mut created = manager.create(request.clone()).await.unwrap();
+            for _ in 0..3 {
+                assert!(matches!(
+                    &manager.recover_startup().await.unwrap()[0],
+                    crate::agent::task_manager::recovery::RecoveryOutcome::PendingExplicitResume { .. }
+                ));
+            }
+            let duplicate = manager.execute(request.clone()).await.unwrap();
+            assert!(!duplicate.created);
+            assert_eq!(duplicate.execution, created.execution);
+            manager
+                .resume_pending_execution(&created.execution_id)
+                .await
+                .map(|execution| {
+                    created.execution = execution;
+                    created
+                })
+        } else {
+            manager.execute(request.clone()).await
+        };
         std::fs::write(evidence.join("outcome.txt"), format!("{result:#?}")).unwrap();
         let result = result.unwrap();
         let row = &result.execution;
@@ -357,6 +504,20 @@ fn real_fixed_binary_vertical_slice() {
             )
             .unwrap();
         assert_eq!(counts, (1, 1));
+        if explicit_resume {
+            assert!(manager.resume_pending_execution(&row.id).await.is_err());
+            let raw =
+                std::fs::read_to_string(evidence.join(format!("{}.stdin.raw.jsonl", runtime.id)))
+                    .unwrap();
+            let requests: Vec<Value> = raw
+                .lines()
+                .map(|line| serde_json::from_str(line).unwrap())
+                .collect();
+            for method in ["thread/start", "turn/start"] {
+                assert_eq!(requests.iter().filter(|v| v["method"] == method).count(), 1);
+            }
+            std::fs::write(evidence.join("resume-identity.json"),serde_json::to_vec_pretty(&json!({"execution":row.id,"runtime":row.runtime_instance_id,"thread":row.thread_id,"turn":row.turn_id,"status":row.status,"resultCompleteness":row.result_completeness,"claim":"absent","runtimeCount":1,"threadStartCount":1,"turnStartCount":1,"jobConvergence":runtime.termination_evidence_state})).unwrap()).unwrap();
+        }
         let cleanup_runtime: String = db
             .query_row(
                 "SELECT background_cleanup_runtime_instance_id FROM executions",

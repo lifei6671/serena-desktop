@@ -13,6 +13,62 @@ pub(crate) struct WorkspaceExecutionCoordinator {
     pub store: StateStore,
 }
 impl WorkspaceExecutionCoordinator {
+    pub(crate) async fn finish_runtime_terminated(
+        &self,
+        id: &str,
+        revision: i64,
+        result: Option<RecoveredResult>,
+    ) -> Result<ExecutionRecord, String> {
+        let row = self
+            .store
+            .execution(id.into())
+            .await?
+            .ok_or("EXECUTION_NOT_FOUND")?;
+        if row.revision != revision {
+            return Err("EXECUTION_REVISION_CONFLICT".into());
+        }
+        let value = result
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|e| e.to_string())?;
+        if let Some(value) = &value
+            && (value["executionId"] != id
+                || value["executionRevision"] != row.revision
+                || value["sourceRuntimeId"].as_str() != row.runtime_instance_id.as_deref()
+                || value["recoveredByRuntimeId"] == value["sourceRuntimeId"]
+                || value["threadId"].as_str() != row.thread_id.as_deref()
+                || value["turnId"].as_str() != row.turn_id.as_deref()
+                || value["resultCompleteness"] != "complete"
+                || row
+                    .provider_terminal_status
+                    .as_deref()
+                    .is_some_and(|status| value["terminalTurn"]["status"] != status))
+        {
+            return Err("EXECUTION_RESULT_IDENTITY_MISMATCH".into());
+        }
+        let completeness = if value.is_some() {
+            ResultCompleteness::Complete
+        } else {
+            ResultCompleteness::Unknown
+        };
+        self.store
+            .finalize_and_release_execution(
+                id.into(),
+                revision,
+                Finalization {
+                    terminal: Status::Interrupted,
+                    basis: ReleaseBasis::RuntimeTerminated,
+                    result: value,
+                    completeness,
+                },
+                now(),
+            )
+            .await?;
+        self.store
+            .execution(id.into())
+            .await?
+            .ok_or_else(|| "EXECUTION_NOT_FOUND".into())
+    }
     pub async fn create(
         &self,
         id: String,

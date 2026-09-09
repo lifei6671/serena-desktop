@@ -12,6 +12,7 @@ const SCHEMA_V1: &str = include_str!("schema_v1.sql");
 #[derive(Clone)]
 pub struct StateStore {
     connection: Arc<Mutex<Connection>>,
+    database_identity: PathBuf,
 }
 
 /// Read projection; evidence is returned as stored, never inferred from policy.
@@ -92,6 +93,8 @@ impl StateStore {
             migrate(&mut connection)?;
             Ok(Self {
                 connection: Arc::new(Mutex::new(connection)),
+                database_identity: std::fs::canonicalize(app_data_directory.join("agent-state.db"))
+                    .map_err(|e| e.to_string())?,
             })
         })
         .await
