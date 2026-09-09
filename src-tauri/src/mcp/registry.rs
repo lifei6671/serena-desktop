@@ -151,18 +151,31 @@ fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
 pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String> {
     let mut agent = Tool::new(
         "agent",
-        "【做什么】\n创建、继续、观察和取消 Agent Execution。start 异步返回 receipt，不等待 Turn 完成。\n\n【什么时候使用】\n新 fresh lineage 使用新的 agentId；重试复用原 agentId/requestKey/prompt。已有 lineage 的新 Turn 使用 continue；crash 前未派发的原 Execution 使用 resume_pending。observe/list 只读，cancel 只取消 exact executionId。\n\n【关键约束】\nagentId 固定 Workspace/Thread lineage，不跨 Workspace 或 fresh Thread。已有 Execution 使用 persisted snapshot。后端不静默替换 agentId。Tool 调用取消/断开不取消 Execution。unknown 不可 Force Unlock。仅 codex/read_only/default profile。",
-        schema::<crate::agent::product::Action>()
+        "【定位】\nAgent 是 ChatGPT 的本地执行器。ChatGPT 负责读取代码、调查问题、分析、设计和 Review；Agent 负责按照 ChatGPT 已确定的目标实施修改并执行工程任务。\n\n【什么时候使用】\n仅当需要实际执行时使用，例如：修改/创建文件、实现代码、运行命令、lint、build、单元测试、集成测试、E2E、Native 测试或真实运行验证。\n\n【不要使用】\n不要把只读调查委托给 Agent，包括源码阅读、搜索、Symbol/Reference 查询、Git 查看、调用链分析、Bug 根因分析、架构设计、影响分析和代码 Review。这些应由 ChatGPT 使用 workspace/source/git/codegraph/media 工具自行完成。\n任务复杂、多步骤或跨文件，不是使用 Agent 的理由；是否需要实际执行才是判断依据。\n\n【生命周期】\nfresh 执行使用 start；同一 lineage 的后续执行使用 continue；仅 crash 前已持久化但未派发的 Execution 使用 resume_pending；observe/list 用于查看状态；cancel 仅取消指定 executionId。agentId 不跨 Workspace 或 fresh Thread。",
+        // MCP discovery uses a flat compatibility schema. Product DTO parsing
+        // remains the authority for action-specific requirements and validation.
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "action": {"type": "string", "enum": ["start", "continue", "resume_pending", "observe", "cancel", "list"]},
+                "agentId": {"type": "string"},
+                "executionId": {"type": "string"},
+                "requestKey": {"type": "string"},
+                "prompt": {"type": "string"},
+                "workspaceId": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100}
+            },
+            "required": ["action"]
+        })
             .as_object()
             .unwrap()
             .clone(),
     );
     agent.annotations = Some(ToolAnnotations::default().read_only(false));
-    let mut output = schema::<crate::agent::product::Envelope>();
-    for variant in output["anyOf"].as_array_mut().unwrap() {
-        variant["properties"]["ok"]["const"] = json!(variant["properties"].get("data").is_some());
-    }
-    agent.output_schema = Some(output.as_object().unwrap().clone().into());
+    // Keep the Product Envelope in structuredContent/text without advertising
+    // its enum schema to MCP clients.
+    agent.output_schema = None;
     let mut list = vec![
         agent,
         tool(
@@ -243,7 +256,9 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
     );
     media.output_schema = None;
     list.push(media);
-    if !agent_enabled { list.retain(|tool| tool.name != "agent"); }
+    if !agent_enabled {
+        list.retain(|tool| tool.name != "agent");
+    }
     Ok(list)
 }
 pub fn validate(name: &str, args: &Value) -> Result<(), String> {
@@ -306,6 +321,105 @@ mod tests {
             Tool::new(*name, format!("  Original {name}\n\nDetailed usage, constraints, and examples.\n中文说明。\n"), serde_json::Map::new())
         }).collect()
     }
+    #[test]
+    fn agent_discovery_schema_is_flat_and_stable() {
+        let tools = list(&upstream(), true).unwrap();
+        let agent = tools.iter().find(|t| t.name == "agent").unwrap();
+        let schema = &agent.input_schema;
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(schema["required"], json!(["action"]));
+        assert_eq!(
+            schema["properties"],
+            json!({
+                "action": {"type":"string", "enum":["start","continue","resume_pending","observe","cancel","list"]},
+                "agentId": {"type":"string"},
+                "executionId": {"type":"string"},
+                "requestKey": {"type":"string"},
+                "prompt": {"type":"string"},
+                "workspaceId": {"type":"string"},
+                "limit": {"type":"integer", "minimum":1, "maximum":100}
+            })
+        );
+        fn assert_simple(value: &Value) {
+            match value {
+                Value::Object(map) => {
+                    for (key, value) in map {
+                        assert!(
+                            ![
+                                "oneOf", "anyOf", "allOf", "$ref", "$defs", "if", "then", "else"
+                            ]
+                            .contains(&key.as_str()),
+                            "{key}"
+                        );
+                        assert_simple(value);
+                    }
+                }
+                Value::Array(items) => items.iter().for_each(assert_simple),
+                _ => {}
+            }
+        }
+        assert_simple(&serde_json::to_value(schema).unwrap());
+        assert!(agent.output_schema.is_none());
+        assert!(
+            serde_json::to_value(agent)
+                .unwrap()
+                .get("outputSchema")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn agent_toggle_only_adds_one_tool() {
+        let disabled = list(&upstream(), false).unwrap();
+        let enabled = list(&upstream(), true).unwrap();
+        assert!(!disabled.iter().any(|t| t.name == "agent"));
+        assert_eq!(enabled.iter().filter(|t| t.name == "agent").count(), 1);
+        assert_eq!(enabled.len(), disabled.len() + 1);
+        assert_eq!(
+            enabled
+                .iter()
+                .map(|t| &t.name)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            enabled.len()
+        );
+        assert_eq!(
+            enabled
+                .into_iter()
+                .filter(|t| t.name != "agent")
+                .collect::<Vec<_>>(),
+            disabled
+        );
+    }
+
+    #[test]
+    fn public_schema_root_audit() {
+        let mut findings = Vec::new();
+        for tool in list(&upstream(), true).unwrap() {
+            for (kind, schema) in [
+                ("input", Some(&tool.input_schema)),
+                ("output", tool.output_schema.as_ref()),
+            ] {
+                if let Some(schema) = schema {
+                    assert_eq!(
+                        schema.get("type"),
+                        Some(&json!("object")),
+                        "{} {kind}",
+                        tool.name
+                    );
+                    for key in ["oneOf", "anyOf", "allOf", "$ref", "$defs"] {
+                        if schema.contains_key(key) {
+                            findings.push(format!("{} {kind} {key}", tool.name));
+                        }
+                    }
+                }
+            }
+        }
+        // Existing compatibility finding, deliberately outside the Agent fix.
+        assert_eq!(findings, ["codegraph_explore output oneOf"]);
+    }
+
     #[test]
     fn fixed_surface() {
         let tools = list(&upstream(), true).unwrap();
@@ -389,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn forwarded_descriptions_are_exact_and_local_descriptions_have_three_sections() {
+    fn forwarded_descriptions_are_exact_and_local_descriptions_have_expected_sections() {
         let upstream = upstream();
         let tools = list(&upstream, true).unwrap();
         for (name, remote, _, _) in SOURCES {
@@ -403,12 +517,17 @@ mod tests {
                 .lines()
                 .filter(|line| line.starts_with('【'))
                 .collect();
-            assert_eq!(
-                sections,
-                ["【做什么】", "【什么时候使用】", "【关键约束】"],
-                "{}",
-                tool.name
-            );
+            let expected: &[&str] = if tool.name == "agent" {
+                &[
+                    "【定位】",
+                    "【什么时候使用】",
+                    "【不要使用】",
+                    "【生命周期】",
+                ]
+            } else {
+                &["【做什么】", "【什么时候使用】", "【关键约束】"]
+            };
+            assert_eq!(sections, expected, "{}", tool.name);
         }
         let activate = tools
             .iter()
@@ -444,7 +563,7 @@ mod tests {
 mod agent_contract_tests {
     use super::*;
     #[test]
-    fn one_mutating_agent_tool_with_product_schema() {
+    fn one_mutating_agent_tool_with_compatibility_schema() {
         let upstream = SOURCES
             .iter()
             .map(|(_, name, _, _)| Tool::new(*name, "upstream", serde_json::Map::new()))
@@ -474,8 +593,6 @@ mod agent_contract_tests {
         ] {
             assert!(input.contains(action));
         }
-        let output = serde_json::to_string(&agent.output_schema).unwrap();
-        assert!(output.contains("ExecutionView"));
-        assert!(!output.contains("truncated"));
+        assert!(agent.output_schema.is_none());
     }
 }

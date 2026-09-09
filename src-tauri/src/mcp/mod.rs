@@ -366,7 +366,9 @@ impl Broker {
     ) -> Result<Value, String> {
         if name == "agent" {
             if !self.config().agent_enabled {
-                return Ok(json!({"ok":false,"error":{"code":"AGENT_DISABLED","message":"Agent 工具未开启，请在 Serena Desktop 设置中开启 Agent。"}}));
+                return Ok(
+                    json!({"ok":false,"error":{"code":"AGENT_DISABLED","message":"Agent 工具未开启，请在 Serena Desktop 设置中开启 Agent。"}}),
+                );
             }
             return Ok(self.agent_operation(args).await);
         }
@@ -1119,6 +1121,129 @@ mod integration_tests {
     }
     #[tokio::test]
     #[ignore = "requires SERENA_TEST_EXE pointing at the official 1.7.0 test installation"]
+    async fn official_serena_agent_schema_round_trip() {
+        let exe = PathBuf::from(std::env::var_os("SERENA_TEST_EXE").expect("set SERENA_TEST_EXE"));
+        let dir = tempfile::tempdir().unwrap();
+        let broker = fixture(dir.path(), Some(exe));
+        let store = crate::agent::store::StateStore::open(dir.path().join("agent"))
+            .await
+            .unwrap();
+        assert!(
+            broker
+                .product
+                .set(Arc::new(crate::agent::product::AgentProductService::new(
+                    store
+                )))
+                .is_ok()
+        );
+        let supervisor = broker.supervisor.clone();
+        tauri::async_runtime::spawn_blocking(move || supervisor.start())
+            .await
+            .unwrap()
+            .unwrap();
+        broker.start().await.unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(60), async {
+            let mut disabled_tools = Vec::new();
+            for enabled in [false, true] {
+                let mut config = broker.config();
+                config.agent_enabled = enabled;
+                broker.supervisor.replace_config(config).unwrap();
+                // Each case negotiates initialize through the real HTTP transport.
+                let client = ()
+                    .serve(StreamableHttpClientTransport::from_uri(format!(
+                        "http://127.0.0.1:{}/mcp",
+                        broker.config().broker.port
+                    )))
+                    .await
+                    .unwrap();
+                let tools = client.list_all_tools().await.unwrap();
+                if enabled {
+                    assert_eq!(tools.len(), disabled_tools.len() + 1);
+                    assert_eq!(tools.iter().filter(|t| t.name == "agent").count(), 1);
+                    assert_eq!(
+                        tools
+                            .iter()
+                            .map(|t| &t.name)
+                            .collect::<std::collections::HashSet<_>>()
+                            .len(),
+                        tools.len()
+                    );
+                    let agent = tools.iter().find(|t| t.name == "agent").unwrap();
+                    assert_eq!(agent.input_schema["type"], "object");
+                    assert!(agent.output_schema.is_none());
+                    assert!(
+                        serde_json::to_value(agent)
+                            .unwrap()
+                            .get("outputSchema")
+                            .is_none()
+                    );
+                    assert_eq!(
+                        tools
+                            .into_iter()
+                            .filter(|t| t.name != "agent")
+                            .collect::<Vec<_>>(),
+                        disabled_tools
+                    );
+                } else {
+                    assert!(!tools.iter().any(|t| t.name == "agent"));
+                    disabled_tools = tools;
+                }
+                for (args, error) in [
+                    (json!({"action":"list"}), None),
+                    (json!({"action":"start"}), Some("AGENT_INVALID_ARGUMENT")),
+                    (
+                        json!({"action":"list","limit":101}),
+                        Some("AGENT_INVALID_ARGUMENT"),
+                    ),
+                    (
+                        json!({"action":"list","unexpected":true}),
+                        Some("AGENT_INVALID_ARGUMENT"),
+                    ),
+                ] {
+                    let result = client
+                        .call_tool(
+                            CallToolRequestParams::new("agent")
+                                .with_arguments(args.as_object().unwrap().clone()),
+                        )
+                        .await
+                        .unwrap();
+                    let envelope = result.structured_content.as_ref().unwrap();
+                    let rmcp::model::ContentBlock::Text(text) = &result.content[0] else {
+                        panic!("expected text JSON")
+                    };
+                    assert_eq!(
+                        serde_json::from_str::<Value>(&text.text).unwrap(),
+                        *envelope
+                    );
+                    let expected_error = if enabled {
+                        error
+                    } else {
+                        Some("AGENT_DISABLED")
+                    };
+                    if let Some(code) = expected_error {
+                        assert_eq!(result.is_error, Some(true));
+                        assert_eq!(envelope["ok"], false);
+                        assert_eq!(envelope["error"]["code"], code);
+                    } else {
+                        assert_ne!(result.is_error, Some(true));
+                        assert_eq!(envelope, &json!({"ok":true,"data":{"executions":[]}}));
+                    }
+                }
+                client.cancel().await.unwrap();
+            }
+        })
+        .await;
+        broker.stop().await.unwrap();
+        let supervisor = broker.supervisor.clone();
+        tauri::async_runtime::spawn_blocking(move || supervisor.stop())
+            .await
+            .unwrap()
+            .unwrap();
+        result.expect("Agent MCP round-trip timed out");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires SERENA_TEST_EXE pointing at the official 1.7.0 test installation"]
     async fn official_serena_lifecycle() {
         let exe = PathBuf::from(std::env::var_os("SERENA_TEST_EXE").expect("set SERENA_TEST_EXE"));
         let dir = tempfile::tempdir().unwrap();
@@ -1714,6 +1839,15 @@ mod agent_adapter_tests {
                 assert_eq!(tauri, mcp);
                 assert!(tauri.get("ok").is_some());
                 assert!(tauri.get("truncated").is_none());
+            }
+            for request in [
+                json!({"action":"start"}),
+                json!({"action":"list","limit":101}),
+                json!({"action":"list","unexpected":true}),
+            ] {
+                let result = broker.call_tool("agent", request, CancellationToken::new()).await.unwrap();
+                assert_eq!(result["ok"], false);
+                assert_eq!(result["error"]["code"], "AGENT_INVALID_ARGUMENT");
             }
             let mut config = broker.config();
             config.agent_enabled = false;
