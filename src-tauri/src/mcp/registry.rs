@@ -148,10 +148,311 @@ fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
     t.output_schema = Some(output.as_object().unwrap().clone().into());
     t
 }
-pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String> {
+// Stable core only; open execution fields preserve dynamic Product data.
+fn agent_output_schema() -> Value {
+    json!({
+      "type": "object",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "data": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/execution"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "executions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/execution"
+                      }
+                    }
+                  },
+                  "required": [
+                    "executions"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "control": {
+              "$ref": "#/$defs/control"
+            }
+          },
+          "required": [
+            "ok",
+            "data",
+            "control"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "executionId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            },
+            "control": {
+              "$ref": "#/$defs/control"
+            }
+          },
+          "required": [
+            "ok",
+            "error",
+            "control"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "$defs": {
+        "control": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "requestAccepted": {
+              "type": "boolean"
+            },
+            "providerInvoked": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "dispatchCertainty": {
+              "enum": [
+                "not_dispatched",
+                "dispatched",
+                "uncertain"
+              ]
+            },
+            "nextAction": {
+              "$ref": "#/$defs/nextAction"
+            }
+          },
+          "required": [
+            "requestAccepted",
+            "providerInvoked",
+            "dispatchCertainty",
+            "nextAction"
+          ],
+          "additionalProperties": false
+        },
+        "nextAction": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "action": {
+              "enum": [
+                "observe",
+                "review_result",
+                "resume_pending",
+                "manual_resolution",
+                "correct_input",
+                "activate_workspace",
+                "list"
+              ]
+            },
+            "executionId": {
+              "type": "string"
+            },
+            "waitMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 25000
+            },
+            "includeResult": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "additionalProperties": false
+        },
+        "execution": {
+          "type": "object",
+          "properties": {
+            "executionId": {
+              "type": "string"
+            },
+            "agentId": {
+              "type": "string"
+            },
+            "workspaceId": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "dispatchState": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "string"
+            },
+            "resultCompleteness": {
+              "type": "string"
+            },
+            "attention": {
+              "type": "string"
+            },
+            "providerTerminalStatus": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "resultAvailable": {
+              "type": "boolean"
+            },
+            "progress": {
+              "type": "object",
+              "properties": {
+                "phase": {
+                  "enum": [
+                    "pending",
+                    "dispatching",
+                    "running",
+                    "finalizing",
+                    "reconciling",
+                    "terminal"
+                  ]
+                }
+              },
+              "required": [
+                "phase"
+              ],
+              "additionalProperties": false
+            },
+            "nextAction": {
+              "$ref": "#/$defs/nextAction"
+            },
+            "availableActions": {
+              "type": "object",
+              "properties": {
+                "canCancel": {
+                  "type": "boolean"
+                },
+                "canContinue": {
+                  "type": "boolean"
+                },
+                "canResumePending": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "canCancel",
+                "canContinue",
+                "canResumePending"
+              ],
+              "additionalProperties": false
+            },
+            "prompt": {
+              "type": "string"
+            },
+            "canonicalWorkspaceRoot": {
+              "type": "string"
+            },
+            "threadId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "turnId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "interruptRequested": {
+              "type": "boolean"
+            },
+            "interruptAcknowledged": {
+              "type": "boolean"
+            },
+            "interruptTimedOut": {
+              "type": "boolean"
+            },
+            "createdAt": {
+              "type": "integer"
+            },
+            "updatedAt": {
+              "type": "integer"
+            },
+            "completedAt": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "unchanged": {
+              "type": "boolean"
+            },
+            "finalResult": {}
+          },
+          "required": [
+            "executionId",
+            "agentId",
+            "workspaceId",
+            "status",
+            "dispatchState",
+            "revision",
+            "resultCompleteness",
+            "attention",
+            "providerTerminalStatus",
+            "resultAvailable",
+            "progress",
+            "nextAction",
+            "availableActions",
+            "prompt",
+            "canonicalWorkspaceRoot",
+            "threadId",
+            "turnId",
+            "interruptRequested",
+            "interruptAcknowledged",
+            "interruptTimedOut",
+            "createdAt",
+            "updatedAt",
+            "completedAt"
+          ]
+        }
+      }
+    })
+}
+pub fn agent_tool() -> Tool {
     let mut agent = Tool::new(
         "agent",
-        "【定位】\nAgent 是 ChatGPT 的本地执行器。ChatGPT 负责读取代码、调查问题、分析、设计和 Review；Agent 负责按照 ChatGPT 已确定的目标实施修改并执行工程任务。\n\n【什么时候使用】\n仅当需要实际执行时使用，例如：修改/创建文件、实现代码、运行命令、lint、build、单元测试、集成测试、E2E、Native 测试或真实运行验证。\n\n【不要使用】\n不要把只读调查委托给 Agent，包括源码阅读、搜索、Symbol/Reference 查询、Git 查看、调用链分析、Bug 根因分析、架构设计、影响分析和代码 Review。这些应由 ChatGPT 使用 workspace/source/git/codegraph/media 工具自行完成。\n任务复杂、多步骤或跨文件，不是使用 Agent 的理由；是否需要实际执行才是判断依据。\n\n【生命周期】\nfresh 执行使用 start；同一 lineage 的后续执行使用 continue；仅 crash 前已持久化但未派发的 Execution 使用 resume_pending；observe/list 用于查看状态；cancel 仅取消指定 executionId。agentId 不跨 Workspace 或 fresh Thread。",
+        "【定位】\nAgent 是 ChatGPT 的本地执行器。ChatGPT 负责读取代码、调查问题、分析、设计和 Review；Agent 负责按照 ChatGPT 已确定的目标实施修改并执行工程任务。\n\n【什么时候使用】\n仅当需要实际执行时使用，例如：修改/创建文件、实现代码、运行命令、lint、build、单元测试、集成测试、E2E、Native 测试或真实运行验证。\n\n【不要使用】\n不要把只读调查委托给 Agent，包括源码阅读、搜索、Symbol/Reference 查询、Git 查看、调用链分析、Bug 根因分析、架构设计、影响分析和代码 Review。这些应由 ChatGPT 使用 workspace/source/git/codegraph/media 工具自行完成。\n任务复杂、多步骤或跨文件，不是使用 Agent 的理由；是否需要实际执行才是判断依据。\n\n【生命周期】\nfresh 执行使用 start；同一 lineage 的后续执行使用 continue；resume_pending 仅用于已经 durable 创建、可靠证明尚未跨越 Provider side-effect boundary 且未建立 Runtime attempt 的 pending Execution；Host crash、Provider/backend 不可用或 binary discovery failure（均在 Runtime 创建前）都可能产生此状态；observe/list 用于查看状态；cancel 仅取消指定 executionId。agentId 不跨 Workspace 或 fresh Thread。start/continue/resume_pending 接受后立即返回，执行由本地 Worker 继续；使用 observe 携带 knownRevision 等待有意义状态变化，waitMs 默认 20000、最大 25000，0 表示立即读取。连接中断不取消执行，可按 executionId 重连观察。默认不返回结果正文；resultAvailable=true 时使用 observe(includeResult=true) 获取已持久化结果，可重复读取。nextAction 仅为提示，操作资格仍由 availableActions 和后端校验决定。control.requestAccepted 表示当前请求已获得 durable Execution identity；providerInvoked 为 true/false/null，dispatching/uncertain 不能证明已派发。错误优先按 error.code 与 control.nextAction 处理，不根据 message 推断。control=null 或连接结果不明时，仅原样重试同一 action 和全部原始参数；start/continue 保留原 requestKey，其他 action 不新增 requestKey。不得自动生成新 key、replay Provider 或夺取 Claim。\n\n【action 参数】\nstart(agentId, requestKey, prompt, workspaceId)\ncontinue(executionId, requestKey, prompt)\nresume_pending(executionId)\nresume_pending 仅用于已经 durable 创建、可靠证明尚未跨越 Provider side-effect boundary、未建立 Runtime attempt 的 pending Execution。Host crash、Provider/backend 不可用、binary discovery/resolution failure（均在 Runtime 创建前）都可能产生此状态，并允许 explicit resume 或 cancel-before-dispatch。\n\n必须同时满足 dispatch_pending + not_dispatched + runtime_instance_id=NULL + provider_terminal_status=NULL、原 Execution 拥有 Workspace Claim、无 persisted Runtime attempt。拒绝 dispatching/dispatched/uncertain、已绑定 Runtime、已有 Runtime attempt、已有 Provider terminal、running/finalizing/reconciling/unknown、completed/failed/cancelled/interrupted，以及 Claim missing/mismatch。\n\n只接受 exact executionId；不创建 Execution、不生成 requestKey、不 replay uncertain Provider request、不重新绑定旧 Runtime、不夺取其他 Claim。继续复用原首次 Provider pipeline；并发 duplicate resume 不得产生第二个 Runtime/Thread/Turn。\nobserve(executionId, knownRevision?, waitMs?, includeResult?)\ncancel(executionId)\nlist(agentId?, workspaceId?, limit?)\nstart.workspaceId 是调用方期望执行的当前 Workspace 身份；ActiveWorkspace 变化时必须拒绝，不得执行到新的 Workspace。括号内为 action 之外的参数，? 表示可选。只传当前 action 对应的字段；不要携带其他 action 的参数。",
         // MCP discovery uses a flat compatibility schema. Product DTO parsing
         // remains the authority for action-specific requirements and validation.
         json!({
@@ -163,8 +464,11 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
                 "executionId": {"type": "string"},
                 "requestKey": {"type": "string"},
                 "prompt": {"type": "string"},
-                "workspaceId": {"type": "string"},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 100}
+                "workspaceId": {"type": "string", "description": "start 必填：调用方期望的当前 Workspace ID；list 可选：筛选 Workspace。"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                "knownRevision": {"type": "string"},
+                "waitMs": {"type": "integer", "minimum": 0, "maximum": 25000, "default": 20000},
+                "includeResult": {"type": "boolean", "default": false}
             },
             "required": ["action"]
         })
@@ -172,10 +476,56 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
             .unwrap()
             .clone(),
     );
-    agent.annotations = Some(ToolAnnotations::default().read_only(false));
-    // Keep the Product Envelope in structuredContent/text without advertising
-    // its enum schema to MCP clients.
-    agent.output_schema = None;
+    agent.annotations = Some(
+        ToolAnnotations::default()
+            .read_only(false)
+            .destructive(true)
+            .idempotent(false)
+            .open_world(true),
+    );
+    agent.output_schema = Some(agent_output_schema().as_object().unwrap().clone().into());
+    agent
+}
+pub fn agent_contract_hash(descriptor: &Tool) -> String {
+    use sha2::{Digest, Sha256};
+    fn sorted(value: Value) -> Value {
+        match value {
+            Value::Object(map) => Value::Object(
+                map.into_iter()
+                    .map(|(k, v)| (k, sorted(v)))
+                    .collect::<std::collections::BTreeMap<_, _>>()
+                    .into_iter()
+                    .collect(),
+            ),
+            Value::Array(items) => Value::Array(items.into_iter().map(sorted).collect()),
+            v => v,
+        }
+    }
+    let contract = sorted(
+        json!({"name":descriptor.name,"description":descriptor.description,"inputSchema":descriptor.input_schema,"annotations":descriptor.annotations,"outputSchema":descriptor.output_schema}),
+    );
+    Sha256::digest(contract.to_string().as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+pub fn agent_contract_diagnostic(enabled: bool, descriptor: &Tool) -> String {
+    let mut properties = descriptor.input_schema["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    properties.sort();
+    format!(
+        "agentEnabled={enabled} agent tool contract sha256={} properties={} annotations={}",
+        agent_contract_hash(descriptor),
+        properties.join(","),
+        json!(descriptor.annotations)
+    )
+}
+pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String> {
+    let agent = agent_tool();
     let mut list = vec![
         agent,
         tool(
@@ -316,6 +666,132 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn agent_output_contract_stable_fields() {
+        let schema = agent_output_schema();
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["oneOf"][0]["properties"]["ok"]["const"], true);
+        assert_eq!(schema["oneOf"][1]["properties"]["ok"]["const"], false);
+        for field in [
+            "requestAccepted",
+            "providerInvoked",
+            "dispatchCertainty",
+            "nextAction",
+        ] {
+            assert!(
+                schema["$defs"]["control"]["properties"]
+                    .get(field)
+                    .is_some()
+            );
+        }
+        assert_eq!(
+            schema["$defs"]["control"]["properties"]["providerInvoked"]["type"],
+            json!(["boolean", "null"])
+        );
+        for field in [
+            "executionId",
+            "agentId",
+            "workspaceId",
+            "status",
+            "dispatchState",
+            "revision",
+            "resultAvailable",
+            "progress",
+            "nextAction",
+            "availableActions",
+            "providerTerminalStatus",
+            "resultCompleteness",
+            "attention",
+        ] {
+            assert!(
+                schema["$defs"]["execution"]["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!(field))
+            );
+        }
+        println!("agent outputSchema bytes={}", schema.to_string().len());
+    }
+
+    #[test]
+    fn agent_contract_fingerprint_covers_descriptor_and_ignores_object_key_order() {
+        let agent = agent_tool();
+        let hash = agent_contract_hash(&agent);
+        assert_eq!(hash.len(), 64);
+        assert_eq!(hash, agent_contract_hash(&agent_tool()));
+        let description = agent.description.as_deref().unwrap();
+        for signature in [
+            "start(agentId, requestKey, prompt, workspaceId)",
+            "continue(executionId, requestKey, prompt)",
+            "resume_pending(executionId)",
+            "observe(executionId, knownRevision?, waitMs?, includeResult?)",
+            "cancel(executionId)",
+            "list(agentId?, workspaceId?, limit?)",
+            "只传当前 action 对应的字段；不要携带其他 action 的参数。",
+        ] {
+            assert!(description.contains(signature), "{signature}");
+        }
+        assert!(!description.contains("仅 crash 前"));
+        for clause in ["Provider side-effect boundary", "未建立 Runtime attempt", "binary discovery failure", "Claim missing/mismatch", "不重新绑定旧 Runtime"] {
+            assert!(description.contains(clause), "{clause}");
+        }
+        let mut old = agent.clone();
+        old.description = Some(
+            description
+                .split("\n\n【action 参数】")
+                .next()
+                .unwrap()
+                .to_owned()
+                .into(),
+        );
+        assert_ne!(hash, agent_contract_hash(&old));
+        assert_eq!(
+            json!(agent.annotations),
+            json!({"readOnlyHint":false,"destructiveHint":true,"idempotentHint":false,"openWorldHint":true})
+        );
+        for field in [
+            "name",
+            "description",
+            "inputSchema",
+            "annotations",
+            "outputSchema",
+        ] {
+            let mut value = serde_json::to_value(&agent).unwrap();
+            match field {
+                "name" => value["name"] = json!("changed"),
+                "description" => value["description"] = json!("changed"),
+                "inputSchema" => {
+                    value["inputSchema"]["properties"]["waitMs"]["maximum"] = json!(24999)
+                }
+                "annotations" => value["annotations"]["openWorldHint"] = json!(false),
+                "outputSchema" => value["outputSchema"]["description"] = json!("changed"),
+                _ => unreachable!(),
+            }
+            assert_ne!(
+                hash,
+                agent_contract_hash(&serde_json::from_value(value).unwrap()),
+                "{field}"
+            );
+        }
+        let mut reordered = agent.clone();
+        let mut properties = serde_json::Map::new();
+        for (key, value) in agent.input_schema["properties"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .rev()
+        {
+            properties.insert(key.clone(), value.clone());
+        }
+        let mut schema = (*agent.input_schema).clone();
+        schema.insert("properties".into(), Value::Object(properties));
+        reordered.input_schema = schema.into();
+        assert_eq!(hash, agent_contract_hash(&reordered));
+        let diagnostic = agent_contract_diagnostic(true, &agent);
+        assert!(diagnostic.contains(&hash));
+        assert!(diagnostic.contains("knownRevision"));
+        assert!(!diagnostic.contains("【定位】"));
+    }
     fn upstream() -> Vec<Tool> {
         SOURCES.iter().map(|(_, name, _, _)| {
             Tool::new(*name, format!("  Original {name}\n\nDetailed usage, constraints, and examples.\n中文说明。\n"), serde_json::Map::new())
@@ -337,8 +813,11 @@ mod tests {
                 "executionId": {"type":"string"},
                 "requestKey": {"type":"string"},
                 "prompt": {"type":"string"},
-                "workspaceId": {"type":"string"},
-                "limit": {"type":"integer", "minimum":1, "maximum":100}
+                "workspaceId": {"type":"string", "description":"start 必填：调用方期望的当前 Workspace ID；list 可选：筛选 Workspace。"},
+                "limit": {"type":"integer", "minimum":1, "maximum":100},
+                "knownRevision": {"type":"string"},
+                "waitMs": {"type":"integer", "minimum":0, "maximum":25000, "default":20000},
+                "includeResult": {"type":"boolean", "default":false}
             })
         );
         fn assert_simple(value: &Value) {
@@ -360,12 +839,12 @@ mod tests {
             }
         }
         assert_simple(&serde_json::to_value(schema).unwrap());
-        assert!(agent.output_schema.is_none());
+        assert!(agent.output_schema.is_some());
         assert!(
             serde_json::to_value(agent)
                 .unwrap()
                 .get("outputSchema")
-                .is_none()
+                .is_some()
         );
     }
 
@@ -417,7 +896,14 @@ mod tests {
             }
         }
         // Existing compatibility finding, deliberately outside the Agent fix.
-        assert_eq!(findings, ["codegraph_explore output oneOf"]);
+        assert_eq!(
+            findings,
+            [
+                "agent output oneOf",
+                "agent output $defs",
+                "codegraph_explore output oneOf"
+            ]
+        );
     }
 
     #[test]
@@ -523,6 +1009,7 @@ mod tests {
                     "【什么时候使用】",
                     "【不要使用】",
                     "【生命周期】",
+                    "【action 参数】",
                 ]
             } else {
                 &["【做什么】", "【什么时候使用】", "【关键约束】"]
@@ -593,6 +1080,6 @@ mod agent_contract_tests {
         ] {
             assert!(input.contains(action));
         }
-        assert!(agent.output_schema.is_none());
+        assert!(agent.output_schema.is_some());
     }
 }

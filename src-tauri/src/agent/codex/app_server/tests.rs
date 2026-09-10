@@ -454,6 +454,7 @@ fn queue_and_pending_bounds_fail_closed() {
                     execution: None,
                     deadline: Instant::now() + RPC_TIMEOUT,
                     response: tx,
+                    terminal_turn: None,
                 },
             );
         }

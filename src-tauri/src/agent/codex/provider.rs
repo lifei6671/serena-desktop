@@ -83,6 +83,19 @@ impl CodexProvider {
         ) {
             return Ok(());
         }
+        // No Provider boundary was crossed. Keep the existing pending identity and
+        // Claim; explicit resume or cancel-before-dispatch remains available.
+        if row.status == "dispatch_pending"
+            && row.dispatch_state == "not_dispatched"
+            && row.runtime_instance_id.is_none()
+            && row.provider_terminal_status.is_none()
+            // A created but unbound Runtime cannot reuse this immutable attempt ID.
+            && self.store.runtime(format!("runtime-{id}")).await?.is_none()
+            && self.store.workspace_claim(row.canonical_workspace_root.clone()).await?
+                .is_some_and(|claim| claim.execution_id == row.id)
+        {
+            return Ok(());
+        }
         if row.dispatch_state == "dispatching" {
             self.event(
                 id,
@@ -209,8 +222,9 @@ impl CodexProvider {
         let mut interrupt_done = false;
         let mut cancel_poll = tokio::time::interval(Duration::from_millis(100));
         cancel_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
-        while !(flushed && acknowledged && terminal && (!interrupt_sent || interrupt_done)) {
+        // Exact persisted terminal identity supersedes the turn/start ACK. Keep the
+        // request future alive through cleanup; dropping it cancels the Client.
+        while !(flushed && terminal && (!interrupt_sent || interrupt_done)) {
             let row = self.row(id).await?;
             if !interrupt_sent
                 && row.interrupt_requested_at.is_some()
@@ -252,7 +266,7 @@ impl CodexProvider {
                     self.event(id, Transition::Dispatch {to: DispatchState::Dispatched, runtime_id: None}).await?;
                     flushed = true;
                 }
-                outcome = &mut request, if !acknowledged => {
+                outcome = &mut request, if !acknowledged && (!terminal || !flushed) => {
                     let turn = outcome.map_err(|e| e.to_string())?;
                     self.bind(id, client, &thread.id, Some(turn.id)).await?;
                     acknowledged = true;
@@ -272,7 +286,6 @@ impl CodexProvider {
                             } else {
                                     let status = match turn.status {TurnStatus::Completed => Status::Completed, TurnStatus::Failed => Status::Failed, TurnStatus::Interrupted => Status::Interrupted, _ => return Err("PROVIDER_TERMINAL_STATUS_INVALID".into())};
                                     self.event(id, Transition::ProviderTerminal {runtime_id: client.runtime_id().into(), status}).await?;
-                                    if status == Status::Failed && !interrupt_sent { return Err(format!("PROVIDER_TERMINAL_{}", status.as_str())); }
                                     terminal = true;
                             }
                         }
@@ -280,7 +293,6 @@ impl CodexProvider {
                         _ => {}
                     }
                 }
-                _ = tokio::time::sleep_until(deadline) => return Err("PROVIDER_TERMINAL_TIMEOUT".into()),
                 _ = cancel_poll.tick() => {},
             }
         }

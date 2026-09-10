@@ -1,3 +1,4 @@
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { Toaster } from "@/components/ui/sonner";
@@ -6,6 +7,7 @@ import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
+    <TooltipProvider>
     <App />
     <Toaster
       className="pointer-events-auto"
@@ -18,5 +20,6 @@ createRoot(document.getElementById("root")!).render(
       containerAriaLabel="通知"
       toastOptions={{ closeButtonAriaLabel: "关闭通知" }}
     />
+    </TooltipProvider>
   </StrictMode>,
 );

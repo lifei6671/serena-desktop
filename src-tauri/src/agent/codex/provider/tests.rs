@@ -26,7 +26,49 @@ fn turn(status: &str) -> Value {
     json!({"id":"TURN","status":status,"items":[],"itemsView":"summary"})
 }
 
+// Hold only turn/start flush until the fake server has persisted terminal evidence.
+struct DelayedTurnFlush {
+    inner: tokio::io::WriteHalf<DuplexStream>,
+    release: Option<tokio::sync::oneshot::Receiver<()>>,
+    turn_written: bool,
+}
+impl tokio::io::AsyncWrite for DelayedTurnFlush {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        if buf.windows(b"turn/start".len()).any(|v| v == b"turn/start") {
+            self.turn_written = true;
+        }
+        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        if self.turn_written && let Some(release) = &mut self.release {
+            match std::future::Future::poll(std::pin::Pin::new(release), cx) {
+                std::task::Poll::Pending => return std::task::Poll::Pending,
+                std::task::Poll::Ready(result) => result.expect("fake flush release"),
+            }
+            self.release = None;
+        }
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
 async fn slice_case(case: &'static str) {
+    let failed = case.starts_with("failed");
+    let late_deadline = case.ends_with("late-deadline");
+    let invalid_ack = matches!(case, "wrong-ack-late-deadline" | "error-ack-late-deadline" | "invalid-ack-late-deadline");
+    let terminal_status = if failed { "failed" } else { "completed" };
     let temp = tempfile::tempdir().unwrap();
     let store = StateStore::open(temp.path().into()).await.unwrap();
     let manager = AgentTaskManager::new(store.clone(), "does-not-exist.exe".into());
@@ -49,15 +91,20 @@ async fn slice_case(case: &'static str) {
     if case != "resume" {
         connection.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES ('R1','fixture','running',1,1)",[]).unwrap();
     }
-    if case == "rollback" {
+    if matches!(case, "rollback" | "failed-rollback") {
         connection.execute_batch("CREATE TRIGGER test_rollback BEFORE DELETE ON workspace_claims BEGIN SELECT RAISE(ABORT,'injected final rollback'); END;").unwrap();
     }
     let (wire, server) = tokio::io::duplex(128 * 1024);
     let (read, write) = tokio::io::split(wire);
+    let (flush_release, flush_wait) = tokio::sync::oneshot::channel();
     let client = std::sync::Arc::new(Client::transport(
         "R1".into(),
         read,
-        write,
+        DelayedTurnFlush {
+            inner: write,
+            release: (case == "failed-delayed-flush").then_some(flush_wait),
+            turn_written: false,
+        },
         tokio::io::empty(),
     ));
     let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
@@ -103,13 +150,43 @@ async fn slice_case(case: &'static str) {
         let req = recv(&mut s).await;
         assert_eq!(req["method"], "turn/start");
         assert_eq!(req["params"]["threadId"], "THREAD");
-        // Emit terminal before ACK; wait for actual persisted finalizing before ACK.
-        send(&mut s,json!({"method":"turn/completed","params":{"threadId":"THREAD","turn":turn(if case=="failed" {"failed"} else {"completed"})}})).await;
+        if matches!(case, "long" | "failed") {
+            reply(&mut s, &req, json!({"turn":turn("inProgress")})).await;
+            loop {
+                let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
+                if row.turn_id.is_some() && row.dispatch_state == "dispatched" {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+            if case == "long" {
+                tokio::time::pause();
+                tokio::time::advance(Duration::from_secs(121)).await;
+                tokio::time::resume();
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
+                assert_ne!(row.status, "reconciling", "old turn timeout fired");
+                assert!(row.provider_terminal_status.is_none());
+            }
+        }
+        if late_deadline {
+            while fake_store.execution(id.clone()).await.unwrap().unwrap().dispatch_state != "dispatched" {
+                tokio::task::yield_now().await;
+            }
+        }
+        let turn_request = req.clone();
+        // Except the ACK-first cases, persist terminal before sending a late ACK.
+        send(&mut s,json!({"method":"turn/completed","params":{"threadId":"THREAD","turn":turn(terminal_status)}})).await;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         loop {
             let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
             if row.status == "finalizing" {
                 assert_eq!(row.turn_id.as_deref(), Some("TURN"));
+                if case == "failed-delayed-flush" {
+                    assert_eq!(row.dispatch_state, "dispatching");
+                    assert!(row.final_result_json.is_none());
+                    assert!(fake_store.workspace_claim(request2.canonical_workspace_root.clone()).await.unwrap().is_some());
+                }
                 break;
             }
             assert!(
@@ -118,8 +195,13 @@ async fn slice_case(case: &'static str) {
             );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        if case != "failed" {
-            reply(&mut s, &req, json!({"turn":turn("inProgress")})).await;
+        if case == "failed-delayed-flush" {
+            flush_release.send(()).unwrap();
+        }
+        {
+            if !late_deadline && !matches!(case, "long" | "failed" | "failed-no-ack" | "failed-delayed-flush") {
+                reply(&mut s, &req, json!({"turn":turn("inProgress")})).await;
+            }
             let req = recv(&mut s).await;
             assert_eq!(req["method"], "thread/read");
             assert_eq!(req["params"]["includeTurns"], false);
@@ -132,14 +214,40 @@ async fn slice_case(case: &'static str) {
                     .status,
                 "finalizing"
             );
+            if late_deadline {
+                tokio::time::pause();
+                tokio::time::advance(Duration::from_secs(8)).await;
+                tokio::time::resume();
+            }
             reply(&mut s,&req,json!({"thread":{"id":if case=="wrong-result" {"OTHER"}else{"THREAD"},"turns":[],"historyMode":"paginated"}})).await;
             if case != "wrong-result" {
                 let req = recv(&mut s).await;
                 assert_eq!(req["method"], "thread/turns/list");
+                if late_deadline {
+                    tokio::time::pause();
+                    tokio::time::advance(Duration::from_secs(8)).await;
+                    tokio::time::resume();
+                    // Each recovery RPC is within its deadline; only the obsolete
+                    // turn/start ACK is late, after exact terminal was persisted.
+                    if invalid_ack {
+                        let response = if case.starts_with("wrong-ack") {
+                            json!({"id":turn_request["id"],"result":{"turn":{"id":"OTHER","status":"inProgress","items":[],"itemsView":"summary"}}})
+                        } else if case.starts_with("invalid-ack") {
+                            json!({"id":turn_request["id"],"result":{"turn":{"id":"TURN","status":"unknown"}}})
+                        } else {
+                            json!({"id":turn_request["id"],"error":{"code":-1,"message":"conflict"}})
+                        };
+                        send(&mut s, response).await;
+                        let mut extra = String::new();
+                        assert_eq!(s.read_line(&mut extra).await.unwrap(), 0, "unexpected replay: {extra}");
+                        return;
+                    }
+                    reply(&mut s, &turn_request, json!({"turn":turn("inProgress")})).await;
+                }
                 reply(
                     &mut s,
                     &req,
-                    json!({"data":[turn("completed")],"nextCursor":null}),
+                    json!({"data":[turn(terminal_status)],"nextCursor":null}),
                 )
                 .await;
                 let req = recv(&mut s).await;
@@ -260,7 +368,7 @@ async fn slice_case(case: &'static str) {
     } else {
         client.initialize().await.unwrap();
         tokio::time::timeout(
-            Duration::from_secs(15),
+            Duration::from_secs(if case == "long" { 150 } else if late_deadline { 60 } else { 15 }),
             provider.run_client(&created.execution_id, &client),
         )
         .await
@@ -271,9 +379,13 @@ async fn slice_case(case: &'static str) {
         .await
         .unwrap()
         .unwrap();
-    if matches!(case, "success" | "resume") {
-        assert!(outcome.is_ok(), "{outcome:?}");
-        assert_eq!(row.status, "completed");
+    if (late_deadline && !invalid_ack) || matches!(case, "success" | "resume" | "long" | "failed" | "failed-late-ack" | "failed-no-ack" | "failed-delayed-flush") {
+        if failed {
+            assert_eq!(outcome.as_ref().unwrap_err(), "PROVIDER_TERMINAL_failed");
+        } else {
+            assert!(outcome.is_ok(), "{outcome:?}");
+        }
+        assert_eq!(row.status, terminal_status);
         assert_eq!(row.result_completeness, "complete");
         assert_eq!(row.release_evidence_state, "complete");
         assert!(
@@ -296,12 +408,12 @@ async fn slice_case(case: &'static str) {
                 .is_some()
         );
     }
-    if case == "rollback" {
+    if matches!(case, "rollback" | "failed-rollback") {
         assert!(outcome.unwrap_err().contains("injected final rollback"));
     }
-    if case == "failed" {
-        assert_eq!(row.provider_terminal_status.as_deref(), Some("failed"));
-    }
+    assert_eq!(row.provider_terminal_status.as_deref(), Some(terminal_status));
+    assert_eq!(row.thread_id.as_deref(), Some("THREAD"));
+    assert_eq!(row.turn_id.as_deref(), Some("TURN"));
     assert_eq!(row.runtime_instance_id.as_deref(), Some("R1"));
     let duplicate = manager.execute(request).await.unwrap();
     assert!(!duplicate.created);
@@ -342,8 +454,25 @@ fn result_identity_mismatch_cannot_complete() {
     run(slice_case("wrong-result"));
 }
 #[test]
-fn provider_failure_is_not_empty_success() {
+fn provider_failure_finalizes_before_returning_error() {
     run(slice_case("failed"));
+}
+
+#[test]
+fn failed_terminal_before_late_ack_finalizes() {
+    run(slice_case("failed-late-ack"));
+}
+#[test]
+fn failed_terminal_without_ack_finalizes() {
+    run(slice_case("failed-no-ack"));
+}
+#[test]
+fn failed_terminal_before_flush_without_ack_finalizes() {
+    run(slice_case("failed-delayed-flush"));
+}
+#[test]
+fn failed_final_transaction_rollback_retains_claim_and_result() {
+    run(slice_case("failed-rollback"));
 }
 
 #[test]
@@ -699,4 +828,29 @@ fn coordinator_rejects_cleanup_from_another_execution() {
         drop(client);
         fake.await.unwrap();
     });
+}
+
+#[test]
+fn long_turn_survives_old_120_second_boundary() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(slice_case("long"));
+}
+
+#[test]
+fn completed_and_failed_terminal_ack_after_rpc_deadline() {
+    for case in ["late-deadline", "failed-late-deadline"] {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all().build().unwrap().block_on(slice_case(case));
+    }
+}
+
+#[test]
+fn late_terminal_ack_conflicting_identity_or_error_retains_claim() {
+    for case in ["wrong-ack-late-deadline", "error-ack-late-deadline", "invalid-ack-late-deadline"] {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all().build().unwrap().block_on(slice_case(case));
+    }
 }

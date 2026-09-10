@@ -32,6 +32,7 @@ pub struct ExecutionRecord {
     pub turn_id: Option<String>,
     pub provider_terminal_status: Option<String>,
     pub provider_terminal_evidence_runtime_instance_id: Option<String>,
+    pub provider_terminal_evidence_at: Option<i64>,
     pub runtime_instance_id: Option<String>,
     pub status: String,
     pub dispatch_state: String,
@@ -281,7 +282,7 @@ fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<Executi
              workspace_id, canonical_workspace_root, provider, mode, thread_id,
              runtime_instance_id, status, dispatch_state, revision, background_cleanup_state,
              release_evidence_state, release_evidence_kind, release_evidence_json, result_completeness, turn_id, provider_terminal_status, provider_terminal_evidence_runtime_instance_id, final_result_json
-             , interrupt_requested_at, interrupt_ack_at, interrupt_timeout_at, interrupt_diagnostic
+             , interrupt_requested_at, interrupt_ack_at, interrupt_timeout_at, interrupt_diagnostic, provider_terminal_evidence_at
              FROM executions WHERE id = ?1", [&id], |r| Ok(ExecutionRecord {
                 id: r.get(0)?, agent_id: r.get(1)?, request_key: r.get(2)?, request_hash: r.get(3)?,
                 prompt: r.get(4)?, execution_profile_json: r.get(5)?, workspace_id: r.get(6)?,
@@ -292,5 +293,6 @@ fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<Executi
                 release_evidence_json: r.get(18)?, result_completeness: r.get(19)?, turn_id: r.get(20)?, provider_terminal_status: r.get(21)?, provider_terminal_evidence_runtime_instance_id: r.get(22)?, final_result_json: r.get(23)?,
                 interrupt_requested_at: r.get(24)?, interrupt_ack_at: r.get(25)?,
                 interrupt_timeout_at: r.get(26)?, interrupt_diagnostic: r.get(27)?,
+                provider_terminal_evidence_at: r.get(28)?,
             })).optional()
 }

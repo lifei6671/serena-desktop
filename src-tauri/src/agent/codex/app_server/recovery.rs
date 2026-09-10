@@ -226,6 +226,22 @@ impl Client {
         let result=async {
             scope.validate_current().await?;
             self.check_recovery(&scope,deadline)?;
+            // Only a sealed current Execution binding with flush certainty and
+            // same-Runtime terminal evidence can make its start ACK redundant.
+            if scope.source_runtime_id == self.runtime_id()
+                && scope.provider_terminal.is_some()
+                && let Some(binding) = &scope.binding
+                && binding.record().dispatch_state == "dispatched"
+                && binding.record().provider_terminal_evidence_at.is_some()
+            {
+                for pending in self.shared.pending.lock().unwrap().values_mut() {
+                    if pending.method == "turn/start"
+                        && pending.execution.as_deref() == Some(binding.record().id.as_str())
+                    {
+                        pending.terminal_turn = Some(scope.turn_id.clone());
+                    }
+                }
+            }
             let meta=self.rpc("thread/read",json!({"threadId":scope.thread_id,"includeTurns":false}),None,deadline.min(Instant::now()+RPC_TIMEOUT),false).await?;
             let meta=checked_thread(meta,&scope.thread_id)?;
             let mut turn=match meta.history_mode {

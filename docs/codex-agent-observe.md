@@ -154,6 +154,12 @@ observe = 可选有界 long-poll + revision + result-on-demand
 
 # 4. MCP Agent Tool 保持单工具设计
 
+`resume_pending` 仅用于已经 durable 创建、可靠证明尚未跨越 Provider side-effect boundary、未建立 Runtime attempt 的 pending Execution。Host crash、Provider/backend 不可用、binary discovery/resolution failure（均在 Runtime 创建前）都可能产生此状态，并允许 explicit resume 或 cancel-before-dispatch。
+
+必须同时满足 `dispatch_pending + not_dispatched + runtime_instance_id=NULL + provider_terminal_status=NULL`、原 Execution 拥有 Workspace Claim、无 persisted Runtime attempt。拒绝 dispatching/dispatched/uncertain、已绑定 Runtime、已有 Runtime attempt、已有 Provider terminal、running/finalizing/reconciling/unknown、completed/failed/cancelled/interrupted，以及 Claim missing/mismatch。
+
+只接受 exact `executionId`；不创建 Execution、不生成 requestKey、不 replay uncertain Provider request、不重新绑定旧 Runtime、不夺取其他 Claim。继续复用原首次 Provider pipeline；并发 duplicate resume 不得产生第二个 Runtime/Thread/Turn。
+
 继续只公开：
 
 ```text

@@ -24,6 +24,8 @@ registerHooks({
   }
 });
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
+// JSDOM has no layout; actual tooltip positioning is checked in Chromium.
+globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
 globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window);
 // Use one timer registry for components that mix window and global timer calls.
@@ -33,6 +35,7 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document, H
 for (const key of ["HTMLFormElement", "DocumentFragment", "HTMLSelectElement", "HTMLOptionElement", "Event", "KeyboardEvent", "MouseEvent"]) globalThis[key] = dom.window[key];
 const { createElement, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
+const { TooltipProvider } = await import('./components/ui/tooltip.tsx');
 const { AgentPanel } = await import('./AgentPanel.tsx');
 const { api } = await import('./api.ts');
 const { agentRequests } = await import('./agentRequests.ts');
@@ -42,18 +45,26 @@ toast.success = text => notifications.push(['success', text]);
 toast.error = text => notifications.push(['error', text]);
 let root;
 const workspace = name => ({ id: name, name, root: `E:\\${name}` });
-const row = (overrides = {}) => ({ executionId: 'old-E1', agentId: 'old-lineage', workspaceId: 'A', canonicalWorkspaceRoot: 'E:\\frozen-A', prompt: '原始任务 <literal>', status: 'unknown', attention: 'manual_resolution_required', finalResult: null, dispatchState: 'uncertain', threadId: null, turnId: null, providerTerminalStatus: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: null,
+const row = (overrides = {}) => ({ executionId: 'old-E1', agentId: 'old-lineage', workspaceId: 'A', canonicalWorkspaceRoot: 'E:\\frozen-A', prompt: '原始任务 <literal>', status: 'unknown', attention: 'manual_resolution_required', revision: 'R1', resultAvailable: overrides.finalResult !== undefined && overrides.finalResult !== null, progress: { phase: 'reconciling' }, nextAction: { action: 'manual_resolution' }, dispatchState: 'uncertain', threadId: null, turnId: null, providerTerminalStatus: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: null,
   availableActions: { canCancel: false, canContinue: false, canResumePending: false }, ...overrides });
 async function mount(rows, handler, props = {}) {
   const calls = [];
   api.agent = async request => {
     calls.push(structuredClone(request));
     if (handler) { const result = handler(request); if (result !== undefined) return result; }
-    if (request.action === 'list') return { ok: true, data: { executions: rows } };
-    return { ok: true, data: rows.find(r => r.executionId === request.executionId) ?? row() };
+    if (request.action === 'list') return { ok: true, data: { executions: rows.map(row => { const summary = { ...row }; delete summary.finalResult; return summary; }) } };
+    return { ok: true, data: structuredClone(rows.find(r => r.executionId === request.executionId) ?? row()) };
+  };
+  api.agentHistory = async (before = null, workspaceRoot = null) => {
+    const response = await api.agent({action:'list',limit:5});
+    if (!response.ok) throw new Error(`${response.error.code}: ${response.error.message}`);
+    const all = response.data.executions.filter(row => !workspaceRoot || row.canonicalWorkspaceRoot === workspaceRoot);
+    const start = before ? all.findIndex(row => row.executionId === before) + 1 : 0;
+    const executions = all.slice(start, start + 5);
+    return {executions, nextCursor: start + 5 < all.length ? executions.at(-1).executionId : null};
   };
   root = createRoot(document.getElementById('root'));
-  await act(async () => root.render(createElement(AgentPanel, { workspace: workspace('A'), ...props })));
+  await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('A'), ...props }))));
   return calls;
 }
 function button(text, within = document) { return [...within.querySelectorAll('button')].find(b => b.textContent === text); }
@@ -65,7 +76,7 @@ async function input(value, selector = '#agent-prompt') {
     field.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
   });
 }
-afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; agentRequests.pending = null; agentRequests.inFlight = false; notifications.length = 0; window.localStorage.clear(); });
+afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; agentRequests.pending = null; agentRequests.inFlight = false; notifications.length = 0; window.localStorage.clear(); document.getElementById("task-nav-test")?.remove(); });
 
 test('unknown has only details, no retry or recovery; IDs and JSON stay out of list', async () => {
   await mount([row()]);
@@ -90,18 +101,20 @@ test('pending resume uses exact ID and only backend capability', async () => {
 test('all raw statuses remain presentation-only, no invented capability', async () => {
   const statuses = ['dispatch_pending','running','cancel_requested','cancelling','finalizing','reconciling','completed','failed','cancelled','interrupted','unknown'];
   await mount(statuses.map((status, i) => row({ status, attention: 'none', executionId: `E${i}` })));
+  await click('展开更多（5条）');
+  await click('展开更多（5条）');
   assert.equal(document.querySelectorAll('article').length, 11);
   assert.equal(document.querySelectorAll('article button').length, 22);
   assert.match(document.body.textContent, /等待执行/); assert.match(document.body.textContent, /正在恢复执行状态/); assert.match(document.body.textContent, /需要处理/);
 });
 
-test('completed final answer is compact; drawer exposes original prompt and technical output', async () => {
+test('completed final answer is compact; detail pane exposes original prompt and technical output', async () => {
   await mount([row({ status: 'completed', attention: 'none', finalResult: { finalResult: [{ type:'agentMessage', phase:'commentary', text:'internal progress' }, { type:'agentMessage', phase:'final_answer', text:'DONE' }], huge: 'x'.repeat(10000) } })]);
-  assert.match(document.querySelector('article').textContent, /DONE/);
+  assert.ok(!document.querySelector('article').textContent.includes('DONE'));
   assert.ok(!document.querySelector('article').textContent.includes('internal progress'));
   assert.equal(document.querySelector('pre'), null);
   await click('详情');
-  assert.match(document.querySelector('[role=dialog]').textContent, /E:\\frozen-A/);
+  assert.match(document.querySelector('[aria-label="任务详情"]').textContent, /E:\\frozen-A/);
   assert.equal(document.querySelector('.agent-prose').textContent, '原始任务 <literal>');
   assert.ok(document.querySelector('.agent-technical pre').textContent.length > 10000);
 });
@@ -128,6 +141,40 @@ test('JSON icon copies the snapshot and provides success feedback', async () => 
   }
 });
 
+test('details explicitly fetch result, keep it for the same revision, and replace it for a new revision', async () => {
+  const execution = row({ status:'completed', attention:'none', revision:'R1', resultAvailable:true, finalResult:{ finalResult:[{type:'agentMessage',phase:'final_answer',text:'RESULT ONE'}] } });
+  const calls = await mount([execution]);
+  assert.ok(!document.querySelector('article').textContent.includes('RESULT ONE'));
+  await click('详情');
+  assert.deepEqual(calls.find(c => c.action === 'observe'), {action:'observe',executionId:'old-E1',waitMs:0,includeResult:true});
+  assert.match(document.querySelector('.agent-result').textContent, /RESULT ONE/);
+  execution.updatedAt++;
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)); });
+  assert.match(document.querySelector('.agent-result').textContent, /RESULT ONE/);
+  assert.equal(calls.filter(c => c.action === 'observe').length, 1);
+  execution.revision = 'R2';
+  execution.finalResult = { finalResult:[{type:'agentMessage',phase:'final_answer',text:'RESULT TWO'}] };
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)); });
+  assert.match(document.querySelector('.agent-result').textContent, /RESULT TWO/);
+  assert.ok(!document.querySelector('.agent-result').textContent.includes('RESULT ONE'));
+  assert.equal(calls.filter(c => c.action === 'observe').length, 2);
+});
+
+test('a new revision never retains stale result when fetching its body fails', async () => {
+  const execution = row({ status:'completed', attention:'none', revision:'R1', resultAvailable:true, finalResult:{ finalResult:[{type:'agentMessage',text:'OLD RESULT'}] } });
+  let fail = false;
+  const calls = await mount([execution], request => {
+    if (request.action === 'observe' && fail) throw new Error('result read failed');
+  });
+  await click('详情');
+  execution.revision = 'R2'; fail = true;
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)); });
+  assert.ok(!document.querySelector('[aria-label="任务详情"]').textContent.includes('OLD RESULT'));
+  assert.match(document.querySelector('[aria-label="任务详情"]').textContent, /result read failed/);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)); });
+  assert.equal(calls.filter(c => c.action === 'observe').length, 2, 'no retry loop');
+});
+
 test('delete hides only the local list entry across refresh and remount', async () => {
   const calls = await mount([row()]);
   await click('删除');
@@ -141,10 +188,10 @@ test('delete hides only the local list entry across refresh and remount', async 
   assert.equal(document.querySelectorAll('article').length, 0);
 });
 
-test('continue uses independent drawer input and original source across Workspace switch', async () => {
+test('continue uses independent detail pane input and original source across Workspace switch', async () => {
   const calls = await mount([row({ status:'completed', attention:'none', availableActions:{canCancel:false,canResumePending:false,canContinue:true} })]);
   await input('top-level new task');
-  await act(async () => root.render(createElement(AgentPanel, { workspace: workspace('B') })));
+  await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('B') }))));
   await click('详情');
   assert.equal(button('继续对话').disabled, true);
   await input('continuation only', '#agent-continuation');
@@ -159,8 +206,9 @@ test('only transport ambiguity offers exact retry, stable through input edits an
   const calls = await mount([], request => { if (request.action === 'start') throw new Error('transport lost'); });
   await input('original prompt'); await click('开始新任务');
   assert.ok(button('重试原请求')); const frozen = agentRequests.pending;
+  assert.equal(frozen.workspaceId, 'A');
   await act(async () => root.unmount()); root = createRoot(document.getElementById('root'));
-  await act(async () => root.render(createElement(AgentPanel, { workspace: workspace('B') })));
+  await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('B') }))));
   await input('edited prompt'); await click('重试原请求');
   assert.deepEqual(calls.filter(c => c.action === 'start'), [frozen, frozen]);
   assert.equal(frozen.prompt, 'original prompt');
@@ -200,12 +248,12 @@ test('read failures show feedback and do not offer operation replay', async () =
 
 
 
-test('continuation ambiguity stays in the drawer and retries its frozen independent input', async () => {
+test('continuation ambiguity stays in the detail pane and retries its frozen independent input', async () => {
   const calls = await mount([row({status:'completed',attention:'none',availableActions:{canContinue:true,canCancel:false,canResumePending:false}})], request => request.action === 'continue' ? Promise.reject(new Error('transport')) : undefined);
   await click('详情'); await input('frozen continuation', '#agent-continuation'); await click('继续对话');
-  const drawer = document.querySelector('[role=dialog]');
-  assert.ok(button('重试原请求', drawer));
-  await click('重试原请求', drawer);
+  const detailPane = document.querySelector('[aria-label="任务详情"]');
+  assert.ok(button('重试原请求', detailPane));
+  await click('重试原请求', detailPane);
   const requests = calls.filter(c => c.action === 'continue');
   assert.deepEqual(requests[0], requests[1]);
   assert.equal(requests[0].prompt, 'frozen continuation');
@@ -222,16 +270,113 @@ test('late list response cannot overwrite a newly accepted operation', async () 
   assert.match(document.querySelector('article').textContent, /newly accepted/);
 });
 
-test('closing details restores focus to its exact list entry', async () => {
+test('task page returns to all tasks and restores its exact list entry', async () => {
   await mount([row()]); const trigger = button('详情');
   await click('详情');
-  await act(async () => document.querySelector('[aria-label="关闭任务详情"]').click());
-  await act(async () => new Promise(resolve => setTimeout(resolve, 10)));
-  assert.equal(document.querySelector('[role=dialog]'), null);
-  assert.equal(document.activeElement, trigger);
+  assert.equal(document.querySelector('[aria-label="关闭任务详情"]'), null);
+  assert.ok(document.querySelector('nav[aria-label="任务页面导航"]'));
+  await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '全部任务').click());
+  await act(async () => new Promise(resolve => requestAnimationFrame(resolve)));
+  assert.equal(document.querySelector('[aria-label="任务详情"]'), null);
+  assert.ok(document.activeElement === trigger, "return navigation restores focus to its task entry");
+  await click('详情');
+  assert.equal(document.querySelector('[aria-label="任务详情"]')?.getAttribute('aria-label'), '任务详情');
 });
 
-test('switching to a related execution from drawer keeps its new details open', async () => {
+test('history shows five then appends five, and preserves expanded rows on refresh', async () => {
+  const rows = Array.from({length:11}, (_, n) => row({executionId:`E${n}`,prompt:`Task ${n}`,createdAt:new Date(2026,8,9,22,14).getTime(),completedAt:new Date(2026,8,9,22,16,18).getTime(),canonicalWorkspaceRoot:'E:\\A'}));
+  await mount(rows);
+  assert.equal(document.querySelectorAll('article').length, 5);
+  assert.match(document.querySelector('.agent-meta').textContent, /A·2026-09-09 22:14·耗时 2分18秒/);
+  await click('展开更多（5条）');
+  assert.equal(document.querySelectorAll('article').length, 10);
+  await click('刷新');
+  assert.equal(document.querySelectorAll('article').length, 10);
+  await click('展开更多（5条）');
+  assert.equal(document.querySelectorAll('article').length, 11);
+  assert.equal(button('展开更多（5条）'), undefined);
+});
+
+test('history failure preserves exact cursor while running state polling continues', async () => {
+  const history = Array.from({length:12},(_,n)=>row({executionId:'E'+n,status:'running',attention:'none'}));
+  await mount(history, request => {
+    if (request.action === 'start') {
+      const created = row({executionId:'new',createdAt:3000,status:'running',attention:'none'});
+      history.unshift(created);
+      return {ok:true,data:created};
+    }
+  });
+  await click('展开更多（5条）');
+  const original = api.agentHistory;
+  const cursors = [];
+  api.agentHistory = async (cursor, root) => {
+    cursors.push(cursor);
+    if (cursor === 'E9') throw new Error('page failed');
+    return original(cursor,root);
+  };
+  await click('展开更多（5条）');
+  assert.equal(document.querySelectorAll('article').length,10);
+  history[0].status = 'completed';
+  await act(async () => new Promise(resolve=>setTimeout(resolve,1700)));
+  assert.ok(document.querySelector('article').textContent.includes('已完成'));
+  assert.equal(document.querySelectorAll('article').length,10);
+  assert.equal(cursors.filter(c=>c==='E9').length,1);
+  await input('new task while page failed'); await click('开始新任务');
+  assert.equal(document.querySelectorAll('article').length,11);
+  history.find(row=>row.executionId==='E9').status='completed';
+  await act(async () => new Promise(resolve=>setTimeout(resolve,1700)));
+  assert.ok([...document.querySelectorAll('article')].at(-1).textContent.includes('已完成'));
+  api.agentHistory = async (cursor, root) => { cursors.push(cursor); return original(cursor,root); };
+  await click('重试加载更多');
+  assert.equal(cursors.at(-1),'E9');
+  assert.equal(document.querySelectorAll('article').length,13);
+});
+
+test('workspace filter resets pagination and only reads that frozen workspace', async () => {
+  await mount(Array.from({length:12},(_,n)=>row({executionId:`E${n}`,canonicalWorkspaceRoot:n < 6 ? 'E:\\A' : 'E:\\B'})), undefined, {workspaces:[workspace('A'),workspace('B')]});
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  await act(async () => document.querySelector('[aria-label="筛选工作区"]').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true})));
+  const choice = [...document.querySelectorAll('[role="option"]')].find(node=>node.textContent==='B');
+  assert.ok(choice);
+  await act(async () => choice.click());
+  assert.equal(document.querySelectorAll('article').length,5);
+  assert.ok([...document.querySelectorAll('.agent-meta')].every(node=>node.textContent.startsWith('B')));
+  await click('展开更多（5条）');
+  assert.equal(document.querySelectorAll('article').length,6);
+  assert.equal(button('展开更多（5条）'),undefined);
+});
+
+test('mutations preserve expanded history and never mix another workspace after refresh fails', async () => {
+  const history = Array.from({length:26},(_,n)=>row({executionId:`E${n}`,canonicalWorkspaceRoot:'E:\\B',status:'running',attention:'none',availableActions:{canCancel:n===0,canContinue:false,canResumePending:false}}));
+  await mount(history, request => request.action === 'start' ? {ok:true,data:row({executionId:'new-A',canonicalWorkspaceRoot:'E:\\A'})} : request.action === 'cancel' ? {ok:true,data:{...history[0],status:'cancelled'}} : undefined, {workspaces:[workspace('A'),workspace('B')]});
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  await act(async () => document.querySelector('[aria-label="筛选工作区"]').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true})));
+  await act(async () => [...document.querySelectorAll('[role="option"]')].find(node=>node.textContent==='B').click());
+  for(let n=0;n<4;n++) await click('展开更多（5条）');
+  assert.equal(document.querySelectorAll('article').length,25);
+  api.agentHistory = async () => { throw new Error('refresh unavailable'); };
+  await click('取消任务');
+  assert.equal(document.querySelectorAll('article').length,25);
+  await input('create in active A'); await click('开始新任务');
+  assert.equal(document.querySelectorAll('article').length,25);
+  assert.ok([...document.querySelectorAll('.agent-meta')].every(node=>node.textContent.startsWith('B')));
+});
+
+test('workspace display name stays consistent between history and details', async () => {
+  await mount([row({canonicalWorkspaceRoot:'E:\\named-folder'})],undefined,{workspaces:[{id:'project-4',name:'实际工作区名',root:'E:\\named-folder'}]});
+  assert.match(document.querySelector('.agent-meta').textContent,/实际工作区名/);
+  await click('详情');
+  const term = [...document.querySelectorAll('dt')].find(node=>node.textContent==='工作区');
+  assert.equal(term.nextElementSibling.textContent,'实际工作区名');
+});
+
+test('composer describes workspace execution without a permission selector', async () => {
+  await mount([]);
+  assert.match(document.querySelector('.agent-composer-footer').textContent, /Codex · 工作区执行/);
+  assert.doesNotMatch(document.body.textContent, /只读执行/);
+});
+
+test('switching to a related execution from detail pane keeps its new details open', async () => {
   await mount([row({status:'completed',attention:'none',availableActions:{canContinue:true,canCancel:false,canResumePending:false}})], r => {
     if (r.action === 'continue') return {ok:false,error:{code:'AGENT_OPERATION_FAILED',message:'handoff error',executionId:'new-E2'}};
     if (r.action === 'observe' && r.executionId === 'new-E2') return {ok:true,data:row({executionId:'new-E2',prompt:'new related task'})};
@@ -239,8 +384,8 @@ test('switching to a related execution from drawer keeps its new details open', 
   await click('详情'); await input('next', '#agent-continuation'); await click('继续对话');
   await click('查看相关任务');
   await act(async () => new Promise(resolve => setTimeout(resolve, 10)));
-  assert.ok(document.querySelector('[role=dialog]'));
-  assert.match(document.querySelector('.agent-drawer-body > section .agent-prose').textContent, /new related task/);
+  assert.ok(document.querySelector('[aria-label="任务详情"]'));
+  assert.match(document.querySelector('.agent-detail-body > section .agent-prose').textContent, /new related task/);
 });
 
 test('list refresh cannot compete with an outstanding detail observation', async () => {
@@ -251,7 +396,7 @@ test('list refresh cannot compete with an outstanding detail observation', async
   await click('刷新');
   assert.equal(calls.filter(c => c.action === 'list').length, 1);
   await act(async () => resolve({ok:true,data:row({prompt:'latest detail'})}));
-  assert.match(document.querySelector('[role=dialog] .agent-prose').textContent, /latest detail/);
+  assert.match(document.querySelector('[aria-label="任务详情"] .agent-prose').textContent, /latest detail/);
 });
 
 
@@ -268,7 +413,7 @@ test('status caches pending, successful and failed Codex probes until explicit r
   api.codexVersion = () => { probes++; return new Promise(resolve => { resolveProbe = resolve; }); };
   try {
     root = createRoot(document.getElementById('root'));
-    await act(async () => root.render(createElement(App)));
+    await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
     await click('状态'); assert.equal(probes, 1);
     await click('首页'); await click('状态'); assert.equal(probes, 1);
     await act(async () => resolveProbe('codex-cli detected'));
@@ -284,4 +429,145 @@ test('status caches pending, successful and failed Codex probes until explicit r
     await click('重新检测'); assert.equal(probes, 3);
     assert.match(document.body.textContent, /codex-cli refreshed/);
   } finally { Object.assign(api, originals); }
+});
+
+function navigationHost() {
+  const host = document.createElement('aside'); host.id = 'task-nav-test'; document.body.append(host); return host;
+}
+
+test('project navigation groups tasks and opens a non-modal right content pane', async () => {
+  const host = navigationHost(); let shown = 0;
+  const projects = [workspace('A'), workspace('B')];
+  const tasks = [row({executionId:'a1',canonicalWorkspaceRoot:projects[0].root,prompt:'项目 A 的任务'}), row({executionId:'b1',canonicalWorkspaceRoot:projects[1].root,prompt:'项目 B 的任务'})];
+  const calls = await mount(tasks, undefined, {workspaces:projects,sidebarContainer:host,onShowTask:()=>shown++});
+  const groups = host.querySelectorAll('.project-task-group');
+  assert.equal(groups.length,2);
+  assert.match(groups[0].textContent,/项目 A 的任务/); assert.ok(!groups[0].textContent.includes('项目 B 的任务'));
+  await act(async () => groups[1].querySelector('.project-task-link').click());
+  assert.equal(shown,1);
+  assert.equal(document.querySelector('[role=dialog]'),null);
+  assert.match(document.querySelector('.workspace')?.textContent ?? document.querySelector('.agent-detail').textContent,/项目 B 的任务/);
+  assert.equal(document.querySelector('.agent-history').closest('[hidden]') !== null,true);
+  assert.equal(groups[1].querySelector('.project-task-link').getAttribute('aria-current'),'page');
+  assert.deepEqual(calls.filter(c=>c.action==='observe').at(-1),{action:'observe',executionId:'b1',waitMs:0,includeResult:true});
+  await act(async () => groups[0].querySelector('.project-task-link').click());
+  assert.match(document.querySelector('.agent-detail').textContent,/项目 A 的任务/);
+  assert.equal(calls.some(c=>['start','continue','cancel','resume_pending'].includes(c.action)),false);
+});
+
+test('task focus shows basic information; only delete is offered and deletion stays local', async () => {
+  const host = navigationHost(); const project=workspace('A');
+  const calls = await mount([row({canonicalWorkspaceRoot:project.root,prompt:'检查项目构建'})], undefined, {workspaces:[project],sidebarContainer:host});
+  const task = host.querySelector('.project-task');
+  assert.equal(task.querySelectorAll('button').length,2);
+  assert.equal(task.querySelector('.project-task-delete').textContent,'');
+  await act(async () => task.querySelector('.project-task-link').focus());
+  assert.match(document.querySelector('.project-task-preview').textContent,/检查项目构建/);
+  assert.match(document.querySelector('.project-task-preview').textContent,/所属项目：A/);
+  assert.match(document.querySelector('.project-task-preview').textContent,/更新于/);
+  await act(async () => task.querySelector('.project-task-link').click());
+  await act(async () => task.querySelector('.project-task-delete').click());
+  assert.equal(host.querySelectorAll('.project-task').length,0);
+  assert.equal(document.querySelector('.agent-detail'),null);
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
+  assert.equal(document.activeElement, host.querySelector('.project-task-heading'));
+  assert.deepEqual(JSON.parse(window.localStorage.getItem('agent-hidden-executions')),['old-E1']);
+  assert.equal(calls.some(c=>['cancel','resume_pending'].includes(c.action)),false);
+});
+
+test('project pagination and collapse are independent and older selected tasks keep updating', async () => {
+  const host=navigationHost(); const projects=[workspace('A'),workspace('B')];
+  const tasks=Array.from({length:12},(_,i)=>row({executionId:`task-${i}`,canonicalWorkspaceRoot:projects[i<7?0:1].root,prompt:`导航任务 ${i}`,revision:'R1'}));
+  await mount(tasks,undefined,{workspaces:projects,sidebarContainer:host});
+  const group=host.querySelectorAll('.project-task-group')[0];
+  assert.equal(group.querySelectorAll('.project-task').length,5);
+  await click('查看更多',group); assert.equal(group.querySelectorAll('.project-task').length,7);
+  await act(async()=>group.querySelectorAll('.project-task-link')[6].click());
+  tasks[6].revision='R2'; tasks[6].prompt='旧任务的新状态';
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,1600));});
+  assert.match(document.querySelector('.agent-detail').textContent,/旧任务的新状态/);
+  await act(async()=>group.querySelector('.project-task-heading').click());
+  assert.equal(group.querySelector('ul'),null);
+  assert.equal(host.querySelectorAll('.project-task-group')[1].querySelectorAll('.project-task').length,5);
+});
+
+
+test('deleting a sidebar task restores keyboard focus to its neighbor', async () => {
+  const host=navigationHost(); const project=workspace('A');
+  await mount([row({executionId:'first',canonicalWorkspaceRoot:project.root,prompt:'第一项'}),row({executionId:'second',canonicalWorkspaceRoot:project.root,prompt:'第二项'})],undefined,{workspaces:[project],sidebarContainer:host});
+  await act(async () => host.querySelector('.project-task-delete').focus());
+  await act(async () => host.querySelector('.project-task-delete').click());
+  await act(async () => { await new Promise(resolve => setTimeout(resolve,40)); });
+  assert.equal(document.activeElement,host.querySelector('.project-task-link'));
+  assert.match(document.activeElement.textContent,/第二项/);
+});
+
+
+test('project order supports keyboard movement and persists across remount', async () => {
+  const host = navigationHost(); const projects = [workspace('A'),workspace('B'),workspace('C')];
+  await mount([], undefined, {workspaces:projects,sidebarContainer:host});
+  const heading = host.querySelectorAll('.project-task-heading')[2];
+  await act(async()=>heading.dispatchEvent(new window.KeyboardEvent('keydown',{key:'ArrowUp',altKey:true,bubbles:true})));
+  assert.deepEqual([...host.querySelectorAll('.project-task-group')].map(e=>e.getAttribute('aria-label')),['A','C','B']);
+  assert.deepEqual(JSON.parse(window.localStorage.getItem('agent-project-order')),projects.map(p=>p.root).toSpliced(1,2,projects[2].root,projects[1].root));
+  await act(async()=>root.unmount());
+  await mount([],undefined,{workspaces:[...projects,workspace('D')],sidebarContainer:host});
+  assert.deepEqual([...host.querySelectorAll('.project-task-group')].map(e=>e.getAttribute('aria-label')),['A','C','B','D']);
+});
+
+
+test('project hints use keyboard accessible tooltips without native titles', async () => {
+  const host = navigationHost();
+  await mount([], undefined, {workspaces:[workspace('A')],sidebarContainer:host});
+  const heading = host.querySelector('.project-task-heading');
+  await act(async()=>heading.focus());
+  assert.match(document.querySelector('[role="tooltip"]').textContent,/拖动可排序/);
+  assert.ok(heading.getAttribute('aria-describedby'));
+  assert.equal(document.querySelector('[title]'),null);
+  await act(async()=>heading.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
+  assert.equal(document.querySelector('[role="tooltip"]'),null);
+  assert.equal(heading.getAttribute('aria-expanded'),'true');
+});
+
+test('disabled copy action still explains itself through its tooltip', async () => {
+  await mount([row()]); await click('详情');
+  const details = document.querySelector('.agent-technical'); details.open=true;
+  const original=Object.getOwnPropertyDescriptor(globalThis,'navigator');
+  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:async()=>{}}}});
+  try {
+    await act(async()=>document.querySelector('.agent-json-copy').click());
+    assert.equal(document.querySelector('.agent-json-copy').disabled,true);
+    const trigger=document.querySelector('.agent-json-copy-trigger');
+    assert.equal(trigger.tabIndex,0);
+    await act(async()=>trigger.focus());
+    assert.match(document.querySelector('[role="tooltip"]').textContent,/已复制/);
+    assert.equal(document.querySelector('[title]'),null);
+  } finally { if (original) Object.defineProperty(globalThis,'navigator',original); else delete globalThis.navigator; }
+});
+
+
+test('task and final result render GFM while technical data stays original', async () => {
+  const markdown = '# 标题\n\n**重点**和 `inline`\n\n- 第一项\n- 第二项\n\n> 引用\n\n| 名称 | 状态 |\n| --- | --- |\n| 构建 | 通过 |\n\n- [x] 已完成\n\n```js\nconst value = 1;\n```\n\n[文档](https://example.com/docs)';
+  const value=row({prompt:markdown,status:'completed',finalResult:{finalResult:[{type:'agentMessage',phase:'final_answer',text:markdown}]}});
+  await mount([value]); await click('详情');
+  const blocks=document.querySelectorAll('.agent-markdown');assert.equal(blocks.length,2);
+  for(const block of blocks) {
+    assert.equal(block.querySelector('h1').textContent,'标题');
+    assert.equal(block.querySelector('strong').textContent,'重点');
+    assert.equal(block.querySelectorAll('table tbody tr').length,1);
+    assert.equal(block.querySelector('input[type="checkbox"]').checked,true);
+    assert.equal(block.querySelector('input[type="checkbox"]').disabled,true);
+    assert.match(block.querySelector('pre code').textContent,/const value = 1/);
+    assert.equal(block.querySelector('a').target,'_blank');
+  }
+  assert.equal(JSON.parse(document.querySelector('[aria-label="原始执行数据"]').textContent).prompt,markdown);
+});
+
+test('markdown renders HTML literally and rejects executable links', async () => {
+  await mount([row({prompt:'<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[危险](javascript:alert%281%29)'})]);
+  await click('详情');
+  const block=document.querySelector('.agent-markdown');
+  assert.equal(block.querySelector('script, img, [onerror], a'),null);
+  assert.match(block.textContent,/<script>alert/);
+  assert.match(block.textContent,/危险/);
 });

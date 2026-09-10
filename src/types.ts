@@ -77,19 +77,30 @@ export interface BrokerState {
 }
 
 export type AgentAction =
-  | { action: "start"; agentId: string; requestKey: string; prompt: string }
+  | { action: "start"; workspaceId: string; agentId: string; requestKey: string; prompt: string }
   | { action: "continue"; executionId: string; requestKey: string; prompt: string }
-  | { action: "observe" | "cancel" | "resume_pending"; executionId: string }
+  | { action: "observe"; executionId: string; knownRevision?: string; waitMs?: number; includeResult?: boolean }
+  | { action: "cancel" | "resume_pending"; executionId: string }
   | { action: "list"; agentId?: string; workspaceId?: string; limit?: number };
 export interface ExecutionView {
   prompt: string; canonicalWorkspaceRoot: string;
   executionId: string; agentId: string; workspaceId: string; status: string;
   dispatchState: string; threadId: string | null; turnId: string | null;
-  providerTerminalStatus: string | null; resultCompleteness: string; finalResult: unknown | null;
+  providerTerminalStatus: string | null; resultCompleteness: string; finalResult?: unknown;
+  revision: string; unchanged?: boolean; resultAvailable: boolean;
+  progress: { phase: "pending" | "dispatching" | "running" | "finalizing" | "reconciling" | "terminal" };
+  nextAction: { action: "observe"; waitMs: number } | { action: "review_result"; includeResult: boolean }
+    | { action: "resume_pending" | "manual_resolution" } | null;
   interruptRequested: boolean; interruptAcknowledged: boolean; interruptTimedOut: boolean;
   attention: "none" | "pending_explicit_resume" | "manual_resolution_required";
   availableActions: { canCancel: boolean; canContinue: boolean; canResumePending: boolean };
   createdAt: number; updatedAt: number; completedAt: number | null;
 }
-export type AgentEnvelope = { ok: true; data: ExecutionView | { executions: ExecutionView[] } }
-  | { ok: false; error: { code: string; message: string; executionId?: string } };
+export interface ControlReceipt {
+  requestAccepted: boolean;
+  providerInvoked: boolean | null;
+  dispatchCertainty: "not_dispatched" | "dispatched" | "uncertain";
+  nextAction: ((NonNullable<ExecutionView["nextAction"]> | { action: "correct_input" | "activate_workspace" | "list" }) & { executionId?: string }) | null;
+}
+export type AgentEnvelope = { ok: true; data: ExecutionView | { executions: ExecutionView[] }; control: ControlReceipt | null }
+  | { ok: false; error: { code: string; message: string; executionId?: string }; control: ControlReceipt | null };

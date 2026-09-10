@@ -27,6 +27,7 @@ struct Pending {
     execution: Option<String>,
     deadline: Instant,
     response: oneshot::Sender<Result<Value>>,
+    terminal_turn: Option<String>,
 }
 type WriteItem = Queued<(Vec<u8>, oneshot::Sender<Result<()>>)>;
 struct Shared {
@@ -335,6 +336,7 @@ impl Client {
                     execution,
                     deadline,
                     response: tx,
+                    terminal_turn: None,
                 },
             );
         }
@@ -733,7 +735,18 @@ fn dispatch(
             let p = s.pending.lock().unwrap().remove(&id).ok_or_else(|| {
                 ProtocolError::invalid("Duplicate, late or impossible response id")
             })?;
-            if Instant::now() > p.deadline {
+            // Exact durable terminal evidence can supersede the ACK's timing,
+            // never its Turn identity. All other RPC deadlines remain unchanged.
+            if let Some(turn) = &p.terminal_turn {
+                let value = result.as_ref().map_err(|_| {
+                    ProtocolError::incompatible("turn/start ACK conflicts with durable terminal")
+                })?;
+                if turn_response(value.clone())?.id != *turn {
+                    return Err(ProtocolError::incompatible(
+                        "turn/start ACK for wrong terminal Turn",
+                    ));
+                }
+            } else if Instant::now() > p.deadline {
                 return Err(ProtocolError::new(
                     "CODEX_RPC_TIMEOUT",
                     format!(

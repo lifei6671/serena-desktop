@@ -39,7 +39,7 @@ pub enum RecoveryOutcome {
 }
 
 impl AgentTaskManager {
-    /// Internal recovery context only; not wired to UI, startup hooks or a scheduler.
+    /// Reconcile durable Claims before the Product service is published at startup.
     pub async fn recover_startup(&self) -> Result<Vec<RecoveryOutcome>, String> {
         let claims = self.store.recover_claims(now()).await?;
         let mut outcomes = Vec::new();

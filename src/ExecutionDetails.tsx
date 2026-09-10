@@ -1,17 +1,17 @@
+import { MarkdownContent } from "@/components/MarkdownContent";
+import { TooltipHint } from "@/components/TooltipHint";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogPortal, DialogOverlay, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Dialog as DialogPrimitive } from "radix-ui";
-import { X, Copy, Check } from "lucide-react";
-import { executionStatus, resultText } from "./agentPresentation";
+import { ArrowLeft, Copy, Check } from "lucide-react";
+import { executionTime, executionDuration, executionStatus, resultText } from "./agentPresentation";
 import { agentRequests } from "./agentRequests";
 import type { AgentAction, ExecutionView } from "./types";
 
-export function ExecutionDetailsDrawer({ row, loading, error, disabled, feedback, busy, onClose, onRestoreFocus, onReload, onOperate }: {
+export function ExecutionDetails({ row, workspaceName, loading, error, disabled, feedback, busy, onBack, onReload, onOperate }: {
   feedback: ReactNode; busy: boolean;
-  row: ExecutionView; loading: boolean; error: string; disabled: boolean;
-  onClose: () => void; onRestoreFocus: () => void; onReload: () => void; onOperate: (action: AgentAction) => Promise<boolean>;
+  row: ExecutionView; workspaceName: string; loading: boolean; error: string; disabled: boolean;
+  onBack: () => void; onReload: () => void; onOperate: (action: AgentAction) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState({ executionId: row.executionId, text: "" });
   const continuation = draft.executionId === row.executionId ? draft.text : "";
@@ -31,32 +31,34 @@ export function ExecutionDetailsDrawer({ row, loading, error, disabled, feedback
     catch (e) { toast.error(`复制失败：${String(e)}`); }
     finally { setCopying(false); }
   }
-  return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-    <DialogPortal>
-      <DialogOverlay className="agent-drawer-overlay" />
-      <DialogPrimitive.Content className="agent-drawer" onCloseAutoFocus={event => { event.preventDefault(); onRestoreFocus(); }}>
-        <header className="agent-drawer-heading">
-          <div><DialogTitle>任务详情</DialogTitle><DialogDescription>查看原始任务、结果与执行信息</DialogDescription></div>
-          <DialogPrimitive.Close asChild><Button variant="ghost" size="icon" aria-label="关闭任务详情"><X /></Button></DialogPrimitive.Close>
+  return <section className="agent-detail" aria-label="任务详情">
+        <header className="agent-detail-heading">
+          <nav className="agent-detail-breadcrumb" aria-label="任务页面导航">
+            <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft />全部任务</Button>
+            <span aria-hidden="true">/</span><span>{workspaceName}</span>
+          </nav>
+          <div className="agent-detail-title"><h1>任务详情</h1><span className={`agent-status tone-${state.tone}`}><i />{state.label}</span></div>
+          <p>{state.description}</p>
         </header>
-        <div className="agent-drawer-body" aria-busy={loading}>
+        <div className="agent-detail-body" aria-busy={loading}>
           {feedback}
           {busy && <p role="status">正在处理请求…</p>}
           {loading && <p role="status">正在更新详情…</p>}
           {error && <div role="alert" className="agent-notice"><p>{error}</p><Button variant="outline" disabled={loading} onClick={onReload}>重新加载详情</Button></div>}
-          <section><h3>任务</h3><div className="agent-prose">{row.prompt}</div></section>
+          <section><h3>任务</h3><MarkdownContent>{row.prompt}</MarkdownContent></section>
           <section><h3>状态</h3><span className={`agent-status tone-${state.tone}`}><i />{state.label}</span>
             <p className="agent-muted">{state.description}</p>
             <dl className="agent-facts">
-              <dt>工作区</dt><dd>{row.workspaceId}</dd>
+              <dt>工作区</dt><dd>{workspaceName}</dd>
               <dt>执行目录</dt><dd>{row.canonicalWorkspaceRoot}</dd>
-              <dt>创建时间</dt><dd>{new Date(row.createdAt).toLocaleString("zh-CN")}</dd>
-              <dt>更新时间</dt><dd>{new Date(row.updatedAt).toLocaleString("zh-CN")}</dd>
-              {row.completedAt !== null && <><dt>结束时间</dt><dd>{new Date(row.completedAt).toLocaleString("zh-CN")}</dd></>}
+              <dt>总耗时</dt><dd>{executionDuration(row)}</dd>
+              <dt>创建时间</dt><dd>{executionTime(row.createdAt)}</dd>
+              <dt>更新时间</dt><dd>{executionTime(row.updatedAt)}</dd>
+              {row.completedAt !== null && <><dt>结束时间</dt><dd>{executionTime(row.completedAt)}</dd></>}
             </dl>
           </section>
-          {(row.finalResult !== null || row.status === "completed") && <section><h3>结果</h3>
-            <div className="agent-prose agent-result">{result || "未提供可读的最终文本，可在技术详情中查看已有结果。"}</div>
+          {(row.resultAvailable || row.status === "completed") && <section><h3>结果</h3>
+            <MarkdownContent className="agent-result">{result || (row.resultAvailable && row.finalResult === undefined ? (loading ? "正在读取最终结果…" : "结果正文尚未读取，请刷新详情重试。") : "未提供可读的最终文本，可在技术详情中查看已有结果。")}</MarkdownContent>
           </section>}
           {(row.attention !== "none" || ["failed", "reconciling", "interrupted"].includes(row.status) || row.interruptTimedOut) && <section><h3>恢复 / 错误信息</h3>
             <p>{state.description}</p>
@@ -78,14 +80,12 @@ export function ExecutionDetailsDrawer({ row, loading, error, disabled, feedback
           <details className="agent-technical"><summary>技术详情</summary>
             <p className="agent-muted">完整 IPC 输出，包含 Execution ID、原始状态和结果。</p>
             <div className="agent-json">
-              <Button className="agent-json-copy" variant="outline" size="icon" disabled={copying || copied} aria-label={copying ? "正在复制…" : copied ? "技术详情已复制" : "复制技术详情"} title={copied ? "已复制" : "复制技术详情"} data-copied={copied} onClick={() => void copy()}>
+              <TooltipHint content={copied ? "已复制" : "复制技术详情"}><span className="agent-json-copy-trigger" tabIndex={copying || copied ? 0 : undefined}><Button className="agent-json-copy" variant="outline" size="icon" disabled={copying || copied} aria-label={copying ? "正在复制…" : copied ? "技术详情已复制" : "复制技术详情"} data-copied={copied} onClick={() => void copy()}>
                 <Copy className="agent-copy-icon" /><Check className="agent-copy-check" />
-              </Button>
+              </Button></span></TooltipHint>
               <pre tabIndex={0} aria-label="原始执行数据">{JSON.stringify(row, null, 2)}</pre>
             </div>
           </details>
         </div>
-      </DialogPrimitive.Content>
-    </DialogPortal>
-  </Dialog>;
+  </section>;
 }

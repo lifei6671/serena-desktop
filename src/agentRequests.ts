@@ -4,8 +4,8 @@ import type { AgentAction } from "./types";
 export const agentRequests = {
   inFlight: false,
   pending: null as AgentAction | null,
-  fresh(prompt: string): AgentAction {
-    return Object.freeze({ action: "start", agentId: `desktop-${crypto.randomUUID()}`, requestKey: crypto.randomUUID(), prompt });
+  fresh(prompt: string, workspaceId: string): AgentAction {
+    return Object.freeze({ action: "start", agentId: `desktop-${crypto.randomUUID()}`, requestKey: crypto.randomUUID(), prompt, workspaceId });
   },
   continuation(executionId: string, prompt: string): AgentAction {
     return Object.freeze({ action: "continue", executionId, requestKey: crypto.randomUUID(), prompt });

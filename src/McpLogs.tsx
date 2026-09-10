@@ -1,3 +1,4 @@
+import { TooltipHint } from "@/components/TooltipHint";
 import { Check, Copy, Download, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -122,10 +123,9 @@ export function McpLogs() {
 
       <div className="log-viewer dark">
         <div className="log-toolbar" role="group" aria-label="日志工具">
-          <Button
+          <TooltipHint content={copied ? "日志已复制" : "复制日志"}><span className="inline-flex" tabIndex={!lines?.length || clearing || exporting !== null ? 0 : undefined}><Button
             variant="outline"
             size="icon"
-            title={copied ? "日志已复制" : "复制日志"}
             aria-label={copied ? "日志已复制" : "复制日志"}
             disabled={!lines?.length || clearing || exporting !== null}
             aria-busy={exporting === "copy"}
@@ -138,29 +138,27 @@ export function McpLogs() {
             ) : (
               <Copy />
             )}
-          </Button>
-          <Button
+          </Button></span></TooltipHint>
+          <TooltipHint content="下载日志"><span className="inline-flex" tabIndex={!lines?.length || clearing || exporting !== null ? 0 : undefined}><Button
             variant="outline"
             size="icon"
-            title="下载日志"
             aria-label="下载日志"
             disabled={!lines?.length || clearing || exporting !== null}
             aria-busy={exporting === "download"}
             onClick={() => void exportLogs("download")}
           >
             {exporting === "download" ? <Spinner /> : <Download />}
-          </Button>
-          <Button
+          </Button></span></TooltipHint>
+          <TooltipHint content="清空日志"><span className="inline-flex" tabIndex={!lines?.length || clearing || exporting !== null ? 0 : undefined}><Button
             variant="outline"
             size="icon"
-            title="清空日志"
             aria-label="清空日志"
             disabled={!lines?.length || clearing || exporting !== null}
             aria-busy={clearing}
             onClick={() => void clear()}
           >
             {clearing ? <Spinner /> : <Trash2 />}
-          </Button>
+          </Button></span></TooltipHint>
         </div>
         <div
           className="log-stream"

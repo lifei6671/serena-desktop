@@ -366,9 +366,11 @@ impl Broker {
     ) -> Result<Value, String> {
         if name == "agent" {
             if !self.config().agent_enabled {
-                return Ok(
-                    json!({"ok":false,"error":{"code":"AGENT_DISABLED","message":"Agent 工具未开启，请在 Serena Desktop 设置中开启 Agent。"}}),
-                );
+                return Ok(crate::agent::product::failure(
+                    "AGENT_DISABLED: Agent 工具未开启，请在 Serena Desktop 设置中开启 Agent。"
+                        .into(),
+                    None,
+                ));
             }
             return Ok(self.agent_operation(args).await);
         }
@@ -545,10 +547,10 @@ impl Broker {
         let _management = self.management.lock().await;
         *self.project_sources.lock().unwrap() = sources.clone();
         let mut previous = self.config().workspaces;
-        if let Some((active, _, _)) = self.published.lock().unwrap().as_ref() {
-            if !previous.iter().any(|w| w.id == active.id) {
-                previous.push(active.clone());
-            }
+        if let Some((active, _, _)) = self.published.lock().unwrap().as_ref()
+            && !previous.iter().any(|w| w.id == active.id)
+        {
+            previous.push(active.clone());
         }
         let result = projects::read(sources, &previous)?;
         let count = result.projects.len();
@@ -1132,7 +1134,7 @@ mod integration_tests {
             broker
                 .product
                 .set(Arc::new(crate::agent::product::AgentProductService::new(
-                    store
+                    store.clone()
                 )))
                 .is_ok()
         );
@@ -1156,7 +1158,14 @@ mod integration_tests {
                     )))
                     .await
                     .unwrap();
-                let tools = client.list_all_tools().await.unwrap();
+                let page = client.list_tools(None).await.unwrap();
+                assert!(page.next_cursor.is_none());
+                if let Some(path) = std::env::var_os("SERENA_AGENT_CONTRACT_EVIDENCE") {
+                    let path = PathBuf::from(path);
+                    std::fs::create_dir_all(&path).unwrap();
+                    std::fs::write(path.join(format!("tools-list-agent-{enabled}.json")), serde_json::to_vec_pretty(&page).unwrap()).unwrap();
+                }
+                let tools = page.tools;
                 if enabled {
                     assert_eq!(tools.len(), disabled_tools.len() + 1);
                     assert_eq!(tools.iter().filter(|t| t.name == "agent").count(), 1);
@@ -1169,13 +1178,25 @@ mod integration_tests {
                         tools.len()
                     );
                     let agent = tools.iter().find(|t| t.name == "agent").unwrap();
+                    assert_eq!(agent, &registry::agent_tool());
+                    assert_eq!(json!(agent.annotations), json!({"readOnlyHint":false,"destructiveHint":true,"idempotentHint":false,"openWorldHint":true}));
+                    let hash = registry::agent_contract_hash(agent);
+                    let logs = broker.log_snapshot().join("\n");
+                    assert!(logs.contains(&format!("agent tool contract sha256={hash}")));
+                    assert!(logs.contains("agent contract startup"));
+                    assert!(logs.contains("agent contract published agentEnabled=true"));
+                    if let Some(path) = std::env::var_os("SERENA_AGENT_CONTRACT_EVIDENCE") {
+                        let path = PathBuf::from(path);
+                        std::fs::write(path.join("agent-contract-sha256.txt"), &hash).unwrap();
+                        std::fs::write(path.join("broker-contract.log"), logs).unwrap();
+                    }
                     assert_eq!(agent.input_schema["type"], "object");
-                    assert!(agent.output_schema.is_none());
+                    assert!(agent.output_schema.is_some());
                     assert!(
                         serde_json::to_value(agent)
                             .unwrap()
                             .get("outputSchema")
-                            .is_none()
+                            .is_some()
                     );
                     assert_eq!(
                         tools
@@ -1224,9 +1245,24 @@ mod integration_tests {
                         assert_eq!(result.is_error, Some(true));
                         assert_eq!(envelope["ok"], false);
                         assert_eq!(envelope["error"]["code"], code);
+                        if enabled {
+                            assert_eq!(envelope["control"], json!({"requestAccepted":false,"providerInvoked":false,"dispatchCertainty":"not_dispatched","nextAction":{"action":"correct_input"}}));
+                        }
                     } else {
                         assert_ne!(result.is_error, Some(true));
-                        assert_eq!(envelope, &json!({"ok":true,"data":{"executions":[]}}));
+                        assert_eq!(envelope, &json!({"ok":true,"data":{"executions":[]},"control":null}));
+                    }
+                }
+                if enabled {
+                    store.product_create_fresh("contract-e".into(), "contract-a".into(), "key".into(), "contract-fixture".into(), (Some(crate::agent::store::transactions::product::WorkspaceSnapshot { id:"W".into(), root:dir.path().to_string_lossy().into() })).as_ref().unwrap().id.clone(), Some(crate::agent::store::transactions::product::WorkspaceSnapshot { id:"W".into(), root:dir.path().to_string_lossy().into() }), 1).await.unwrap();
+                    let observed = client.call_tool(CallToolRequestParams::new("agent").with_arguments(json!({"action":"observe","executionId":"contract-e","waitMs":0}).as_object().unwrap().clone())).await.unwrap();
+                    let envelope = observed.structured_content.as_ref().unwrap();
+                    assert_eq!(envelope["ok"], true);
+                    assert_eq!(envelope["control"]["requestAccepted"], true);
+                    assert_eq!(envelope["control"]["providerInvoked"], false);
+                    assert_eq!(envelope["control"]["dispatchCertainty"], "not_dispatched");
+                    if let Some(path) = std::env::var_os("SERENA_AGENT_CONTRACT_EVIDENCE") {
+                        std::fs::write(PathBuf::from(path).join("observe-control.json"), serde_json::to_vec_pretty(&observed).unwrap()).unwrap();
                     }
                 }
                 client.cancel().await.unwrap();
@@ -1240,6 +1276,112 @@ mod integration_tests {
             .unwrap()
             .unwrap();
         result.expect("Agent MCP round-trip timed out");
+    }
+
+    #[tokio::test]
+    async fn agent_observe_http_disconnect_reconnect_and_repeat_result() {
+        let dir = tempfile::tempdir().unwrap();
+        let broker = fixture(dir.path(), None);
+        let store = crate::agent::store::StateStore::open(dir.path().join("agent"))
+            .await
+            .unwrap();
+        let root = dir.path().to_string_lossy().into_owned();
+        store
+            .product_create_fresh(
+                "observe-e".into(),
+                "observe-a".into(),
+                "key".into(),
+                "prompt".into(),
+                (Some(
+                    crate::agent::store::transactions::product::WorkspaceSnapshot {
+                        id: "W".into(),
+                        root: root.clone(),
+                    },
+                ))
+                .as_ref()
+                .unwrap()
+                .id
+                .clone(),
+                Some(
+                    crate::agent::store::transactions::product::WorkspaceSnapshot {
+                        id: "W".into(),
+                        root: root.clone(),
+                    },
+                ),
+                1,
+            )
+            .await
+            .unwrap();
+        assert!(
+            broker
+                .product
+                .set(Arc::new(crate::agent::product::AgentProductService::new(
+                    store.clone()
+                )))
+                .is_ok()
+        );
+        let mut config = broker.config();
+        config.agent_enabled = true;
+        broker.supervisor.replace_config(config).unwrap();
+        broker.start().await.unwrap();
+        let test = tokio::time::timeout(Duration::from_secs(15), async {
+            let uri = format!("http://127.0.0.1:{}/mcp", broker.config().broker.port);
+            let client = ().serve(StreamableHttpClientTransport::from_uri(uri.clone())).await.unwrap();
+            let secret = "AGENT_HTTP_PROMPT_SECRET_59317";
+            let invalid = client.call_tool(CallToolRequestParams::new("agent").with_arguments(json!({"action":"start","prompt":secret}).as_object().unwrap().clone())).await.unwrap();
+            assert_eq!(invalid.structured_content.unwrap()["error"]["code"], "AGENT_INVALID_ARGUMENT");
+            let log = broker.log_snapshot().join("\n");
+            assert!(!log.contains(secret));
+            assert!(log.contains("promptBytes"));
+            let before = store.execution("observe-e".into()).await.unwrap().unwrap();
+            let args = json!({"action":"observe","executionId":"observe-e","waitMs":500});
+            assert!(tokio::time::timeout(Duration::from_millis(60), client.call_tool(CallToolRequestParams::new("agent").with_arguments(args.as_object().unwrap().clone()))).await.is_err());
+            client.cancel().await.unwrap();
+            assert_eq!(store.execution("observe-e".into()).await.unwrap().unwrap(), before);
+            assert!(store.workspace_claim(root.clone()).await.unwrap().is_some());
+
+            store.request_cancel("observe-e".into(), 2).await.unwrap();
+            let result = json!({"executionId":"observe-e","finalResult":[{"type":"agentMessage","phase":"final_answer","text":"Reconnect 原文\n <literal>"}]});
+            let db = rusqlite::Connection::open(dir.path().join("agent/agent-state.db")).unwrap();
+            db.execute("UPDATE executions SET final_result_json=?1 WHERE id='observe-e'", [result.to_string()]).unwrap();
+            let finished = store.execution("observe-e".into()).await.unwrap().unwrap();
+            let mut revision = Value::Null;
+            // Both sessions perform initialize and read the same persisted terminal result.
+            for _ in 0..2 {
+                let client = ().serve(StreamableHttpClientTransport::from_uri(uri.clone())).await.unwrap();
+                for include in [false, true, true] {
+                    let args = json!({"action":"observe","executionId":"observe-e","knownRevision":revision,"includeResult":include,"waitMs":25000});
+                    let response = client.call_tool(CallToolRequestParams::new("agent").with_arguments(args.as_object().unwrap().clone())).await.unwrap();
+                    assert_ne!(response.is_error, Some(true));
+                    let envelope = response.structured_content.unwrap();
+                    let rmcp::model::ContentBlock::Text(text) = &response.content[0] else { panic!("text JSON required") };
+                    assert_eq!(serde_json::from_str::<Value>(&text.text).unwrap(), envelope);
+                    assert_eq!(envelope["ok"], true);
+                    assert_eq!(envelope["data"]["resultAvailable"], true);
+                    if revision.is_string() { assert_eq!(envelope["data"]["revision"], revision); assert_eq!(envelope["data"]["unchanged"], true); }
+                    revision = envelope["data"]["revision"].clone();
+                    if include { assert_eq!(envelope["data"]["finalResult"], result); }
+                    else { assert!(envelope["data"].get("finalResult").is_none()); }
+                    if include {
+                        assert!(envelope["data"]["nextAction"].is_null());
+                        assert!(envelope["control"]["nextAction"].is_null());
+                    } else {
+                        assert_eq!(envelope["data"]["nextAction"]["action"], "review_result");
+                        assert_eq!(envelope["control"]["nextAction"]["action"], "review_result");
+                    }
+                }
+                let invalid = client.call_tool(CallToolRequestParams::new("agent").with_arguments(json!({"action":"observe","executionId":"observe-e","waitMs":25001}).as_object().unwrap().clone())).await.unwrap();
+                assert_eq!(invalid.structured_content.unwrap()["error"]["code"], "AGENT_INVALID_ARGUMENT");
+                client.cancel().await.unwrap();
+            }
+            assert_eq!(store.execution("observe-e".into()).await.unwrap().unwrap(), finished);
+            assert!(finished.runtime_instance_id.is_none());
+            assert!(finished.turn_id.is_none());
+            assert!(store.workspace_claim(root).await.unwrap().is_none());
+            assert_eq!(store.product_read(None, None, None, 20).await.unwrap().len(), 1);
+        }).await;
+        broker.stop().await.unwrap();
+        test.expect("Observe HTTP round-trip timed out");
     }
 
     #[tokio::test]
@@ -1811,8 +1953,10 @@ mod agent_adapter_tests {
             let broker = Broker::new(Arc::new(SupervisorState::new(paths).unwrap()));
             for request in [json!({"action":"list"}), json!({"action":"cancel","executionId":"x"}), json!({"action":"invalid"})] {
                 let denied = broker.call_tool("agent", request, CancellationToken::new()).await.unwrap();
-                assert_eq!(denied, json!({"ok":false,"error":{"code":"AGENT_DISABLED","message":"Agent 工具未开启，请在 Serena Desktop 设置中开启 Agent。"}}));
+                assert_eq!(denied, json!({"ok":false,"error":{"code":"AGENT_DISABLED","message":"AGENT_DISABLED: Agent 工具未开启，请在 Serena Desktop 设置中开启 Agent。"},"control":{"requestAccepted":false,"providerInvoked":false,"dispatchCertainty":"not_dispatched","nextAction":null}}));
             }
+            assert!(broker.product.get().is_none());
+            assert!(!temp.path().join("agent/agent-state.db").exists());
             let mut config = broker.config();
             config.agent_enabled = true;
             broker.supervisor.replace_config(config).unwrap();

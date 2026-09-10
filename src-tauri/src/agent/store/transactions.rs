@@ -60,6 +60,14 @@ impl StateStore {
                 return Err("PENDING_RESUME_REJECTED".into());
             }
             owns_claim(tx, &id)?;
+            let attempted: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM runtime_instances WHERE id=?1)",
+                [format!("runtime-{id}")],
+                |r| r.get(0),
+            ).map_err(|e| e.to_string())?;
+            if attempted {
+                return Err("PENDING_RESUME_REJECTED".into());
+            }
             let key = (database, id);
             if !PENDING_DISPATCH
                 .lock()
@@ -210,7 +218,7 @@ impl StateStore {
         .await
     }
 
-    /// Explicit DB recovery, never invoked automatically by Desktop setup.
+    /// Classify durable Claims before publishing the startup Product service.
     pub async fn recover_claims(&self, now: i64) -> Result<Vec<ClaimRecovery>, String> {
         self.write(move |tx| {
             // Claims are the authority for recovery, including legacy terminal rows.
@@ -257,6 +265,11 @@ impl StateStore {
                     && row.dispatch == DispatchState::NotDispatched
                     && row.runtime.is_none()
                     && row.terminal.is_none()
+                    && !tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM runtime_instances WHERE id=?1)",
+                        [format!("runtime-{id}")],
+                        |r| r.get::<_, bool>(0),
+                    ).map_err(|e| e.to_string())?
                 {
                     if owns_claim(tx, &id).is_ok() {
                         recovered.push(ClaimRecovery::PendingExplicitResume { execution_id: id });

@@ -26,13 +26,13 @@ fn legacy_read_only_is_readable_and_retryable_without_upgrade() {
             .unwrap();
         let before = store.execution("legacy-e".into()).await.unwrap().unwrap();
         let service = AgentProductService::new(store.clone());
-        let retry = service.operation(json!({"action":"start","agentId":"legacy","requestKey":"first","prompt":"original"}), None).await;
+        let retry = service.checked_operation(json!({"action":"start","agentId":"legacy","requestKey":"first","prompt":"original"}), None).await;
         assert_eq!(retry["data"]["executionId"], "legacy-e");
         for action in [
-            json!({"action":"observe","executionId":"legacy-e"}),
+            json!({"action":"observe","waitMs":0,"executionId":"legacy-e"}),
             json!({"action":"list"}),
         ] {
-            let result = service.operation(action.clone(), None).await;
+            let result = service.checked_operation(action.clone(), None).await;
             assert_eq!(result["ok"], true);
             let view = if action["action"] == "list" {
                 &result["data"]["executions"][0]
@@ -42,10 +42,10 @@ fn legacy_read_only_is_readable_and_retryable_without_upgrade() {
             assert_eq!(view["availableActions"]["canContinue"], false);
             assert_eq!(view["availableActions"]["canResumePending"], true);
         }
-        assert_eq!(service.operation(json!({"action":"continue","executionId":"legacy-e","requestKey":"next","prompt":"new"}),None).await["error"]["code"], "AGENT_CONTINUE_NOT_ALLOWED");
+        assert_eq!(service.checked_operation(json!({"action":"continue","executionId":"legacy-e","requestKey":"next","prompt":"new"}),None).await["error"]["code"], "AGENT_CONTINUE_NOT_ALLOWED");
         assert_eq!(
             service
-                .operation(
+                .checked_operation(
                     json!({"action":"start","agentId":"legacy","requestKey":"next","prompt":"new"}),
                     None
                 )
@@ -203,7 +203,7 @@ Write-Output ('WORKSPACE_WRITE_CONTRACT_' + $Stage)
                 }
             };
             let response = service
-                .operation(
+                .checked_operation(
                     request.clone(),
                     if prior.is_none() {
                         w(&workspace, "write-workspace")
@@ -317,7 +317,7 @@ Write-Output ('WORKSPACE_WRITE_CONTRACT_' + $Stage)
                 !outside_exists,
                 "Material Contract Difference: workspace-external write succeeded"
             );
-            let retry = service.operation(if stage == "start" { json!({"action":"start","agentId":"write-contract","requestKey":stage,"prompt":prompt}) } else { json!({"action":"continue","executionId":prior.as_ref().unwrap().id,"requestKey":stage,"prompt":prompt}) }, None).await;
+            let retry = service.checked_operation(if stage == "start" { json!({"action":"start","agentId":"write-contract","requestKey":stage,"prompt":prompt}) } else { json!({"action":"continue","executionId":prior.as_ref().unwrap().id,"requestKey":stage,"prompt":prompt}) }, None).await;
             assert_eq!(retry["data"]["executionId"], id);
             assert_eq!(
                 requests

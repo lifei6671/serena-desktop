@@ -98,6 +98,7 @@ impl AgentTaskManager {
             let continuation = matches!(&action, Action::Continue { .. });
             let outcome = match action {
                 Action::Start {
+                    workspace_id,
                     agent_id,
                     request_key,
                     prompt,
@@ -109,6 +110,7 @@ impl AgentTaskManager {
                             agent_id,
                             request_key,
                             prompt,
+                            workspace_id,
                             workspace,
                             super::coordinator::now(),
                         )
@@ -170,9 +172,16 @@ impl AgentTaskManager {
                         .dispatch_with_receipt(&id, Some(tx), continuation)
                         .await
                 });
-                rx.await.map_err(|e| e.to_string())?.map_err(|e| {
-                    super::product::ProductError::new(e, Some(outcome.execution_id.clone()))
-                })?;
+                rx.await
+                    .map_err(|e| {
+                        super::product::ProductError::accepted(
+                            e.to_string(),
+                            outcome.execution_id.clone(),
+                        )
+                    })?
+                    .map_err(|e| {
+                        super::product::ProductError::accepted(e, outcome.execution_id.clone())
+                    })?;
             }
             Ok(outcome.execution_id)
         })

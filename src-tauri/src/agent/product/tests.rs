@@ -2,6 +2,12 @@ use super::*;
 use crate::agent::{codex::app_server::Client, coordinator::now};
 use std::{sync::Arc, time::Duration};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+#[path = "restart_tests.rs"]
+mod restart_tests;
+#[path = "control_tests.rs"]
+mod control_tests;
+#[path = "observe_tests.rs"]
+mod observe_tests;
 #[path = "workspace_write_tests.rs"]
 mod workspace_write_tests;
 fn run(f: impl std::future::Future<Output = ()>) {
@@ -16,10 +22,95 @@ fn w(root: &std::path::Path, id: &str) -> Option<WorkspaceSnapshot> {
         root: root.to_string_lossy().into(),
     })
 }
+
+#[tokio::test]
+async fn desktop_history_pages_are_read_only_stable_and_workspace_filtered() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    for n in 0..12 {
+        let id = format!("e{n:02}");
+        store
+            .product_create_fresh(
+                id.clone(),
+                format!("a{n}"),
+                "k".into(),
+                "hello".into(),
+                "W".into(),
+                w(dir.path(), "W"),
+                10,
+            )
+            .await
+            .unwrap();
+        store.request_cancel(id, 11).await.unwrap();
+    }
+    let other = dir.path().join("other");
+    store
+        .product_create_fresh(
+            "other".into(),
+            "other".into(),
+            "k".into(),
+            "hello".into(),
+            "other".into(),
+            w(&other, "other"),
+            12,
+        )
+        .await
+        .unwrap();
+    let service = AgentProductService::new(store.clone());
+    let root = store
+        .execution("e00".into())
+        .await
+        .unwrap()
+        .unwrap()
+        .canonical_workspace_root;
+    let before = store
+        .product_read(None, None, None, 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|s| s.execution)
+        .collect::<Vec<_>>();
+    let first = service
+        .history_page(None, Some(root.clone()))
+        .await
+        .unwrap();
+    assert_eq!(first.executions.len(), 5);
+    assert_eq!(first.executions[0].execution_id, "e11");
+    let second = service
+        .history_page(first.next_cursor, Some(root.clone()))
+        .await
+        .unwrap();
+    assert_eq!(second.executions[0].execution_id, "e06");
+    let third = service
+        .history_page(second.next_cursor, Some(root))
+        .await
+        .unwrap();
+    assert_eq!(third.executions.len(), 2);
+    assert!(third.next_cursor.is_none());
+    assert!(third.executions.iter().all(|r| r.final_result.is_none()));
+    assert_eq!(
+        service.history_page(None, None).await.unwrap().executions[0].execution_id,
+        "other"
+    );
+    assert!(
+        service
+            .history_page(Some("missing".into()), None)
+            .await
+            .is_err()
+    );
+    let after = store
+        .product_read(None, None, None, 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|s| s.execution)
+        .collect::<Vec<_>>();
+    assert_eq!(before, after);
+}
 async fn final_row(s: &AgentProductService, id: &str) -> ExecutionView {
     let end = tokio::time::Instant::now() + Duration::from_secs(90);
     loop {
-        let row = s.observe(id.into()).await.unwrap();
+        let row = s.observe(id.into(), true).await.unwrap();
         if matches!(
             row.status.as_str(),
             "completed" | "failed" | "cancelled" | "interrupted"
@@ -45,6 +136,7 @@ fn lineage_atomic_guards_and_read_projection() {
                 "a".into(),
                 "k1".into(),
                 "hello".into(),
+                "W1".into(),
                 w(temp.path(), "W1"),
                 1
             ),
@@ -53,6 +145,7 @@ fn lineage_atomic_guards_and_read_projection() {
                 "a".into(),
                 "k2".into(),
                 "hello".into(),
+                "W1".into(),
                 w(temp.path(), "W1"),
                 1
             )
@@ -72,19 +165,37 @@ fn lineage_atomic_guards_and_read_projection() {
                 "prompt":"hello", "execution_profile":{}, "workspace_id":"W1",
                 "canonical_workspace_root":temp.path(), "provider":"codex",
                 "mode":"workspace_write", "thread_id":null
-            })).unwrap()
-        ).unwrap();
+            }))
+            .unwrap(),
+        )
+        .unwrap();
         assert_eq!(ok.execution.request_hash, canonical.request_hash());
         let key = ok.execution.request_key.clone();
         let retry = store
-            .product_create_fresh("x".into(), "a".into(), key.clone(), "hello".into(), None, 2)
+            .product_create_fresh(
+                "x".into(),
+                "a".into(),
+                key.clone(),
+                "hello".into(),
+                "W1".into(),
+                None,
+                2,
+            )
             .await
             .unwrap();
         assert!(!retry.created);
         assert_eq!(retry.execution_id, ok.execution_id);
         assert_eq!(
             store
-                .product_create_fresh("x".into(), "a".into(), key, "other".into(), None, 2)
+                .product_create_fresh(
+                    "x".into(),
+                    "a".into(),
+                    key,
+                    "other".into(),
+                    "W1".into(),
+                    None,
+                    2
+                )
                 .await
                 .unwrap_err(),
             "EXECUTION_REQUEST_KEY_CONFLICT"
@@ -100,6 +211,7 @@ fn lineage_atomic_guards_and_read_projection() {
                     "a".into(),
                     "new".into(),
                     "hello".into(),
+                    "W2".into(),
                     w(temp.path(), "W2"),
                     4
                 )
@@ -113,28 +225,29 @@ fn lineage_atomic_guards_and_read_projection() {
                 "b".into(),
                 "new".into(),
                 "hello".into(),
+                "W2".into(),
                 w(temp.path(), "W2"),
                 4,
             )
             .await
             .unwrap();
         let s = AgentProductService::new(store);
-        let rows = s.views(None, None, None, 20).await.unwrap();
+        let rows = s.views(None, None, None, 20, false).await.unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].execution_id, "e3");
         assert_eq!(rows[0].created_at, 4);
         assert!(rows[0].available_actions.can_resume_pending);
         assert_eq!(rows[0].attention, "pending_explicit_resume");
         assert_eq!(
-            s.views(None, Some("a".into()), Some("W2".into()), 20)
+            s.views(None, Some("a".into()), Some("W2".into()), 20, false)
                 .await
                 .unwrap()
                 .len(),
             0
         );
-        assert_eq!(s.operation(json!({"action":"continue","executionId":ok.execution_id,"requestKey":"c","prompt":"hello"}),None).await["error"]["code"],"AGENT_CONTINUE_NOT_ALLOWED");
+        assert_eq!(s.checked_operation(json!({"action":"continue","executionId":ok.execution_id,"requestKey":"c","prompt":"hello"}),None).await["error"]["code"],"AGENT_CONTINUE_NOT_ALLOWED");
         assert_eq!(
-            s.operation(start("a", "new"), None).await["error"]["code"],
+            s.checked_operation(start("a", "new"), None).await["error"]["code"],
             "AGENT_LINEAGE_CONFLICT"
         );
         assert_eq!(
@@ -170,23 +283,55 @@ fn execution_context_projection_is_frozen_and_read_only() {
         let temp = tempfile::tempdir().unwrap();
         let store = StateStore::open(temp.path().into()).await.unwrap();
         let prompt = "  原始任务\n第二行 <literal>  ";
-        store.product_create_fresh("context-e".into(), "context-a".into(), "key".into(),
-            prompt.into(), w(temp.path(), "original"), 1).await.unwrap();
+        store
+            .product_create_fresh(
+                "context-e".into(),
+                "context-a".into(),
+                "key".into(),
+                prompt.into(),
+                "original".into(),
+                w(temp.path(), "original"),
+                1,
+            )
+            .await
+            .unwrap();
         let before = store.execution("context-e".into()).await.unwrap().unwrap();
         let service = AgentProductService::new(store.clone());
-        for request in [json!({"action":"observe","executionId":"context-e"}), json!({"action":"list"})] {
-            let response = service.operation(request.clone(), w(&temp.path().join("other"), "other")).await;
+        for request in [
+            json!({"action":"observe","waitMs":0,"executionId":"context-e"}),
+            json!({"action":"list"}),
+        ] {
+            let response = service
+                .checked_operation(request.clone(), w(&temp.path().join("other"), "other"))
+                .await;
             assert_eq!(response["ok"], true);
-            let view = if request["action"] == "list" { &response["data"]["executions"][0] } else { &response["data"] };
+            let view = if request["action"] == "list" {
+                &response["data"]["executions"][0]
+            } else {
+                &response["data"]
+            };
             assert_eq!(view["prompt"], prompt);
-            assert_eq!(view["canonicalWorkspaceRoot"], before.canonical_workspace_root);
+            assert_eq!(
+                view["canonicalWorkspaceRoot"],
+                before.canonical_workspace_root
+            );
             assert_eq!(view["workspaceId"], "original");
             assert!(view.get("runtimeInstanceId").is_none());
-            assert!(view.get("revision").is_none());
+            assert!(view["revision"].is_string());
+            assert!(view.get("executionRevision").is_none());
             assert!(view.get("diagnostics").is_none());
         }
-        assert_eq!(store.execution("context-e".into()).await.unwrap().unwrap(), before);
-        assert!(store.workspace_claim(before.canonical_workspace_root).await.unwrap().is_some());
+        assert_eq!(
+            store.execution("context-e".into()).await.unwrap().unwrap(),
+            before
+        );
+        assert!(
+            store
+                .workspace_claim(before.canonical_workspace_root)
+                .await
+                .unwrap()
+                .is_some()
+        );
     });
 }
 
@@ -299,17 +444,20 @@ fn async_receipt_idempotency_and_exact_continuation() {
         .await;
         let receipt = tokio::time::timeout(
             Duration::from_secs(5),
-            s.operation(start("a", "k"), w(temp.path(), "W1")),
+            s.checked_operation(start("a", "k"), w(temp.path(), "W1")),
         )
         .await
         .unwrap();
         assert_eq!(receipt["ok"], true, "{receipt}");
         let id = receipt["data"]["executionId"].as_str().unwrap().to_string();
         for workspace in [None, w(temp.path(), "W2")] {
-            let r = s.operation(start("a", "k"), workspace).await;
+            let r = s.checked_operation(start("a", "k"), workspace).await;
             assert_eq!(r["data"]["executionId"], id);
         }
-        assert_ne!(s.observe(id.clone()).await.unwrap().status, "completed");
+        assert_ne!(
+            s.observe(id.clone(), false).await.unwrap().status,
+            "completed"
+        );
         release.send(()).unwrap();
         let first = final_row(&s, &id).await;
         assert!(first.available_actions.can_continue);
@@ -320,7 +468,7 @@ fn async_receipt_idempotency_and_exact_continuation() {
         legacy_provenance.mode = "read_only".into();
         assert!(!continuation_eligible(&legacy_provenance));
         assert_eq!(
-            s.operation(start("a", "new"), None).await["error"]["code"],
+            s.checked_operation(start("a", "new"), None).await["error"]["code"],
             "AGENT_LINEAGE_CONFLICT"
         );
         drop(s);
@@ -337,12 +485,15 @@ fn async_receipt_idempotency_and_exact_continuation() {
         .await;
         let req = json!({"action":"continue","executionId":id,"requestKey":"next","prompt":"next"});
         let r = s
-            .operation(req.clone(), w(temp.path(), "WRONG_ACTIVE"))
+            .checked_operation(req.clone(), w(temp.path(), "WRONG_ACTIVE"))
             .await;
         assert_eq!(r["ok"], true, "{r}");
         let id2 = r["data"]["executionId"].as_str().unwrap().to_string();
         assert_ne!(id, id2);
-        assert_eq!(s.operation(req, None).await["data"]["executionId"], id2);
+        assert_eq!(
+            s.checked_operation(req, None).await["data"]["executionId"],
+            id2
+        );
         release.send(()).unwrap();
         let second = final_row(&s, &id2).await;
         assert_eq!(second.agent_id, first.agent_id);
@@ -351,7 +502,10 @@ fn async_receipt_idempotency_and_exact_continuation() {
         assert_ne!(second.turn_id, first.turn_id);
         let continued = store.execution(id2.clone()).await.unwrap().unwrap();
         assert_eq!(continued.mode, "workspace_write");
-        assert_eq!(continued.canonical_workspace_root, source.canonical_workspace_root);
+        assert_eq!(
+            continued.canonical_workspace_root,
+            source.canonical_workspace_root
+        );
         assert_ne!(continued.runtime_instance_id, source.runtime_instance_id);
         assert_eq!(second.result_completeness, "complete");
         assert!(
@@ -428,15 +582,18 @@ fn real_fixed_product_continuation_e2e() {
         assert!(startup.is_empty());
         let request = json!({"action":"start","agentId":"real-lineage","requestKey":"first","prompt":"Reply exactly PRODUCT_FIRST_OK. Do not use tools or modify files."});
         let receipt = s
-            .operation(request.clone(), w(&workspace, "real-workspace"))
+            .checked_operation(request.clone(), w(&workspace, "real-workspace"))
             .await;
         std::fs::write(evidence.join("first-receipt.json"), receipt.to_string()).unwrap();
         assert_eq!(receipt["ok"], true, "{receipt}");
         let id = receipt["data"]["executionId"].as_str().unwrap();
         let e1 = final_row(&s, id).await;
         assert_eq!(e1.status, "completed");
-        assert_eq!(s.operation(request, None).await["data"]["executionId"], id);
-        let r=s.operation(json!({"action":"continue","executionId":id,"requestKey":"second","prompt":"Reply exactly PRODUCT_SECOND_OK. Do not use tools or modify files."}),None).await;
+        assert_eq!(
+            s.checked_operation(request, None).await["data"]["executionId"],
+            id
+        );
+        let r=s.checked_operation(json!({"action":"continue","executionId":id,"requestKey":"second","prompt":"Reply exactly PRODUCT_SECOND_OK. Do not use tools or modify files."}),None).await;
         std::fs::write(evidence.join("second-receipt.json"), r.to_string()).unwrap();
         assert_eq!(r["ok"], true, "{r}");
         let id2 = r["data"]["executionId"].as_str().unwrap();
@@ -469,7 +626,7 @@ fn real_fixed_product_continuation_e2e() {
                 .is_none()
         );
         let list = s
-            .operation(json!({"action":"list","agentId":"real-lineage"}), None)
+            .checked_operation(json!({"action":"list","agentId":"real-lineage"}), None)
             .await;
         assert_eq!(list["data"]["executions"].as_array().unwrap().len(), 2);
         for (i, e) in [(1, &e1), (2, &e2)] {
@@ -500,12 +657,12 @@ fn real_fixed_product_continuation_e2e() {
             assert_eq!(count("thread/resume"), usize::from(i == 2));
             std::fs::write(evidence.join(format!("execution-{i}.json")),serde_json::to_vec_pretty(&json!({"view":e,"runtime":runtime,"job":"complete","claim":"absent","turnStart":count("turn/start"),"threadStart":count("thread/start"),"threadResume":count("thread/resume")})).unwrap()).unwrap();
         }
-        let r=s.operation(json!({"action":"start","agentId":"cancel-lineage","requestKey":"cancel-first","prompt":"Use the shell to sleep for 30 seconds, then reply DONE. Do not modify files."}),w(&workspace,"real-workspace")).await;
+        let r=s.checked_operation(json!({"action":"start","agentId":"cancel-lineage","requestKey":"cancel-first","prompt":"Use the shell to sleep for 30 seconds, then reply DONE. Do not modify files."}),w(&workspace,"real-workspace")).await;
         assert_eq!(r["ok"], true);
         let id3 = r["data"]["executionId"].as_str().unwrap();
         let end = tokio::time::Instant::now() + Duration::from_secs(60);
         loop {
-            let v = s.observe(id3.into()).await.unwrap();
+            let v = s.observe(id3.into(), false).await.unwrap();
             if v.turn_id.is_some() {
                 break;
             }
@@ -513,7 +670,7 @@ fn real_fixed_product_continuation_e2e() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         let cancel = s
-            .operation(json!({"action":"cancel","executionId":id3}), None)
+            .checked_operation(json!({"action":"cancel","executionId":id3}), None)
             .await;
         assert_eq!(cancel["ok"], true);
         let e3 = final_row(&s, id3).await;
@@ -590,8 +747,11 @@ fn caller_drop_between_create_and_handoff_keeps_owned_work() {
         let s = Arc::new(s);
         let caller = s.clone();
         let workspace = w(temp.path(), "W");
-        let request =
-            tokio::spawn(async move { caller.operation(start("a", "drop"), workspace).await });
+        let request = tokio::spawn(async move {
+            caller
+                .checked_operation(start("a", "drop"), workspace)
+                .await
+        });
         hook.0.notified().await;
         request.abort();
         assert!(request.await.unwrap_err().is_cancelled());
@@ -622,7 +782,9 @@ fn continuation_rejects_wrong_identity_and_legacy_without_turn() {
                 "paginated",
             )
             .await;
-            let r = s.operation(start("a", "k"), w(temp.path(), "W")).await;
+            let r = s
+                .checked_operation(start("a", "k"), w(temp.path(), "W"))
+                .await;
             let id = r["data"]["executionId"].as_str().unwrap().to_string();
             release.send(()).unwrap();
             final_row(&s, &id).await;
@@ -638,7 +800,7 @@ fn continuation_rejects_wrong_identity_and_legacy_without_turn() {
             )
             .await;
             let r = s
-                .operation(
+                .checked_operation(
                     json!({"action":"continue","executionId":id,"requestKey":"c","prompt":"c"}),
                     None,
                 )
@@ -683,6 +845,7 @@ fn product_resume_receipt_and_duplicate_rejection() {
                 "a".into(),
                 "k".into(),
                 "hello".into(),
+                "W".into(),
                 w(temp.path(), "W"),
                 1,
             )
@@ -698,12 +861,15 @@ fn product_resume_receipt_and_duplicate_rejection() {
         )
         .await;
         let req = json!({"action":"resume_pending","executionId":"pending"});
-        let receipt = tokio::time::timeout(Duration::from_secs(5), s.operation(req.clone(), None))
-            .await
-            .unwrap();
+        let receipt = tokio::time::timeout(
+            Duration::from_secs(5),
+            s.checked_operation(req.clone(), None),
+        )
+        .await
+        .unwrap();
         assert_eq!(receipt["ok"], true);
         assert_eq!(
-            s.operation(req, None).await["error"]["code"],
+            s.checked_operation(req, None).await["error"]["code"],
             "AGENT_RESUME_NOT_ALLOWED"
         );
         release.send(()).unwrap();
@@ -729,14 +895,14 @@ fn concurrent_identical_start_has_one_worker_and_busy_claim_is_independent() {
         )
         .await;
         let (a, b) = tokio::join!(
-            s.operation(start("a", "k"), w(temp.path(), "W")),
-            s.operation(start("a", "k"), w(temp.path(), "W"))
+            s.checked_operation(start("a", "k"), w(temp.path(), "W")),
+            s.checked_operation(start("a", "k"), w(temp.path(), "W"))
         );
         assert_eq!(a["ok"], true);
         assert_eq!(b["ok"], true);
         assert_eq!(a["data"]["executionId"], b["data"]["executionId"]);
         assert_eq!(
-            s.operation(start("another-lineage", "k"), w(temp.path(), "W"))
+            s.checked_operation(start("another-lineage", "k"), w(temp.path(), "W"))
                 .await["error"]["code"],
             "WORKSPACE_CLAIM_CONFLICT"
         );
@@ -770,7 +936,9 @@ fn unknown_reads_and_invalid_continuation_sources_are_fail_closed() {
                 "paginated",
             )
             .await;
-            let r = s.operation(start("a", "k"), w(temp.path(), "W")).await;
+            let r = s
+                .checked_operation(start("a", "k"), w(temp.path(), "W"))
+                .await;
             let id = r["data"]["executionId"].as_str().unwrap().to_string();
             release.send(()).unwrap();
             final_row(&s, &id).await;
@@ -793,7 +961,10 @@ fn unknown_reads_and_invalid_continuation_sources_are_fail_closed() {
             let service = AgentProductService::new(store.clone());
             let before = store.execution(id.clone()).await.unwrap();
             let view = service
-                .operation(json!({"action":"observe","executionId":id}), None)
+                .checked_operation(
+                    json!({"action":"observe","waitMs":0,"executionId":id}),
+                    None,
+                )
                 .await;
             assert_eq!(view["ok"], true);
             assert_eq!(view["data"]["availableActions"]["canContinue"], false);
@@ -801,14 +972,14 @@ fn unknown_reads_and_invalid_continuation_sources_are_fail_closed() {
                 assert_eq!(view["data"]["attention"], "manual_resolution_required");
                 assert_eq!(
                     service
-                        .operation(json!({"action":"cancel","executionId":id}), None)
+                        .checked_operation(json!({"action":"cancel","executionId":id}), None)
                         .await["error"]["code"],
                     "AGENT_MANUAL_RESOLUTION_REQUIRED"
                 );
             }
             assert_eq!(
                 service
-                    .operation(
+                    .checked_operation(
                         json!({"action":"continue","executionId":id,"requestKey":"c","prompt":"c"}),
                         None
                     )
@@ -835,8 +1006,8 @@ fn concurrent_new_keys_create_only_one_lineage_worker() {
         )
         .await;
         let (a, b) = tokio::join!(
-            s.operation(start("lineage", "k1"), w(temp.path(), "W")),
-            s.operation(start("lineage", "k2"), w(temp.path(), "W"))
+            s.checked_operation(start("lineage", "k1"), w(temp.path(), "W")),
+            s.checked_operation(start("lineage", "k2"), w(temp.path(), "W"))
         );
         assert_ne!(a["ok"], b["ok"]);
         let (winner, loser) = if a["ok"] == true { (a, b) } else { (b, a) };
@@ -865,7 +1036,9 @@ fn concurrent_continuations_allow_only_one_new_turn() {
             "paginated",
         )
         .await;
-        let receipt = s.operation(start("a", "k"), w(temp.path(), "W")).await;
+        let receipt = s
+            .checked_operation(start("a", "k"), w(temp.path(), "W"))
+            .await;
         let source = receipt["data"]["executionId"].as_str().unwrap().to_string();
         release.send(()).unwrap();
         final_row(&s, &source).await;
@@ -882,12 +1055,19 @@ fn concurrent_continuations_allow_only_one_new_turn() {
         .await;
         let request = |key: &str| json!({"action":"continue","executionId":source,"requestKey":key,"prompt":"next"});
         let (a, b) = tokio::join!(
-            s.operation(request("c1"), None),
-            s.operation(request("c2"), None)
+            s.checked_operation(request("c1"), None),
+            s.checked_operation(request("c2"), None)
         );
         assert_ne!(a["ok"], b["ok"]);
         let (winner, loser) = if a["ok"] == true { (a, b) } else { (b, a) };
         assert_eq!(loser["error"]["code"], "AGENT_BUSY");
+        assert_eq!(loser["control"]["requestAccepted"], false);
+        assert_eq!(loser["control"]["providerInvoked"], false);
+        assert_eq!(
+            loser["control"]["nextAction"]["executionId"],
+            winner["data"]["executionId"]
+        );
+        assert_eq!(winner["control"]["requestAccepted"], true);
         assert!(
             store
                 .workspace_claim(temp.path().to_string_lossy().into())
@@ -918,6 +1098,7 @@ fn production_startup_recovery_classifies_claims_before_service_publication() {
                     "lineage".into(),
                     "key".into(),
                     "hello".into(),
+                    "W1".into(),
                     w(temp.path(), "W1"),
                     1,
                 )
@@ -951,7 +1132,11 @@ fn production_startup_recovery_classifies_claims_before_service_publication() {
                         assert_eq!(row, before);
                         assert!(claim.is_some());
                         assert_eq!(
-                            service.observe("startup-e".into()).await.unwrap().attention,
+                            service
+                                .observe("startup-e".into(), false)
+                                .await
+                                .unwrap()
+                                .attention,
                             "pending_explicit_resume"
                         );
                     }
@@ -960,7 +1145,11 @@ fn production_startup_recovery_classifies_claims_before_service_publication() {
                         assert_eq!(row, before);
                         assert!(claim.is_some());
                         assert_eq!(
-                            service.observe("startup-e".into()).await.unwrap().attention,
+                            service
+                                .observe("startup-e".into(), false)
+                                .await
+                                .unwrap()
+                                .attention,
                             "manual_resolution_required"
                         );
                     }
@@ -996,6 +1185,7 @@ fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads
                         "a".into(),
                         "k".into(),
                         "hello".into(),
+                        "W".into(),
                         w(temp.path(), "W"),
                         1,
                     )
@@ -1050,7 +1240,10 @@ fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads
                         assert_eq!(before, after);
                         assert!(claim.is_some());
                         let r = service
-                            .operation(json!({"action":"resume_pending","executionId":"old"}), None)
+                            .checked_operation(
+                                json!({"action":"resume_pending","executionId":"old"}),
+                                None,
+                            )
                             .await;
                         assert_eq!(r["error"]["code"], code);
                         assert_eq!(
@@ -1078,12 +1271,17 @@ fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads
                 }
                 assert_eq!(
                     service
-                        .operation(json!({"action":"observe","executionId":"old"}), None)
+                        .checked_operation(
+                            json!({"action":"observe","waitMs":0,"executionId":"old"}),
+                            None
+                        )
                         .await["ok"],
                     true
                 );
                 assert_eq!(
-                    service.operation(json!({"action":"list"}), None).await["ok"],
+                    service
+                        .checked_operation(json!({"action":"list"}), None)
+                        .await["ok"],
                     true
                 );
                 assert_eq!(
@@ -1107,13 +1305,13 @@ fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads
                 .await
                 .unwrap();
             let r = service
-                .operation(start("new", "k"), w(temp.path(), "W"))
+                .checked_operation(start("new", "k"), w(temp.path(), "W"))
                 .await;
             assert_eq!(r["ok"], false);
             assert_eq!(r["error"]["code"], code);
             let id = r["error"]["executionId"].as_str().unwrap();
             let row = store.execution(id.into()).await.unwrap().unwrap();
-            assert_eq!(row.status, "reconciling");
+            assert_eq!(row.status, "dispatch_pending");
             assert!(row.runtime_instance_id.is_none());
             assert!(
                 store
@@ -1123,7 +1321,7 @@ fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads
                     .is_some()
             );
             assert_eq!(
-                service.operation(start("new", "k"), None).await["data"]["executionId"],
+                service.checked_operation(start("new", "k"), None).await["data"]["executionId"],
                 id
             );
         }
@@ -1144,7 +1342,9 @@ fn unavailable_continuation_never_accepts_or_dispatches() {
             "paginated",
         )
         .await;
-        let r = first.operation(start("a", "k"), w(temp.path(), "W")).await;
+        let r = first
+            .checked_operation(start("a", "k"), w(temp.path(), "W"))
+            .await;
         let id = r["data"]["executionId"].as_str().unwrap().to_owned();
         release.send(()).unwrap();
         final_row(&first, &id).await;
@@ -1158,7 +1358,7 @@ fn unavailable_continuation_never_accepts_or_dispatches() {
             .await
             .unwrap();
         let r = service
-            .operation(
+            .checked_operation(
                 json!({"action":"continue","executionId":id,"requestKey":"c","prompt":"next"}),
                 None,
             )
@@ -1170,7 +1370,7 @@ fn unavailable_continuation_never_accepts_or_dispatches() {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(row.status, "reconciling");
+        assert_eq!(row.status, "dispatch_pending");
         assert!(row.runtime_instance_id.is_none());
         assert!(row.turn_id.is_none());
         assert!(
@@ -1187,5 +1387,188 @@ fn unavailable_continuation_never_accepts_or_dispatches() {
                 .unwrap(),
             1
         );
+    });
+}
+
+// Validate real Product responses, including failures and nullable control, using
+// the repository's existing frontend AJV installation (no runtime dependency).
+impl AgentProductService {
+    async fn checked_operation(&self, args: Value, workspace: Option<WorkspaceSnapshot>) -> Value {
+        let mut args = args;
+        // Legacy fixture shorthand: supply the caller's frozen workspace identity.
+        // Explicit identity and malformed-input cases are never rewritten.
+        if args["action"] == "start"
+            && args.get("workspaceId").is_none()
+            && args.get("agentId").is_some()
+            && args.get("requestKey").is_some()
+            && args.get("prompt").is_some()
+        {
+            let prior = self
+                .store
+                .product_read(None, args["agentId"].as_str().map(str::to_owned), None, 100)
+                .await
+                .unwrap_or_default();
+            let expected = prior
+                .iter()
+                .find(|r| r.execution.request_key == args["requestKey"].as_str().unwrap())
+                .map(|r| r.execution.workspace_id.clone())
+                .or_else(|| workspace.as_ref().map(|w| w.id.clone()))
+                .unwrap_or_else(|| "W".into());
+            args["workspaceId"] = json!(expected);
+        }
+        let response = self.operation(args, workspace).await;
+        assert_output_contract(&response);
+        response
+    }
+}
+fn assert_output_contract(response: &Value) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let schema = crate::mcp::registry::agent_tool().output_schema.unwrap();
+    let mut child = Command::new("node")
+        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap())
+        .args(["-e", r#"
+const Ajv = require('ajv');
+let input = '';
+process.stdin.on('data', chunk => input += chunk);
+process.stdin.on('end', () => {
+  const {schema, response} = JSON.parse(input);
+  const validate = new Ajv({allErrors:true}).compile(schema);
+  if (!validate(response)) throw new Error(JSON.stringify(validate.errors));
+  // Prove the validator rejects a broken discriminator and narrowed control types.
+  for (const changed of [
+    {...response, ok: !response.ok},
+    {...response, control:{requestAccepted:true,providerInvoked:'unknown',dispatchCertainty:'uncertain',nextAction:null}}
+  ]) if (validate(changed)) throw new Error('invalid response accepted');
+});
+"#])
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().expect("Agent output contract tests require npm install and Node");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            json!({"schema":schema,"response":response})
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+#[ignore = "Isolated real fixed Codex long-turn smoke; run alone, temporary Git workspace only"]
+fn real_fixed_long_turn_smoke() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .arg("init")
+            .arg(&workspace)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    std::fs::write(
+        workspace.join("long-turn-fixture.ps1"),
+        "Start-Sleep -Seconds 125\nWrite-Output LONG_TURN_SMOKE_COMPLETE\n",
+    )
+    .unwrap();
+    let home = temp.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    std::fs::copy(
+        std::path::PathBuf::from(std::env::var_os("USERPROFILE").unwrap()).join(".codex/auth.json"),
+        home.join("auth.json"),
+    )
+    .unwrap();
+    struct Environment(Option<std::ffi::OsString>);
+    impl Drop for Environment {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.0 {
+                    Some(v) => std::env::set_var("CODEX_HOME", v),
+                    None => std::env::remove_var("CODEX_HOME"),
+                }
+            }
+        }
+    }
+    let _restore = Environment(std::env::var_os("CODEX_HOME"));
+    unsafe {
+        std::env::set_var("CODEX_HOME", &home);
+    }
+    run(async {
+        let store = StateStore::open(temp.path().join("store")).await.unwrap();
+        let (service, _) = AgentProductService::initialize(store.clone())
+            .await
+            .unwrap();
+        assert!(
+            service.backend_diagnostic().is_none(),
+            "{:?}",
+            service.backend_diagnostic()
+        );
+        let began = std::time::Instant::now();
+        let response=service.checked_operation(json!({"action":"start","agentId":"long-smoke","requestKey":"one","workspaceId":"smoke","prompt":"Execute the provided long-turn-fixture.ps1 engineering regression fixture using powershell.exe -NoProfile -File ./long-turn-fixture.ps1. This authorized fixture intentionally runs for 125 seconds. Set the shell command timeout to at least 180000 milliseconds. If the shell returns a running session, poll that exact session until the process exits. Do not finish early or interrupt the command. After its output LONG_TURN_SMOKE_COMPLETE is observed, report the result. Do not modify files or access the network."}),w(&workspace,"smoke")).await;
+        assert_eq!(response["ok"], true, "{response}");
+        let id = response["data"]["executionId"].as_str().unwrap();
+        loop {
+            let response = service
+                .checked_operation(
+                    json!({"action":"observe","executionId":id,"waitMs":0,"includeResult":true}),
+                    None,
+                )
+                .await;
+            assert_eq!(response["ok"], true, "{response}");
+            let status = response["data"]["status"].as_str().unwrap();
+            println!(
+                "long smoke elapsed={}s status={status}",
+                began.elapsed().as_secs()
+            );
+            assert!(
+                !matches!(
+                    status,
+                    "reconciling" | "unknown" | "failed" | "cancelled" | "interrupted"
+                ),
+                "{response}"
+            );
+            if status == "completed" {
+                std::fs::write(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+                        "../docs/tasks/evidence/TASK-009/review-remediation/real-long-result.json",
+                    ),
+                    serde_json::to_vec_pretty(&response).unwrap(),
+                )
+                .unwrap();
+                assert!(began.elapsed().as_secs() > 120);
+                assert_eq!(response["data"]["resultCompleteness"], "complete");
+                assert_eq!(response["data"]["resultAvailable"], true);
+                assert!(response["data"].get("finalResult").is_some());
+                assert!(
+                    store
+                        .workspace_claim(
+                            response["data"]["canonicalWorkspaceRoot"]
+                                .as_str()
+                                .unwrap()
+                                .into()
+                        )
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
+                break;
+            }
+            assert!(
+                began.elapsed() < Duration::from_secs(360),
+                "test watchdog: {response}"
+            );
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
     });
 }

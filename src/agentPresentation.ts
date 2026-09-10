@@ -1,4 +1,4 @@
-import type { ExecutionView } from "./types";
+import type { ExecutionView, Workspace } from "./types";
 
 // Presentation only. Never use these labels or tones to authorize an operation.
 const states: Record<string, { label: string; description: string; tone: string }> = {
@@ -20,6 +20,13 @@ export function executionStatus(row: ExecutionView) {
   if (row.attention === "pending_explicit_resume") return {
     label: "等待恢复", description: "任务尚未派发。恢复前请确认继续原工作区中的任务。", tone: "amber",
   };
+  if (row.status === "dispatch_pending") {
+    if (row.progress?.phase === "dispatching") return {
+      label: "正在派发", description: "正在发送任务，尚未确认 Provider 已接收。", tone: "blue",
+    };
+    if (row.progress?.phase === "reconciling") return states.reconciling;
+    if (row.progress?.phase === "running") return states.running;
+  }
   return states[row.status] ?? { label: "状态待确认", description: "请查看技术详情中的原始状态。", tone: "gray" };
 }
 
@@ -40,5 +47,25 @@ export function resultText(result: unknown): string {
 }
 
 export function executionTime(time: number) {
-  return new Date(time).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const date = new Date(time);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+export function executionDuration(row: Pick<ExecutionView, "createdAt" | "completedAt">, now = Date.now()) {
+  let seconds = Math.max(0, Math.floor(((row.completedAt ?? now) - row.createdAt) / 1000));
+  const parts: string[] = [];
+  for (const [unit, size] of [["天", 86400], ["小时", 3600], ["分", 60], ["秒", 1]] as const) {
+    const count = Math.floor(seconds / size);
+    if (count) parts.push(`${count}${unit}`);
+    seconds %= size;
+  }
+  return parts.join("") || "不足1秒";
+}
+
+export function executionWorkspace(row: Pick<ExecutionView, "canonicalWorkspaceRoot">, workspaces: Workspace[]) {
+  const normalize = (root: string) => root.replace(/^\\\\\?\\/, "").replaceAll("\\", "/").replace(/\/$/, "").toLowerCase();
+  return workspaces.find(w => normalize(w.root) === normalize(row.canonicalWorkspaceRoot))?.name
+    ?? row.canonicalWorkspaceRoot.replace(/[\\/]+$/, "").split(/[\\/]/).pop()
+    ?? row.canonicalWorkspaceRoot;
 }

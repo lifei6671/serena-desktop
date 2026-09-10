@@ -58,6 +58,15 @@ impl ServerHandler for Handler {
         }
         let tools = registry::list(&client.tools, self.0.config().agent_enabled)
             .map_err(|e| ErrorData::internal_error(e, None))?;
+        if let Some(agent) = tools.iter().find(|t| t.name == "agent") {
+            self.0.log(&format!(
+                "agent contract published {}",
+                registry::agent_contract_diagnostic(true, agent)
+            ));
+        } else {
+            self.0
+                .log("agent contract published agentEnabled=false (agent absent)");
+        }
         self.0
             .log("tools/list · 返回工具列表（Serena 描述原样传递）");
         Ok(ListToolsResult {
@@ -78,13 +87,13 @@ impl ServerHandler for Handler {
             &format!(
                 "tools/call request={request_id:?} tool={:?} · 入参={}",
                 request.name,
-                log_value(&args)
+                log_tool_arguments(&request.name, &args)
             ),
         );
         registry::validate(&request.name, &args).map_err(|e| {
             self.0.log_tool("WARN", &format!(
                 "tools/call request={request_id:?} tool={:?} · 参数校验失败 · error={} · 耗时 {:.3} ms",
-                request.name, log_value(&json!(e)), started.elapsed().as_secs_f64() * 1000.0
+                request.name, log_tool_error(&request.name, &json!(e)), started.elapsed().as_secs_f64() * 1000.0
             ));
             ErrorData::invalid_params(e, None)
         })?;
@@ -124,7 +133,7 @@ impl ServerHandler for Handler {
                 if error.is_some() { "失败" } else { "成功" },
                 started.elapsed().as_secs_f64() * 1000.0,
                 error
-                    .map(|e| format!(" · error={}", log_value(&e)))
+                    .map(|e| format!(" · error={}", log_tool_error(&request.name, &e)))
                     .unwrap_or_default()
             ),
         );
@@ -230,6 +239,13 @@ impl Broker {
             handle,
         });
         self.log(&format!("MCP 已监听 · http://{address}/mcp"));
+        self.log(&format!(
+            "agent contract startup {}",
+            registry::agent_contract_diagnostic(
+                self.config().agent_enabled,
+                &registry::agent_tool()
+            )
+        ));
         Ok(())
     }
     pub async fn stop(&self) -> Result<(), String> {
@@ -253,6 +269,32 @@ impl Broker {
 }
 
 // JSON keeps user-controlled newlines escaped; bound each diagnostic payload.
+fn log_tool_arguments(tool: &str, args: &Value) -> String {
+    if tool != "agent" {
+        return log_value(args);
+    }
+    let mut metadata = serde_json::Map::new();
+    for key in ["action", "agentId", "executionId"] {
+        if let Some(value) = args.get(key).and_then(Value::as_str) {
+            metadata.insert(key.into(), json!(value));
+        }
+    }
+    if matches!(args["action"].as_str(), Some("start" | "continue"))
+        && let Some(prompt) = args.get("prompt").and_then(Value::as_str)
+    {
+        metadata.insert("promptBytes".into(), json!(prompt.len()));
+    }
+    log_value(&Value::Object(metadata))
+}
+
+fn log_tool_error(tool: &str, error: &Value) -> String {
+    if tool != "agent" {
+        return log_value(error);
+    }
+    // Product/parser messages may echo input. Keep only diagnostic identity.
+    log_value(&json!({"code":error.get("code"),"executionId":error.get("executionId")}))
+}
+
 fn log_value(value: &Value) -> String {
     let text = value.to_string();
     if text.chars().count() <= 8192 {
@@ -267,6 +309,30 @@ fn log_value(value: &Value) -> String {
 #[cfg(test)]
 mod log_tests {
     use super::*;
+    #[test]
+    fn agent_logs_only_metadata_even_when_error_echoes_prompt() {
+        let secret = "AGENT_PROMPT_SECRET_中文_83719";
+        for action in ["start", "continue"] {
+            let args = json!({"action":action,"agentId":"a","executionId":"e","requestKey":"private-key","prompt":secret});
+            let logged = log_tool_arguments("agent", &args);
+            assert_eq!(
+                serde_json::from_str::<Value>(&logged).unwrap(),
+                json!({"action":action,"agentId":"a","executionId":"e","promptBytes":secret.len()})
+            );
+            let error = json!({"code":"AGENT_INVALID_ARGUMENT","message":secret,"executionId":"e"});
+            let final_log = format!(
+                "tools/call 入参={logged} error={}",
+                log_tool_error("agent", &error)
+            );
+            assert!(!final_log.contains(secret));
+            assert!(!final_log.contains("private-key"));
+            assert_eq!(
+                log_tool_arguments("source_read_file", &args),
+                log_value(&args)
+            );
+            assert_eq!(log_tool_error("git_status", &error), log_value(&error));
+        }
+    }
     #[test]
     fn arguments_remain_readable_and_cannot_forge_log_lines() {
         let args =

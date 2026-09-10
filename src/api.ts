@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope } from "./types";
+import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, ExecutionView } from "./types";
 
 export const api = {
   codexVersion: () => invoke<string>("get_codex_version"),
   agent: (request: AgentAction) => invoke<AgentEnvelope>("agent_operation", { request }),
+  agentHistory: (before: string | null = null, workspace: string | null = null) => invoke<{ executions: ExecutionView[]; nextCursor: string | null }>("agent_history", { before, workspace }),
   mcpLogs: () => invoke<string[]>("get_mcp_logs"),
   downloadMcpLogs: () => invoke<boolean>("download_mcp_logs"),
   clearMcpLogs: () => invoke<void>("clear_mcp_logs"),

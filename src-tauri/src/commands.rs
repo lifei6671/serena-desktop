@@ -469,3 +469,17 @@ pub async fn download_mcp_logs(app: AppHandle) -> Result<bool, String> {
 pub async fn agent_operation(app: AppHandle, request: serde_json::Value) -> serde_json::Value {
     crate::mcp::get(&app).agent_operation(request).await
 }
+
+#[tauri::command]
+pub async fn agent_history(
+    app: AppHandle,
+    before: Option<String>,
+    workspace: Option<String>,
+) -> Result<crate::agent::product::HistoryPage, String> {
+    let broker = crate::mcp::get(&app);
+    let product = broker
+        .product
+        .get()
+        .ok_or("BACKEND_UNAVAILABLE: Agent service not initialized")?;
+    product.history_page(before, workspace).await
+}

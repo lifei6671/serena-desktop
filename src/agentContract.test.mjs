@@ -2,13 +2,37 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import ts from 'typescript';
-import { resultText, taskSummary, executionStatus } from './agentPresentation.ts';
+import { resultText, taskSummary, executionStatus, executionTime, executionDuration, executionWorkspace } from './agentPresentation.ts';
+
+test('history uses local full dates, friendly elapsed time and frozen workspace identity', () => {
+  assert.equal(executionTime(new Date(2026, 8, 9, 22, 14).getTime()), '2026-09-09 22:14');
+  assert.equal(executionDuration({createdAt:0,completedAt:138000},999999), '2分18秒');
+  assert.equal(executionDuration({createdAt:0,completedAt:null},90061000), '1天1小时1分1秒');
+  assert.equal(executionDuration({createdAt:1000,completedAt:null},1001), '不足1秒');
+  assert.equal(executionWorkspace({canonicalWorkspaceRoot:'E:\\old'},[{id:'project-4',name:'New',root:'E:\\new'}]), 'old');
+  assert.equal(executionWorkspace({canonicalWorkspaceRoot:'E:\\Repo'},[{id:'project-4',name:'项目名称',root:'E:/repo'}]), '项目名称');
+});
 
 test('ExecutionView requires snapshot strings; actions cannot accept output-only root', () => {
   const file = path.resolve('src/__agent_contract_check.ts');
-  const source = `import type { ExecutionView, AgentAction } from './types';
+  const source = `import type { ExecutionView, AgentAction, ControlReceipt } from './types';
+    declare const control: ControlReceipt;
+    const invoked: boolean | null = control.providerInvoked;
+    // @ts-expect-error provider invocation can be uncertain
+    const booleanOnly: boolean = control.providerInvoked;
+    // @ts-expect-error dispatching is projected as uncertain, not public certainty
+    const invalidCertainty: ControlReceipt['dispatchCertainty'] = 'dispatching';
+    void [invoked, booleanOnly, invalidCertainty];
     declare const row: ExecutionView;
+    const pendingPhase: ExecutionView['progress']['phase'] = 'pending';
+    void pendingPhase;
     const prompt: string = row.prompt;
+    const revision: string = row.revision;
+    const observation: AgentAction = {action:'observe',executionId:'E',knownRevision:revision,waitMs:0,includeResult:true};
+    // @ts-expect-error observation revision is opaque, not numeric
+    const numeric: number = row.revision;
+    // @ts-expect-error result projection flag is observe-only
+    const list: AgentAction = {action:'list',includeResult:true};
     const root: string = row.canonicalWorkspaceRoot;
     // @ts-expect-error prompt is mandatory
     const noPrompt: ExecutionView = {} as Omit<ExecutionView, 'prompt'>;
@@ -18,7 +42,7 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
     const resume: AgentAction = {action:'resume_pending',executionId:'E',canonicalWorkspaceRoot:root};
     // @ts-expect-error no new runtime field
     row.runtimeInstanceId;
-    // @ts-expect-error no new revision field
+    // @ts-expect-error internal CAS revision stays private
     row.executionRevision;
     // @ts-expect-error no new diagnostics field
     row.diagnostics;
@@ -46,4 +70,12 @@ test('summary truncates Unicode safely and attention states remain distinct', ()
   assert.equal(executionStatus({status:'dispatch_pending',attention:'pending_explicit_resume'}).label, '等待恢复');
   assert.equal(executionStatus({status:'reconciling',attention:'none'}).label, '正在恢复执行状态');
   assert.equal(executionStatus({status:'unknown',attention:'manual_resolution_required'}).label, '需要处理');
+});
+
+test('pending dispatch labels never imply a provider invocation', () => {
+  const pending = {status:'dispatch_pending',attention:'none',dispatchState:'not_dispatched',progress:{phase:'pending'}};
+  assert.equal(executionStatus(pending).label, '等待执行');
+  assert.equal(executionStatus({...pending,attention:'pending_explicit_resume'}).label, '等待恢复');
+  assert.equal(executionStatus({...pending,dispatchState:'dispatching',progress:{phase:'dispatching'}}).label, '正在派发');
+  assert.equal(executionStatus({...pending,dispatchState:'uncertain',progress:{phase:'reconciling'}}).label, '正在恢复执行状态');
 });

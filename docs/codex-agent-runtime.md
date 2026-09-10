@@ -1088,11 +1088,21 @@ Release Evidence
 
 分类处理。
 
-## 27.1 Pre-dispatch Host Crash — Explicit Resume Amendment
+## 27.1 Pre-dispatch Pending — Explicit Resume Amendment
 
-Startup Recovery 从 Claim 扫描到同一 Execution，且持久化事实同时满足 `status=dispatch_pending`、`dispatch_state=not_dispatched`、`runtime_instance_id IS NULL`、Workspace Claim 属于该 Execution 时，必须保留 Execution 与 Claim，返回内部恢复结果 `PendingExplicitResume`（名称可按代码风格调整）。该结果不是新的 Execution Status；持久化状态仍为 `dispatch_pending + not_dispatched`。多次启动恢复均不得自动取消、中断、转 unknown、释放 Claim、创建 Runtime 或发送任何 Provider 请求。`not_dispatched` 是尚未产生 Provider side effect 的可靠证据，该分支不是 unknown。
+`resume_pending` 仅用于已经 durable 创建、可靠证明尚未跨越 Provider side-effect boundary、未建立 Runtime attempt 的 pending Execution。Host crash、Provider/backend 不可用、binary discovery/resolution failure（均在 Runtime 创建前）都可能产生此状态，并允许 explicit resume 或 cancel-before-dispatch。
 
-仅允许通过最小内部显式入口 `AgentTaskManager::resume_pending_execution(execution_id)`（或同等职责入口）继续原 Execution。入口必须通过 StateStore 原子验证：Execution 存在、`status=dispatch_pending`、`dispatch_state=not_dispatched`、`runtime_instance_id IS NULL`、`provider_terminal_status IS NULL`，且 Workspace Claim 属于该 Execution。缺失或不匹配的 Claim 必须拒绝，不派发。只接受 exact execution_id；不得新建替代 Execution 或改写原请求快照。
+必须同时满足 `dispatch_pending + not_dispatched + runtime_instance_id=NULL + provider_terminal_status=NULL`、原 Execution 拥有 Workspace Claim、无 persisted Runtime attempt。拒绝 dispatching/dispatched/uncertain、已绑定 Runtime、已有 Runtime attempt、已有 Provider terminal、running/finalizing/reconciling/unknown、completed/failed/cancelled/interrupted，以及 Claim missing/mismatch。
+
+只接受 exact `executionId`；不创建 Execution、不生成 requestKey、不 replay uncertain Provider request、不重新绑定旧 Runtime、不夺取其他 Claim。继续复用原首次 Provider pipeline；并发 duplicate resume 不得产生第二个 Runtime/Thread/Turn。
+
+Startup Recovery 从 Claim 扫描到同一 Execution，且持久化事实同时满足 `status=dispatch_pending`、`dispatch_state=not_dispatched`、`runtime_instance_id IS NULL`、`provider_terminal_status IS NULL`、Workspace Claim 属于该 Execution，且 `runtime_instances` 中不存在 `runtime-{executionId}` attempt 时，必须保留 Execution 与 Claim，返回内部恢复结果 `PendingExplicitResume`（名称可按代码风格调整）。该结果不是新的 Execution Status；持久化状态仍为 `dispatch_pending + not_dispatched`。多次启动恢复均不得自动取消、中断、转 unknown、释放 Claim、创建 Runtime 或发送任何 Provider 请求。`not_dispatched` 是尚未产生 Provider side effect 的可靠证据，该分支不是 unknown。
+
+若 `runtime-{executionId}` 已 durable，但 Execution 尚未绑定 `runtime_instance_id`，Startup Recovery 不得将其分类为 `PendingExplicitResume`。此窗口沿用 `reconciling → unknown` 和 `manual_resolution_required`，保留 Claim 与 Runtime attempt；不自动补绑定、创建第二个 Runtime、调用 Provider 或释放 Claim。Startup、explicit resume、Product `canResumePending` 和 Provider failure classification 使用同一组 pre-runtime durable facts。
+
+Product Service 启动时先执行既有 Claim recovery，再发布服务。`agent list`、`observe` 和桌面 `agent_history` 从同一 `agent-state.db` 重建投影，保留原 executionId、agentId、requestKey、Workspace、prompt 和已持久化的 Runtime/Thread/Turn/evidence；Worker Map 不作为任务存在性的依据。连接在 start 回执前断开时，重启后原样重试相同 canonical request 仍只返回原 Execution，不隐式执行 `resume_pending`。Finalizing 的跨 Runtime 收敛继续遵守第 26 节及第 40.5 节的 `interrupted` 业务终态规则，Provider terminal 和 exact result 独立保留。
+
+仅允许通过最小内部显式入口 `AgentTaskManager::resume_pending_execution(execution_id)`（或同等职责入口）继续原 Execution。入口必须通过 StateStore 原子验证：Execution 存在、`status=dispatch_pending`、`dispatch_state=not_dispatched`、`runtime_instance_id IS NULL`、`provider_terminal_status IS NULL`，且不存在 persisted Runtime attempt、Workspace Claim 属于该 Execution。缺失或不匹配的 Claim 必须拒绝，不派发。只接受 exact execution_id；不得新建替代 Execution 或改写原请求快照。
 
 验证成功后复用 TASK-006 的首次执行链路：Create Runtime → Runtime running → 原子 `not_dispatched → dispatching` 与首次 immutable Runtime bind → thread/start → turn/start → terminal → historyMode-aware result → 原 Runtime sealed cleanup → atomic finalization。不得复制 Provider pipeline；入口原子验证不替代已有 dispatch transaction 的 Claim、Runtime running 和首次绑定核验。相同 Execution 的并发/重复 Resume 必须避免重复 Runtime 或 Provider dispatch；首次跨入 dispatching 后，后续 Resume 必须拒绝。不能仅依赖事务外查询后无条件创建 Runtime；不因此新增 Execution/Dispatch 状态或 Schema。
 
@@ -1100,7 +1110,7 @@ Startup Recovery 从 Claim 扫描到同一 Execution，且持久化事实同时�
 
 Host crash 期间 Workspace 可能已变化；本契约不保证 Workspace freshness。显式 Resume 表示调用方重新确认继续该 persisted Execution，Startup Recovery 不代替此确认。Pending 期间 Claim 持续保留，只有 Resume 后的正常 safe terminal 或其他已批准原子 release contract 才可删除；不提供 Force Unlock。TASK-008 仅提供内部能力，UI/MCP 暴露方式属于 TASK-009。
 
-本 Amendment 只澄清 pre-dispatch Host crash policy：不修改 11 Execution Status、allowed transition graph、Dispatch State graph、Schema、Runtime ownership、unknown fail-closed、Job Evidence、Cross-Runtime Recovery、Atomic Claim Release 或 request-key idempotency。Material Contract Difference = NONE。
+本 Amendment 只澄清 pre-dispatch pending policy：不修改 11 Execution Status、allowed transition graph、Dispatch State graph、Schema、Runtime ownership、unknown fail-closed、Job Evidence、Cross-Runtime Recovery、Atomic Claim Release 或 request-key idempotency。Material Contract Difference = NONE。
 
 ---
 
@@ -3049,7 +3059,7 @@ TASK-007 cancellation terminal mapping 按第 18、22、40.5 节执行：先行 
 
 ## Phase 6 — Crash Recovery
 
-Pre-dispatch Host crash 按第 27.1 节保留 Pending 与 Claim，等待显式 Resume；提供最小内部 Resume 入口并复用首次 Provider pipeline，不接产品层。Required Tests 必须覆盖 repeated startup 无副作用、exact execution_id 原子 guard、正常首次成功闭环、duplicate Resume 无重复 Runtime/Thread/Turn、所有禁止状态、Claim missing/mismatch 和普通 request-key 重试不触发 Resume。
+Pre-dispatch pending（Host crash 或 Runtime 创建前 Provider/backend/discovery failure）按第 27.1 节保留 Pending 与 Claim，等待显式 Resume；提供最小内部 Resume 入口并复用首次 Provider pipeline，不接产品层。Required Tests 必须覆盖 repeated startup 无副作用、exact execution_id 原子 guard、正常首次成功闭环、duplicate Resume 无重复 Runtime/Thread/Turn、所有禁止状态、Claim missing/mismatch 和普通 request-key 重试不触发 Resume。
 
 实现：
 

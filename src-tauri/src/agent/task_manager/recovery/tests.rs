@@ -115,6 +115,7 @@ fn explicit_resume_rejects_invalid_states_bindings_and_claims_without_launch() {
         }
         for case in [
             "bound",
+            "runtime-attempt",
             "provider-terminal",
             "missing-claim",
             "wrong-owner",
@@ -126,6 +127,9 @@ fn explicit_resume_rejects_invalid_states_bindings_and_claims_without_launch() {
                 fixture(temp.path(), "dispatch_pending", "not_dispatched").await;
             match case {
                 "bound" => original(&db, &id, false),
+                "runtime-attempt" => {
+                    db.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES (?1,'fixture','running',1,1)", [format!("runtime-{id}")]).unwrap();
+                }
                 "provider-terminal" => {
                     db.execute(
                         "UPDATE executions SET provider_terminal_status='completed'",
@@ -169,14 +173,14 @@ fn explicit_resume_rejects_invalid_states_bindings_and_claims_without_launch() {
                 db.query_row("SELECT count(*) FROM runtime_instances", [], |r| r
                     .get::<_, i64>(0))
                     .unwrap(),
-                if case == "bound" { 1 } else { 0 }
+                if matches!(case, "bound" | "runtime-attempt") { 1 } else { 0 }
             );
         }
     });
 }
 
 #[test]
-fn explicit_resume_runtime_failure_retains_claim_and_rejects_retry() {
+fn explicit_resume_binary_failure_keeps_pending_and_claim() {
     run(async {
         let temp = tempfile::tempdir().unwrap();
         let (manager, id, db) = fixture(temp.path(), "dispatch_pending", "not_dispatched").await;
@@ -186,7 +190,7 @@ fn explicit_resume_runtime_failure_retains_claim_and_rejects_retry() {
             Err(crate::agent::codex::provider::ExecutionFailure::Runtime(_))
         ));
         let row = retained(&manager, &id).await;
-        assert_eq!(row.status, "reconciling");
+        assert_eq!(row.status, "dispatch_pending");
         assert_eq!(row.dispatch_state, "not_dispatched");
         assert!(manager.resume_pending_execution(&id).await.is_err());
         assert_eq!(row, retained(&manager, &id).await);
@@ -595,7 +599,10 @@ fn crash_host() {
             .unwrap();
         let thread = managed
             .client
-            .thread_start(root.join("workspace").to_str().unwrap(), crate::agent::execution::ExecutionMode::ReadOnly)
+            .thread_start(
+                root.join("workspace").to_str().unwrap(),
+                crate::agent::execution::ExecutionMode::ReadOnly,
+            )
             .await
             .unwrap();
         let row = store.execution(id.clone()).await.unwrap().unwrap();
@@ -895,4 +902,33 @@ fn real_fixed_binary_crash_cross_runtime_recovery() {
     assert!(status.status.success());
     assert!(status.stdout.is_empty());
     std::fs::write(evidence.join("workspace-status.txt"), "clean").unwrap();
+}
+
+#[test]
+fn startup_guard_product_and_provider_agree_on_persisted_runtime_attempt() {
+    run(async {
+        for attempted in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let (manager, id, db) = fixture(temp.path(), "dispatch_pending", "not_dispatched").await;
+            if attempted {
+                db.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES (?1,'old-host','running',1,1)", [format!("runtime-{id}")]).unwrap();
+            }
+            let classification = manager.store.recover_claims(now()).await.unwrap();
+            assert_eq!(matches!(&classification[0], crate::agent::store::transactions::ClaimRecovery::PendingExplicitResume { .. }), !attempted);
+            let service = crate::agent::product::AgentProductService::new(manager.store.clone());
+            let observed = service.operation(json!({"action":"observe","executionId":id,"waitMs":0}), None).await;
+            assert_eq!(observed["data"]["availableActions"]["canResumePending"], !attempted);
+            let guard = manager.store.guard_pending_dispatch(id.clone()).await;
+            assert_eq!(guard.is_ok(), !attempted);
+            drop(guard);
+            crate::agent::codex::provider::CodexProvider {
+                store: manager.store.clone(), executable: "never-launched".into(), owner: "new-host".into(),
+            }.failed(&id).await.unwrap();
+            assert_eq!(retained(&manager, &id).await.status, if attempted { "reconciling" } else { "dispatch_pending" });
+            let report = manager.recover_startup().await.unwrap();
+            assert_eq!(matches!(&report[0], RecoveryOutcome::PendingExplicitResume { .. }), !attempted);
+            assert_eq!(retained(&manager, &id).await.status, if attempted { "unknown" } else { "dispatch_pending" });
+            assert_eq!(db.query_row("SELECT count(*) FROM runtime_instances", [], |r| r.get::<_, i64>(0)).unwrap(), i64::from(attempted));
+        }
+    });
 }
