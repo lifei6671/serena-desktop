@@ -1,8 +1,129 @@
 # Serena Desktop
 
-Windows 上的 Serena 桌面管理器，按 [V0.3 技术方案](docs/technical-design-v0.3.md) 提供本地项目管理和统一 MCP 入口。保留检测、安装、启停、Dashboard、托盘、单实例及登录自启。
+## 让 AI 连接你的代码，让你专注真正的开发。
 
-## 使用
+**面向 Windows 开发者的本地代码工作台。** 将 Serena 代码检索、Git 查询、CodeGraph 结构探索和 Codex Agent 任务管理汇集到一个桌面应用中，为支持 MCP 的 AI 客户端提供统一入口。
+
+少一点服务启停、端口查找和窗口切换，多一点对项目本身的关注。
+
+[下载 Windows 版本](https://github.com/lifei6671/serena-desktop/releases) · [快速开始](#快速开始) · [反馈与建议](https://github.com/lifei6671/serena-desktop/issues)
+
+![Serena Desktop 首页：当前工作区、服务状态与 MCP 连接地址](docs/static/home-1.png)
+
+## 从连接项目，到理解代码，一个入口就够了
+
+当 AI 需要了解你的项目，真正有用的是准确的代码、符号关系和 Git 变更。Serena Desktop 把这些能力集中起来，让你在桌面选择工作区，再通过统一 MCP 地址交给客户端使用。
+
+| 你想做的事 | Serena Desktop 带来的便利 |
+|---|---|
+| 让 AI 读取和理解项目 | 通过 Serena 读取文件、检索代码、定位符号与引用 |
+| 了解最近改了什么 | 查询 Git 状态、差异、提交历史、分支与 worktree |
+| 看清跨模块关系 | 接入 CodeGraph，探索代码结构、调用链与变更影响 |
+| 在多个项目间切换 | 同步已初始化的项目，在首页查看和切换当前工作区 |
+| 管理本地 Agent 任务 | 在 Agent 页面创建 Codex 任务，查看状态与结果 |
+| 减少日常维护操作 | 集中管理服务启停、登录自启、托盘与连接配置 |
+
+CodeGraph 需单独安装并初始化项目索引；Agent 需要本机可用的 Codex 环境。所有 MCP 客户端共享当前活动项目，切换工作区会影响它们后续的工具调用。
+
+## 看得见的状态，找得到的问题
+
+服务有没有启动、运行的是哪个版本、管理面板在哪里——打开状态页即可集中查看。需要排查时，可以重新检测环境、重启服务或打开日志目录，减少来回寻找信息的时间。
+
+![服务状态页：运行状态、依赖版本、管理面板与诊断入口](docs/static/home-2.png)
+
+## 按你的习惯，融入日常开发
+
+登录 Windows 后启动、自动启动 Serena、关闭窗口进入托盘，都可以按需设置。MCP 地址在首页直接复制，也可以按需开启局域网连接，让同一可信网络中的另一台电脑访问这台机器的工作区。
+
+![设置页：启动选项、Serena 运行环境与 MCP 连接配置](docs/static/home-3.png)
+
+## 把 Agent 任务放在项目身边
+
+在当前工作区描述任务，启动本地 Codex Agent，并在同一页面查看最近任务、执行状态和结果详情。任务与项目放在一起，回看时更容易找到上下文。
+
+![Agent 工作台：当前工作区、新建任务与最近任务结果](docs/static/home-4.png)
+
+## 快速开始
+
+### 1. 准备桌面应用
+
+前往 [Releases](https://github.com/lifei6671/serena-desktop/releases) 获取 Windows 可执行文件。预先安装 Git，然后在应用中检测或安装官方 Serena，并启动服务。
+
+### 2. 连接你的第一个项目
+
+在 Git 仓库根目录打开 PowerShell，初始化 Serena 项目并建立索引：
+
+```powershell
+serena project create --index
+```
+
+如果已有 `.serena/project.yml`，则执行：
+
+```powershell
+serena project index
+```
+
+返回首页，点击“同步项目”，选择并激活项目。若终端找不到 `serena` 命令，展开首页的初始化提示，使用应用检测到的可执行文件路径和同步配置目录。
+
+### 3. 让 AI 客户端接入
+
+在设置中启用“MCP 连接入口”，将首页显示的地址填入支持 HTTP MCP 的客户端：
+
+```text
+http://127.0.0.1:9120/mcp
+```
+
+保持 Serena 服务运行，即可通过客户端查询当前项目的代码与 Git 信息。具体配置字段以客户端要求为准。
+
+> 默认仅允许本机连接。局域网访问需手动开启；服务没有内置认证，请仅在可信网络使用。项目初始化与索引仍在终端完成。
+
+## 在 ChatGPT 中连接
+
+把 Serena Desktop 添加为 ChatGPT 插件，在对话中直接查询当前项目的代码、符号与 Git 变更。以下按截图中的“服务器 URL”方式配置。
+
+### 准备连接地址
+
+先保持 Serena Desktop、Serena 服务和 MCP 连接入口运行，并激活需要使用的项目。准备一个 ChatGPT 可以访问的 **HTTPS MCP 地址**；表单中不能直接填写本机的 `127.0.0.1` 或局域网 IP。
+
+如果使用 Cloudflare Tunnel，将上游指向 `http://127.0.0.1:9120/mcp`，并将 HTTP Host Header 设置为 `127.0.0.1`。在 ChatGPT 中填写最终对外的完整 MCP 地址，例如 `https://mcp.example.com/mcp`（请替换为自己的实际地址）。
+
+> Serena Desktop 没有内置认证。对外接入时，请配合具有认证能力的 MCP 网关使用；仅建立 Cloudflare Tunnel 并不等于已经配置认证，不要将无保护的工作区入口直接暴露到公网。
+
+### 1. 打开插件页面，创建连接
+
+在 ChatGPT 中打开“设置 → 安全与登录”，开启“开发者模式”，保留 CSP 安全检查。然后进入“插件”页面，选择顶部的“插件”标签，点击“搜索插件”右侧的 **＋**。
+
+### 2. 填写新插件信息
+
+| 表单项目 | 填写说明 |
+|---|---|
+| 名称 | 填写 `Serena Desktop`，方便在对话中识别 |
+| 描述（可选） | 可填写“连接本地项目，查询代码、符号引用和 Git 变更” |
+| 连接 | 选择“服务器 URL”，粘贴完整的 HTTPS MCP 地址，保留实际路径 |
+| 身份验证 | 按网关实际配置选择；网关提供 OAuth 时选择 OAuth 并完成授权。只有端点确实不要求认证时才选择“无认证”，不要照搬其他项目的设置 |
+| 风险提示 | 阅读提示，确认信任自己的服务后，勾选“我了解并希望继续” |
+| 创建 | 点击“创建”，等待 ChatGPT 连接服务并发现工具 |
+
+| 第一步：打开插件，点击加号 | 第二步：填写信息，创建插件 |
+|:---:|:---:|
+| ![ChatGPT 插件页面：选择插件标签，点击右侧加号新增插件](docs/static/chatgpt-1.png) | ![ChatGPT 新插件表单：填写名称、完整 MCP 地址、认证方式并确认创建](docs/static/chatgpt-2.png) |
+
+创建完成后，新建一段对话，从工具菜单添加 **Serena Desktop**，试着发送：
+
+> 请使用 Serena Desktop 查看当前活动项目，并总结当前 Git 工作区的变更。
+
+看到返回的项目与 Serena Desktop 首页一致，即可继续围绕这个项目提问。若连接失败，先检查服务是否运行、HTTPS 地址是否可达，以及网关认证是否匹配。
+
+开发者模式是否可用取决于账户与工作区策略，界面入口也可能随版本调整。连接要求与操作流程可参阅 [OpenAI 官方插件连接指南](https://developers.openai.com/plugins/deploy/connect-chatgpt)。
+
+## 技术与开发文档
+
+需要了解接入参数、运行环境或参与开发？以下保留完整说明，按需展开即可。
+
+- [V0.3 技术方案](docs/technical-design-v0.3.md)
+
+<details>
+<summary>使用</summary>
 
 1. 在“Serena 服务管理与诊断”中检测或安装官方 Serena，并启动服务。Git 需要预先安装。
 2. 在已有 Git 仓库的根目录打开 PowerShell，执行 `serena project create --index`，为当前仓库创建 Serena 项目配置并建立索引，完成后点击首页“同步项目”。如果仓库已有 `.serena/project.yml`，请改用 `serena project index`。找不到 `serena` 命令时，展开页面中的对应提示，使用 Desktop 检测到的可执行文件和同步配置目录，无需把受管安装加入 PATH。
@@ -15,7 +136,10 @@ Windows 上的 Serena 桌面管理器，按 [V0.3 技术方案](docs/technical-d
 
 Cloudflare Tunnel 的 upstream 应指向 Broker 的本机地址，并将 HTTP Host Header 设置为 `127.0.0.1`（SDK 默认检查 loopback Host）。先完成本机验证，再切换外部入口；本次开发不自动修改现有 Tunnel。Serena 内部端口不作为客户端入口。
 
-## 官方 Serena 运行环境
+</details>
+
+<details>
+<summary>官方 Serena 运行环境</summary>
 
 受管安装固定为官方 `serena-agent==1.7.0`，Python 3.13。2026-09-07 已完成此版本的真实 CLI/MCP 集成验证；不使用原先计划但未发布的 Enhanced fork，不在运行时静默升级。
 
@@ -27,7 +151,10 @@ Desktop 的 MCP 服务使用独立的 `runtime/serena-home` 配置目录，启�
 
 首页提供项目操作；“Serena 面板”保留官方 Dashboard；设置保存后如果影响 Serena 启动参数，会停止当前服务，需要重新启动和激活。手动启动显示窗口，登录自启隐藏窗口，退出回收受管进程。
 
-## MCP 工具契约
+</details>
+
+<details>
+<summary>MCP 工具契约</summary>
 
 固定公开 18 个工具，通过 `tools/list` 获取参数和返回 Schema。新增工具在 `src-tauri/src/mcp/registry.rs` 静态注册；内嵌工具增加 Rust 处理函数，第三方 MCP 增加具体 Adapter。CodeGraph 使用专用 stdio Adapter，不引入运行时插件配置或通用 MCP 聚合框架。
 
@@ -56,7 +183,10 @@ Source 和 Git 均接受 `max_bytes`：读取文件默认 32 KiB、最大 128 Ki
 
 调用默认最多 60 秒，取消后有界等待清理。Source 超时或取消后的会话失效，需重新激活；Git 进程超时 30 秒；本地创建/索引最长 10 分钟且可取消。停止 Broker 清除活动项目。活动项目、PID、会话和索引显示状态不跨应用启动持久化。
 
-## CodeGraph 接入
+</details>
+
+<details>
+<summary>CodeGraph 接入</summary>
 
 当前 Adapter 已核对本机 CodeGraph 1.6.0 的 CLI/MCP 契约。预先安装 CodeGraph，并确保启动 Desktop 的环境能在 PATH 找到 `codegraph`。对外只增加固定的 `codegraph_explore(query, maxFiles?)`，`maxFiles` 由 Adapter 显式传入，默认固定为 12，不接受 `projectPath`。结构探索、跨模块调用链与影响分析使用 CodeGraph；已知文件或 Symbol、精确读取与直接 references 优先使用 `source_*`。
 
@@ -82,7 +212,10 @@ CodeGraph 在独立子进程运行，崩溃不会退出 Desktop、停止 Broker 
 
 生命周期诊断写入现有本地 MCP 日志，包括 Workspace ID、generation、启动、就绪、绑定切换/释放、观察到的退出、初始化/transport 失败、恢复及过期任务丢弃。stderr 持续排空，每个 runtime 最多记录 8 KiB，日志沿用最近 500 条上限；不记录查询参数、工具结果或完整环境。能力状态不跨应用重启持久化。固定工具目录不受 CodeGraph 状态影响；现有 `tools/list` 仍需要 Serena 运行以提供原始 Source 描述。
 
-## 开发
+</details>
+
+<details>
+<summary>开发</summary>
 
 需要 Node.js `^20.19.0` 或 `>=22.12.0`、npm、Rust 和 Tauri 2 的 Windows 构建依赖。
 
@@ -108,7 +241,10 @@ npm run tauri build
 src-tauri/target/release/serena-desktop.exe
 ```
 
-## 自动发布
+</details>
+
+<details>
+<summary>自动发布</summary>
 
 `.github/workflows/release.yml` 监听所有 tag 的 push 事件，在 Windows x64 上安装依赖、运行前端 lint 和 Rust 测试、构建 Release 二进制，然后创建对应 tag 的 GitHub Release 并上传 `serena-desktop.exe`，自动生成发布说明。任何检查或构建失败都会阻止发布。
 
@@ -120,3 +256,9 @@ git push origin v0.1.0
 ```
 
 工作流使用自动提供的 `GITHUB_TOKEN` 和 `contents: write` 权限，不需要配置个人 Token。所有 tag 默认发布为正式 Release；tag 不会自动修改程序内版本号。重跑时会更新已有 Release 的同名附件（仓库启用不可变 Release 时，已发布附件不能覆盖，需使用新 tag）。
+
+</details>
+
+## 一起让本地 AI 开发更顺手
+
+[下载体验](https://github.com/lifei6671/serena-desktop/releases)，从连接你的第一个项目开始。欢迎通过 [Issues](https://github.com/lifei6671/serena-desktop/issues) 分享使用反馈；如果这个项目对你有帮助，也欢迎点亮 Star。
