@@ -1,7 +1,7 @@
 import { TooltipHint } from "@/components/TooltipHint";
 import { useEffect, useId, useRef, useState } from "react";
 import { HoverCard } from "radix-ui";
-import { CalendarDays, ChevronDown, Folder, Monitor, Trash2 } from "lucide-react";
+import { CalendarDays, ChevronDown, CircleAlert, Folder, LoaderCircle, Monitor, Trash2 } from "lucide-react";
 import { api } from "./api";
 import { executionStatus, executionTime, taskSummary } from "./agentPresentation";
 import type { ExecutionView, Workspace } from "./types";
@@ -13,7 +13,7 @@ type Props = {
   hiddenIds: string[];
   selectedId?: string;
   onSelect: (row: ExecutionView, trigger: HTMLElement) => void;
-  onDelete: (id: string) => void;
+  onDelete: (row: ExecutionView, afterDelete?: () => void) => void;
 };
 
 function TaskItem({ row, workspace, selected, onSelect, onDelete }: {
@@ -31,6 +31,8 @@ function TaskItem({ row, workspace, selected, onSelect, onDelete }: {
           aria-describedby={open ? infoId : undefined}
           onFocus={() => setOpen(true)} onBlur={() => setOpen(false)}
           onClick={event => { setOpen(false); onSelect(row, event.currentTarget); }}>
+          {status.tone === "blue" && <LoaderCircle className="project-task-state-icon tone-blue animate-spin motion-reduce:animate-none" role="img" aria-label={status.label} />}
+          {status.tone === "red" && <CircleAlert className="project-task-state-icon tone-red" role="img" aria-label={status.label} />}
           <span>{taskSummary(row.prompt) || "未命名任务"}</span>
           <time dateTime={new Date(row.updatedAt).toISOString()}>{days ? `${days}天前` : "今天"}</time>
         </button>
@@ -50,8 +52,7 @@ function TaskItem({ row, workspace, selected, onSelect, onDelete }: {
         const target = item?.nextElementSibling?.querySelector<HTMLElement>(".project-task-link")
           ?? item?.previousElementSibling?.querySelector<HTMLElement>(".project-task-link")
           ?? item?.closest("section")?.querySelector<HTMLElement>(".project-task-heading");
-        setOpen(false); onDelete(row.executionId);
-        requestAnimationFrame(() => target?.focus());
+        setOpen(false); onDelete(row, () => requestAnimationFrame(() => target?.focus()));
       }}><Trash2 aria-hidden="true" /></button></TooltipHint>
   </li>;
 }

@@ -5,6 +5,7 @@ import { ProjectTaskNavigation } from "./ProjectTaskNavigation";
 import { toast } from "sonner";
 import { Folder, Plus, RefreshCw, LoaderCircle, Trash2, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { api } from "./api";
 import { agentRequests } from "./agentRequests";
@@ -33,6 +34,14 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
       return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
     } catch { return []; }
   });
+  const [deleteRequest, setDeleteRequest] = useState<{ row: ExecutionView; afterDelete?: () => void } | null>(null);
+  const deleteTrigger = useRef<HTMLElement | null>(null);
+  function requestDelete(row: ExecutionView, afterDelete?: () => void) {
+    if (executionStatus(row).tone === "blue" || row.status === "reconciling") {
+      deleteTrigger.current = document.activeElement as HTMLElement | null;
+      setDeleteRequest({ row, afterDelete });
+    } else if (hideExecution(row.executionId)) afterDelete?.();
+  }
   function hideExecution(id: string) {
     const next = [...hiddenIds, id];
     try {
@@ -40,7 +49,8 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
       setHiddenIds(next);
       if (detail?.executionId === id) closeDetails();
       toast.success("已从本机列表删除，执行记录仍保留");
-    } catch (error) { toast.error(`删除失败：${String(error)}`); }
+      return true;
+    } catch (error) { toast.error(`删除失败：${String(error)}`); return false; }
   }
   const [loaded, setLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -221,7 +231,23 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
     </div>;
 
   return <>
-    {sidebarContainer && createPortal(<ProjectTaskNavigation workspaces={workspaces} hiddenIds={hiddenIds} selectedId={detail?.executionId} onDelete={hideExecution} onSelect={(row, trigger) => { opener.current = trigger; onShowTask?.(); void openDetails(row.executionId, row); }} />, sidebarContainer)}
+    {sidebarContainer && createPortal(<ProjectTaskNavigation workspaces={workspaces} hiddenIds={hiddenIds} selectedId={detail?.executionId} onDelete={requestDelete} onSelect={(row, trigger) => { opener.current = trigger; onShowTask?.(); void openDetails(row.executionId, row); }} />, sidebarContainer)}
+    <Dialog open={deleteRequest !== null} onOpenChange={open => { if (!open) setDeleteRequest(null); }}>
+      <DialogContent showCloseButton={false} onCloseAutoFocus={event => { event.preventDefault(); if (deleteTrigger.current?.isConnected) deleteTrigger.current.focus(); }}>
+        <DialogHeader><DialogTitle>从列表删除正在处理的任务？</DialogTitle>
+          <DialogDescription>删除仅会隐藏本机列表中的任务，不会停止 Agent，也不会删除执行记录或撤销已修改的文件。任务可能继续修改工作区，并在安全结束前继续占用工作区。若希望停止执行，请先返回任务详情使用“取消任务”。</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setDeleteRequest(null)}>保留任务</Button>
+          <Button variant="destructive" onClick={() => {
+            if (deleteRequest && hideExecution(deleteRequest.row.executionId)) {
+              deleteRequest.afterDelete?.();
+              setDeleteRequest(null);
+            }
+          }}>仅从列表删除</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     <section className="settings-page agent-page">
     <div hidden={!!detail}>
     <div className="page-heading"><div><h1>Agent</h1><p>在当前工作区中创建和管理 Codex Agent 任务</p></div><span className="agent-local-label">本地 Codex 工作台</span></div>
@@ -245,13 +271,13 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
         const status = executionStatus(row);
         return <article className="agent-row" key={row.executionId}>
           <span className={`agent-marker tone-${status.tone}`} aria-hidden="true" />
-          <div className="agent-row-main"><div className="agent-row-title"><TooltipHint content={row.prompt}><h3 tabIndex={0}>{taskSummary(row.prompt)}</h3></TooltipHint><span className={`agent-status tone-${status.tone}`}><i />{status.label}</span></div>
+          <div className="agent-row-main"><div className="agent-row-title"><TooltipHint content={taskSummary(row.prompt)}><h3 tabIndex={0}>{taskSummary(row.prompt)}</h3></TooltipHint><span className={`agent-status tone-${status.tone}`}><i />{status.label}</span></div>
             <div className="agent-meta"><TooltipHint content={row.canonicalWorkspaceRoot}><span tabIndex={0}>{executionWorkspace(row, [...workspaces, ...(workspace ? [workspace] : [])])}</span></TooltipHint><span>·</span><TooltipHint content={executionTime(row.createdAt)}><time tabIndex={0} dateTime={new Date(row.createdAt).toISOString()}>{executionTime(row.createdAt)}</time></TooltipHint><span>·</span><span>耗时 {executionDuration(row)}</span></div>
             <div className="agent-row-bottom"><p>{row.status === "completed" ? taskSummary(resultText(row.finalResult)) || status.description : status.description}</p><div className="agent-row-actions">
               {row.availableActions.canResumePending && <Button variant="outline" size="sm" disabled={disabled || !!listError} onClick={() => void operate({ action: "resume_pending", executionId: row.executionId })}>恢复任务</Button>}
               {row.availableActions.canCancel && <Button variant="ghost" size="sm" disabled={disabled || !!listError} onClick={() => void operate({ action: "cancel", executionId: row.executionId })}>取消任务</Button>}
               <Button variant="ghost" size="sm" onClick={e => { opener.current = e.currentTarget; void openDetails(row.executionId, row); }}><FileText aria-hidden="true" />详情</Button>
-              <TooltipHint content="仅从本机列表删除，不取消任务或删除执行记录"><Button variant="ghost" size="sm" onClick={() => hideExecution(row.executionId)}><Trash2 aria-hidden="true" />删除</Button></TooltipHint>
+              <TooltipHint content="仅从本机列表删除，不取消任务或删除执行记录"><Button className="agent-delete-action" variant="ghost" size="sm" onClick={() => requestDelete(row)}><Trash2 aria-hidden="true" />删除</Button></TooltipHint>
             </div></div>
           </div>
         </article>;

@@ -706,7 +706,7 @@ h3 {
 }
 
 /* Agent workbench: scoped presentation, existing desktop surfaces and signals. */
-.agent-page, .agent-detail { --agent-blue: #2563eb; }
+:root { --agent-blue: #2563eb; }
 .agent-page { max-width: 1080px; }
 .agent-page .page-heading { margin-bottom: 24px; }
 .agent-local-label, .agent-eyebrow, .agent-muted, .agent-meta, .agent-history-note { color: var(--console-muted); font-size: 12px; }
@@ -817,12 +817,14 @@ h3 {
 .project-task[data-selected=true] .project-task-link > span { font-weight: 600; }
 .project-task-link { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px 6px 35px; min-height: 30px; min-width: 0; text-align: left; font-size: 12px; line-height: 18px; border-radius: inherit; }
 .project-task-link > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-task-state-icon { position: absolute; left: 14px; width: 14px; height: 14px; pointer-events: none; }
 .project-task-link time { color: var(--console-muted); font-size: 10px; flex-shrink: 0; }
-.project-task-delete { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 28px; height: 28px; border-radius: 5px; opacity: 0; pointer-events: none; color: var(--console-muted); }
+.project-task-delete { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; width: 28px; height: 28px; padding: 0; background: transparent; border-radius: 5px; opacity: 0; pointer-events: none; color: var(--console-muted); }
 .project-task-delete svg { width: 15px; height: 15px; }
 .project-task:hover .project-task-delete, .project-task:focus-within .project-task-delete { opacity: 1; pointer-events: auto; }
 .project-task:hover time, .project-task:focus-within time { visibility: hidden; }
-.project-task-delete:hover { color: var(--signal-red); background: var(--background); }
+.project-task-delete:hover { color: var(--signal-red); background: transparent; }
+.agent-delete-action, .agent-delete-action:hover { background: transparent; }
 .project-task-more, .project-task-message { margin: 4px 0; padding: 5px 10px 5px 35px; font-size: 11px; color: var(--console-muted); }
 .project-task-more:hover { color: var(--foreground); }
 .project-task-more:disabled { opacity: .5; }

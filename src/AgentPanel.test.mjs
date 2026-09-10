@@ -571,3 +571,58 @@ test('markdown renders HTML literally and rejects executable links', async () =>
   assert.match(block.textContent,/<script>alert/);
   assert.match(block.textContent,/危险/);
 });
+
+
+test('sidebar task markers distinguish processing, errors and inactive tasks', async () => {
+  const host = navigationHost(); const project = workspace('A');
+  const statuses = ['running', 'failed', 'unknown', 'completed', 'dispatch_pending'];
+  await mount(statuses.map(status => row({ executionId: status, prompt: status, status,
+    attention: status === 'unknown' ? 'manual_resolution_required' : 'none',
+    canonicalWorkspaceRoot: project.root, progress: { phase: status === 'running' ? 'running' : 'pending' },
+  })), undefined, { workspaces: [project], sidebarContainer: host });
+  const items = [...host.querySelectorAll('.project-task-link')];
+  assert.equal(items.length, 5);
+  assert.equal(items[0].querySelector('svg[aria-label="执行中"]').classList.contains('animate-spin'), true);
+  for (const index of [1, 2]) {
+    assert.ok(items[index].querySelector('svg.tone-red'));
+    assert.equal(items[index].querySelector('.animate-spin'), null);
+  }
+  for (const index of [3, 4]) assert.equal(items[index].querySelector('.project-task-state-icon'), null);
+  await act(async () => items[0].focus());
+  assert.equal(document.querySelector('.project-task-preview .agent-status').textContent, '执行中');
+  assert.ok(document.querySelector('.project-task-preview .tone-blue'));
+});
+
+
+for (const entry of ['sidebar', 'history']) test(`running task deletion requires confirmation from ${entry} without stopping provider`, async () => {
+  const project = workspace('A'); const host = navigationHost();
+  const calls = await mount([row({ status: 'running', attention: 'none', prompt: '正在执行的任务', canonicalWorkspaceRoot: project.root })], undefined, { workspaces: [project], sidebarContainer: host });
+  const trigger = entry === 'sidebar' ? host.querySelector('.project-task-delete') : document.querySelector('.agent-delete-action');
+  await act(async () => { trigger.focus(); trigger.click(); });
+  assert.ok(document.querySelector('[role="dialog"]'));
+  assert.match(document.querySelector('[role="dialog"]').textContent, /不会停止 Agent/);
+  assert.equal(window.localStorage.getItem('agent-hidden-executions'), null);
+  await act(async () => [...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent === '保留任务').click());
+  assert.equal(document.querySelector('[role="dialog"]'), null);
+  assert.ok(host.querySelector('.project-task'));
+  await act(async () => trigger.click());
+  await act(async () => [...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent === '仅从列表删除').click());
+  assert.deepEqual(JSON.parse(window.localStorage.getItem('agent-hidden-executions')), ['old-E1']);
+  assert.equal(host.querySelector('.project-task'), null);
+  assert.equal(document.querySelector('[role="dialog"]'), null);
+  assert.equal(calls.some(c => ['cancel', 'resume_pending', 'start', 'continue'].includes(c.action)), false);
+});
+
+
+test('recent task title tooltip shows a bounded summary instead of the full prompt', async () => {
+  const prompt = '检查任务内容。\n'.repeat(120);
+  await mount([row({ prompt })]);
+  const title = document.querySelector('.agent-row-title h3');
+  await act(async () => title.focus());
+  const tooltip = document.querySelector('[role="tooltip"]');
+  assert.ok(tooltip);
+  assert.equal(tooltip.textContent, title.textContent);
+  assert.ok(Array.from(tooltip.textContent).length <= 101);
+  assert.ok(!tooltip.textContent.includes('\n'));
+  assert.notEqual(tooltip.textContent, prompt);
+});
