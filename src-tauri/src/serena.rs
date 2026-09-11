@@ -1,4 +1,6 @@
 pub use crate::discovery::SerenaInstallation;
+#[cfg(test)]
+pub(crate) mod remote_fixture;
 use crate::discovery::{self, GitInstallation, InstallationState};
 use crate::{
     config::{self, AppPaths, ManagerConfig},
@@ -52,11 +54,16 @@ struct Runtime {
     last_error: Option<String>,
 }
 
+#[cfg(test)]
+type RemoteSaveHook = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
+
 pub struct SupervisorState {
     runtime: Mutex<Runtime>,
     operation: Mutex<()>,
     dashboard_url: Arc<Mutex<String>>,
     pub paths: AppPaths,
+    #[cfg(test)]
+    pub(crate) remote_save_hook: Mutex<Option<RemoteSaveHook>>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +106,8 @@ impl SupervisorState {
             operation: Mutex::new(()),
             dashboard_url: Arc::new(Mutex::new(DEFAULT_DASHBOARD_URL.to_string())),
             paths,
+            #[cfg(test)]
+            remote_save_hook: Mutex::new(None),
         })
     }
 
@@ -208,6 +217,25 @@ impl SupervisorState {
         let mut runtime = self.runtime.lock().expect("supervisor mutex poisoned");
         let mut next = runtime.config.clone();
         next.workspaces = workspaces;
+        next.validate()?;
+        config::save(&self.paths.config_file, &next)?;
+        runtime.config = next;
+        Ok(())
+    }
+
+    /// Remote settings do not affect Serena discovery or its running process.
+    pub fn replace_remote_access(
+        &self,
+        remote: crate::remote::RemoteAccessConfig,
+    ) -> Result<(), String> {
+        let _operation = self.operation.lock().expect("operation mutex poisoned");
+        #[cfg(test)]
+        if let Some(hook) = self.remote_save_hook.lock().unwrap().clone() {
+            hook()?;
+        }
+        let mut runtime = self.runtime.lock().expect("supervisor mutex poisoned");
+        let mut next = runtime.config.clone();
+        next.remote_access = remote;
         next.validate()?;
         config::save(&self.paths.config_file, &next)?;
         runtime.config = next;

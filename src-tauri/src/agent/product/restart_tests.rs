@@ -317,7 +317,7 @@ async fn rt05_finalizing_restart_retains_terminal_and_recovers_result_under_v04(
         let (service, report) = initialize(dir.path()).await;
         assert!(matches!(&report[0], RecoveryOutcome::RuntimeFailure { .. }));
         let row = service.store.execution("E1".into()).await.unwrap().unwrap();
-        assert_eq!(row.status, "reconciling");
+        assert_eq!(row.status, "unknown");
         assert_eq!(
             row.provider_terminal_status,
             before.provider_terminal_status
@@ -338,6 +338,12 @@ async fn rt05_finalizing_restart_retains_terminal_and_recovers_result_under_v04(
                 .is_some()
         );
         assert!(row.final_result_json.is_none());
+
+        // Explicit local recovery after bounded unavailable result recovery.
+        service.store.provider_event("E1".into(), crate::agent::execution::state::Transition::ResumeRecovery(
+            crate::agent::execution::state::RecoveryBasis::LocalResolve { diagnostic: "fixture result recovery".into() }),
+            crate::agent::coordinator::now()).await.unwrap();
+        let row = service.store.execution("E1".into()).await.unwrap().unwrap();
 
         // Drive the existing sealed Cross-Runtime recovery + coordinator boundary
         // with fake history. No start/continue/cleanup RPC is permitted on R2.

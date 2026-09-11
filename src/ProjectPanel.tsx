@@ -81,12 +81,14 @@ export function ProjectPanel({
   state,
   controller,
   onSettings,
+  onRemote,
   onSerena,
   onCopied,
 }: {
   state: AppState;
   controller: ReturnType<typeof useBroker>;
   onSettings: () => void;
+  onRemote: () => void;
   onSerena: () => void;
   onCopied: () => void;
 }) {
@@ -434,6 +436,7 @@ export function ProjectPanel({
           aria-labelledby="connection-title"
         >
           <h2 id="connection-title">连接配置</h2>
+          <Button variant="outline" onClick={onRemote}>连接 ChatGPT</Button>
           <p className="field-label">本机 MCP 地址</p>
           {endpoint ? (
             <>

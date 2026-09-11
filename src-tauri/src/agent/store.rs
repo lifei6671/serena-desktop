@@ -8,11 +8,23 @@ use std::{
 };
 
 const SCHEMA_V1: &str = include_str!("schema_v1.sql");
+const SCHEMA_V2: &str =
+    "CREATE TABLE thread_names (thread_id TEXT PRIMARY KEY NOT NULL, name TEXT);";
+const SCHEMA_V3: &str = include_str!("schema_v3.sql");
 
 #[derive(Clone)]
 pub struct StateStore {
     connection: Arc<Mutex<Connection>>,
     database_identity: PathBuf,
+    #[cfg(test)]
+    observability_faults: Arc<Mutex<std::collections::HashSet<ObservabilityFault>>>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ObservabilityFault {
+    Activity,
+    PermissionDiagnostic,
 }
 
 /// Read projection; evidence is returned as stored, never inferred from policy.
@@ -31,6 +43,8 @@ pub struct ExecutionRecord {
     pub thread_id: Option<String>,
     pub turn_id: Option<String>,
     pub provider_terminal_status: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
     pub provider_terminal_evidence_runtime_instance_id: Option<String>,
     pub provider_terminal_evidence_at: Option<i64>,
     pub runtime_instance_id: Option<String>,
@@ -47,6 +61,9 @@ pub struct ExecutionRecord {
     pub interrupt_ack_at: Option<i64>,
     pub interrupt_timeout_at: Option<i64>,
     pub interrupt_diagnostic: Option<String>,
+    pub last_activity_at: Option<i64>,
+    pub activity_phase: Option<String>,
+    pub tool_category: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -96,6 +113,8 @@ impl StateStore {
                 connection: Arc::new(Mutex::new(connection)),
                 database_identity: std::fs::canonicalize(app_data_directory.join("agent-state.db"))
                     .map_err(|e| e.to_string())?,
+                #[cfg(test)]
+                observability_faults: Arc::new(Mutex::new(std::collections::HashSet::new())),
             })
         })
         .await
@@ -176,6 +195,26 @@ impl StateStore {
         })
         .await
     }
+
+    #[cfg(test)]
+    pub(crate) fn inject_observability_failure(&self, fault: ObservabilityFault) {
+        self.observability_faults.lock().unwrap().insert(fault);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn observability_failure_pending(&self, fault: ObservabilityFault) -> bool {
+        self.observability_faults.lock().unwrap().contains(&fault)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn clear_observability_failure(&self, fault: ObservabilityFault) {
+        self.observability_faults.lock().unwrap().remove(&fault);
+    }
+
+    #[cfg(test)]
+    fn take_observability_failure(&self, fault: ObservabilityFault) -> bool {
+        self.observability_faults.lock().unwrap().remove(&fault)
+    }
 }
 
 #[cfg(windows)]
@@ -226,8 +265,14 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
             }
             apply_migration(&transaction, 1, SCHEMA_V1).map_err(|e| e.to_string())?;
         }
-        1 => {}
+        1..=3 => {}
         _ => return Err(format!("unsupported agent state schema version: {version}")),
+    }
+    if version < 2 {
+        apply_migration(&transaction, 2, SCHEMA_V2).map_err(|e| e.to_string())?;
+    }
+    if version < 3 {
+        apply_migration(&transaction, 3, SCHEMA_V3).map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())
 }
@@ -282,7 +327,8 @@ fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<Executi
              workspace_id, canonical_workspace_root, provider, mode, thread_id,
              runtime_instance_id, status, dispatch_state, revision, background_cleanup_state,
              release_evidence_state, release_evidence_kind, release_evidence_json, result_completeness, turn_id, provider_terminal_status, provider_terminal_evidence_runtime_instance_id, final_result_json
-             , interrupt_requested_at, interrupt_ack_at, interrupt_timeout_at, interrupt_diagnostic, provider_terminal_evidence_at
+             , interrupt_requested_at, interrupt_ack_at, interrupt_timeout_at, interrupt_diagnostic, provider_terminal_evidence_at, error_code, error_message,
+             last_activity_at, activity_phase, tool_category
              FROM executions WHERE id = ?1", [&id], |r| Ok(ExecutionRecord {
                 id: r.get(0)?, agent_id: r.get(1)?, request_key: r.get(2)?, request_hash: r.get(3)?,
                 prompt: r.get(4)?, execution_profile_json: r.get(5)?, workspace_id: r.get(6)?,
@@ -293,6 +339,8 @@ fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<Executi
                 release_evidence_json: r.get(18)?, result_completeness: r.get(19)?, turn_id: r.get(20)?, provider_terminal_status: r.get(21)?, provider_terminal_evidence_runtime_instance_id: r.get(22)?, final_result_json: r.get(23)?,
                 interrupt_requested_at: r.get(24)?, interrupt_ack_at: r.get(25)?,
                 interrupt_timeout_at: r.get(26)?, interrupt_diagnostic: r.get(27)?,
-                provider_terminal_evidence_at: r.get(28)?,
-            })).optional()
+                 provider_terminal_evidence_at: r.get(28)?,
+                 error_code: r.get(29)?, error_message: r.get(30)?,
+                 last_activity_at: r.get(31)?, activity_phase: r.get(32)?, tool_category: r.get(33)?,
+             })).optional()
 }

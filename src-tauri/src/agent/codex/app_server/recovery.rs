@@ -184,6 +184,7 @@ pub struct RecoveredResult {
     execution_id: Option<String>,
     execution_revision: Option<i64>,
     thread_id: String,
+    thread_name: Option<String>,
     turn_id: String,
     history_mode: HistoryMode,
     source_runtime_id: String,
@@ -304,7 +305,7 @@ impl Client {
                 }
             }
             turn.items_view="full".into();
-            Ok(RecoveredResult {execution_id:scope.binding.as_ref().map(|b|b.record().id.clone()),execution_revision:scope.binding.as_ref().map(|b|b.record().revision),thread_id:scope.thread_id,turn_id:scope.turn_id,history_mode:meta.history_mode,source_runtime_id:scope.source_runtime_id,recovered_by_runtime_id:self.runtime_id().into(),terminal_turn:turn,final_result,result_completeness:"complete"})
+            Ok(RecoveredResult {execution_id:scope.binding.as_ref().map(|b|b.record().id.clone()),execution_revision:scope.binding.as_ref().map(|b|b.record().revision),thread_id:scope.thread_id,thread_name:meta.name,turn_id:scope.turn_id,history_mode:meta.history_mode,source_runtime_id:scope.source_runtime_id,recovered_by_runtime_id:self.runtime_id().into(),terminal_turn:turn,final_result,result_completeness:"complete"})
         }.await;
         self.validated(result)
     }

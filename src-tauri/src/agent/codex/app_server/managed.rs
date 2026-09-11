@@ -201,6 +201,14 @@ pub struct ManagedClient {
     reconciliation: tokio::task::JoinHandle<std::result::Result<(), RuntimeFailure>>,
 }
 impl ManagedClient {
+    #[cfg(test)]
+    pub(crate) fn test_owned(client: Client, reconciliation: tokio::task::JoinHandle<std::result::Result<(), RuntimeFailure>>) -> Self {
+        Self { client, reconciliation, compatibility: CompatibilityEvidence {
+            identity: CompatibilityIdentity { version: VERSION.into(), binary_sha256: BINARY_SHA256.into(), protocol_schema_sha256: SCHEMA_SHA256.into() },
+            executable: PathBuf::from("fixture"), source_commit: SOURCE_COMMIT, wire_contract: WIRE_CONTRACT, _binary: tempfile::tempfile().unwrap(),
+        } }
+    }
+
     pub async fn shutdown(self) -> std::result::Result<(), RuntimeFailure> {
         self.client.cancel();
         self.wait_for_reconciliation().await
@@ -281,12 +289,15 @@ pub async fn connect(
     };
     let stdout = tokio::fs::File::from_std(stdout);
     #[cfg(test)]
-    let stdout = super::tests::record_stdout(stdout, &runtime_id);
+    let stdout = super::tests::record_output(stdout, &runtime_id, "stdout");
+    let stderr = tokio::fs::File::from_std(stderr);
+    #[cfg(test)]
+    let stderr = super::tests::record_output(stderr, &runtime_id, "stderr");
     let client = Client::transport(
         runtime_id,
         tokio::io::BufReader::new(stdout),
         tokio::fs::File::from_std(stdin),
-        tokio::fs::File::from_std(stderr),
+        stderr,
     );
     // The monitor owns the Runtime before the first await in initialize. Cancelling
     // connect drops Client and wakes this monitor; no created ownership is lost.

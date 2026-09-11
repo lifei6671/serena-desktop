@@ -1,7 +1,8 @@
 //! All business mutations use BEGIN IMMEDIATE and the same transition core.
 use super::*;
+use crate::agent::activity::{ActivityPhase, ToolCategory};
 use crate::agent::execution::state::*;
-use serde_json::json;
+use serde_json::{Value, json};
 pub mod product;
 
 // One live Host owns dispatch. Covers separate StateStore connections as well as
@@ -124,6 +125,74 @@ impl StateStore {
             transition_execution(tx, &id, row.revision, Mutation::Event(event), now)
         })
         .await
+    }
+
+    /// Latest safe Root Turn activity hint. It never changes lifecycle authority.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn execution_activity(
+        &self,
+        id: String,
+        thread_id: String,
+        turn_id: String,
+        phase: ActivityPhase,
+        tool_category: Option<ToolCategory>,
+        observed_at: i64,
+    ) -> Result<(), String> {
+        if (phase == ActivityPhase::Provider) != tool_category.is_none() {
+            return Err("INVALID_EXECUTION_ACTIVITY".into());
+        }
+        #[cfg(test)]
+        if self.take_observability_failure(ObservabilityFault::Activity) {
+            return Err("INJECTED_ACTIVITY_PERSISTENCE_FAILURE".into());
+        }
+        self.write(move |tx| {
+            let row = execution_record(tx, &id)
+                .map_err(|error| error.to_string())?
+                .ok_or("EXECUTION_NOT_FOUND")?;
+            if matches!(
+                row.status.as_str(),
+                "completed" | "failed" | "cancelled" | "interrupted"
+            ) {
+                return Ok(());
+            }
+            owns_claim(tx, &id)?;
+            if row.thread_id.as_deref() != Some(thread_id.as_str())
+                || row.turn_id.as_deref() != Some(turn_id.as_str())
+            {
+                return Err("EXECUTION_PROTOCOL_IDENTITY_MISMATCH".into());
+            }
+            let changed = tx
+                .execute(
+                    "UPDATE executions SET last_activity_at=?2,activity_phase=?3,tool_category=?4,revision=revision+1,updated_at=MAX(updated_at,?2) WHERE id=?1 AND revision=?5",
+                    params![id, observed_at, phase.as_str(), tool_category.map(ToolCategory::as_str), row.revision],
+                )
+                .map_err(|error| error.to_string())?;
+            if changed != 1 {
+                return Err("EXECUTION_REVISION_CONFLICT".into());
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// Diagnostic only: never creates Provider terminal or release evidence.
+    pub(crate) async fn execution_diagnostic(&self, id: String, code: String, message: String, now: i64) -> Result<(), String> {
+        #[cfg(test)]
+        if code == "CODEX_PERMISSION_DENIED"
+            && self.take_observability_failure(ObservabilityFault::PermissionDiagnostic)
+        {
+            return Err("INJECTED_PERMISSION_DIAGNOSTIC_FAILURE".into());
+        }
+        self.write(move |tx| {
+            let row = load(tx, &id)?;
+            if row.status.terminal() { return Ok(()); }
+            owns_claim(tx, &id)?;
+            tx.execute("UPDATE executions SET error_code=?2,error_message=?3,revision=revision+1,updated_at=?4 WHERE id=?1
+                AND (?2 != 'CODEX_PROVIDER_FAILURE' OR error_code IS NULL OR error_code != 'CODEX_TURN_ERROR')
+                AND (?2 != 'CODEX_PERMISSION_DENIED' OR error_code IS NULL OR error_code NOT IN ('CODEX_TURN_ERROR','CODEX_PROVIDER_FAILURE'))",
+                params![id, code, message, now]).map_err(|e| e.to_string())?;
+            Ok(())
+        }).await
     }
 
     /// Fill identity from verified Provider responses without changing lifecycle or Runtime.
@@ -517,6 +586,13 @@ fn transition_execution(
             ));
             let completeness =
                 serde_json::to_value(finalization.completeness).map_err(|e| e.to_string())?;
+            if let Some(result) = &finalization.result
+                && let Some(name) = result.get("threadName")
+            {
+                let thread_id = result.get("threadId").and_then(Value::as_str).ok_or("RESULT_THREAD_REQUIRED")?;
+                let name: Option<String> = serde_json::from_value(name.clone()).map_err(|e| e.to_string())?;
+                tx.execute("INSERT INTO thread_names(thread_id,name) VALUES (?1,?2) ON CONFLICT(thread_id) DO UPDATE SET name=excluded.name", params![thread_id,name]).map_err(|e|e.to_string())?;
+            }
             tx.execute(
                 "UPDATE executions SET final_result_json=?2,result_completeness=?3 WHERE id=?1",
                 params![

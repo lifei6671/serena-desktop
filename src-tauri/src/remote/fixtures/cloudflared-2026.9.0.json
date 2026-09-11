@@ -1,0 +1,136 @@
+{
+  "source": "https://api.github.com/repos/cloudflare/cloudflared/releases/tags/2026.9.0",
+  "tag_name": "2026.9.0",
+  "assets": [
+    {
+      "name": "cloudflared-amd64.pkg",
+      "digest": "sha256:57f6a86a7f77b75722227729f6d6ce41e5ab1bc82415bd4d39a734c7d9e0c4ce",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-amd64.pkg"
+    },
+    {
+      "name": "cloudflared-arm64.pkg",
+      "digest": "sha256:3372ef71d54c93217efeeec486e53c44b8746032ff0a85088556ed51c80e1a6d",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-arm64.pkg"
+    },
+    {
+      "name": "cloudflared-darwin-amd64.tgz",
+      "digest": "sha256:8f2ecf41776d942bcc8070a56e7bafa4c5de70a1d1781110e2eb3774cca512a8",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-darwin-amd64.tgz"
+    },
+    {
+      "name": "cloudflared-darwin-arm64.tgz",
+      "digest": "sha256:c0eccb3758420d1f4e46cbf2b8ecde01d9802a154232a817f25133340009fcc7",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-darwin-arm64.tgz"
+    },
+    {
+      "name": "cloudflared-fips-linux-amd64",
+      "digest": "sha256:2accaa85e279995f2e1e0179e5258c99dcafbafbbeb559f05eb031daa4c57f08",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-fips-linux-amd64"
+    },
+    {
+      "name": "cloudflared-fips-linux-amd64.deb",
+      "digest": "sha256:543e1513f60ec7a2c47970b0769cf354da5430dc046138fa6f05938d9533b2bc",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-fips-linux-amd64.deb"
+    },
+    {
+      "name": "cloudflared-fips-linux-x86_64.rpm",
+      "digest": "sha256:b45120bdc6e43b3eadf8043836252763afa3d9fd1c0b2c0d345de1911ff053ff",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-fips-linux-x86_64.rpm"
+    },
+    {
+      "name": "cloudflared-linux-386",
+      "digest": "sha256:d18731b05ae5c457ae5bdab76f0d517918403789ac7df754e37565d8375c6f24",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-386"
+    },
+    {
+      "name": "cloudflared-linux-386.deb",
+      "digest": "sha256:97e56b9818b2b94556507dd06949033d6d59e5de37d2ced6c56ef230186e7f5d",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-386.deb"
+    },
+    {
+      "name": "cloudflared-linux-386.rpm",
+      "digest": "sha256:89f5d28faa57b710e1d3280198790be2a62167b9d29a89789e7ac13619755762",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-386.rpm"
+    },
+    {
+      "name": "cloudflared-linux-aarch64.rpm",
+      "digest": "sha256:842ee766fb9b6d97ab8be35131738db72eb6a13f78de775d29f802a67672e6bd",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-aarch64.rpm"
+    },
+    {
+      "name": "cloudflared-linux-amd64",
+      "digest": "sha256:53b7a7a5420d188758d24341294acb0d1bca54296548ac05e38811a694ac6134",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-amd64"
+    },
+    {
+      "name": "cloudflared-linux-amd64.deb",
+      "digest": "sha256:1ea48af7a774376b71e329c6fdc0b7853298df270356132a294f8d8d5eb0e543",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-amd64.deb"
+    },
+    {
+      "name": "cloudflared-linux-arm",
+      "digest": "sha256:0077f9b0ce9d9bd95e67c22aff33d132c83513c0e80b0bc686f00fe418bb336b",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-arm"
+    },
+    {
+      "name": "cloudflared-linux-arm.deb",
+      "digest": "sha256:68af658a4d6a812c613c804f5a4e93287797f84597e1657f7a491ef3b3837284",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-arm.deb"
+    },
+    {
+      "name": "cloudflared-linux-arm.rpm",
+      "digest": "sha256:c21f54f6966ab1148d3e15af2a8e15a380ab1c0cb7d0feab84b27e19a7ef230c",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-arm.rpm"
+    },
+    {
+      "name": "cloudflared-linux-arm64",
+      "digest": "sha256:98aca3173f73248fad6180fc75dade2d186a6e54fa807e088108cb4345de8efe",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-arm64"
+    },
+    {
+      "name": "cloudflared-linux-arm64.deb",
+      "digest": "sha256:2355fac318375a79d4f62690251e92a52d56f2737e30f053bb3419000fc32593",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-arm64.deb"
+    },
+    {
+      "name": "cloudflared-linux-armhf",
+      "digest": "sha256:738271eeb53f010c30c559071fa7b312262bbcad2f358232fb4b710075d80d47",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-armhf"
+    },
+    {
+      "name": "cloudflared-linux-armhf.deb",
+      "digest": "sha256:444a5b5e8db1bb0b5b58d2889b05d9a6c2e04656139fc24e3a39355eb57c94bf",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-armhf.deb"
+    },
+    {
+      "name": "cloudflared-linux-armhf.rpm",
+      "digest": "sha256:059ff745b6483b25b8fb7ff7d7d66eda822fa5c4b40f2d6c7318693422e819b1",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-armhf.rpm"
+    },
+    {
+      "name": "cloudflared-linux-x86_64.rpm",
+      "digest": "sha256:8f2ba4ee8655edf99adece12c1b93776bbdb29b8ef7a3e8bdb5193699c93eb22",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-linux-x86_64.rpm"
+    },
+    {
+      "name": "cloudflared-windows-386.exe",
+      "digest": "sha256:e11ee417d5bab1918c3e257c2b1f9541d6febd545091ecf87e249c3cfb7880b0",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-windows-386.exe"
+    },
+    {
+      "name": "cloudflared-windows-386.msi",
+      "digest": "sha256:af64b20c2c71419a3641f24c1e2b7f6d039da7dfb24b8986b6d599ab870ab94a",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-windows-386.msi"
+    },
+    {
+      "name": "cloudflared-windows-amd64.exe",
+      "digest": "sha256:547057326266f0e1c7d50d102dbd22ff283d740c055bd61e94f10e2c606f89af",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-windows-amd64.exe"
+    },
+    {
+      "name": "cloudflared-windows-amd64.msi",
+      "digest": "sha256:7ee5b66c158c40f8f6cb62b01b7e48ee8cf5907e35b1a1fad3534d41b6d29488",
+      "browser_download_url": "https://github.com/cloudflare/cloudflared/releases/download/2026.9.0/cloudflared-windows-amd64.msi"
+    }
+  ]
+}

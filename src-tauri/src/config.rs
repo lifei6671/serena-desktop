@@ -51,6 +51,7 @@ impl AppPaths {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ManagerConfig {
+    pub remote_access: crate::remote::RemoteAccessConfig,
     pub agent_enabled: bool,
     pub broker: BrokerConfig,
     pub workspaces: Vec<Workspace>,
@@ -66,6 +67,7 @@ impl Default for ManagerConfig {
     fn default() -> Self {
         Self {
             broker: BrokerConfig::default(),
+            remote_access: crate::remote::RemoteAccessConfig::default(),
             agent_enabled: false,
             workspaces: Vec::new(),
             serena_path: None,
@@ -80,6 +82,12 @@ impl Default for ManagerConfig {
 
 impl ManagerConfig {
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(origin) = &self.remote_access.self_hosted.public_origin {
+            crate::remote::validate_https_origin(origin)?;
+        }
+        if let Some(origin) = &self.remote_access.mcp_only.public_origin {
+            crate::remote::validate_https_origin(origin)?;
+        }
         if self.broker.port < 1024 || (self.broker.enabled && self.broker.port == self.port) {
             return Err("Broker 端口必须 >= 1024 且不同于 Serena 端口。".into());
         }

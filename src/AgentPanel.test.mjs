@@ -45,7 +45,7 @@ toast.success = text => notifications.push(['success', text]);
 toast.error = text => notifications.push(['error', text]);
 let root;
 const workspace = name => ({ id: name, name, root: `E:\\${name}` });
-const row = (overrides = {}) => ({ executionId: 'old-E1', agentId: 'old-lineage', workspaceId: 'A', canonicalWorkspaceRoot: 'E:\\frozen-A', prompt: '原始任务 <literal>', status: 'unknown', attention: 'manual_resolution_required', revision: 'R1', resultAvailable: overrides.finalResult !== undefined && overrides.finalResult !== null, progress: { phase: 'reconciling' }, nextAction: { action: 'manual_resolution' }, dispatchState: 'uncertain', threadId: null, turnId: null, providerTerminalStatus: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: null,
+const row = (overrides = {}) => ({ executionId: 'old-E1', agentId: 'old-lineage', workspaceId: 'A', canonicalWorkspaceRoot: 'E:\\frozen-A', prompt: '原始任务 <literal>', status: 'unknown', attention: 'manual_resolution_required', revision: 'R1', resultAvailable: overrides.finalResult !== undefined && overrides.finalResult !== null, progress: { phase: 'reconciling' }, nextAction: { action: 'manual_resolution' }, dispatchState: 'uncertain', threadId: null, threadName: null, turnId: null, providerTerminalStatus: null, errorCode: null, errorMessage: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: null,
   availableActions: { canCancel: false, canContinue: false, canResumePending: false }, ...overrides });
 async function mount(rows, handler, props = {}) {
   const calls = [];
@@ -435,6 +435,37 @@ function navigationHost() {
   const host = document.createElement('aside'); host.id = 'task-nav-test'; document.body.append(host); return host;
 }
 
+test('sidebar uses official thread name consistently and falls back only for unnamed threads', async () => {
+  const host = navigationHost();
+  const project = workspace('A');
+  const name = `0910 | 修复 | 会话标题 ${'长名称'.repeat(40)} <literal>`;
+  const tasks = [row({ executionId: 'named', canonicalWorkspaceRoot: project.root, threadName: name }),
+    ...[null, '', '   '].map((threadName, index) => row({ executionId: `unnamed-${index}`, canonicalWorkspaceRoot: project.root, threadName, prompt: `原始提示 ${index}` }))];
+  await mount(tasks, undefined, { workspaces: [project], sidebarContainer: host });
+  const links = host.querySelectorAll('.project-task-link');
+  assert.equal(links[0].querySelector('span').textContent, name);
+  assert.equal(host.querySelector('.project-task-delete').getAttribute('aria-label'), `删除任务：${name}`);
+  await act(async () => links[0].focus());
+  assert.equal(document.querySelector('.project-task-preview strong').textContent, name);
+  assert.equal(document.querySelector('.project-task-preview literal'), null);
+  for (let i = 1; i < links.length; i++) assert.equal(links[i].querySelector('span').textContent, `原始提示 ${i - 1}`);
+});
+
+test('recent tasks use the same official thread title as the sidebar with a legacy fallback', async () => {
+  const name = '0911 | 修复 | 统一最近任务标题';
+  const prompt = '这是一段不应作为最近任务主标题展示的完整任务描述';
+  await mount([
+    row({ executionId: 'named', threadName: name, prompt }),
+    row({ executionId: 'legacy', threadName: '   ', prompt: '旧任务提示' }),
+  ]);
+  const titles = document.querySelectorAll('.agent-row-title h3');
+  assert.equal(titles[0].textContent, name);
+  assert.equal(titles[1].textContent, '旧任务提示');
+  assert.ok(!document.querySelector('.agent-history').textContent.includes(prompt));
+  await act(async () => titles[0].focus());
+  assert.equal(document.querySelector('[role="tooltip"]').textContent, name);
+});
+
 test('project navigation groups tasks and opens a non-modal right content pane', async () => {
   const host = navigationHost(); let shown = 0;
   const projects = [workspace('A'), workspace('B')];
@@ -453,6 +484,35 @@ test('project navigation groups tasks and opens a non-modal right content pane',
   await act(async () => groups[0].querySelector('.project-task-link').click());
   assert.match(document.querySelector('.agent-detail').textContent,/项目 A 的任务/);
   assert.equal(calls.some(c=>['start','continue','cancel','resume_pending'].includes(c.action)),false);
+});
+
+test('sidebar selection follows page visibility while retaining the open task', async () => {
+  const host = navigationHost(); const project = workspace('A');
+  const props = { workspace: project, workspaces: [project], sidebarContainer: host };
+  await mount([row({ canonicalWorkspaceRoot: project.root })], undefined, props);
+  await act(async () => host.querySelector('.project-task-link').click());
+  assert.equal(host.querySelector('.project-task').dataset.selected, 'true');
+  const render = async active => act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { ...props, active }))));
+  await render(false);
+  assert.equal(host.querySelector('.project-task').dataset.selected, 'false');
+  assert.equal(host.querySelector('[aria-current="page"]'), null);
+  await render(true);
+  assert.equal(host.querySelector('.project-task').dataset.selected, 'true');
+  assert.match(document.querySelector('.agent-detail').textContent, /原始任务/);
+});
+
+test('sidebar dates use local calendar boundaries instead of elapsed 24 hours', async () => {
+  const originalNow = Date.now;
+  Date.now = () => new Date(2026, 0, 1, 0, 5).getTime();
+  try {
+    const host = navigationHost(); const project = workspace('A');
+    await mount([
+      row({ executionId: 'today', canonicalWorkspaceRoot: project.root, updatedAt: new Date(2026, 0, 1, 0, 1).getTime() }),
+      row({ executionId: 'yesterday', canonicalWorkspaceRoot: project.root, updatedAt: new Date(2025, 11, 31, 23, 59).getTime() }),
+      row({ executionId: 'older', canonicalWorkspaceRoot: project.root, updatedAt: new Date(2025, 11, 30, 23, 59).getTime() }),
+    ], undefined, { workspaces: [project], sidebarContainer: host });
+    assert.deepEqual([...host.querySelectorAll('time')].map(item => item.textContent), ['今天', '昨天', '2天前']);
+  } finally { Date.now = originalNow; }
 });
 
 test('task focus shows basic information; only delete is offered and deletion stays local', async () => {

@@ -29,7 +29,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
         let store = open(dir.path());
         let c = store.connection.lock().unwrap();
         for (pragma, expected) in [
-            ("user_version", 1),
+            ("user_version", 3),
             ("foreign_keys", 1),
             ("synchronous", 2),
             ("busy_timeout", 5000),
@@ -106,7 +106,7 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        1
+        3
     );
     assert_eq!(
         c.query_row(
@@ -126,6 +126,73 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
         .unwrap(),
         0
     );
+}
+
+#[test]
+fn v1_migration_preserves_executions_and_adds_nullable_thread_names() {
+    let mut c = Connection::open_in_memory().unwrap();
+    c.execute_batch(SCHEMA_V1).unwrap();
+    c.pragma_update(None, "user_version", 1).unwrap();
+    insert(&mut c, "old", "agent", "root");
+    let before: (String, String, i64) = c
+        .query_row(
+            "SELECT id,prompt,revision FROM executions WHERE id='old'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    migrate(&mut c).unwrap();
+    let after: (String, String, i64) = c
+        .query_row(
+            "SELECT id,prompt,revision FROM executions WHERE id='old'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(after, before);
+    let old = execution_record(&c, "old").unwrap().unwrap();
+    assert_eq!(old.last_activity_at, None);
+    assert_eq!(old.activity_phase, None);
+    assert_eq!(old.tool_category, None);
+    assert_eq!(
+        c.query_row("SELECT count(*) FROM thread_names", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    migrate(&mut c).unwrap();
+    assert_eq!(
+        c.query_row(
+            "SELECT id,prompt,revision FROM executions WHERE id='old'",
+            [],
+            |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            )),
+        )
+        .unwrap(),
+        before
+    );
+}
+
+#[test]
+fn v2_migration_preserves_history_and_adds_nullable_activity() {
+    let mut c = Connection::open_in_memory().unwrap();
+    c.execute_batch(SCHEMA_V1).unwrap();
+    c.execute_batch(SCHEMA_V2).unwrap();
+    c.pragma_update(None, "user_version", 2).unwrap();
+    insert(&mut c, "old", "agent", "root");
+    migrate(&mut c).unwrap();
+    assert_eq!(
+        c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        3
+    );
+    let old = execution_record(&c, "old").unwrap().unwrap();
+    assert_eq!(old.last_activity_at, None);
+    assert_eq!(old.activity_phase, None);
+    assert_eq!(old.tool_category, None);
 }
 
 #[test]
@@ -151,12 +218,12 @@ fn unsupported_or_unversioned_history_is_not_guessed_or_rewritten() {
             .unwrap(),
         0
     );
-    c.pragma_update(None, "user_version", 2).unwrap();
+    c.pragma_update(None, "user_version", 4).unwrap();
     assert!(migrate(&mut c).unwrap_err().contains("unsupported"));
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        2
+        4
     );
 }
 

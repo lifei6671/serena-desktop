@@ -12,6 +12,7 @@ pub struct WorkspaceSnapshot {
 #[derive(Debug)]
 pub struct ProductSnapshot {
     pub execution: ExecutionRecord,
+    pub thread_name: Option<String>,
     pub owns_claim: bool,
     pub runtime_attempt_exists: bool,
     pub claim_free: bool,
@@ -275,12 +276,24 @@ impl StateStore {
             let rows=q.query_map(params![id,agent,workspace,limit],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,Option<i64>>(3)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
             rows.into_iter().map(|(id,created_at,updated_at,completed_at)|{
                 let row=execution_record(&tx,&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+                let thread_name = tx.query_row("SELECT name FROM thread_names WHERE thread_id=?1", [&row.thread_id], |r| r.get::<_, Option<String>>(0)).optional()?.flatten();
                 let owns:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM workspace_claims WHERE execution_id=?1 AND canonical_workspace_root=?2)",params![id,row.canonical_workspace_root],|r|r.get(0))?;
                 let claimed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM workspace_claims WHERE execution_id=?1 OR canonical_workspace_root=?2)",params![id,row.canonical_workspace_root],|r|r.get(0))?;
                 let busy:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM executions WHERE agent_id=?1 AND status NOT IN ('completed','failed','cancelled','interrupted'))",[&row.agent_id],|r|r.get(0))?;
                 let runtime_attempt_exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM runtime_instances WHERE id=?1)",[format!("runtime-{id}")],|r|r.get(0))?;
-                Ok(ProductSnapshot{execution:row,owns_claim:owns,runtime_attempt_exists,claim_free:!claimed,agent_free:!busy,created_at,updated_at,completed_at})
+                Ok(ProductSnapshot{execution:row,thread_name,owns_claim:owns,runtime_attempt_exists,claim_free:!claimed,agent_free:!busy,created_at,updated_at,completed_at})
             }).collect()
+        }).await
+    }
+}
+
+impl StateStore {
+    /// Presentation metadata shared by all executions of the same official Thread.
+    /// Does not modify execution identity, CAS revisions, timestamps, or claims.
+    pub(crate) async fn save_thread_name(&self, thread_id: String, name: Option<String>) -> Result<(), String> {
+        self.read(move |c| {
+            c.execute("INSERT INTO thread_names(thread_id,name) VALUES (?1,?2) ON CONFLICT(thread_id) DO UPDATE SET name=excluded.name", params![thread_id,name])?;
+            Ok(())
         }).await
     }
 }

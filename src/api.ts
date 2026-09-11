@@ -1,7 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, ExecutionView } from "./types";
+import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, ExecutionView, RemoteState, RemoteAccessMode, SecurityDeclaration } from "./types";
 
 export const api = {
+  remoteState: () => invoke<RemoteState>("remote_state"),
+  remoteStart: (mode: RemoteAccessMode, publicOrigin?: string, securityDeclaration?: SecurityDeclaration, riskAccepted = false) => invoke<void>("remote_start", { mode, publicOrigin, securityDeclaration, riskAccepted }),
+  remoteStop: () => invoke<void>("remote_stop"),
+  remoteProbe: () => invoke<void>("remote_probe"),
+  remoteApprove: (id: string, allow: boolean) => invoke<void>("remote_approve", { id, allow }),
   codexVersion: () => invoke<string>("get_codex_version"),
   agent: (request: AgentAction) => invoke<AgentEnvelope>("agent_operation", { request }),
   agentHistory: (before: string | null = null, workspace: string | null = null) => invoke<{ executions: ExecutionView[]; nextCursor: string | null }>("agent_history", { before, workspace }),

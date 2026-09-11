@@ -1,9 +1,9 @@
 use super::*;
 use tokio::io::{AsyncBufReadExt, BufReader, DuplexStream};
-fn run(f: impl std::future::Future<Output = ()>) {
+pub(super) fn run(f: impl std::future::Future<Output = ()>) {
     tokio::runtime::Runtime::new().unwrap().block_on(f)
 }
-fn pair() -> (Client, DuplexStream) {
+pub(super) fn pair() -> (Client, DuplexStream) {
     let (client, server) = tokio::io::duplex(128 * 1024);
     let (read, write) = tokio::io::split(client);
     (
@@ -11,17 +11,17 @@ fn pair() -> (Client, DuplexStream) {
         server,
     )
 }
-async fn recv(s: &mut BufReader<DuplexStream>) -> Value {
+pub(super) async fn recv(s: &mut BufReader<DuplexStream>) -> Value {
     let mut line = String::new();
     s.read_line(&mut line).await.unwrap();
     serde_json::from_str(&line).unwrap()
 }
-async fn reply(s: &mut BufReader<DuplexStream>, request: &Value, result: Value) {
+pub(super) async fn reply(s: &mut BufReader<DuplexStream>, request: &Value, result: Value) {
     s.write_all(&encode(&json!({"id":request["id"],"result":result})).unwrap())
         .await
         .unwrap();
 }
-async fn handshake(s: &mut BufReader<DuplexStream>) {
+pub(super) async fn handshake(s: &mut BufReader<DuplexStream>) {
     let req = recv(s).await;
     assert_eq!(req["method"], "initialize");
     assert_eq!(req["params"]["capabilities"]["experimentalApi"], true);
@@ -244,7 +244,16 @@ fn unknown_duplicate_and_late_responses_are_not_replayed() {
         assert_eq!(error.code, "CODEX_RPC_TIMEOUT");
         assert!(client.shared.pending.lock().unwrap().is_empty());
         assert!(!client.is_ready());
-        assert!(client.turn_start("T1", "E2", "no replay").await.is_err());
+        assert!(client
+            .turn_start(
+                "T1",
+                "E2",
+                "no replay",
+                crate::agent::execution::ExecutionMode::ReadOnly,
+                "C:\\workspace",
+            )
+            .await
+            .is_err());
         fake.await.unwrap();
     });
 }
@@ -252,6 +261,7 @@ fn unknown_duplicate_and_late_responses_are_not_replayed() {
 fn server_request_responses_are_explicit_refusals() {
     run(async {
         let (client, server) = pair();
+        client.bind_observability_scope("T", Some("U")).unwrap();
         let fake = tokio::spawn(async move {
             let mut s = BufReader::new(server);
             handshake(&mut s).await;
@@ -269,12 +279,27 @@ fn server_request_responses_are_explicit_refusals() {
                 "execCommandApproval",
                 "unknown",
             ] {
+                let params = match method {
+                    "item/commandExecution/requestApproval" => json!({
+                        "itemId":"I","startedAtMs":1,"threadId":"T","turnId":"U"
+                    }),
+                    "item/fileChange/requestApproval" => json!({
+                        "itemId":"I","startedAtMs":1,"threadId":"T","turnId":"U"
+                    }),
+                    "item/permissions/requestApproval" => json!({
+                        "cwd":"C:\\workspace","itemId":"I","permissions":[],
+                        "startedAtMs":1,"threadId":"T","turnId":"U"
+                    }),
+                    _ => json!({}),
+                };
                 s.write_all(
-                    &encode(&json!({"id":"server-id","method":method,"params":{}})).unwrap(),
+                    &encode(&json!({"id":"server-id","method":method,"params":params})).unwrap(),
                 )
                 .await
                 .unwrap();
-                let response = recv(&mut s).await;
+                let response = tokio::time::timeout(Duration::from_secs(1), recv(&mut s))
+                    .await
+                    .expect("server request response must remain bounded");
                 assert_eq!(response["id"], "server-id");
                 let expected = match method {
                     "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" => {
@@ -306,6 +331,128 @@ fn server_request_responses_are_explicit_refusals() {
             }
         });
         client.initialize().await.unwrap();
+        for expected in [
+            PermissionRequestKind::Command,
+            PermissionRequestKind::FileChange,
+            PermissionRequestKind::Permissions,
+        ] {
+            let event = tokio::time::timeout(Duration::from_secs(1), client.receive_event())
+                .await
+                .expect("permission diagnostic must not wait for the turn")
+                .unwrap();
+            assert!(matches!(
+                event.notification,
+                Notification::PermissionDenied { thread_id, turn_id, kind }
+                    if thread_id == "T" && turn_id == "U" && kind == expected
+            ));
+        }
+        fake.await.unwrap();
+    });
+}
+
+#[test]
+fn both_turn_start_paths_enable_network_without_broadening_filesystem_access() {
+    run(async {
+        use crate::agent::execution::ExecutionMode;
+
+        const WORKSPACE: &str = "C:\\workspace";
+        for mode in [ExecutionMode::ReadOnly, ExecutionMode::WorkspaceWrite] {
+            let expected = match mode {
+                ExecutionMode::ReadOnly => json!({
+                    "type":"readOnly",
+                    "networkAccess":true
+                }),
+                ExecutionMode::WorkspaceWrite => json!({
+                    "type":"workspaceWrite",
+                    "writableRoots":[WORKSPACE],
+                    "networkAccess":true,
+                    "excludeTmpdirEnvVar":false,
+                    "excludeSlashTmp":false
+                }),
+            };
+            let (client, server) = pair();
+            let expected_wire = expected.clone();
+            let fake = tokio::spawn(async move {
+                let mut io = BufReader::new(server);
+                handshake(&mut io).await;
+                for _ in 0..2 {
+                    let request = recv(&mut io).await;
+                    assert_eq!(request["method"], "turn/start");
+                    assert_eq!(request["params"]["approvalPolicy"], "never");
+                    assert_eq!(request["params"]["sandboxPolicy"], expected_wire);
+                    assert_ne!(
+                        request["params"]["sandboxPolicy"]["type"],
+                        "dangerFullAccess"
+                    );
+                    assert!(request["params"].get("cwd").is_none());
+                    assert!(request["params"].get("permissions").is_none());
+                    reply(
+                        &mut io,
+                        &request,
+                        json!({"turn":{"id":"TURN","status":"inProgress","items":[]}}),
+                    )
+                    .await;
+                }
+            });
+            client.initialize().await.unwrap();
+            client
+                .turn_start("THREAD", "DIRECT", "direct", mode, WORKSPACE)
+                .await
+                .unwrap();
+            let (flushed, observed) = oneshot::channel();
+            let (turn, write) = tokio::join!(
+                client.turn_start_observed(
+                    "THREAD", "OBSERVED", "observed", mode, WORKSPACE, flushed
+                ),
+                observed
+            );
+            turn.unwrap();
+            write.unwrap();
+            fake.await.unwrap();
+        }
+    });
+}
+
+#[test]
+fn sandbox_policy_rejection_is_returned_without_retry_or_downgrade() {
+    run(async {
+        let (client, server) = pair();
+        let fake = tokio::spawn(async move {
+            let mut io = BufReader::new(server);
+            handshake(&mut io).await;
+            let request = recv(&mut io).await;
+            assert_eq!(request["method"], "turn/start");
+            assert_eq!(
+                request["params"]["sandboxPolicy"],
+                json!({"type":"readOnly","networkAccess":true})
+            );
+            io.write_all(
+                &encode(&json!({
+                    "id":request["id"],
+                    "error":{"code":-32602,"message":"sandbox policy rejected"}
+                }))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+            let mut extra = String::new();
+            match tokio::time::timeout(Duration::from_millis(50), io.read_line(&mut extra)).await {
+                Err(_) | Ok(Ok(0)) => {}
+                other => panic!("sandbox rejection triggered a fallback request: {other:?} {extra}"),
+            }
+        });
+        client.initialize().await.unwrap();
+        let error = client
+            .turn_start(
+                "THREAD",
+                "EXECUTION",
+                "request",
+                crate::agent::execution::ExecutionMode::ReadOnly,
+                "C:\\workspace",
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "CODEX_RPC_FAILED");
         fake.await.unwrap();
     });
 }
@@ -476,7 +623,7 @@ fn notification_queue_saturation_and_terminal_shape() {
             started.await.unwrap();
             for _ in 0..=QUEUE_COUNT {
                 let _ = s
-                    .write_all(&encode(&json!({"method":"unknown","params":{}})).unwrap())
+                    .write_all(&encode(&json!({"method":"turn/started","params":{"threadId":"T","turn":{"id":"U","status":"inProgress","items":[]}}})).unwrap())
                     .await;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -836,9 +983,10 @@ pub(super) fn record_stdin<W: tokio::io::AsyncWrite + Unpin + Send + 'static>(
 }
 
 #[cfg(windows)]
-pub(super) fn record_stdout<R: tokio::io::AsyncRead + Unpin + Send + 'static>(
+pub(super) fn record_output<R: tokio::io::AsyncRead + Unpin + Send + 'static>(
     reader: R,
     id: &str,
+    stream: &str,
 ) -> Box<dyn tokio::io::AsyncRead + Unpin + Send> {
     use std::io::Write;
     struct Tee<R> {
@@ -861,7 +1009,7 @@ pub(super) fn record_stdout<R: tokio::io::AsyncRead + Unpin + Send + 'static>(
         }
     }
     if let Some(dir) = std::env::var_os("SERENA_CONTRACT_RAW_DIR") {
-        let path = std::path::PathBuf::from(dir).join(format!("{id}.stdout.raw.jsonl"));
+        let path = std::path::PathBuf::from(dir).join(format!("{id}.{stream}.raw.jsonl"));
         Box::new(Tee {
             inner: reader,
             file: std::fs::OpenOptions::new()
@@ -956,7 +1104,7 @@ fn real_fixed_binary_contract() {
             assert_eq!(r1.client.thread_read(&thread.id).await?.id,thread.id);
 
             log.push("explicit paginated managed Thread; metadata PASS".into());
-            let turn=r1.client.turn_start(&thread.id,"E-protocol-only","Reply exactly CONTRACT_RESULT_OK. Do not use tools or change files.").await?;
+            let turn=r1.client.turn_start(&thread.id,"E-protocol-only","Reply exactly CONTRACT_RESULT_OK. Do not use tools or change files.", crate::agent::execution::ExecutionMode::ReadOnly, temp.path().to_str().unwrap()).await?;
             let terminal=real_terminal(&mut r1.client,&thread.id,&turn.id,&mut log).await?;
             assert_eq!(terminal.status,TurnStatus::Completed);
             persisted_execution(&temp.path().join("store"),"E-protocol-only",Some(&r1id),Some(&thread.id),Some(&turn.id),None,None);
@@ -971,7 +1119,7 @@ fn real_fixed_binary_contract() {
             let page=r1.client.list(&thread.id,None).await?;assert!(page.data.is_empty());assert_eq!(page.next_cursor,NextCursor::Null);
             r1.client.cleanup(CleanupScope::for_execution(&store,"E-protocol-only").await?).await?;
             log.push("clean accepted + independent full list/cleanup empty PASS".into());
-            let interrupt=r1.client.turn_start(&thread.id,"E-interrupt-protocol-only","Write a short greeting. Do not use tools.").await?;
+            let interrupt=r1.client.turn_start(&thread.id,"E-interrupt-protocol-only","Write a short greeting. Do not use tools.", crate::agent::execution::ExecutionMode::ReadOnly, temp.path().to_str().unwrap()).await?;
             let started_deadline=Instant::now()+Duration::from_secs(30);
             loop {
                 let event=timeout_at(started_deadline,r1.client.next_event()).await.map_err(|_|ProtocolError::new("CODEX_RPC_TIMEOUT","Turn did not start"))??;
@@ -1916,6 +2064,287 @@ fn task008_cross_runtime_result_and_release_are_separate_identity_bound_facts() 
                 assert!(store.workspace_claim("E1".into()).await.unwrap().is_some());
             }
             drop(client);fake.await.unwrap();
+        }
+    });
+}
+#[test]
+fn thread_name_contract_accepts_nullable_names_and_validates_notifications() {
+    for name in [json!("官方名称"), Value::Null] {
+        let thread = thread_response(json!({"thread":{"id":"T","name":name,"historyMode":"paginated","turns":[]}})).unwrap();
+        assert_eq!(thread.name.as_deref(), name.as_str());
+    }
+    for params in [json!({"threadId":"T","threadName":"名称"}), json!({"threadId":"T"})] {
+        let expected = params.get("threadName").and_then(Value::as_str).map(str::to_owned);
+        assert!(matches!(notification("thread/name/updated".into(), params).unwrap(), Notification::ThreadNameUpdated { thread_id, name } if thread_id == "T" && name == expected));
+    }
+    assert!(notification("thread/name/updated".into(), json!({"threadName":"名称"})).is_err());
+    assert!(notification("thread/name/updated".into(), json!({"threadId":"T","threadName":42})).is_err());
+}
+
+#[test]
+fn streaming_burst_without_consumer_preserves_terminal_error_and_server_requests() {
+    run(async {
+        let (client, _server) = pair();
+        client.bind_observability_scope("T", Some("U")).unwrap();
+        let (events, mut received) = mpsc::channel(QUEUE_COUNT);
+        let (requests, mut server_received) = mpsc::channel(QUEUE_COUNT);
+        let bytes = Arc::new(Semaphore::new(QUEUE_BYTES));
+        let count = Arc::new(Semaphore::new(QUEUE_COUNT));
+        for n in 0..4096 {
+            let method = ["item/agentMessage/delta", "item/commandExecution/outputDelta", "codex/event/exec_command_output_delta", "item/completed", "future/notification", "future/agent/progress"][n % 6];
+            dispatch(&client.shared, &events, &requests, &bytes, &count,
+                encode(&json!({"method":method,"params":{"delta":"progress","exitCode":1}})).unwrap()).unwrap();
+        }
+        assert_eq!(count.available_permits(), QUEUE_COUNT);
+        assert_eq!(bytes.available_permits(), QUEUE_BYTES);
+        assert!(received.try_recv().is_err(), "unknown traffic must not retain events");
+        for n in 0..4096 {
+            let method = if n % 2 == 0 {
+                "item/started"
+            } else {
+                "item/completed"
+            };
+            dispatch(
+                &client.shared,
+                &events,
+                &requests,
+                &bytes,
+                &count,
+                encode(&json!({
+                    "method":method,
+                    "params":{
+                        "threadId":"T",
+                        "turnId":"U",
+                        "item":{
+                            "type":"commandExecution",
+                            "command":"cargo test",
+                            "commandActions":[]
+                        }
+                    }
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        }
+        let latest_activity = client.shared.activity.borrow().clone().unwrap();
+        assert_eq!(
+            latest_activity.phase,
+            crate::agent::activity::ActivityPhase::Provider
+        );
+        assert_eq!(latest_activity.tool_category, None);
+        let failure = client.failure();
+        assert!(failure.borrow().is_none());
+        assert_eq!(count.available_permits(), QUEUE_COUNT);
+        assert_eq!(bytes.available_permits(), QUEUE_BYTES);
+        assert!(
+            received.try_recv().is_err(),
+            "Activity must not retain critical queue slots"
+        );
+        for frame in [
+            json!({"method":"error","params":{"threadId":"T","turnId":"U","willRetry":true,"error":{"message":"retry","codexErrorInfo":"sandboxError"}}}),
+            json!({
+                "id":"approval",
+                "method":"item/commandExecution/requestApproval",
+                "params":{"itemId":"I","startedAtMs":1,"threadId":"T","turnId":"U"}
+            }),
+            json!({"method":"turn/completed","params":{"threadId":"T","turn":{"id":"U","status":"completed","items":[]}}}),
+        ] {
+            dispatch(&client.shared, &events, &requests, &bytes, &count, encode(&frame).unwrap()).unwrap();
+        }
+        assert!(matches!(received.recv().await.unwrap().notification, Notification::TurnError {will_retry:true,..}));
+        assert!(matches!(received.recv().await.unwrap().notification, Notification::TurnCompleted {..}));
+        let request = server_received.recv().await.unwrap();
+        assert_eq!(server_reply(request.value.0.clone(), &request.value.1, &request.value.2)["result"]["decision"], "cancel");
+        drop(request);
+        assert_eq!(count.available_permits(), QUEUE_COUNT);
+        assert_eq!(bytes.available_permits(), QUEUE_BYTES);
+    });
+}
+
+#[test]
+fn child_activity_cannot_replace_unconsumed_root_activity() {
+    run(async {
+        let (client, _server) = pair();
+        client.bind_observability_scope("ROOT", Some("TURN")).unwrap();
+        let (events, mut received) = mpsc::channel(QUEUE_COUNT);
+        let (requests, _server_received) = mpsc::channel(QUEUE_COUNT);
+        let bytes = Arc::new(Semaphore::new(QUEUE_BYTES));
+        let count = Arc::new(Semaphore::new(QUEUE_COUNT));
+        for (thread_id, command) in [("ROOT", "cargo test"), ("CHILD", "git status")] {
+            dispatch(
+                &client.shared,
+                &events,
+                &requests,
+                &bytes,
+                &count,
+                encode(&json!({
+                    "method":"item/started",
+                    "params":{
+                        "threadId":thread_id,
+                        "turnId":"TURN",
+                        "item":{
+                            "type":"commandExecution",
+                            "command":command,
+                            "commandActions":[]
+                        }
+                    }
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        }
+        let activity = client.shared.activity.borrow().clone().unwrap();
+        assert_eq!(activity.thread_id, "ROOT");
+        assert_eq!(activity.phase, crate::agent::activity::ActivityPhase::Tool);
+        assert_eq!(activity.tool_category, Some(crate::agent::activity::ToolCategory::Test));
+        assert!(received.try_recv().is_err());
+        assert_eq!(count.available_permits(), QUEUE_COUNT);
+        assert_eq!(bytes.available_permits(), QUEUE_BYTES);
+    });
+}
+
+#[test]
+fn unbound_turn_drops_old_activity_and_permission_hint_but_still_refuses_rpc() {
+    run(async {
+        let (client, _server) = pair();
+        client.bind_observability_scope("ROOT", None).unwrap();
+        let (events, mut received) = mpsc::channel(QUEUE_COUNT);
+        let (requests, mut server_received) = mpsc::channel(QUEUE_COUNT);
+        let bytes = Arc::new(Semaphore::new(QUEUE_BYTES));
+        let count = Arc::new(Semaphore::new(QUEUE_COUNT));
+        dispatch(
+            &client.shared,
+            &events,
+            &requests,
+            &bytes,
+            &count,
+            encode(&json!({
+                "method":"item/started",
+                "params":{"threadId":"ROOT","turnId":"TURN-1","item":{
+                    "type":"commandExecution","command":"cargo test","commandActions":[]
+                }}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(client.shared.activity.borrow().is_none());
+        dispatch(
+            &client.shared,
+            &events,
+            &requests,
+            &bytes,
+            &count,
+            encode(&json!({
+                "id":"old-approval",
+                "method":"item/commandExecution/requestApproval",
+                "params":{"itemId":"I","startedAtMs":1,"threadId":"ROOT","turnId":"TURN-1"}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let request = server_received.recv().await.unwrap();
+        assert!(request.value.3.is_none(), "old-Turn diagnostic must be discarded");
+        assert_eq!(
+            server_reply(request.value.0.clone(), &request.value.1, &request.value.2)["result"]
+                ["decision"],
+            "cancel"
+        );
+        drop(request);
+        assert!(received.try_recv().is_err());
+
+        client
+            .bind_observability_scope("ROOT", Some("TURN-2"))
+            .unwrap();
+        dispatch(
+            &client.shared,
+            &events,
+            &requests,
+            &bytes,
+            &count,
+            encode(&json!({
+                "method":"item/started",
+                "params":{"threadId":"ROOT","turnId":"TURN-2","item":{
+                    "type":"commandExecution","command":"cargo test","commandActions":[]
+                }}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let activity = client.shared.activity.borrow().clone().unwrap();
+        assert_eq!(activity.turn_id, "TURN-2");
+        assert_eq!(activity.tool_category, Some(crate::agent::activity::ToolCategory::Test));
+    });
+}
+
+#[test]
+fn permission_diagnostic_delivery_failure_does_not_kill_client() {
+    run(async {
+        let (client, server) = pair();
+        client.bind_observability_scope("T", Some("U")).unwrap();
+        client.drop_next_permission_diagnostic();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let fake = tokio::spawn(async move {
+            let mut server = BufReader::new(server);
+            handshake(&mut server).await;
+            server
+                .write_all(
+                    &encode(&json!({
+                        "id":"approval",
+                        "method":"item/commandExecution/requestApproval",
+                        "params":{"itemId":"I","startedAtMs":1,"threadId":"T","turnId":"U"}
+                    }))
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+            let response = recv(&mut server).await;
+            assert_eq!(response["id"], "approval");
+            assert_eq!(response["result"]["decision"], "cancel");
+            server
+                .write_all(
+                    &encode(&json!({
+                        "method":"turn/started",
+                        "params":{"threadId":"T","turn":{"id":"U","status":"inProgress","items":[]}}
+                    }))
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+            release_rx.await.unwrap();
+        });
+        client.initialize().await.unwrap();
+        let event = tokio::time::timeout(Duration::from_secs(1), client.receive_event())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(event.notification, Notification::TurnStarted { .. }));
+        assert!(client.failure().borrow().is_none());
+        assert!(client.is_ready());
+        release_tx.send(()).unwrap();
+        fake.await.unwrap();
+    });
+}
+
+#[test]
+fn malformed_known_notifications_remain_protocol_failures_for_any_thread() {
+    run(async {
+        for frame in [
+            json!({"method":"turn/completed","params":{"turn":{"id":"U","status":"completed","items":[]}}}),
+            json!({"method":"turn/started","params":{"threadId":42,"turn":{"id":"U","status":"inProgress","items":[]}}}),
+            json!({"method":"error","params":{"threadId":"UNKNOWN","turnId":"U","error":{"message":"invalid"}}}),
+            json!({"method":"error","params":{"threadId":"UNKNOWN","turnId":"U","willRetry":"no","error":{"message":"invalid"}}}),
+        ] {
+            let (client, _server) = pair();
+            let (events, mut received) = mpsc::channel(QUEUE_COUNT);
+            let (requests, _server_received) = mpsc::channel(QUEUE_COUNT);
+            let bytes = Arc::new(Semaphore::new(QUEUE_BYTES));
+            let count = Arc::new(Semaphore::new(QUEUE_COUNT));
+            let error = dispatch(&client.shared, &events, &requests, &bytes, &count,
+                encode(&frame).unwrap()).unwrap_err();
+            assert_eq!(error.code, "CODEX_APP_SERVER_INCOMPATIBLE");
+            assert!(received.try_recv().is_err());
+            assert_eq!(count.available_permits(), QUEUE_COUNT);
+            assert_eq!(bytes.available_permits(), QUEUE_BYTES);
         }
     });
 }

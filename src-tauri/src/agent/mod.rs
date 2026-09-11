@@ -1,4 +1,5 @@
 //! TASK-001 foundation. Business creation, transitions and claim lifecycle follow later.
+pub mod activity;
 pub mod codex;
 pub mod coordinator;
 pub mod execution;

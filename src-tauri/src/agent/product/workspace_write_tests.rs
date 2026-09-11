@@ -106,14 +106,210 @@ fn product_permissions_are_not_caller_selectable() {
     }
 }
 
+#[cfg(windows)]
 #[test]
-#[ignore = "Isolated fixed Codex workspace-write Product Contract; run alone"]
-fn real_fixed_workspace_write_product_contract() {
-    // Outside TEMP: workspace-write may legitimately allow OS temporary roots.
+#[ignore = "Explicit fixed Codex read-only network + filesystem sandbox smoke; run alone"]
+fn real_fixed_read_only_network_sandbox_contract() {
+    // Nest a disposable Git Workspace in the repository so Windows can launch the
+    // restricted process while the sibling sentinel remains outside that Workspace.
+    let profile = std::path::PathBuf::from(std::env::var_os("USERPROFILE").unwrap());
+    let temp = tempfile::Builder::new()
+        .prefix("serena-read-network-contract-")
+        .tempdir_in(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap(),
+        )
+        .unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .arg("init")
+            .arg(&workspace)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    let workspace = workspace.canonicalize().unwrap();
+    let inside = workspace.join("read-only-must-not-write.txt");
+    let outside = temp.path().join("outside-must-not-write.txt");
+    let home = temp.path().join("home");
+    let raw = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../docs/tasks/evidence/TASK-005/codex-0.153.4/network-smoke-2026-09-11")
+        .join(format!("read-only-{}-{}", std::process::id(), now()));
+    std::fs::create_dir(&home).unwrap();
+    std::fs::create_dir_all(&raw).unwrap();
+    println!("Read-only network evidence: {}", raw.display());
+    std::fs::copy(profile.join(".codex/auth.json"), home.join("auth.json")).unwrap();
+    std::fs::write(
+        home.join("config.toml"),
+        "[windows]\nsandbox = 'elevated'\n",
+    )
+    .unwrap();
+    struct Env(Vec<(&'static str, Option<std::ffi::OsString>)>);
+    impl Drop for Env {
+        fn drop(&mut self) {
+            for (key, value) in &self.0 {
+                unsafe {
+                    match value {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
+                }
+            }
+        }
+    }
+    let _env = Env(vec![
+        ("CODEX_HOME", std::env::var_os("CODEX_HOME")),
+        (
+            "SERENA_CONTRACT_RAW_DIR",
+            std::env::var_os("SERENA_CONTRACT_RAW_DIR"),
+        ),
+    ]);
+    unsafe {
+        std::env::set_var("CODEX_HOME", &home);
+        std::env::set_var("SERENA_CONTRACT_RAW_DIR", &raw);
+    }
+    run(async {
+        let store = StateStore::open(temp.path().join("store")).await.unwrap();
+        let manager = AgentTaskManager::new(
+            store,
+            profile.join(r"AppData\Roaming\npm\node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe"),
+        );
+        let prompt = format!(
+            "First run exactly this read-only network command: python -c \"import urllib.request; r=urllib.request.urlopen('https://example.com/', timeout=10); print('NETWORK_STATUS='+str(r.status))\". Then attempt to create ./read-only-must-not-write.txt and '{}' using PowerShell; both writes must remain denied. Do not request approval, bypass the sandbox, or claim success without the real network output. Report the actual HTTP status and write denials.",
+            outside.to_str().unwrap().replace("'", "''")
+        );
+        let request: CreateExecutionInput = serde_json::from_value(json!({
+            "agent_id":"read-network-contract",
+            "request_key":"read-network-contract",
+            "prompt":prompt,
+            "execution_profile":{},
+            "workspace_id":"read-network-workspace",
+            "canonical_workspace_root":workspace,
+            "mode":"read_only"
+        }))
+        .unwrap();
+        let execution = tokio::time::timeout(Duration::from_secs(180), manager.execute(request))
+            .await
+            .expect("read-only network smoke deadline")
+            .unwrap()
+            .execution;
+        assert_eq!(execution.status, "completed");
+        assert_eq!(
+            execution.provider_terminal_status.as_deref(),
+            Some("completed")
+        );
+        assert_eq!(execution.release_evidence_state, "complete");
+        assert!(!inside.exists(), "read-only sandbox wrote inside Workspace");
+        assert!(
+            !outside.exists(),
+            "read-only sandbox wrote outside Workspace"
+        );
+        let runtime = execution.runtime_instance_id.unwrap();
+        let stdin =
+            std::fs::read_to_string(raw.join(format!("{runtime}.stdin.raw.jsonl"))).unwrap();
+        let stdout =
+            std::fs::read_to_string(raw.join(format!("{runtime}.stdout.raw.jsonl"))).unwrap();
+        let requests: Vec<Value> = stdin
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let turn = requests
+            .iter()
+            .find(|request| request["method"] == "turn/start")
+            .unwrap();
+        assert_eq!(turn["params"]["approvalPolicy"], "never");
+        assert_eq!(
+            turn["params"]["sandboxPolicy"],
+            json!({"type":"readOnly","networkAccess":true})
+        );
+        assert!(!stdin.contains("dangerFullAccess"));
+        let messages: Vec<Value> = stdout
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let effective_settings = messages
+            .iter()
+            .find(|message| message["method"] == "thread/settings/updated")
+            .expect("Codex did not confirm effective Turn settings");
+        assert_eq!(
+            effective_settings["params"]["threadSettings"]["sandboxPolicy"],
+            json!({"type":"readOnly","networkAccess":true})
+        );
+        assert_eq!(
+            std::path::Path::new(
+                effective_settings["params"]["threadSettings"]["cwd"]
+                    .as_str()
+                    .unwrap()
+            )
+            .canonicalize()
+            .unwrap(),
+            workspace
+        );
+        assert!(!messages.iter().any(|message| {
+            message["method"] == "item/permissions/requestApproval"
+                || message["method"] == "item/commandExecution/requestApproval"
+                || message["method"] == "item/fileChange/requestApproval"
+        }));
+        let command_outputs: Vec<_> = messages
+            .iter()
+            .filter_map(|message| message.pointer("/params/item"))
+            .filter(|item| item["type"] == "commandExecution")
+            .cloned()
+            .collect();
+        let command_output = command_outputs
+            .iter()
+            .filter_map(|item| item["aggregatedOutput"].as_str())
+            .find(|output| output.contains("NETWORK_STATUS=200"))
+            .unwrap_or_else(|| {
+                panic!(
+                    "sandboxed HTTPS response missing; evidence={}",
+                    raw.display()
+                )
+            });
+        assert!(command_output.contains("200"), "{command_output}");
+        assert!(
+            command_outputs
+                .iter()
+                .filter_map(|item| item["aggregatedOutput"].as_str())
+                .filter(|output| output.contains("denied"))
+                .count()
+                >= 2,
+            "read-only write denials missing; evidence={}",
+            raw.display()
+        );
+        std::fs::write(
+            raw.join("evidence.json"),
+            serde_json::to_vec_pretty(&json!({
+                "turnSandboxPolicy":turn["params"]["sandboxPolicy"],
+                "effectiveTurnSettings":effective_settings["params"]["threadSettings"],
+                "commandOutputs":command_outputs,
+                "insideExists":inside.exists(),
+                "outsideExists":outside.exists()
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    });
+}
+
+#[cfg(windows)]
+#[test]
+#[ignore = "Isolated fixed Codex workspace-write + network Product Contract; run alone"]
+fn real_fixed_workspace_write_network_product_contract() {
+    // Nest a disposable Git Workspace in the repository so Windows can launch the
+    // restricted process while the sibling sentinel remains outside that Workspace.
     let profile = std::path::PathBuf::from(std::env::var_os("USERPROFILE").unwrap());
     let temp = tempfile::Builder::new()
         .prefix("serena-write-contract-")
-        .tempdir_in(&profile)
+        .tempdir_in(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap(),
+        )
         .unwrap();
     let workspace = temp.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
@@ -128,29 +324,15 @@ fn real_fixed_workspace_write_product_contract() {
     );
     let workspace = workspace.canonicalize().unwrap();
     let outside = temp.path().join("outside-sentinel.txt");
-    let script = format!(
-        r#"param([string]$Stage)
-$ErrorActionPreference = 'Stop'
-[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'created.txt'), 'created-' + $Stage)
-[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'existing.txt'), 'modified-' + $Stage)
-$outsideDenied = $false
-$outsideError = ''
-try {{ [IO.File]::WriteAllText('{}', 'must-be-denied') }} catch {{
-    $exception = $_.Exception
-    while ($exception.InnerException) {{ $exception = $exception.InnerException }}
-    $outsideError = $exception.GetType().FullName
-    $outsideDenied = $outsideError -eq 'System.UnauthorizedAccessException'
-}}
-@{{stage=$Stage; commandResult=(6*7); outsideDenied=$outsideDenied; outsideError=$outsideError}} | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $PSScriptRoot ('receipt-' + $Stage + '.json'))
-Write-Output ('WORKSPACE_WRITE_CONTRACT_' + $Stage)
-"#,
-        outside.to_str().unwrap().replace("'", "''")
-    );
-    std::fs::write(workspace.join("workspace-write-contract.ps1"), &script).unwrap();
     std::fs::write(workspace.join("existing.txt"), "original").unwrap();
     let home = temp.path().join("home");
     std::fs::create_dir(&home).unwrap();
     std::fs::copy(profile.join(".codex/auth.json"), home.join("auth.json")).unwrap();
+    std::fs::write(
+        home.join("config.toml"),
+        "[windows]\nsandbox = 'elevated'\n",
+    )
+    .unwrap();
     let evidence = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../docs/tasks/evidence/TASK-009/workspace-write-amendment-2026-09-09")
         .join(format!("real-{}-{}", std::process::id(), now()));
@@ -192,7 +374,8 @@ Write-Output ('WORKSPACE_WRITE_CONTRACT_' + $Stage)
         let mut prior: Option<crate::agent::store::ExecutionRecord> = None;
         for stage in ["start", "continue"] {
             let prompt = format!(
-                "Run exactly this controlled local integration test command in the current workspace using your shell tool: powershell.exe -NoProfile -NonInteractive -File ./workspace-write-contract.ps1 -Stage {stage}. The script creates/modifies only disposable test files and checks the sandbox denies a disposable outside sentinel. Do not edit the script, emulate its output, request elevated permissions, or bypass the sandbox. Then report the actual command output."
+                "Use the shell tool to run these three Python standard-library commands separately and in order. (1) `python -c \"import urllib.request; r=urllib.request.urlopen('https://example.com/', timeout=10); print('NETWORK_STATUS='+str(r.status))\"`. (2) `python -c \"from pathlib import Path; Path('created.txt').write_text('created-{stage}'); Path('existing.txt').write_text('modified-{stage}'); print('WORKSPACE_WRITE_OK')\"`. (3) `python -c \"from pathlib import Path; Path(r'{}').write_text('must-be-denied')\"`. The first command must make the real HTTPS request from inside the Codex sandbox, and the third command must remain denied. Do not request approval, bypass the sandbox, emulate output, or use another command. Report the actual outputs.",
+                outside.to_str().unwrap().replace("'", "''")
             );
             let request = match &prior {
                 None => {
@@ -219,7 +402,25 @@ Write-Output ('WORKSPACE_WRITE_CONTRACT_' + $Stage)
             .unwrap();
             assert_eq!(response["ok"], true, "{response}");
             let id = response["data"]["executionId"].as_str().unwrap();
-            let view = final_row(&service, id).await;
+            let turn_deadline = tokio::time::Instant::now() + Duration::from_secs(240);
+            let view = loop {
+                let view = service.observe(id.into(), true).await.unwrap();
+                if matches!(
+                    view.status.as_str(),
+                    "completed" | "failed" | "cancelled" | "interrupted"
+                ) {
+                    break view;
+                }
+                assert!(
+                    !matches!(view.status.as_str(), "unknown" | "reconciling"),
+                    "unexpected failure: {view:?}"
+                );
+                assert!(
+                    tokio::time::Instant::now() < turn_deadline,
+                    "network contract deadline: {view:?}"
+                );
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            };
             let row = store.execution(id.into()).await.unwrap().unwrap();
             let runtime_id = row.runtime_instance_id.clone().unwrap();
             let deadline = tokio::time::Instant::now() + Duration::from_secs(25);
@@ -244,10 +445,47 @@ Write-Output ('WORKSPACE_WRITE_CONTRACT_' + $Stage)
                 .lines()
                 .map(|l| serde_json::from_str(l).unwrap())
                 .collect();
+            let turn_request = requests
+                .iter()
+                .find(|request| request["method"] == "turn/start")
+                .unwrap();
+            assert_eq!(turn_request["params"]["approvalPolicy"], "never");
+            assert_eq!(
+                turn_request["params"]["sandboxPolicy"],
+                json!({
+                    "type":"workspaceWrite",
+                    "writableRoots":[row.canonical_workspace_root.clone()],
+                    "networkAccess":true,
+                    "excludeTmpdirEnvVar":false,
+                    "excludeSlashTmp":false
+                })
+            );
             let messages: Vec<Value> = stdout
                 .lines()
                 .map(|l| serde_json::from_str(l).unwrap())
                 .collect();
+            let effective_settings = messages
+                .iter()
+                .find(|message| message["method"] == "thread/settings/updated")
+                .expect("Codex did not confirm effective Turn settings");
+            let effective_policy = &effective_settings["params"]["threadSettings"]["sandboxPolicy"];
+            assert_eq!(effective_policy["type"], "workspaceWrite");
+            assert_eq!(effective_policy["networkAccess"], true);
+            assert_eq!(effective_policy["excludeTmpdirEnvVar"], false);
+            assert_eq!(effective_policy["excludeSlashTmp"], false);
+            // Codex reports only additional roots here and normalizes away the
+            // explicit root because it equals the inherited Thread cwd.
+            assert_eq!(effective_policy["writableRoots"], json!([]));
+            assert_eq!(
+                std::path::Path::new(
+                    effective_settings["params"]["threadSettings"]["cwd"]
+                        .as_str()
+                        .unwrap()
+                )
+                .canonicalize()
+                .unwrap(),
+                workspace
+            );
             let method = if prior.is_none() {
                 "thread/start"
             } else {
@@ -258,16 +496,32 @@ Write-Output ('WORKSPACE_WRITE_CONTRACT_' + $Stage)
                 .iter()
                 .find(|r| r.get("id") == request.get("id") && r.get("result").is_some())
                 .unwrap()["result"];
-            let receipt_path = workspace.join(format!("receipt-{stage}.json"));
-            let receipt = std::fs::read_to_string(&receipt_path)
-                .ok()
-                .and_then(|s| serde_json::from_str::<Value>(s.trim_start_matches('\u{feff}')).ok());
             let outside_exists = outside.exists();
-            std::fs::write(evidence.join(format!("{stage}-evidence.json")), serde_json::to_vec_pretty(&json!({"view":view,"mode":row.mode,"sandbox":actual["sandbox"],"cwd":actual["cwd"],"runtimeState":runtime.state,"terminationEvidence":runtime.termination_evidence_state,"resultCompleteness":row.result_completeness,"cleanup":row.background_cleanup_state,"release":row.release_evidence_state,"commandReceipt":receipt,"outsideExists":outside_exists})).unwrap()).unwrap();
-            assert_eq!(
-                actual["sandbox"]["type"], "workspaceWrite",
-                "Material Contract Difference: actual sandbox"
+            let command_outputs: Vec<_> = messages
+                .iter()
+                .filter_map(|message| message.pointer("/params/item"))
+                .filter(|item| item["type"] == "commandExecution")
+                .cloned()
+                .collect();
+            assert!(
+                command_outputs.iter().any(|item| item["aggregatedOutput"]
+                    .as_str()
+                    .is_some_and(|output| output.contains("NETWORK_STATUS=200"))),
+                "sandboxed HTTPS response missing; evidence={}",
+                evidence.display()
             );
+            assert!(command_outputs.iter().any(|item| {
+                item["status"] == "failed"
+                    && item["aggregatedOutput"]
+                        .as_str()
+                        .is_some_and(|output| output.contains("PermissionError"))
+            }));
+            assert!(!messages.iter().any(|message| {
+                message["method"] == "item/permissions/requestApproval"
+                    || message["method"] == "item/commandExecution/requestApproval"
+                    || message["method"] == "item/fileChange/requestApproval"
+            }));
+            std::fs::write(evidence.join(format!("{stage}-evidence.json")), serde_json::to_vec_pretty(&json!({"view":view,"mode":row.mode,"threadStartOrResumeSandbox":actual["sandbox"],"turnSandboxPolicy":turn_request["params"]["sandboxPolicy"],"effectiveTurnSettings":effective_settings["params"]["threadSettings"],"cwd":actual["cwd"],"runtimeState":runtime.state,"terminationEvidence":runtime.termination_evidence_state,"resultCompleteness":row.result_completeness,"cleanup":row.background_cleanup_state,"release":row.release_evidence_state,"commandOutputs":command_outputs,"outsideExists":outside_exists})).unwrap()).unwrap();
             assert_eq!(
                 std::path::Path::new(actual["cwd"].as_str().unwrap())
                     .canonicalize()
@@ -296,22 +550,12 @@ Write-Output ('WORKSPACE_WRITE_CONTRACT_' + $Stage)
                 .unwrap();
             assert_eq!(release, ("completed".into(), "complete".into()));
             assert_eq!(
-                std::fs::read_to_string(workspace.join("workspace-write-contract.ps1")).unwrap(),
-                script
-            );
-            assert_eq!(
                 std::fs::read_to_string(workspace.join("created.txt")).unwrap(),
                 format!("created-{stage}")
             );
             assert_eq!(
                 std::fs::read_to_string(workspace.join("existing.txt")).unwrap(),
                 format!("modified-{stage}")
-            );
-            let receipt = receipt.expect("Controlled command did not produce its receipt");
-            assert_eq!(receipt["commandResult"], 42);
-            assert_eq!(
-                receipt["outsideDenied"], true,
-                "Material Contract Difference: {receipt}"
             );
             assert!(
                 !outside_exists,
@@ -333,5 +577,179 @@ Write-Output ('WORKSPACE_WRITE_CONTRACT_' + $Stage)
             }
             prior = Some(row);
         }
+    });
+}
+
+#[cfg(windows)]
+#[test]
+#[ignore = "Explicit fixed Codex Agent Activity Product smoke; run alone"]
+fn real_fixed_agent_activity_product_smoke() {
+    let profile = std::path::PathBuf::from(std::env::var_os("USERPROFILE").unwrap());
+    let temp = tempfile::Builder::new()
+        .prefix("serena-activity-contract-")
+        .tempdir_in(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap(),
+        )
+        .unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .arg("init")
+            .arg(&workspace)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    std::fs::create_dir(workspace.join("src")).unwrap();
+    std::fs::write(
+        workspace.join("Cargo.toml"),
+        "[package]\nname = \"activity-smoke\"\nversion = \"0.1.0\"\nedition = \"2024\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        workspace.join("src/lib.rs"),
+        "#[cfg(test)]\nmod tests {\n    #[test]\n    fn slow_activity_probe() {\n        std::thread::sleep(std::time::Duration::from_secs(3));\n        assert_eq!(2 + 2, 4);\n    }\n}\n",
+    )
+    .unwrap();
+    let workspace = workspace.canonicalize().unwrap();
+    let home = temp.path().join("home");
+    std::fs::create_dir(&home).unwrap();
+    std::fs::copy(profile.join(".codex/auth.json"), home.join("auth.json")).unwrap();
+    std::fs::write(
+        home.join("config.toml"),
+        "[windows]\nsandbox = 'elevated'\n",
+    )
+    .unwrap();
+    let evidence = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join(format!(
+            "agent-progress-smoke-{}-{}",
+            std::process::id(),
+            now()
+        ));
+    std::fs::create_dir_all(&evidence).unwrap();
+    struct Env(Vec<(&'static str, Option<std::ffi::OsString>)>);
+    impl Drop for Env {
+        fn drop(&mut self) {
+            for (key, value) in &self.0 {
+                unsafe {
+                    match value {
+                        Some(value) => std::env::set_var(key, value),
+                        None => std::env::remove_var(key),
+                    }
+                }
+            }
+        }
+    }
+    let _env = Env(vec![
+        ("CODEX_HOME", std::env::var_os("CODEX_HOME")),
+        (
+            "SERENA_CONTRACT_RAW_DIR",
+            std::env::var_os("SERENA_CONTRACT_RAW_DIR"),
+        ),
+    ]);
+    unsafe {
+        std::env::set_var("CODEX_HOME", &home);
+        std::env::set_var("SERENA_CONTRACT_RAW_DIR", &evidence);
+    }
+    println!("Agent Activity evidence: {}", evidence.display());
+    run(async {
+        let store = StateStore::open(temp.path().join("store")).await.unwrap();
+        let (service, recovery) = AgentProductService::initialize(store.clone())
+            .await
+            .unwrap();
+        assert!(recovery.is_empty());
+        let prompt = "Use the shell tool for exactly two separate commands, in order. First run `python -c \"import time; print('COMMAND_STARTED'); time.sleep(3); print('COMMAND_DONE')\"`. After it completes, run `cargo test --offline`. Do not edit any file. Report both real command results.";
+        let receipt = service
+            .checked_operation(
+                json!({
+                    "action":"start",
+                    "agentId":"activity-contract",
+                    "requestKey":"activity-contract",
+                    "prompt":prompt
+                }),
+                w(&workspace, "activity-workspace"),
+            )
+            .await;
+        assert_eq!(receipt["ok"], true, "{receipt}");
+        let execution_id = receipt["data"]["executionId"].as_str().unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
+        let mut observed_command = false;
+        let mut observed_test = false;
+        let terminal = loop {
+            let view = service.observe(execution_id.into(), false).await.unwrap();
+            if view
+                .progress
+                .activity_phase
+                .as_ref()
+                .is_some_and(|phase| phase == &crate::agent::activity::ActivityPhase::Tool)
+            {
+                observed_command |= view
+                    .progress
+                    .tool_category
+                    .as_ref()
+                    .is_some_and(|category| {
+                        category == &crate::agent::activity::ToolCategory::Command
+                    });
+                observed_test |= view
+                    .progress
+                    .tool_category
+                    .as_ref()
+                    .is_some_and(|category| {
+                        category == &crate::agent::activity::ToolCategory::Test
+                    });
+            }
+            if matches!(
+                view.status.as_str(),
+                "completed" | "failed" | "cancelled" | "interrupted"
+            ) {
+                break view;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "Agent Activity smoke deadline: {view:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        };
+        assert_eq!(terminal.status, "completed", "{terminal:?}");
+        assert_eq!(terminal.progress.phase, ProgressPhase::Terminal);
+        assert!(
+            observed_command,
+            "ordinary command Activity was not observed"
+        );
+        assert!(observed_test, "test Activity was not observed");
+        let row = store.execution(execution_id.into()).await.unwrap().unwrap();
+        let runtime_id = row.runtime_instance_id.unwrap();
+        let stdin = std::fs::read_to_string(evidence.join(format!("{runtime_id}.stdin.raw.jsonl")))
+            .unwrap();
+        let requests: Vec<Value> = stdin
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let turn = requests
+            .iter()
+            .find(|request| request["method"] == "turn/start")
+            .unwrap();
+        assert_eq!(turn["params"]["approvalPolicy"], "never");
+        assert_eq!(turn["params"]["sandboxPolicy"]["type"], "workspaceWrite");
+        assert_eq!(turn["params"]["sandboxPolicy"]["networkAccess"], true);
+        assert!(!stdin.contains("dangerFullAccess"));
+        std::fs::write(
+            evidence.join("evidence.json"),
+            serde_json::to_vec_pretty(&json!({
+                "executionId":execution_id,
+                "terminal":terminal,
+                "observedCommand":observed_command,
+                "observedTest":observed_test,
+                "turnApprovalPolicy":turn["params"]["approvalPolicy"],
+                "turnSandboxPolicy":turn["params"]["sandboxPolicy"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
     });
 }

@@ -54,16 +54,57 @@ impl CodexProvider {
                         .message
                         .push_str(&format!("; reconciliation persistence: {state}"));
                 }
+                // connect has already converged its owner, or returns that owner
+                // in RuntimeFailure. An unbound attempt cannot be replayed.
+                let marked = async {
+                    if self.row(id).await?.status != "dispatch_pending" {
+                        crate::agent::task_manager::recovery::mark_unknown(&self.store, id).await?;
+                    }
+                    Ok::<(), String>(())
+                }.await;
+                if let Err(state) = marked {
+                    error.message.push_str(&format!("; mark unknown: {state}"));
+                }
                 return Err(ExecutionFailure::Runtime(error));
             }
         };
+        self.run_managed(id, managed, acceptance).await
+    }
+    async fn run_managed(
+        &self, id: &str, managed: managed::ManagedClient,
+        acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<ExecutionRecord, ExecutionFailure> {
         let result = self
             .run_client_with_acceptance(id, &managed.client, acceptance)
             .await;
-        managed
-            .shutdown()
-            .await
-            .map_err(ExecutionFailure::Runtime)?;
+        let termination = managed.shutdown().await;
+        self.finish_after_shutdown(id, result, termination).await
+    }
+    /// Only called after the ManagedClient monitor has returned ownership/evidence.
+    async fn finish_after_shutdown(
+        &self,
+        id: &str,
+        result: Result<ExecutionRecord, String>,
+        termination: Result<(), super::runtime::RuntimeFailure>,
+    ) -> Result<ExecutionRecord, ExecutionFailure> {
+        use crate::agent::task_manager::recovery::{mark_unknown, reconcile_execution_after_runtime_end, RecoveryOutcome};
+        if let Err(mut failure) = termination {
+            if let Err(error) = mark_unknown(&self.store, id).await {
+                failure.message.push_str(&format!("; mark unknown: {error}"));
+            }
+            return Err(ExecutionFailure::Runtime(failure));
+        }
+        let row = self.row(id).await?;
+        if result.is_err() && !matches!(row.status.as_str(), "completed" | "failed" | "cancelled" | "interrupted") {
+            match reconcile_execution_after_runtime_end(&self.store, &self.executable, &self.owner, None, id).await {
+                Ok(RecoveryOutcome::RuntimeFailure { failure, .. }) => return Err(ExecutionFailure::Runtime(failure)),
+                Ok(_) => {},
+                Err(error) => {
+                    mark_unknown(&self.store, id).await?;
+                    return Err(ExecutionFailure::State(format!("{}; reconciliation: {error}", result.unwrap_err())));
+                }
+            }
+        }
         result.map_err(ExecutionFailure::State)
     }
     async fn row(&self, id: &str) -> Result<ExecutionRecord, String> {
@@ -107,7 +148,7 @@ impl CodexProvider {
             .await?;
         }
         let row = self.row(id).await?;
-        if row.status != "reconciling" && row.provider_terminal_status.is_none() {
+        if !matches!(row.status.as_str(), "reconciling" | "unknown") && row.provider_terminal_status.is_none() {
             self.event(id, Transition::Reconcile).await?;
         }
         Ok(())
@@ -132,7 +173,11 @@ impl CodexProvider {
                 )
                 .await;
             if outcome.as_ref().err().map(String::as_str) != Some("EXECUTION_REVISION_CONFLICT") {
-                return outcome;
+                outcome?;
+                client
+                    .bind_observability_scope(thread, turn.as_deref())
+                    .map_err(|error| error.to_string())?;
+                return Ok(());
             }
         }
     }
@@ -150,7 +195,8 @@ impl CodexProvider {
         acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<ExecutionRecord, String> {
         let outcome = self.run_active_client(id, client, acceptance).await;
-        if outcome.is_err() {
+        if let Err(error) = &outcome {
+            self.store.execution_diagnostic(id.into(), "CODEX_PROVIDER_FAILURE".into(), error.clone(), now()).await?;
             self.failed(id).await?;
         }
         outcome
@@ -181,6 +227,9 @@ impl CodexProvider {
             }
             return Err(error);
         }
+        client.enable_root_title(self.store.clone(), id).map_err(|e| e.to_string())?;
+        let mode =
+            serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?;
         let thread = if let Some(thread_id) = &row.thread_id {
             let thread = client
                 .thread_resume(thread_id)
@@ -194,21 +243,25 @@ impl CodexProvider {
             thread
         } else {
             client
-                .thread_start(
-                    &row.canonical_workspace_root,
-                    serde_json::from_value(serde_json::json!(row.mode))
-                        .map_err(|e| e.to_string())?,
-                )
+                .thread_start(&row.canonical_workspace_root, mode)
                 .await
                 .map_err(|e| e.to_string())?
         };
         self.bind(id, client, &thread.id, None).await?;
+        self.store.save_thread_name(thread.id.clone(), thread.name.clone()).await?;
         // Product continue is accepted only after exact managed Thread validation.
         if let Some(receipt) = acceptance.take() {
             let _ = receipt.send(Ok(()));
         }
         let (flushed_tx, mut flushed_rx) = tokio::sync::oneshot::channel();
-        let request = client.turn_start_observed(&thread.id, id, &row.prompt, flushed_tx);
+        let request = client.turn_start_observed(
+            &thread.id,
+            id,
+            &row.prompt,
+            mode,
+            &row.canonical_workspace_root,
+            flushed_tx,
+        );
         tokio::pin!(request);
         let (mut flushed, mut acknowledged, mut terminal) = (false, false, false);
         // One owner, one interrupt future. The DB is authoritative; polling also
@@ -218,6 +271,9 @@ impl CodexProvider {
                 Box<dyn std::future::Future<Output = super::protocol::Result<()>> + Send + '_>,
             >,
         > = None;
+        // Only a non-retry error starts this bounded terminal grace period.
+        // Ordinary long-running turns and retry notifications have no deadline.
+        let mut error_deadline = None;
         let mut interrupt_sent = false;
         let mut interrupt_done = false;
         let mut cancel_poll = tokio::time::interval(Duration::from_millis(100));
@@ -272,9 +328,24 @@ impl CodexProvider {
                     acknowledged = true;
                     // Late ACK fills identity only; it cannot undo finalizing.
                 }
+                _ = async { match error_deadline { Some(deadline) => tokio::time::sleep_until(deadline).await, None => std::future::pending().await } }, if !terminal => {
+                    return Err("CODEX_TURN_ERROR_TERMINAL_TIMEOUT: non-retry error without turn/completed".into());
+                }
                 event = client.receive_event() => {
                     let event = event.map_err(|e| e.to_string())?;
                     if event.runtime_id != client.runtime_id() { return Err("PROVIDER_RUNTIME_MISMATCH".into()); }
+                    let event_thread = match &event.notification {
+                        Notification::ThreadStarted(t) => Some(&t.id),
+                        Notification::TurnStarted {thread_id,..} | Notification::TurnCompleted {thread_id,..}
+                        | Notification::TurnError {thread_id,..} | Notification::ThreadNameUpdated {thread_id,..}
+                        | Notification::SubAgentStarted {thread_id,..}
+                        | Notification::PermissionDenied {thread_id,..} => Some(thread_id),
+                        Notification::Activity(activity) => Some(&activity.thread_id),
+                        _ => None,
+                    };
+                    // Only the Root owns lifecycle authority. Validate wire shapes
+                    // before this point, but never bind or persist unowned events.
+                    if event_thread.is_some_and(|id| id != &thread.id) { continue; }
                     let terminal_event = matches!(&event.notification, Notification::TurnCompleted { .. });
                     match event.notification {
                         Notification::TurnStarted { thread_id, turn } | Notification::TurnCompleted { thread_id, turn } => {
@@ -289,7 +360,65 @@ impl CodexProvider {
                                     terminal = true;
                             }
                         }
+                        Notification::TurnError { thread_id, turn_id, error, will_retry } => {
+                            if thread_id != thread.id { return Err("PROVIDER_THREAD_MISMATCH".into()); }
+                            self.bind(id, client, &thread_id, Some(turn_id.clone())).await?;
+                            self.store.execution_diagnostic(id.into(), "CODEX_TURN_ERROR".into(),
+                                serde_json::json!({"runtimeId": client.runtime_id(), "threadId": thread_id,
+                                    "turnId": turn_id, "willRetry": will_retry, "error": error}).to_string(), now()).await?;
+                            if will_retry {
+                                error_deadline = None;
+                            } else if error_deadline.is_none() {
+                                error_deadline = Some(tokio::time::Instant::now() + super::protocol::RPC_TIMEOUT);
+                            }
+                        }
                         Notification::ThreadStarted(t) if t.id != thread.id => return Err("PROVIDER_THREAD_MISMATCH".into()),
+                        Notification::ThreadNameUpdated { thread_id, name } => {
+                            if thread_id != thread.id { return Err("PROVIDER_THREAD_MISMATCH".into()); }
+                            self.store.save_thread_name(thread_id, name).await?;
+                        }
+                        Notification::Activity(activity) => {
+                            let row = match self.row(id).await {
+                                Ok(row) => row,
+                                Err(error) => {
+                                    eprintln!("Codex activity hint dropped: {error}");
+                                    continue;
+                                }
+                            };
+                            if row.thread_id.as_deref() == Some(activity.thread_id.as_str())
+                                && row.turn_id.as_deref() == Some(activity.turn_id.as_str())
+                                && let Err(error) = self.store.execution_activity(
+                                    id.into(),
+                                    activity.thread_id,
+                                    activity.turn_id,
+                                    activity.phase,
+                                    activity.tool_category,
+                                    activity.observed_at,
+                                ).await
+                            {
+                                eprintln!("Codex activity hint dropped: {error}");
+                            }
+                        }
+                        Notification::PermissionDenied { thread_id, turn_id, kind } => {
+                            let row = match self.row(id).await {
+                                Ok(row) => row,
+                                Err(error) => {
+                                    eprintln!("Codex permission hint dropped: {error}");
+                                    continue;
+                                }
+                            };
+                            if row.thread_id.as_deref() == Some(thread_id.as_str())
+                                && row.turn_id.as_deref() == Some(turn_id.as_str())
+                                && let Err(error) = self.store.execution_diagnostic(
+                                    id.into(),
+                                    "CODEX_PERMISSION_DENIED".into(),
+                                    kind.as_str().into(),
+                                    now(),
+                                ).await
+                            {
+                                eprintln!("Codex permission hint dropped: {error}");
+                            }
+                        }
                         _ => {}
                     }
                 }

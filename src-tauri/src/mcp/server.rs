@@ -9,9 +9,31 @@ use rmcp::{
 };
 #[derive(Clone)]
 struct Handler(Arc<Broker>);
+fn origin_allowed(headers: &axum::http::HeaderMap, allowed: &[String]) -> bool {
+    let values: Vec<_> = headers.get_all("origin").iter().collect();
+    if values.is_empty() {
+        return true;
+    }
+    if values.len() != 1 {
+        return false;
+    }
+    let Some(url) = values[0]
+        .to_str()
+        .ok()
+        .and_then(|v| url::Url::parse(v).ok())
+    else {
+        return false;
+    };
+    url.path() == "/"
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && allowed.contains(&url.origin().ascii_serialization())
+}
 impl ServerHandler for Handler {
     fn supported_protocol_versions(&self) -> std::borrow::Cow<'static, [ProtocolVersion]> {
-        // Keep the external Broker on the session-based protocol used by Serena.
+        // Keep the external Broker on the negotiated protocol versions verified here.
         // Cloudflare discovery succeeds through 2025-11-25; its 2026-07-28
         // discovery path currently fails after tools/list.
         std::borrow::Cow::Borrowed(&[
@@ -84,17 +106,10 @@ impl ServerHandler for Handler {
         let request_id = &context.id;
         self.0.log_tool(
             "INFO",
-            &format!(
-                "tools/call request={request_id:?} tool={:?} · 入参={}",
-                request.name,
-                log_tool_arguments(&request.name, &args)
-            ),
+            &format!("tools/call request={request_id:?} tool={:?}", request.name),
         );
         registry::validate(&request.name, &args).map_err(|e| {
-            self.0.log_tool("WARN", &format!(
-                "tools/call request={request_id:?} tool={:?} · 参数校验失败 · error={} · 耗时 {:.3} ms",
-                request.name, log_tool_error(&request.name, &json!(e)), started.elapsed().as_secs_f64() * 1000.0
-            ));
+            self.0.log_tool("WARN", &format!("tools/call request={request_id:?} tool={:?} error_code=INVALID_PARAMS duration_ms={:.3}", request.name, started.elapsed().as_secs_f64() * 1000.0));
             ErrorData::invalid_params(e, None)
         })?;
         let result = if request.name == "media_read_image" {
@@ -117,24 +132,16 @@ impl ServerHandler for Handler {
                     result
                 })
         };
-        let error = match &result {
-            Ok(value) => value
-                .structured_content
-                .as_ref()
-                .and_then(|v| v.get("error"))
-                .cloned(),
-            Err(error) => Some(json!(error)),
-        };
+        let failed = result
+            .as_ref()
+            .map_or(true, |value| value.is_error == Some(true));
         self.0.log_tool(
-            if error.is_some() { "ERROR" } else { "INFO" },
+            if failed { "ERROR" } else { "INFO" },
             &format!(
-                "tools/call request={request_id:?} tool={:?} · {} · 耗时 {:.3} ms{}",
+                "tools/call request={request_id:?} tool={:?} success={} duration_ms={:.3}",
                 request.name,
-                if error.is_some() { "失败" } else { "成功" },
-                started.elapsed().as_secs_f64() * 1000.0,
-                error
-                    .map(|e| format!(" · error={}", log_tool_error(&request.name, &e)))
-                    .unwrap_or_default()
+                !failed,
+                started.elapsed().as_secs_f64() * 1000.0
             ),
         );
         Ok(match result {
@@ -147,6 +154,38 @@ impl ServerHandler for Handler {
     }
 }
 impl Broker {
+    /// Application startup waits for detection/optional auto-start before public probing.
+    pub(crate) async fn startup_after_serena(
+        self: &Arc<Self>,
+        preparation: tauri::async_runtime::JoinHandle<()>,
+    ) -> Result<(), String> {
+        preparation
+            .await
+            .map_err(|e| format!("SERENA_STARTUP_FAILED: {e}"))?;
+        self.startup().await
+    }
+    pub async fn startup(self: &Arc<Self>) -> Result<(), String> {
+        let _management = self.management.lock().await;
+        // Broker::new already installed the persisted policy before any listener.
+        let config = self.config();
+        if config.remote_access.mode == crate::remote::RemoteAccessMode::SelfHostedOAuth {
+            let context = self
+                .remote
+                .inner
+                .lock()
+                .unwrap()
+                .oauth
+                .as_ref()
+                .map(|o| o.context.clone());
+            if let Some(context) = context {
+                return self.remote.start_mode_locked(self, Some(context)).await;
+            }
+        }
+        if config.broker.enabled {
+            self.start().await?;
+        }
+        Ok(())
+    }
     pub async fn start(self: &Arc<Self>) -> Result<(), String> {
         let mut current = self.listener.lock().await;
         if current.as_ref().is_some_and(|l| !l.handle.is_finished()) {
@@ -181,15 +220,50 @@ impl Broker {
         config
             .allowed_hosts
             .extend(lan_ips.iter().map(ToString::to_string));
+        config.legacy_session_mode = false;
+        config.json_response = true;
+        config.allowed_origins = vec![
+            format!("http://127.0.0.1:{}", address.port()),
+            format!("http://localhost:{}", address.port()),
+        ];
         let service = StreamableHttpService::new(
             move || Ok(Handler(broker.clone())),
             Arc::new(LocalSessionManager::default()),
             config,
         );
+        let remote = self.remote.clone();
+        let service = tower::service_fn(move |request: axum::extract::Request| {
+            use tower::ServiceExt;
+            let mut service = service.clone();
+            // Only local configuration / verified context extends this allowlist.
+            if let Some(origin) = remote.public_origin() {
+                let url = url::Url::parse(&origin).expect("validated public context");
+                let authority = &url[url::Position::BeforeHost..url::Position::AfterPort];
+                service.config.allowed_hosts.push(authority.to_owned());
+                service.config.allowed_origins.push(origin);
+            }
+            async move {
+                use axum::response::IntoResponse;
+                // rmcp 3.2.0 treats an omitted allowed Origin port as a wildcard
+                // and reads only the first header. Enforce exact origins first.
+                if !origin_allowed(request.headers(), &service.config.allowed_origins) {
+                    return Ok::<_, std::convert::Infallible>(
+                        (axum::http::StatusCode::FORBIDDEN, "Origin is not allowed")
+                            .into_response(),
+                    );
+                }
+                service
+                    .oneshot(request)
+                    .await
+                    .map(IntoResponse::into_response)
+            }
+        });
         let logging_broker = self.clone();
         let router =
             axum::Router::new()
                 .nest_service("/mcp", service)
+                .route_layer(axum::middleware::from_fn_with_state(self.remote.clone(), crate::oauth::http::protect))
+                .merge(crate::oauth::http::router(self.remote.clone()))
                 .layer(axum::middleware::from_fn(
                     move |axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>, request: axum::extract::Request, next: axum::middleware::Next| {
                         let broker = logging_broker.clone();
@@ -249,6 +323,16 @@ impl Broker {
         Ok(())
     }
     pub async fn stop(&self) -> Result<(), String> {
+        self.remote.stop().await?;
+        self.stop_listener().await;
+        Ok(())
+    }
+    pub async fn shutdown(&self) -> Result<(), String> {
+        self.remote.shutdown().await?;
+        self.stop_listener().await;
+        Ok(())
+    }
+    pub(crate) async fn stop_listener(&self) {
         if let Some(Listener {
             cancel, mut handle, ..
         }) = self.listener.lock().await.take()
@@ -264,87 +348,93 @@ impl Broker {
             self.log("MCP 已停止");
         }
         self.clear_workspace(&mut *self.workspace.write().await);
-        Ok(())
     }
-}
-
-// JSON keeps user-controlled newlines escaped; bound each diagnostic payload.
-fn log_tool_arguments(tool: &str, args: &Value) -> String {
-    if tool != "agent" {
-        return log_value(args);
-    }
-    let mut metadata = serde_json::Map::new();
-    for key in ["action", "agentId", "executionId"] {
-        if let Some(value) = args.get(key).and_then(Value::as_str) {
-            metadata.insert(key.into(), json!(value));
-        }
-    }
-    if matches!(args["action"].as_str(), Some("start" | "continue"))
-        && let Some(prompt) = args.get("prompt").and_then(Value::as_str)
-    {
-        metadata.insert("promptBytes".into(), json!(prompt.len()));
-    }
-    log_value(&Value::Object(metadata))
-}
-
-fn log_tool_error(tool: &str, error: &Value) -> String {
-    if tool != "agent" {
-        return log_value(error);
-    }
-    // Product/parser messages may echo input. Keep only diagnostic identity.
-    log_value(&json!({"code":error.get("code"),"executionId":error.get("executionId")}))
-}
-
-fn log_value(value: &Value) -> String {
-    let text = value.to_string();
-    if text.chars().count() <= 8192 {
-        return text;
-    }
-    format!(
-        "{}… [已截断，最多 8192 字符]",
-        text.chars().take(8192).collect::<String>()
-    )
 }
 
 #[cfg(test)]
-mod log_tests {
+mod quick_tunnel_transport_tests {
     use super::*;
-    #[test]
-    fn agent_logs_only_metadata_even_when_error_echoes_prompt() {
-        let secret = "AGENT_PROMPT_SECRET_中文_83719";
-        for action in ["start", "continue"] {
-            let args = json!({"action":action,"agentId":"a","executionId":"e","requestKey":"private-key","prompt":secret});
-            let logged = log_tool_arguments("agent", &args);
-            assert_eq!(
-                serde_json::from_str::<Value>(&logged).unwrap(),
-                json!({"action":action,"agentId":"a","executionId":"e","promptBytes":secret.len()})
-            );
-            let error = json!({"code":"AGENT_INVALID_ARGUMENT","message":secret,"executionId":"e"});
-            let final_log = format!(
-                "tools/call 入参={logged} error={}",
-                log_tool_error("agent", &error)
-            );
-            assert!(!final_log.contains(secret));
-            assert!(!final_log.contains("private-key"));
-            assert_eq!(
-                log_tool_arguments("source_read_file", &args),
-                log_value(&args)
-            );
-            assert_eq!(log_tool_error("git_status", &error), log_value(&error));
-        }
-    }
-    #[test]
-    fn arguments_remain_readable_and_cannot_forge_log_lines() {
-        let args =
-            json!({"relative_path":"src/main.rs", "query":"你好\nERROR forged", "maxFiles":12});
-        let logged = log_value(&args);
-        assert_eq!(serde_json::from_str::<Value>(&logged).unwrap(), args);
-        assert!(!logged.contains('\n'));
-    }
-    #[test]
-    fn oversized_unicode_arguments_are_explicitly_truncated() {
-        let logged = log_value(&json!({"query":"中".repeat(9000)}));
-        assert!(logged.ends_with("[已截断，最多 8192 字符]"));
-        assert!(logged.chars().count() < 8250);
+    use crate::config::AppPaths;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn stateless_candidate_returns_json_without_sse_for_broker_requests() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let broker = Arc::new(Broker::new(Arc::new(
+            SupervisorState::new(AppPaths {
+                runtime_directory: root.join("runtime"),
+                config_file: root.join("config.json"),
+                log_directory: root.join("logs"),
+                app_log: root.join("logs/app.log"),
+                serena_log: root.join("logs/serena.log"),
+            })
+            .unwrap(),
+        )));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let cancel = CancellationToken::new();
+        let config = StreamableHttpServerConfig::default()
+            .with_legacy_session_mode(false)
+            .with_json_response(true)
+            .with_cancellation_token(cancel.child_token());
+        let service = StreamableHttpService::new(
+            move || Ok(Handler(broker.clone())),
+            Arc::new(LocalSessionManager::default()),
+            config,
+        );
+        let quit = cancel.clone();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, axum::Router::new().nest_service("/mcp", service))
+                .with_graceful_shutdown(quit.cancelled_owned())
+                .await
+                .unwrap();
+        });
+        let outcome = tokio::time::timeout(Duration::from_secs(15), async {
+            for protocol in ["2025-03-26", "2025-06-18", "2025-11-25"] {
+                for (body, expected) in [
+                    (json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":protocol,"capabilities":{},"clientInfo":{"name":"transport-contract-test","version":"1"}}}), "initialize"),
+                    (json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}), "backend_unavailable"),
+                    (json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"workspace_list","arguments":{}}}), "workspace_list"),
+                    (json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"git_status","arguments":{}}}), "no_workspace"),
+                ] {
+                    let request_id = body["id"].clone();
+                    let method = body["method"].as_str().unwrap();
+                    let text = body.to_string();
+                    let request = format!("POST /mcp HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: {protocol}\r\nMcp-Method: {method}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{text}", text.len());
+                    let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+                    socket.write_all(request.as_bytes()).await.unwrap();
+                    let mut bytes = Vec::new();
+                    socket.read_to_end(&mut bytes).await.unwrap();
+                    let response = String::from_utf8(bytes).unwrap();
+                    let (headers, body) = response.split_once("\r\n\r\n").unwrap();
+                    assert!(headers.starts_with("HTTP/1.1 200"), "{response}");
+                    let headers = headers.to_ascii_lowercase();
+                    assert!(headers.contains("content-type: application/json"), "{response}");
+                    assert!(!headers.contains("text/event-stream"), "{response}");
+                    assert!(!headers.contains("mcp-session-id:"), "{response}");
+                    let value: Value = serde_json::from_str(body).unwrap();
+                    assert_eq!(value["id"], request_id);
+                    match expected {
+                        "initialize" => assert_eq!(value["result"]["protocolVersion"], protocol),
+                        "backend_unavailable" => assert!(value["error"]["message"].as_str().unwrap().contains("BACKEND_UNAVAILABLE")),
+                        "workspace_list" => {
+                            assert_ne!(value["result"]["isError"], true, "{value}");
+                            assert_eq!(value["result"]["structuredContent"]["workspaces"], json!([]), "{value}");
+                        },
+                        "no_workspace" => assert!(value["result"].to_string().contains("NO_ACTIVE_WORKSPACE")),
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+            socket.write_all(format!("GET /mcp HTTP/1.1\r\nHost: {address}\r\nAccept: text/event-stream\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+            let mut response = String::new();
+            socket.read_to_string(&mut response).await.unwrap();
+            assert!(response.starts_with("HTTP/1.1 405"), "{response}");
+        }).await;
+        cancel.cancel();
+        server.await.unwrap();
+        outcome.expect("JSON transport candidate timed out");
     }
 }

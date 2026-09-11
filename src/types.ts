@@ -1,6 +1,34 @@
 export type ServerStatus = "stopped" | "starting" | "running" | "error";
 
+export type RemoteAccessMode = "quick_tunnel" | "self_hosted_oauth" | "mcp_only";
+export type SecurityDeclaration = "external_auth" | "none";
+export interface RemoteAccessConfig {
+  mode: RemoteAccessMode;
+  selfHosted: { publicOrigin: string | null };
+  mcpOnly: { securityDeclaration: SecurityDeclaration; publicOrigin: string | null };
+}
+export interface RemoteApproval {
+  id: string;
+  clientName: string;
+  refreshAllowed: boolean;
+  redirectUri: string;
+  confirmationCode: string;
+  scope: string;
+  expiresInSeconds: number;
+}
+export interface RemoteState {
+  config: RemoteAccessConfig;
+  mode: RemoteAccessMode;
+  status: "stopped" | "starting" | "installing" | "discovering_url" | "verifying" | "ready" | "stopping" | "error" | "disconnected";
+  publicContext: { publicOrigin: string; mcpResource: string; instanceId: string } | null;
+  lastError: string | null;
+  authorizedClients: number;
+  pending: RemoteApproval[];
+  active: boolean;
+}
+
 export interface ManagerConfig {
+  remoteAccess: RemoteAccessConfig;
   agentEnabled: boolean;
   broker: { enabled: boolean; port: number; allowLan: boolean };
   workspaces: Workspace[];
@@ -85,10 +113,18 @@ export type AgentAction =
 export interface ExecutionView {
   prompt: string; canonicalWorkspaceRoot: string;
   executionId: string; agentId: string; workspaceId: string; status: string;
-  dispatchState: string; threadId: string | null; turnId: string | null;
+  dispatchState: string; threadId: string | null; threadName: string | null; turnId: string | null;
   providerTerminalStatus: string | null; resultCompleteness: string; finalResult?: unknown;
+  /** Last diagnostic, independent of lifecycle status and Provider terminal. */
+  errorCode: string | null; errorMessage: string | null;
   revision: string; unchanged?: boolean; resultAvailable: boolean;
-  progress: { phase: "pending" | "dispatching" | "running" | "finalizing" | "reconciling" | "terminal" };
+  progress: {
+    phase: "pending" | "dispatching" | "running" | "finalizing" | "reconciling" | "terminal";
+    activityPhase: "provider" | "tool" | null;
+    toolCategory: "build" | "test" | "command" | "read" | "edit" | "tool" | null;
+    lastActivityAt: number | null;
+    activityAgeMs: number | null;
+  };
   nextAction: { action: "observe"; waitMs: number } | { action: "review_result"; includeResult: boolean }
     | { action: "resume_pending" | "manual_resolution" } | null;
   interruptRequested: boolean; interruptAcknowledged: boolean; interruptTimedOut: boolean;

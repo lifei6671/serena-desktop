@@ -137,6 +137,10 @@ async fn progress_phase_follows_persisted_dispatch_and_execution_facts() {
             .await;
         assert_eq!(response["ok"], true, "{response}");
         assert_eq!(response["data"]["progress"]["phase"], phase);
+        assert_eq!(response["data"]["progress"]["activityPhase"], Value::Null);
+        assert_eq!(response["data"]["progress"]["toolCategory"], Value::Null);
+        assert_eq!(response["data"]["progress"]["lastActivityAt"], Value::Null);
+        assert_eq!(response["data"]["progress"]["activityAgeMs"], Value::Null);
         if status == "dispatch_pending" && dispatch == "not_dispatched" {
             assert_eq!(response["control"]["providerInvoked"], false);
             assert_eq!(response["control"]["dispatchCertainty"], "not_dispatched");
@@ -287,6 +291,10 @@ async fn revision_tracks_semantics_and_ignores_store_cas_clocks_and_result_proje
     change!(view.available_actions.can_continue, true);
     change!(view.available_actions.can_resume_pending, false);
     change!(view.progress.phase, ProgressPhase::Running);
+    change!(view.progress.activity_phase, Some(ActivityPhase::Provider));
+    change!(view.progress.tool_category, Some(ToolCategory::Test));
+    change!(view.progress.last_activity_at, Some(5));
+    view.progress.activity_age_ms = Some(500);
     assert_eq!(view.observation_revision(), revision);
     db.execute("UPDATE executions SET status='unknown' WHERE id='e'", [])
         .unwrap();
@@ -302,6 +310,235 @@ async fn revision_tracks_semantics_and_ignores_store_cas_clocks_and_result_proje
         unknown["data"]["availableActions"],
         json!({"canCancel":false,"canContinue":false,"canResumePending":false})
     );
+}
+
+#[tokio::test]
+async fn activity_changes_wake_observe_age_does_not_change_revision_and_restart_restores_hint() {
+    let (dir, store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute(
+        "UPDATE executions SET thread_id='ROOT',turn_id='TURN',dispatch_state='dispatched' WHERE id='e'",
+        [],
+    )
+    .unwrap();
+    store
+        .execution_activity(
+            "e".into(),
+            "ROOT".into(),
+            "TURN".into(),
+            ActivityPhase::Provider,
+            None,
+            now(),
+        )
+        .await
+        .unwrap();
+    let initial = service.observe("e".into(), false).await.unwrap();
+    assert_eq!(
+        initial.progress.activity_phase,
+        Some(ActivityPhase::Provider)
+    );
+    let initial_revision = initial.revision.clone();
+    let waiter = service.checked_operation(
+        json!({"action":"observe","executionId":"e","knownRevision":initial_revision.clone(),"waitMs":2500}),
+        None,
+    );
+    let activity = async {
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        store
+            .execution_activity(
+                "e".into(),
+                "ROOT".into(),
+                "TURN".into(),
+                ActivityPhase::Tool,
+                Some(ToolCategory::Test),
+                now(),
+            )
+            .await
+            .unwrap();
+    };
+    let started = Instant::now();
+    let (observed, ()) = tokio::join!(waiter, activity);
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(observed["data"]["unchanged"], false);
+    assert_eq!(observed["data"]["progress"]["phase"], "running");
+    assert_eq!(observed["data"]["progress"]["activityPhase"], "tool");
+    assert_eq!(observed["data"]["progress"]["toolCategory"], "test");
+    assert_ne!(observed["data"]["revision"], initial_revision);
+    let revision = observed["data"]["revision"].as_str().unwrap().to_owned();
+    let age = observed["data"]["progress"]["activityAgeMs"]
+        .as_i64()
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    let aged = service.observe("e".into(), false).await.unwrap();
+    assert_eq!(aged.revision, revision);
+    assert!(aged.progress.activity_age_ms.unwrap() >= age);
+
+    drop(service);
+    drop(store);
+    let reopened_store = StateStore::open(dir.path().into()).await.unwrap();
+    let reopened = AgentProductService::new(reopened_store);
+    let restored = reopened.observe("e".into(), false).await.unwrap();
+    assert_eq!(restored.revision, revision);
+    assert_eq!(restored.progress.activity_phase, Some(ActivityPhase::Tool));
+    assert_eq!(restored.progress.tool_category, Some(ToolCategory::Test));
+    assert!(restored.progress.last_activity_at.is_some());
+}
+
+#[tokio::test]
+async fn late_old_turn_activity_cannot_change_unbound_continuation_or_wake_observe() {
+    let (dir, store, _) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute(
+        "INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES ('R1','fixture','terminated',1,1)",
+        [],
+    )
+    .unwrap();
+    let result = json!({
+        "historyMode":"paginated",
+        "executionId":"e",
+        "threadId":"ROOT",
+        "turnId":"TURN-1",
+        "sourceRuntimeId":"R1"
+    })
+    .to_string();
+    db.execute(
+        "UPDATE executions SET status='completed',dispatch_state='dispatched',runtime_instance_id='R1',
+         thread_id='ROOT',turn_id='TURN-1',provider_terminal_status='completed',
+         release_evidence_state='complete',release_evidence_kind='same_runtime_cleanup',
+         release_evidence_json='{}',result_completeness='complete',final_result_json=?1,completed_at=2
+         WHERE id='e'",
+        [&result],
+    )
+    .unwrap();
+    db.execute("DELETE FROM workspace_claims WHERE execution_id='e'", [])
+        .unwrap();
+    store
+        .product_create_continuation(
+            "e2".into(),
+            "e".into(),
+            "continue-key".into(),
+            "continue".into(),
+            3,
+        )
+        .await
+        .unwrap();
+    db.execute(
+        "UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e2'",
+        [],
+    )
+    .unwrap();
+    let service = AgentProductService::new(store.clone());
+    let before = service.observe("e2".into(), false).await.unwrap();
+    let before_record = store.execution("e2".into()).await.unwrap().unwrap();
+    assert_eq!(before.thread_id.as_deref(), Some("ROOT"));
+    assert!(before.turn_id.is_none());
+    let wait = service.checked_operation(
+        json!({"action":"observe","executionId":"e2","knownRevision":before.revision.clone(),"waitMs":120}),
+        None,
+    );
+    let old_activity = async {
+        assert_eq!(
+            store
+                .execution_activity(
+                    "e2".into(),
+                    "ROOT".into(),
+                    "TURN-1".into(),
+                    ActivityPhase::Tool,
+                    Some(ToolCategory::Test),
+                    4,
+                )
+                .await
+                .unwrap_err(),
+            "EXECUTION_PROTOCOL_IDENTITY_MISMATCH"
+        );
+    };
+    let (unchanged, ()) = tokio::join!(wait, old_activity);
+    assert_eq!(unchanged["data"]["unchanged"], true);
+    let after_old = store.execution("e2".into()).await.unwrap().unwrap();
+    assert_eq!(after_old.revision, before_record.revision);
+    assert!(after_old.last_activity_at.is_none());
+    assert!(after_old.activity_phase.is_none());
+    assert!(after_old.tool_category.is_none());
+
+    db.execute("UPDATE executions SET turn_id='TURN-2' WHERE id='e2'", [])
+        .unwrap();
+    store
+        .execution_activity(
+            "e2".into(),
+            "ROOT".into(),
+            "TURN-2".into(),
+            ActivityPhase::Tool,
+            Some(ToolCategory::Test),
+            now(),
+        )
+        .await
+        .unwrap();
+    let current = service.observe("e2".into(), false).await.unwrap();
+    assert_eq!(current.turn_id.as_deref(), Some("TURN-2"));
+    assert_eq!(current.progress.activity_phase, Some(ActivityPhase::Tool));
+    assert_eq!(current.progress.tool_category, Some(ToolCategory::Test));
+    assert_ne!(current.revision, before.revision);
+}
+
+#[tokio::test]
+async fn activity_projection_never_exposes_command_output_or_local_paths() {
+    let (dir, store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute(
+        "UPDATE executions SET thread_id='ROOT',turn_id='TURN',dispatch_state='dispatched' WHERE id='e'",
+        [],
+    )
+    .unwrap();
+    let command = "python C:\\private\\script.py --token secret-token --password hunter2";
+    let activity = match crate::agent::codex::protocol::notification(
+        "item/started".into(),
+        json!({"threadId":"ROOT","turnId":"TURN","item":{
+            "type":"commandExecution","command":command,"commandActions":[]
+        }}),
+    )
+    .unwrap()
+    {
+        crate::agent::codex::protocol::Notification::Activity(activity) => activity,
+        other => panic!("expected activity, got {other:?}"),
+    };
+    store
+        .execution_activity(
+            "e".into(),
+            activity.thread_id,
+            activity.turn_id,
+            activity.phase,
+            activity.tool_category,
+            activity.observed_at,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        crate::agent::codex::protocol::notification(
+            "item/commandExecution/outputDelta".into(),
+            json!({"threadId":"ROOT","turnId":"TURN","itemId":"I","delta":"stdout secret-token hunter2 C:\\private"}),
+        )
+        .unwrap(),
+        crate::agent::codex::protocol::Notification::Other { .. }
+    ));
+    for response in [
+        service
+            .checked_operation(
+                json!({"action":"observe","executionId":"e","waitMs":0}),
+                None,
+            )
+            .await,
+        service
+            .checked_operation(json!({"action":"list"}), None)
+            .await,
+    ] {
+        let exposed = response.to_string();
+        for secret in [command, "secret-token", "hunter2", "C:\\private", "stdout"] {
+            assert!(
+                !exposed.contains(secret),
+                "Product exposed {secret}: {exposed}"
+            );
+        }
+    }
 }
 
 #[tokio::test]
@@ -379,4 +616,56 @@ async fn dropping_observer_does_not_stop_owned_worker_or_create_another_turn() {
             .any(|m| m == "thread/backgroundTerminals/list")
     );
     assert!(!methods.iter().any(|m| m == "turn/interrupt"));
+}
+
+#[tokio::test]
+async fn diagnostic_revision_wakes_observe_and_list_agrees_across_lifecycle() {
+    let (dir, store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e'", []).unwrap();
+    let initial = service.observe("e".into(), false).await.unwrap();
+    let waiter = service.checked_operation(json!({"action":"observe","executionId":"e","knownRevision":initial.revision,"waitMs":2500}), None);
+    let write = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        store.execution_diagnostic("e".into(), "CODEX_TURN_ERROR".into(),
+            json!({"willRetry":true,"error":{"codexErrorInfo":"sandboxError","message":"Authorization: Bearer secret-token", "additionalDetails":"stderr credential password"}}).to_string(), 2).await.unwrap();
+    };
+    let (observed, ()) = tokio::join!(waiter, write);
+    assert_eq!(observed["data"]["status"], "running");
+    assert_eq!(observed["data"]["unchanged"], false);
+    assert_ne!(observed["data"]["revision"], initial.revision);
+    assert_eq!(observed["data"]["errorCode"], "CODEX_TURN_ERROR");
+    assert_eq!(observed["data"]["errorMessage"], "sandboxError: Codex reported a turn diagnostic.");
+    let stored = store.execution("e".into()).await.unwrap().unwrap();
+    assert_eq!(stored.error_code.as_deref(), Some("CODEX_TURN_ERROR"));
+    assert!(stored.error_message.unwrap().contains("secret-token"));
+    for status in ["running", "reconciling", "unknown", "interrupted", "completed"] {
+        db.execute("UPDATE executions SET status=?1,provider_terminal_status=?2 WHERE id='e'",
+            rusqlite::params![status, (status == "completed").then_some("completed")]).unwrap();
+        let observe = service.checked_operation(json!({"action":"observe","executionId":"e","waitMs":0}), None).await;
+        let list = service.checked_operation(json!({"action":"list"}), None).await;
+        assert_eq!(observe["data"]["status"], status);
+        assert_eq!(observe["data"]["errorCode"], "CODEX_TURN_ERROR");
+        assert_eq!(list["data"]["executions"][0]["errorCode"], observe["data"]["errorCode"], "{list}");
+        assert_eq!(list["data"]["executions"][0]["errorMessage"], observe["data"]["errorMessage"]);
+        if status == "completed" { assert_eq!(observe["data"]["providerTerminalStatus"], "completed"); }
+    }
+}
+
+#[tokio::test]
+async fn diagnostic_projection_never_exposes_raw_provider_payload() {
+    let (_dir, store, service) = pending().await;
+    for (code, raw) in [
+        ("CODEX_PROVIDER_FAILURE", format!("CODEX_PROTOCOL_QUEUE_FULL: Authorization token credential {}", "secret".repeat(1000))),
+        ("CODEX_TURN_ERROR", json!({"error":{"message":"secret","codexErrorInfo":"secret"}}).to_string()),
+        ("CODEX_PERMISSION_DENIED", "command".into()),
+        ("secret", "raw stdout stderr secret".into()),
+    ] {
+        store.execution_diagnostic("e".into(), code.into(), raw, 2).await.unwrap();
+        let view = service.observe("e".into(), false).await.unwrap();
+        let message = view.error_message.unwrap();
+        assert!(message.len() <= 256);
+        assert!(!message.contains("secret"));
+        assert!(!view.error_code.unwrap().contains("secret"));
+    }
 }

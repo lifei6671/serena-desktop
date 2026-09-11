@@ -72,8 +72,61 @@ async fn slice_case(case: &'static str) {
     let temp = tempfile::tempdir().unwrap();
     let store = StateStore::open(temp.path().into()).await.unwrap();
     let manager = AgentTaskManager::new(store.clone(), "does-not-exist.exe".into());
-    let request = input(temp.path());
-    let created = manager.create(request.clone()).await.unwrap();
+    let mut request = input(temp.path());
+    if case == "continue-old-turn" {
+        request.mode = crate::agent::execution::ExecutionMode::WorkspaceWrite;
+    }
+    let created = if case == "continue-old-turn" {
+        let source = store
+            .product_create_fresh(
+                "SOURCE".into(),
+                request.agent_id.clone(),
+                "source-key".into(),
+                "source".into(),
+                request.workspace_id.clone(),
+                Some(crate::agent::store::transactions::product::WorkspaceSnapshot {
+                    id: request.workspace_id.clone(),
+                    root: request.canonical_workspace_root.clone(),
+                }),
+                1,
+            )
+            .await
+            .unwrap();
+        let db = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
+        db.execute(
+            "INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES ('R0','fixture','terminated',1,1)",
+            [],
+        )
+        .unwrap();
+        let final_result = json!({
+            "historyMode":"paginated","executionId":source.execution_id,
+            "threadId":"THREAD","turnId":"PRIOR-TURN","sourceRuntimeId":"R0"
+        })
+        .to_string();
+        db.execute(
+            "UPDATE executions SET status='completed',dispatch_state='dispatched',runtime_instance_id='R0',
+             thread_id='THREAD',turn_id='PRIOR-TURN',provider_terminal_status='completed',
+             release_evidence_state='complete',release_evidence_kind='same_runtime_cleanup',
+             release_evidence_json='{}',result_completeness='complete',final_result_json=?1,completed_at=2
+             WHERE id='SOURCE'",
+            [&final_result],
+        )
+        .unwrap();
+        db.execute("DELETE FROM workspace_claims WHERE execution_id='SOURCE'", [])
+            .unwrap();
+        store
+            .product_create_continuation(
+                "CONTINUE".into(),
+                "SOURCE".into(),
+                request.request_key.clone(),
+                request.prompt.clone(),
+                3,
+            )
+            .await
+            .unwrap()
+    } else {
+        manager.create(request.clone()).await.unwrap()
+    };
     assert!(created.created);
     assert_eq!(created.execution.status, "dispatch_pending");
     assert_eq!(created.execution.dispatch_state, "not_dispatched");
@@ -123,12 +176,22 @@ async fn slice_case(case: &'static str) {
         reply(&mut s,&req,json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"})).await;
         assert_eq!(recv(&mut s).await["method"], "initialized");
         let req = recv(&mut s).await;
-        assert_eq!(req["method"], "thread/start");
-        assert_eq!(req["params"]["historyMode"], "paginated");
-        assert_eq!(req["params"]["ephemeral"], false);
-        assert_eq!(req["params"]["sandbox"], "read-only");
-        assert_eq!(req["params"]["cwd"], request2.canonical_workspace_root);
-        assert_eq!(req["params"]["approvalPolicy"], "never");
+        if case == "continue-old-turn" {
+            assert_eq!(req["method"], "thread/resume");
+            assert_eq!(req["params"], json!({"threadId":"THREAD","excludeTurns":true}));
+        } else {
+            assert_eq!(req["method"], "thread/start");
+            assert_eq!(req["params"]["historyMode"], "paginated");
+            assert_eq!(req["params"]["ephemeral"], false);
+            assert_eq!(req["params"]["sandbox"], "read-only");
+            assert_eq!(req["params"]["cwd"], request2.canonical_workspace_root);
+            assert_eq!(req["params"]["approvalPolicy"], "never");
+            assert_eq!(req["params"]["dynamicTools"][0]["type"], "namespace");
+            assert_eq!(req["params"]["dynamicTools"][0]["name"], "codex_app");
+            assert_eq!(req["params"]["dynamicTools"].as_array().unwrap().len(), 1);
+            assert_eq!(req["params"]["dynamicTools"][0]["tools"].as_array().unwrap().len(), 1);
+            assert_eq!(req["params"]["dynamicTools"][0]["tools"][0]["name"], "set_thread_title");
+        }
         let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
         assert_eq!(row.runtime_instance_id.as_deref(), Some("R1"));
         assert_eq!(row.dispatch_state, "dispatching");
@@ -144,12 +207,247 @@ async fn slice_case(case: &'static str) {
         reply(
             &mut s,
             &req,
-            json!({"thread":{"id":"THREAD","turns":[],"historyMode":"paginated"}}),
+            json!({"thread":{"id":"THREAD","name":"初始名称","turns":[],"historyMode":"paginated"}}),
         )
         .await;
         let req = recv(&mut s).await;
         assert_eq!(req["method"], "turn/start");
         assert_eq!(req["params"]["threadId"], "THREAD");
+        assert_eq!(req["params"]["approvalPolicy"], "never");
+        assert_eq!(
+            req["params"]["sandboxPolicy"],
+            if case == "continue-old-turn" {
+                json!({
+                    "type":"workspaceWrite",
+                    "writableRoots":[request2.canonical_workspace_root],
+                    "networkAccess":true,
+                    "excludeTmpdirEnvVar":false,
+                    "excludeSlashTmp":false
+                })
+            } else {
+                json!({"type":"readOnly","networkAccess":true})
+            }
+        );
+        assert!(req["params"].get("cwd").is_none());
+        assert_eq!(fake_store.product_read(Some(id.clone()), None, None, 1).await.unwrap()[0].thread_name.as_deref(), Some("初始名称"));
+        send(&mut s, json!({"method":"thread/name/updated","params":{"threadId":"THREAD","threadName":"更新名称"}})).await;
+        if case == "continue-old-turn" {
+            let service = crate::agent::product::AgentProductService::new(fake_store.clone());
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while fake_store
+                    .product_read(Some(id.clone()), None, None, 1)
+                    .await
+                    .unwrap()[0]
+                    .thread_name
+                    .as_deref()
+                    != Some("更新名称")
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let snapshot = service
+                .operation(
+                    json!({"action":"observe","executionId":id,"waitMs":0}),
+                    None,
+                )
+                .await;
+            let activity_fault = crate::agent::store::ObservabilityFault::Activity;
+            let permission_fault =
+                crate::agent::store::ObservabilityFault::PermissionDiagnostic;
+            fake_store.inject_observability_failure(activity_fault);
+            fake_store.inject_observability_failure(permission_fault);
+            let observe = service.operation(
+                json!({"action":"observe","executionId":id,
+                    "knownRevision":snapshot["data"]["revision"],"waitMs":120}),
+                None,
+            );
+            let old_turn = async {
+                for method in ["item/started", "item/completed"] {
+                    send(&mut s, json!({"method":method,"params":{
+                        "threadId":"THREAD","turnId":"PRIOR-TURN","item":{
+                            "type":"commandExecution","id":"old","command":"cargo test","commandActions":[]
+                        }
+                    }})).await;
+                }
+                for (request_id, method, params) in [
+                    ("old-command", "item/commandExecution/requestApproval", json!({
+                        "itemId":"I","startedAtMs":1,"threadId":"THREAD","turnId":"PRIOR-TURN"
+                    })),
+                    ("old-file", "item/fileChange/requestApproval", json!({
+                        "itemId":"I","startedAtMs":1,"threadId":"THREAD","turnId":"PRIOR-TURN"
+                    })),
+                    ("old-permissions", "item/permissions/requestApproval", json!({
+                        "cwd":"C:\\workspace","itemId":"I","permissions":[],"startedAtMs":1,
+                        "threadId":"THREAD","turnId":"PRIOR-TURN"
+                    })),
+                ] {
+                    send(&mut s, json!({"id":request_id,"method":method,"params":params})).await;
+                    let response = recv(&mut s).await;
+                    assert_eq!(response["id"], request_id);
+                    assert!(response.get("result").is_some());
+                }
+            };
+            let (unchanged, ()) = tokio::join!(observe, old_turn);
+            assert_eq!(unchanged["data"]["unchanged"], true);
+            let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
+            assert!(row.turn_id.is_none());
+            assert!(row.last_activity_at.is_none());
+            assert!(row.activity_phase.is_none());
+            assert!(row.tool_category.is_none());
+            assert!(row.error_code.is_none());
+            assert!(fake_store.observability_failure_pending(activity_fault));
+            assert!(fake_store.observability_failure_pending(permission_fault));
+            fake_store.clear_observability_failure(activity_fault);
+            fake_store.clear_observability_failure(permission_fault);
+
+            send(&mut s, json!({"method":"turn/started","params":{
+                "threadId":"THREAD","turn":turn("inProgress")
+            }})).await;
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
+                    if row.turn_id.as_deref() == Some("TURN") && row.status == "running" {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            send(&mut s, json!({"method":"item/started","params":{
+                "threadId":"THREAD","turnId":"TURN","item":{
+                    "type":"commandExecution","id":"current","command":"cargo test","commandActions":[]
+                }
+            }})).await;
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while fake_store.execution(id.clone()).await.unwrap().unwrap().tool_category.as_deref()
+                    != Some("test")
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            send(&mut s, json!({"method":"thread/name/updated","params":{
+                "threadId":"THREAD","threadName":"更新名称"
+            }})).await;
+        }
+        if case == "title" {
+            send(&mut s, json!({"method":"turn/started","params":{"threadId":"THREAD","turn":turn("inProgress")}})).await;
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
+                    if row.status == "running" && row.dispatch_state == "dispatched" { break; }
+                    tokio::task::yield_now().await;
+                }
+            }).await.unwrap();
+            let before = fake_store.execution(id.clone()).await.unwrap().unwrap();
+            let valid = json!({"threadId":"THREAD","turnId":"TURN","callId":"title-call","namespace":"codex_app","tool":"set_thread_title","arguments":{"title":"  新标题  "}});
+            for (n, params) in [
+                json!(null), json!({}),
+                { let mut p = valid.clone(); p["threadId"] = json!("CHILD"); p },
+                { let mut p = valid.clone(); p["threadId"] = json!("UNOWNED"); p },
+                { let mut p = valid.clone(); p["turnId"] = json!("STALE-TURN"); p },
+                { let mut p = valid.clone(); p["tool"] = json!("future_tool"); p },
+                { let mut p = valid.clone(); p["arguments"] = json!({"title":42}); p },
+                { let mut p = valid.clone(); p["arguments"] = json!({"title":"  "}); p },
+                { let mut p = valid.clone(); p["arguments"] = json!({"title":"a\nb"}); p },
+                { let mut p = valid.clone(); p["arguments"] = json!({"title":"中".repeat(201)}); p },
+                { let mut p = valid.clone(); p["arguments"] = json!({"title":"ok","threadId":"CHILD"}); p },
+            ].into_iter().enumerate() {
+                send(&mut s, json!({"id":format!("bad-{n}"),"method":"item/tool/call","params":params})).await;
+                let rejected = recv(&mut s).await;
+                assert_eq!(rejected["id"], format!("bad-{n}")); // No rename RPC.
+                assert_eq!(rejected["result"]["success"], false);
+                assert!(rejected.to_string().len() < 350);
+            }
+            assert_eq!(fake_store.execution(id.clone()).await.unwrap().unwrap(), before);
+            // An ordinary rename RPC error is a tool failure, not a Provider failure.
+            send(&mut s, json!({"id":"denied","method":"item/tool/call","params":valid})).await;
+            let rename = recv(&mut s).await;
+            assert_eq!(rename["method"], "thread/name/set");
+            assert_eq!(rename["params"], json!({"threadId":"THREAD","name":"新标题"}));
+            send(&mut s, json!({"id":rename["id"],"error":{"code":-32000,"message":"fixture refusal"}})).await;
+            assert_eq!(recv(&mut s).await["result"]["success"], false);
+            send(&mut s, json!({"id":"valid","method":"item/tool/call","params":valid})).await;
+            let rename = recv(&mut s).await;
+            assert_eq!(rename["method"], "thread/name/set");
+            assert_eq!(rename["params"], json!({"threadId":"THREAD","name":"新标题"}));
+            reply(&mut s, &rename, json!({})).await;
+            send(&mut s, json!({"method":"thread/name/updated","params":{"threadId":"THREAD","threadName":"新标题"}})).await;
+            let response = recv(&mut s).await;
+            assert_eq!(response["id"], "valid");
+            assert_eq!(response["result"]["success"], true);
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    if fake_store.product_read(Some(id.clone()), None, None, 1).await.unwrap()[0].thread_name.as_deref() == Some("新标题") { break; }
+                    tokio::task::yield_now().await;
+                }
+            }).await.unwrap();
+            assert_eq!(fake_store.execution(id.clone()).await.unwrap().unwrap(), before);
+        }
+        if case.starts_with("unowned-") {
+            let bound = case == "unowned-bound";
+            if bound {
+                send(&mut s, json!({"method":"turn/started","params":{"threadId":"THREAD","turn":turn("inProgress")}})).await;
+            }
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
+                    let name = fake_store.product_read(Some(id.clone()), None, None, 1).await.unwrap()[0].thread_name.clone();
+                    if row.dispatch_state == "dispatched" && name.as_deref() == Some("更新名称")
+                        && (!bound || row.status == "running") { break; }
+                    tokio::task::yield_now().await;
+                }
+            }).await.unwrap();
+            let before = fake_store.execution(id.clone()).await.unwrap().unwrap();
+            assert_eq!(before.turn_id.as_deref(), bound.then_some("TURN"));
+            assert!(before.provider_terminal_status.is_none());
+            assert!(before.provider_terminal_evidence_runtime_instance_id.is_none());
+            assert_ne!(before.release_evidence_state, "complete");
+            let service = crate::agent::product::AgentProductService::new(fake_store.clone());
+            let snapshot = service.operation(json!({"action":"observe","executionId":id,"waitMs":0}), None).await;
+            let observe = service.operation(json!({"action":"observe","executionId":id,
+                "knownRevision":snapshot["data"]["revision"],"waitMs":120}), None);
+            let traffic = async {
+                let mut child_turn = turn("inProgress");
+                child_turn["id"] = json!("CHILD-TURN");
+                send(&mut s, json!({"method":"thread/started","params":{"thread":{"id":"CHILD","historyMode":"paginated","turns":[]}}})).await;
+                send(&mut s, json!({"method":"turn/started","params":{"threadId":"CHILD","turn":child_turn}})).await;
+                send(&mut s, json!({"method":"item/started","params":{"threadId":"CHILD","turnId":"CHILD-TURN","item":{"type":"commandExecution","id":"child-shell","command":"cargo test --token child-secret","commandActions":[]}}})).await;
+                send(&mut s, json!({"method":"item/completed","params":{"threadId":"CHILD","turnId":"CHILD-TURN","item":{"type":"commandExecution","id":"child-shell","command":"cargo test --token child-secret","commandActions":[]}}})).await;
+                if case != "unowned-unknown" {
+                    // Discovery arrives AFTER the child's lifecycle has begun and
+                    // must neither bind the Root Turn nor require known ancestry.
+                    send(&mut s, json!({"method":"item/started","params":{"threadId":"THREAD","turnId":"TURN","item":{"type":"subAgentActivity","id":"review","kind":"started","agentThreadId":"CHILD","agentPath":"/root/review"}}})).await;
+                    send(&mut s, json!({"method":"item/started","params":{"threadId":"UNKNOWN-PARENT","turnId":"OTHER","item":{"type":"subAgentActivity","id":"nested","kind":"started","agentThreadId":"GRANDCHILD","agentPath":"/root/nested"}}})).await;
+                }
+                send(&mut s, json!({"method":"error","params":{"threadId":"CHILD","turnId":"CHILD-TURN","willRetry":false,"error":{"message":"child diagnostic"}}})).await;
+                send(&mut s, json!({"method":"thread/name/updated","params":{"threadId":"CHILD","threadName":"child name"}})).await;
+                for status in ["completed", "failed", "interrupted"] {
+                    child_turn["status"] = json!(status);
+                    send(&mut s, json!({"method":"turn/completed","params":{"threadId":"CHILD","turn":child_turn}})).await;
+                }
+                // FIFO Root-name barrier proves all prior events were consumed.
+                // Names do not change Execution revision or wake observe.
+                send(&mut s, json!({"method":"thread/name/updated","params":{"threadId":"THREAD","threadName":"barrier"}})).await;
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    while fake_store.product_read(Some(id.clone()), None, None, 1).await.unwrap()[0].thread_name.as_deref() != Some("barrier") {
+                        tokio::task::yield_now().await;
+                    }
+                }).await.unwrap();
+                assert_eq!(fake_store.execution(id.clone()).await.unwrap().unwrap(), before,
+                    "unowned events must not change identity, diagnostic, revision, lifecycle or release evidence");
+                assert!(fake_store.workspace_claim(request2.canonical_workspace_root.clone()).await.unwrap().is_some());
+                send(&mut s, json!({"method":"thread/name/updated","params":{"threadId":"THREAD","threadName":"更新名称"}})).await;
+            };
+            let start = tokio::time::Instant::now();
+            let (observed, ()) = tokio::join!(observe, traffic);
+            assert_eq!(observed["data"]["unchanged"], true);
+            assert!(start.elapsed() >= Duration::from_millis(120));
+        }
         if matches!(case, "long" | "failed") {
             reply(&mut s, &req, json!({"turn":turn("inProgress")})).await;
             loop {
@@ -169,10 +467,121 @@ async fn slice_case(case: &'static str) {
                 assert!(row.provider_terminal_status.is_none());
             }
         }
+        if matches!(
+            case,
+            "activity-observability-failure" | "permission-observability-failure"
+        ) {
+            send(&mut s, json!({"method":"turn/started","params":{"threadId":"THREAD","turn":turn("inProgress")}})).await;
+            reply(&mut s, &req, json!({"turn":turn("inProgress")})).await;
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
+                    if row.status == "running" && row.turn_id.as_deref() == Some("TURN") {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let fault = if case == "activity-observability-failure" {
+                crate::agent::store::ObservabilityFault::Activity
+            } else {
+                crate::agent::store::ObservabilityFault::PermissionDiagnostic
+            };
+            fake_store.inject_observability_failure(fault);
+            if case == "activity-observability-failure" {
+                send(&mut s, json!({"method":"item/started","params":{"threadId":"THREAD","turnId":"TURN","item":{"type":"commandExecution","id":"test","command":"cargo test","commandActions":[]}}})).await;
+            } else {
+                send(&mut s, json!({"id":"permission-fault","method":"item/commandExecution/requestApproval","params":{"itemId":"I","startedAtMs":1,"threadId":"THREAD","turnId":"TURN"}})).await;
+                let denied = recv(&mut s).await;
+                assert_eq!(denied["id"], "permission-fault");
+                assert_eq!(denied["result"]["decision"], "cancel");
+            }
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while fake_store.observability_failure_pending(fault) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
+            assert_eq!(row.status, "running");
+            assert!(row.provider_terminal_status.is_none());
+            assert!(row.last_activity_at.is_none());
+            assert!(row.error_code.is_none());
+            assert!(fake_store
+                .workspace_claim(request2.canonical_workspace_root.clone())
+                .await
+                .unwrap()
+                .is_some());
+        }
         if late_deadline {
             while fake_store.execution(id.clone()).await.unwrap().unwrap().dispatch_state != "dispatched" {
                 tokio::task::yield_now().await;
             }
+        }
+        if matches!(case, "retry-error" | "failed-error") {
+            send(&mut s, json!({"method":"error","params":{"threadId":"THREAD","turnId":"TURN",
+                "willRetry":case == "retry-error","error":{"message":"fixture error","codexErrorInfo":"sandboxError"}}})).await;
+            loop {
+                let db = rusqlite::Connection::open(fake_store_path(&request2)).unwrap();
+                let recorded: Option<String> = db.query_row("SELECT error_code FROM executions WHERE id=?1", [&id], |r|r.get(0)).unwrap();
+                if recorded.as_deref() == Some("CODEX_TURN_ERROR") { break; }
+                tokio::task::yield_now().await;
+            }
+            let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
+            assert!(row.provider_terminal_status.is_none());
+            assert_ne!(row.status, "reconciling");
+            if case == "retry-error" {
+                // ACK prevents its independent timeout from obscuring retry semantics.
+                reply(&mut s, &req, json!({"turn":turn("inProgress")})).await;
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                tokio::time::pause();
+                tokio::time::advance(Duration::from_secs(121)).await;
+                tokio::time::resume();
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                assert_ne!(fake_store.execution(id.clone()).await.unwrap().unwrap().status, "reconciling");
+            }
+        }
+        if case == "coding-command-failure" {
+            send(&mut s, json!({"method":"turn/started","params":{"threadId":"THREAD","turn":turn("inProgress")}})).await;
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while fake_store.execution(id.clone()).await.unwrap().unwrap().status != "running" {
+                    tokio::task::yield_now().await;
+                }
+            }).await.unwrap();
+            send(&mut s, json!({"method":"item/started","params":{"threadId":"THREAD","turnId":"TURN","item":{"type":"commandExecution","id":"shell","command":"cargo test","commandActions":[]}}})).await;
+            for n in 0..1024 {
+                send(&mut s, json!({"method":"item/commandExecution/outputDelta","params":{"threadId":"THREAD","turnId":"TURN","itemId":"shell","delta":format!("line {n}\n")}})).await;
+            }
+            send(&mut s, json!({"method":"item/completed","params":{"threadId":"THREAD","turnId":"TURN","item":{"type":"commandExecution","id":"shell","command":"Get-Content missing-file","status":"failed","exitCode":1}}})).await;
+            send(&mut s, json!({"method":"item/completed","params":{"threadId":"THREAD","turnId":"TURN","item":{"type":"commandExecution","id":"next","command":"git status","status":"completed","exitCode":0}}})).await;
+            send(&mut s, json!({"id":"unexpected-approval","method":"item/commandExecution/requestApproval","params":{"itemId":"next","startedAtMs":1,"threadId":"THREAD","turnId":"TURN","command":"secret-token"}})).await;
+            let denied = recv(&mut s).await;
+            assert_eq!(denied["id"], "unexpected-approval");
+            assert_eq!(denied["result"]["decision"], "cancel");
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
+                    if row.error_code.as_deref() == Some("CODEX_PERMISSION_DENIED") {
+                        assert_eq!(row.error_message.as_deref(), Some("command"));
+                        assert_eq!(row.status, "running");
+                        assert!(row.provider_terminal_status.is_none());
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+        if case == "coding-command-failure" {
+            send(&mut s, json!({"method":"item/started","params":{"threadId":"THREAD","turnId":"TURN","item":{"type":"subAgentActivity","id":"review","kind":"started","agentThreadId":"CHILD","agentPath":"/root/review"}}})).await;
+            send(&mut s, json!({"method":"turn/started","params":{"threadId":"CHILD","turn":turn("inProgress")}})).await;
+            send(&mut s, json!({"method":"thread/name/updated","params":{"threadId":"CHILD","threadName":"child name"}})).await;
+            send(&mut s, json!({"method":"error","params":{"threadId":"CHILD","turnId":"TURN","willRetry":false,"error":{"message":"child diagnostic"}}})).await;
+            send(&mut s, json!({"method":"turn/completed","params":{"threadId":"CHILD","turn":turn("failed")}})).await;
         }
         let turn_request = req.clone();
         // Except the ACK-first cases, persist terminal before sending a late ACK.
@@ -181,6 +590,7 @@ async fn slice_case(case: &'static str) {
         loop {
             let row = fake_store.execution(id.clone()).await.unwrap().unwrap();
             if row.status == "finalizing" {
+                assert_eq!(fake_store.product_read(Some(id.clone()), None, None, 1).await.unwrap()[0].thread_name.as_deref(), Some(if case == "title" { "新标题" } else { "更新名称" }));
                 assert_eq!(row.turn_id.as_deref(), Some("TURN"));
                 if case == "failed-delayed-flush" {
                     assert_eq!(row.dispatch_state, "dispatching");
@@ -199,7 +609,7 @@ async fn slice_case(case: &'static str) {
             flush_release.send(()).unwrap();
         }
         {
-            if !late_deadline && !matches!(case, "long" | "failed" | "failed-no-ack" | "failed-delayed-flush") {
+            if !late_deadline && !matches!(case, "long" | "failed" | "failed-no-ack" | "failed-delayed-flush" | "retry-error" | "activity-observability-failure" | "permission-observability-failure") {
                 reply(&mut s, &req, json!({"turn":turn("inProgress")})).await;
             }
             let req = recv(&mut s).await;
@@ -219,7 +629,7 @@ async fn slice_case(case: &'static str) {
                 tokio::time::advance(Duration::from_secs(8)).await;
                 tokio::time::resume();
             }
-            reply(&mut s,&req,json!({"thread":{"id":if case=="wrong-result" {"OTHER"}else{"THREAD"},"turns":[],"historyMode":"paginated"}})).await;
+            reply(&mut s,&req,json!({"thread":{"id":if case=="wrong-result" {"OTHER"}else{"THREAD"},"name":"最终名称","turns":[],"historyMode":"paginated"}})).await;
             if case != "wrong-result" {
                 let req = recv(&mut s).await;
                 assert_eq!(req["method"], "thread/turns/list");
@@ -271,11 +681,23 @@ async fn slice_case(case: &'static str) {
                             .unwrap()
                             .is_some()
                     );
-                    let duplicate =
+                    let duplicate = if case == "continue-old-turn" {
+                        fake_store
+                            .product_create_continuation(
+                                "UNUSED".into(),
+                                "SOURCE".into(),
+                                request2.request_key.clone(),
+                                request2.prompt.clone(),
+                                now(),
+                            )
+                            .await
+                            .unwrap()
+                    } else {
                         AgentTaskManager::new(fake_store.clone(), "not-a-binary.exe".into())
                             .execute(request2.clone())
                             .await
-                            .unwrap();
+                            .unwrap()
+                    };
                     assert!(!duplicate.created);
                     assert_eq!(duplicate.execution_id, id);
                     reply(&mut s,&req,json!({"data":if round==0 {json!([{"id":"still-active"}])}else{json!([])},"nextCursor":null})).await;
@@ -368,7 +790,7 @@ async fn slice_case(case: &'static str) {
     } else {
         client.initialize().await.unwrap();
         tokio::time::timeout(
-            Duration::from_secs(if case == "long" { 150 } else if late_deadline { 60 } else { 15 }),
+            Duration::from_secs(if matches!(case, "long" | "retry-error") { 150 } else if late_deadline { 60 } else { 15 }),
             provider.run_client(&created.execution_id, &client),
         )
         .await
@@ -379,7 +801,7 @@ async fn slice_case(case: &'static str) {
         .await
         .unwrap()
         .unwrap();
-    if (late_deadline && !invalid_ack) || matches!(case, "success" | "resume" | "long" | "failed" | "failed-late-ack" | "failed-no-ack" | "failed-delayed-flush") {
+    if case.starts_with("unowned-") || (late_deadline && !invalid_ack) || matches!(case, "title" | "coding-command-failure" | "continue-old-turn" | "activity-observability-failure" | "permission-observability-failure" | "success" | "resume" | "long" | "failed" | "failed-late-ack" | "failed-no-ack" | "failed-delayed-flush" | "retry-error" | "failed-error") {
         if failed {
             assert_eq!(outcome.as_ref().unwrap_err(), "PROVIDER_TERMINAL_failed");
         } else {
@@ -387,6 +809,7 @@ async fn slice_case(case: &'static str) {
         }
         assert_eq!(row.status, terminal_status);
         assert_eq!(row.result_completeness, "complete");
+        assert_eq!(store.product_read(Some(created.execution_id.clone()), None, None, 1).await.unwrap()[0].thread_name.as_deref(), Some("最终名称"));
         assert_eq!(row.release_evidence_state, "complete");
         assert!(
             store
@@ -409,13 +832,27 @@ async fn slice_case(case: &'static str) {
         );
     }
     if matches!(case, "rollback" | "failed-rollback") {
+        assert_eq!(store.product_read(Some(created.execution_id.clone()), None, None, 1).await.unwrap()[0].thread_name.as_deref(), Some("更新名称"));
         assert!(outcome.unwrap_err().contains("injected final rollback"));
     }
     assert_eq!(row.provider_terminal_status.as_deref(), Some(terminal_status));
     assert_eq!(row.thread_id.as_deref(), Some("THREAD"));
     assert_eq!(row.turn_id.as_deref(), Some("TURN"));
     assert_eq!(row.runtime_instance_id.as_deref(), Some("R1"));
-    let duplicate = manager.execute(request).await.unwrap();
+    let duplicate = if case == "continue-old-turn" {
+        store
+            .product_create_continuation(
+                "UNUSED-FINAL".into(),
+                "SOURCE".into(),
+                request.request_key.clone(),
+                request.prompt.clone(),
+                now(),
+            )
+            .await
+            .unwrap()
+    } else {
+        manager.execute(request).await.unwrap()
+    };
     assert!(!duplicate.created);
     assert_eq!(duplicate.execution_id, created.execution_id);
     if case == "resume" {
@@ -437,6 +874,10 @@ async fn slice_case(case: &'static str) {
     fake.await.unwrap();
 }
 
+#[test]
+fn title_calls_preserve_root_execution_and_product_metadata() {
+    run(slice_case("title"));
+}
 #[test]
 fn terminal_before_ack_and_idempotent_success() {
     run(slice_case("success"));
@@ -853,4 +1294,286 @@ fn late_terminal_ack_conflicting_identity_or_error_retains_claim() {
         tokio::runtime::Builder::new_current_thread()
             .enable_all().build().unwrap().block_on(slice_case(case));
     }
+}
+
+fn fake_store_path(request: &CreateExecutionInput) -> PathBuf {
+    PathBuf::from(&request.canonical_workspace_root).join("agent-state.db")
+}
+#[test]
+fn retry_error_can_run_past_old_deadline_and_complete() {
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(slice_case("retry-error"));
+}
+#[test]
+fn nonretry_error_waits_for_authoritative_failed_terminal() { run(slice_case("failed-error")); }
+
+// Full live worker path, including an independently owned ManagedClient monitor.
+// Its evidence gate stands in for the Job query; real Job queries have runtime tests.
+async fn live_failure_case(case: &'static str, evidence: bool, bind_turn: bool) {
+    let temp = tempfile::tempdir().unwrap();
+    let store = StateStore::open(temp.path().into()).await.unwrap();
+    let manager = AgentTaskManager::new(store.clone(), "unused".into());
+    let request = input(temp.path());
+    let id = manager.create(request.clone()).await.unwrap().execution_id;
+    let database = temp.path().join("agent-state.db");
+    let db = rusqlite::Connection::open(&database).unwrap();
+    db.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES ('R1','fixture','running',1,1)",[]).unwrap();
+    let (wire, server) = tokio::io::duplex(32 * 1024);
+    let (read, write) = tokio::io::split(wire);
+    let client = Client::transport("R1".into(), read, write, tokio::io::empty());
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let (ending_tx, ending_rx) = tokio::sync::oneshot::channel();
+    let mut failure = client.failure();
+    let monitor = tokio::spawn(async move {
+        while failure.borrow().is_none() { failure.changed().await.unwrap(); }
+        ending_tx.send(()).unwrap();
+        release_rx.await.unwrap();
+        if evidence {
+            let db = rusqlite::Connection::open(database).unwrap();
+            db.execute("UPDATE runtime_instances SET state='terminated',termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',termination_evidence_at=10 WHERE id='R1'",[]).unwrap();
+            Ok(())
+        } else {
+            Err(super::super::runtime::RuntimeFailure { code:"CODEX_JOB_QUERY_FAILED", message:"fixture query failure".into(), runtime:None })
+        }
+    });
+    let fake = tokio::spawn(async move {
+        let mut s = BufReader::new(server);
+        let req = recv(&mut s).await;
+        assert_eq!(req["method"],"initialize");
+        reply(&mut s,&req,json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"})).await;
+        assert_eq!(recv(&mut s).await["method"], "initialized");
+        let req = recv(&mut s).await;
+        assert_eq!(req["method"], "thread/start");
+        if !bind_turn {
+            reply(&mut s,&req,json!({"thread":{"id":"THREAD","turns":[],"historyMode":"legacy"}})).await;
+            // Fresh thread_start rejects legacy before starting a turn.
+        } else {
+            reply(&mut s,&req,json!({"thread":{"id":"THREAD","turns":[],"historyMode":"paginated"}})).await;
+            let req = recv(&mut s).await;
+            assert_eq!(req["method"],"turn/start");
+            reply(&mut s,&req,json!({"turn":turn("inProgress")})).await;
+            send(&mut s,json!({"method":"turn/started","params":{"threadId":"THREAD","turn":turn("inProgress")}})).await;
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            match case {
+                "eof" => return,
+                "jsonl" => { s.write_all(b"{broken json}\n").await.unwrap(); s.flush().await.unwrap(); }
+                "malformed-error" => send(&mut s,json!({"method":"error","params":{"threadId":"THREAD"}})).await,
+                "wrong-start" | "wrong-completed" => {
+                    let mut conflicting = turn(if case == "wrong-start" { "inProgress" } else { "completed" });
+                    conflicting["id"] = json!("OTHER");
+                    send(&mut s,json!({"method":if case == "wrong-start" {"turn/started"} else {"turn/completed"},"params":{"threadId":"THREAD","turn":conflicting}})).await;
+                }
+                "wrong-turn" | "nonretry" => {
+                    send(&mut s,json!({"method":"error","params":{"threadId":"THREAD",
+                        "turnId":if case=="wrong-turn" {"OTHER"} else {"TURN"},"willRetry":false,"error":{"message":"fixture final error","codexErrorInfo":"sandboxError"}}})).await;
+                }
+                _ => unreachable!(),
+            }
+        }
+        let mut extra = String::new();
+        if case == "nonretry" {
+            // Unrelated progress must not extend or starve the error deadline.
+            let mut progress = tokio::time::interval(Duration::from_millis(1));
+            loop {
+                tokio::select! {
+                    read = s.read_line(&mut extra) => { assert_eq!(read.unwrap(),0,"unexpected replay: {extra}"); break; }
+                    _ = progress.tick() => {
+                        let bytes = super::super::protocol::encode(&json!({"method":"fixture/progress","params":{}})).unwrap();
+                        if s.write_all(&bytes).await.is_err() { break; }
+                    }
+                }
+            }
+        } else {
+            assert_eq!(s.read_line(&mut extra).await.unwrap(),0,"no replay or new turn: {extra}");
+        }
+    });
+    client.initialize().await.unwrap();
+    let managed = managed::ManagedClient::test_owned(client, monitor);
+    let provider = CodexProvider { store:store.clone(),executable:"C:/missing-result-provider.exe".into(),owner:"fixture".into() };
+    let worker_id = id.clone();
+    let worker = tokio::spawn(async move { provider.run_managed(&worker_id, managed, &mut None).await });
+    tokio::time::timeout(Duration::from_secs(20), ending_rx).await.unwrap().unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while store.execution(id.clone()).await.unwrap().unwrap().status != "reconciling" {
+            tokio::task::yield_now().await;
+        }
+    }).await.unwrap();
+    assert!(!worker.is_finished(),"worker must await Runtime convergence");
+    let row = store.execution(id.clone()).await.unwrap().unwrap();
+    assert_eq!(row.status,"reconciling");
+    assert!(store.workspace_claim(request.canonical_workspace_root.clone()).await.unwrap().is_some());
+    assert!(manager.resume_pending_execution(&id).await.is_err());
+    assert_eq!(db.query_row("SELECT count(*) FROM runtime_instances",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+    release_tx.send(()).unwrap();
+    assert!(tokio::time::timeout(Duration::from_secs(5),worker).await.unwrap().unwrap().is_err());
+    fake.await.unwrap();
+    let row = store.execution(id.clone()).await.unwrap().unwrap();
+    assert_eq!(row.status,if evidence && !bind_turn {"interrupted"} else {"unknown"});
+    assert!(row.provider_terminal_status.is_none());
+    if case.starts_with("wrong-") {
+        assert_eq!(row.thread_id.as_deref(), Some("THREAD"));
+        assert_eq!(row.turn_id.as_deref(), Some("TURN"));
+        assert!(row.provider_terminal_evidence_runtime_instance_id.is_none());
+        assert_eq!(row.error_message.as_deref(), Some("EXECUTION_PROTOCOL_IDENTITY_MISMATCH"));
+    }
+    assert_eq!(row.result_completeness,"unknown");
+    let complete: Option<i64> = db.query_row("SELECT completed_at FROM executions WHERE id=?1",[&id],|r|r.get(0)).unwrap();
+    if evidence && !bind_turn {
+        assert!(complete.is_some());
+        assert!(store.workspace_claim(request.canonical_workspace_root.clone()).await.unwrap().is_none());
+        let mut next = request.clone(); next.request_key = "next".into();
+        assert!(manager.create(next).await.unwrap().created);
+    } else {
+        assert!(store.workspace_claim(request.canonical_workspace_root.clone()).await.unwrap().is_some());
+    }
+    assert!(manager.resume_pending_execution(&id).await.is_err());
+    if case == "nonretry" {
+        let diagnostic: String = db.query_row("SELECT error_message FROM executions WHERE id=?1",[&id],|r|r.get(0)).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&diagnostic).unwrap()["willRetry"],false);
+    }
+}
+#[test]
+fn live_transport_and_protocol_failures_wait_for_shutdown_and_converge() {
+    run(async {
+        for case in ["eof","jsonl","malformed-error","wrong-turn","wrong-start","wrong-completed"] {
+            live_failure_case(case,true,true).await;
+        }
+    });
+}
+#[test]
+fn live_nonretry_error_without_terminal_is_bounded() { run(live_failure_case("nonretry",true,true)); }
+#[test]
+fn live_failure_without_termination_evidence_retains_claim_unknown() { run(live_failure_case("eof",false,true)); }
+#[test]
+fn live_failure_without_turn_releases_only_after_termination() { run(live_failure_case("early",true,false)); }
+
+#[test]
+fn shutdown_failure_survives_unknown_persistence_failure() {
+    run(async {
+        let temp = tempfile::tempdir().unwrap();
+        let store = StateStore::open(temp.path().into()).await.unwrap();
+        let manager = AgentTaskManager::new(store.clone(), "unused".into());
+        let id = manager.create(input(temp.path())).await.unwrap().execution_id;
+        let db = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
+        db.execute("UPDATE executions SET status='reconciling',dispatch_state='uncertain' WHERE id=?1",[&id]).unwrap();
+        db.execute_batch("CREATE TRIGGER reject_unknown BEFORE UPDATE OF status ON executions WHEN NEW.status='unknown' BEGIN SELECT RAISE(ABORT,'fixture persistence failure'); END;").unwrap();
+        let provider = CodexProvider {store,executable:"unused".into(),owner:"fixture".into()};
+        let result = provider.finish_after_shutdown(&id,Err("provider error".into()),
+            Err(super::super::runtime::RuntimeFailure {code:"CODEX_JOB_QUERY_FAILED",message:"original termination error".into(),runtime:None})).await;
+        match result.unwrap_err() {
+            ExecutionFailure::Runtime(failure) => {
+                assert_eq!(failure.code,"CODEX_JOB_QUERY_FAILED");
+                assert!(failure.message.contains("original termination error"));
+                assert!(failure.message.contains("fixture persistence failure"));
+            }
+            other => panic!("termination failure was lost: {other:?}"),
+        }
+    });
+}
+
+#[test]
+fn coding_turn_recovers_command_exit_one_and_streaming_burst() {
+    run(slice_case("coding-command-failure"));
+}
+
+#[test]
+fn activity_persistence_failure_does_not_fail_provider_execution() {
+    run(slice_case("activity-observability-failure"));
+}
+
+#[test]
+fn permission_diagnostic_persistence_failure_does_not_fail_provider_execution() {
+    run(slice_case("permission-observability-failure"));
+}
+
+#[test]
+fn continued_thread_rejects_late_old_turn_activity_and_permission_hints() {
+    run(slice_case("continue-old-turn"));
+}
+
+#[test]
+fn child_lifecycle_before_discovery_does_not_bind_root_turn() { run(slice_case("unowned-child-first")); }
+
+#[test]
+fn completely_unknown_thread_is_isolated_without_discovery() { run(slice_case("unowned-unknown")); }
+
+#[test]
+fn child_events_cannot_pollute_bound_root_or_wake_observe() { run(slice_case("unowned-bound")); }
+
+#[test]
+#[ignore = "Explicit real coding/Skill regression in a temporary workspace; run alone"]
+fn real_fixed_coding_skill_command_failure() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    assert!(std::process::Command::new("git").arg("init").arg(&workspace).output().unwrap().status.success());
+    std::fs::write(workspace.join("add.py"), "def add(a, b):\n    return a - b\n").unwrap();
+    assert!(!workspace.join("AGENTS.md").exists());
+    run(async {
+        let store = StateStore::open(temp.path().join("store")).await.unwrap();
+        let exe = PathBuf::from(std::env::var_os("USERPROFILE").unwrap()).join(r"AppData\Roaming\npm\node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe");
+        let manager = AgentTaskManager::new(store.clone(), exe);
+        let mut request = input(&workspace);
+        request.mode = crate::agent::execution::ExecutionMode::WorkspaceWrite;
+        request.prompt = "Use code-delivery-review for this small coding task. First run a PowerShell command that prints 2048 numbered lines and then explicitly exits with exitCode=1 as an intentional recoverable command failure. Continue coding after that failure: fix add.py so add returns the sum, verify add(2,3)==5 using Python. Use a child/subagent for the independent read-only code-delivery-review of this fix, and wait for its result before finishing. No commit or push. Keep the skill enabled. The workspace has no AGENTS.md; that is valid. Finish with CODING_REGRESSION_OK.".into();
+        let id = manager.product_submit(crate::agent::product::Action::Start {
+            workspace_id: request.workspace_id.clone(), agent_id: request.agent_id,
+            request_key: request.request_key, prompt: request.prompt,
+        }, Some(crate::agent::store::transactions::product::WorkspaceSnapshot {
+            id: request.workspace_id, root: request.canonical_workspace_root,
+        })).await.unwrap();
+        let row = tokio::time::timeout(Duration::from_secs(360), async {
+            loop {
+                let row = store.execution(id.clone()).await.unwrap().unwrap();
+                if matches!(row.status.as_str(), "completed" | "failed" | "interrupted" | "unknown" | "cancelled") { break row; }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }).await.expect("real coding test deadline");
+        println!("real coding status={} diagnostic={:?}", row.status, row.error_code);
+        assert_eq!(row.status, "completed");
+        assert_eq!(row.provider_terminal_status.as_deref(), Some("completed"));
+        assert_eq!(row.result_completeness, "complete");
+        assert_eq!(row.release_evidence_state, "complete");
+        assert!(store.workspace_claim(workspace.to_str().unwrap().into()).await.unwrap().is_none());
+        assert!(row.final_result_json.as_deref().unwrap().contains("CODING_REGRESSION_OK"));
+        let output = std::process::Command::new("python").current_dir(&workspace)
+            .args(["-B", "-c", "from add import add; assert add(2,3)==5"]).output().unwrap();
+        assert!(output.status.success());
+        assert!(!workspace.join("AGENTS.md").exists());
+        println!("coding execution={} thread={} turn={}", row.id, row.thread_id.unwrap(), row.turn_id.unwrap());
+    });
+}
+
+#[test]
+#[ignore = "Explicit fixed-binary title smoke in a temporary workspace; run alone"]
+fn real_fixed_root_title_smoke() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    assert!(std::process::Command::new("git").arg("init").arg(&workspace).output().unwrap().status.success());
+    run(async {
+        let store = StateStore::open(temp.path().join("store")).await.unwrap();
+        let exe = PathBuf::from(std::env::var_os("USERPROFILE").unwrap()).join(r"AppData\Roaming\npm\node_modules\@openai\codex\node_modules\@openai\codex-win32-x64\vendor\x86_64-pc-windows-msvc\bin\codex.exe");
+        let manager = AgentTaskManager::new(store.clone(), exe);
+        let request = input(&workspace);
+        let id = manager.product_submit(crate::agent::product::Action::Start {
+            workspace_id: request.workspace_id.clone(), agent_id: request.agent_id,
+            request_key: request.request_key,
+            prompt: "Use codex_app.set_thread_title to set this Root conversation title to exactly 'Root title smoke'. This exact title is my explicit request for this isolated regression. Do not edit files or delegate. Return ROOT_TITLE_SMOKE_OK only after the tool confirms success.".into(),
+        }, Some(crate::agent::store::transactions::product::WorkspaceSnapshot {
+            id: request.workspace_id, root: request.canonical_workspace_root,
+        })).await.unwrap();
+        let row = tokio::time::timeout(Duration::from_secs(180), async {
+            loop {
+                let row = store.execution(id.clone()).await.unwrap().unwrap();
+                if matches!(row.status.as_str(), "completed" | "failed" | "interrupted" | "unknown" | "cancelled") { break row; }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }).await.expect("real title smoke deadline");
+        println!("title smoke status={} diagnostic={:?}", row.status, row.error_code);
+        assert_eq!(row.status, "completed");
+        assert_eq!(row.release_evidence_state, "complete");
+        assert!(row.final_result_json.as_deref().unwrap().contains("ROOT_TITLE_SMOKE_OK"));
+        assert_eq!(store.product_read(Some(id), None, None, 1).await.unwrap()[0].thread_name.as_deref(), Some("Root title smoke"));
+        println!("title smoke thread={} turn={}", row.thread_id.unwrap(), row.turn_id.unwrap());
+    });
 }

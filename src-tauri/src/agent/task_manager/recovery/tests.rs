@@ -597,10 +597,11 @@ fn crash_host() {
             )
             .await
             .unwrap();
+        let workspace_root = root.join("workspace");
         let thread = managed
             .client
             .thread_start(
-                root.join("workspace").to_str().unwrap(),
+                workspace_root.to_str().unwrap(),
                 crate::agent::execution::ExecutionMode::ReadOnly,
             )
             .await
@@ -623,6 +624,8 @@ fn crash_host() {
                 &thread.id,
                 &id,
                 "Reply exactly CRASH_RECOVERY_OK. Do not use tools or modify files.",
+                crate::agent::execution::ExecutionMode::ReadOnly,
+                workspace_root.to_str().unwrap(),
                 tx
             ),
             rx

@@ -9,11 +9,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { api } from "./api";
 import { agentRequests } from "./agentRequests";
-import { executionStatus, executionTime, executionDuration, executionWorkspace, resultText, taskSummary } from "./agentPresentation";
+import { executionStatus, executionTime, executionDuration, executionWorkspace, resultText, taskSummary, taskTitle } from "./agentPresentation";
 const ExecutionDetails = lazy(() => import("./ExecutionDetails").then(module => ({ default: module.ExecutionDetails })));
 import type { AgentAction, ExecutionView, Workspace } from "./types";
 
-export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, sidebarContainer, onShowTask }: { sidebarContainer?: HTMLElement | null; onShowTask?: () => void; workspace: Workspace | null; workspaces?: Workspace[]; onSelectWorkspace?: () => void }) {
+export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, sidebarContainer, onShowTask, active = true }: { active?: boolean; sidebarContainer?: HTMLElement | null; onShowTask?: () => void; workspace: Workspace | null; workspaces?: Workspace[]; onSelectWorkspace?: () => void }) {
   const [prompt, setPrompt] = useState("");
   const [rows, setRows] = useState<ExecutionView[]>([]);
   const visibleRows = useRef<ExecutionView[]>([]);
@@ -231,7 +231,7 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
     </div>;
 
   return <>
-    {sidebarContainer && createPortal(<ProjectTaskNavigation workspaces={workspaces} hiddenIds={hiddenIds} selectedId={detail?.executionId} onDelete={requestDelete} onSelect={(row, trigger) => { opener.current = trigger; onShowTask?.(); void openDetails(row.executionId, row); }} />, sidebarContainer)}
+    {sidebarContainer && createPortal(<ProjectTaskNavigation workspaces={workspaces} hiddenIds={hiddenIds} selectedId={active ? detail?.executionId : undefined} onDelete={requestDelete} onSelect={(row, trigger) => { opener.current = trigger; onShowTask?.(); void openDetails(row.executionId, row); }} />, sidebarContainer)}
     <Dialog open={deleteRequest !== null} onOpenChange={open => { if (!open) setDeleteRequest(null); }}>
       <DialogContent showCloseButton={false} onCloseAutoFocus={event => { event.preventDefault(); if (deleteTrigger.current?.isConnected) deleteTrigger.current.focus(); }}>
         <DialogHeader><DialogTitle>从列表删除正在处理的任务？</DialogTitle>
@@ -269,9 +269,10 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
       {loaded && !visible.length && <div className="agent-empty"><strong>{listed.length ? "没有符合筛选条件的任务" : "暂无 Agent 任务"}</strong><p>{listed.length ? "切换筛选条件查看其他任务。" : "在上方输入任务，Agent 会在当前工作区中执行。"}</p></div>}
       <div className="agent-list">{visible.map(row => {
         const status = executionStatus(row);
+        const title = taskTitle(row);
         return <article className="agent-row" key={row.executionId}>
           <span className={`agent-marker tone-${status.tone}`} aria-hidden="true" />
-          <div className="agent-row-main"><div className="agent-row-title"><TooltipHint content={taskSummary(row.prompt)}><h3 tabIndex={0}>{taskSummary(row.prompt)}</h3></TooltipHint><span className={`agent-status tone-${status.tone}`}><i />{status.label}</span></div>
+          <div className="agent-row-main"><div className="agent-row-title"><TooltipHint content={title}><h3 tabIndex={0}>{title}</h3></TooltipHint><span className={`agent-status tone-${status.tone}`}><i />{status.label}</span></div>
             <div className="agent-meta"><TooltipHint content={row.canonicalWorkspaceRoot}><span tabIndex={0}>{executionWorkspace(row, [...workspaces, ...(workspace ? [workspace] : [])])}</span></TooltipHint><span>·</span><TooltipHint content={executionTime(row.createdAt)}><time tabIndex={0} dateTime={new Date(row.createdAt).toISOString()}>{executionTime(row.createdAt)}</time></TooltipHint><span>·</span><span>耗时 {executionDuration(row)}</span></div>
             <div className="agent-row-bottom"><p>{row.status === "completed" ? taskSummary(resultText(row.finalResult)) || status.description : status.description}</p><div className="agent-row-actions">
               {row.availableActions.canResumePending && <Button variant="outline" size="sm" disabled={disabled || !!listError} onClick={() => void operate({ action: "resume_pending", executionId: row.executionId })}>恢复任务</Button>}

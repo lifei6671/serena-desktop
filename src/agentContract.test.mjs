@@ -24,8 +24,29 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
     const invalidCertainty: ControlReceipt['dispatchCertainty'] = 'dispatching';
     void [invoked, booleanOnly, invalidCertainty];
     declare const row: ExecutionView;
+    declare const nullableString: string | null;
+    const threadName: string | null = row.threadName;
+    const errorCode: string | null = row.errorCode;
+    const errorMessage: string | null = row.errorMessage;
+    const threadNameAcceptsNullable: ExecutionView['threadName'] = nullableString;
+    const errorCodeAcceptsNullable: ExecutionView['errorCode'] = nullableString;
+    const errorMessageAcceptsNullable: ExecutionView['errorMessage'] = nullableString;
+    // @ts-expect-error threadName is always present, though its value may be null
+    const noThreadName: ExecutionView = {} as Omit<ExecutionView, 'threadName'>;
+    // @ts-expect-error errorCode is always present, though its value may be null
+    const noErrorCode: ExecutionView = {} as Omit<ExecutionView, 'errorCode'>;
+    // @ts-expect-error errorMessage is always present, though its value may be null
+    const noErrorMessage: ExecutionView = {} as Omit<ExecutionView, 'errorMessage'>;
     const pendingPhase: ExecutionView['progress']['phase'] = 'pending';
-    void pendingPhase;
+    const activityPhase: 'provider' | 'tool' | null = row.progress.activityPhase;
+    const toolCategory: 'build' | 'test' | 'command' | 'read' | 'edit' | 'tool' | null = row.progress.toolCategory;
+    const lastActivityAt: number | null = row.progress.lastActivityAt;
+    const activityAgeMs: number | null = row.progress.activityAgeMs;
+    // @ts-expect-error activity is a hint, never a lifecycle phase
+    const invalidPhase: ExecutionView['progress']['phase'] = 'stalled';
+    void [threadName, errorCode, errorMessage, threadNameAcceptsNullable, errorCodeAcceptsNullable,
+      errorMessageAcceptsNullable, noThreadName, noErrorCode, noErrorMessage,
+      pendingPhase, activityPhase, toolCategory, lastActivityAt, activityAgeMs, invalidPhase];
     const prompt: string = row.prompt;
     const revision: string = row.revision;
     const observation: AgentAction = {action:'observe',executionId:'E',knownRevision:revision,waitMs:0,includeResult:true};

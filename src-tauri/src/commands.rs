@@ -80,7 +80,8 @@ pub async fn get_codex_version() -> Result<String, String> {
     {
         let executable = crate::agent::codex::discovery::discover().await?;
         let evidence = crate::agent::codex::app_server::managed::verify(executable)
-            .await.map_err(|e| e.to_string())?;
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(evidence.identity.version)
     }
     #[cfg(not(windows))]
@@ -188,7 +189,14 @@ pub(crate) async fn save_config_impl(
 ) -> Result<(), String> {
     let _m = broker.management.lock().await;
     let existing = broker.config();
-    if config.workspaces != existing.workspaces || config.broker != existing.broker {
+    let listener = broker.snapshot().await;
+    if listener.running && config.port == listener.port {
+        return Err("Serena 端口不能与正在运行的 Broker 端口相同。".into());
+    }
+    if config.workspaces != existing.workspaces
+        || config.broker != existing.broker
+        || config.remote_access != existing.remote_access
+    {
         return Err("配置已变化，请刷新后重试；项目/Broker 配置使用专用入口".into());
     }
     let mut slot = broker.workspace.write().await;
@@ -345,7 +353,7 @@ pub fn shutdown_impl(app: &AppHandle) -> Result<(), String> {
     }
     tauri::async_runtime::block_on(async {
         let _m = broker.management.lock().await;
-        broker.stop().await?;
+        broker.shutdown().await?;
         app.state::<std::sync::Arc<SupervisorState>>().stop()
     })
 }
@@ -411,8 +419,19 @@ pub async fn set_broker(
     port: u16,
     allow_lan: bool,
 ) -> Result<(), String> {
-    let b = crate::mcp::get(&app);
+    set_broker_impl(&crate::mcp::get(&app), enabled, port, allow_lan).await
+}
+
+pub(crate) async fn set_broker_impl(
+    b: &std::sync::Arc<crate::mcp::Broker>,
+    enabled: bool,
+    port: u16,
+    allow_lan: bool,
+) -> Result<(), String> {
     let _m = b.management.lock().await;
+    if b.remote.active() {
+        return Err("REMOTE_ACCESS_ALREADY_RUNNING: 请先停止远程访问再修改 Broker 配置".into());
+    }
     let mut c = b.config();
     c.broker = crate::config::BrokerConfig {
         enabled,
@@ -421,8 +440,7 @@ pub async fn set_broker(
     };
     c.validate()?;
     b.stop().await?;
-    app.state::<std::sync::Arc<SupervisorState>>()
-        .replace_config(c)?;
+    b.supervisor.replace_config(c)?;
     if enabled {
         b.start().await?;
     }

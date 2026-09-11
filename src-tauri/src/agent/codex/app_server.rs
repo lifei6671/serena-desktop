@@ -1,4 +1,5 @@
 mod binding;
+mod title;
 // Bounded protocol client. It never mutates Executions or releases Claims.
 use super::protocol::{self, *};
 use serde_json::{Value, json};
@@ -30,7 +31,15 @@ struct Pending {
     terminal_turn: Option<String>,
 }
 type WriteItem = Queued<(Vec<u8>, oneshot::Sender<Result<()>>)>;
+type ServerRequest = Queued<(Value, String, Value, Option<Notification>)>;
+#[derive(Clone)]
+struct ObservabilityScope {
+    thread_id: String,
+    turn_id: Option<String>,
+}
 struct Shared {
+    title_scope: Mutex<Option<title::TitleScope>>,
+    observability_scope: Mutex<Option<ObservabilityScope>>,
     runtime_id: String,
     pending: Mutex<HashMap<u64, Pending>>,
     next_id: AtomicU64,
@@ -38,9 +47,12 @@ struct Shared {
     initializing: AtomicBool,
     cancel: CancellationToken,
     failure: watch::Sender<Option<ProtocolError>>,
+    activity: watch::Sender<Option<Activity>>,
     writer: mpsc::Sender<WriteItem>,
     writer_bytes: Arc<Semaphore>,
     stderr: Mutex<VecDeque<u8>>,
+    #[cfg(test)]
+    drop_next_diagnostic: AtomicBool,
 }
 struct RequestGuard {
     shared: Arc<Shared>,
@@ -57,6 +69,16 @@ impl Drop for RequestGuard {
     }
 }
 impl Shared {
+    fn owns_observability(&self, thread_id: &str, turn_id: &str) -> bool {
+        self.observability_scope
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|scope| {
+                scope.thread_id == thread_id && scope.turn_id.as_deref() == Some(turn_id)
+            })
+    }
+
     fn fail(&self, error: ProtocolError) {
         let mut pending = self.pending.lock().unwrap();
         if self.failure.borrow().is_none() {
@@ -95,17 +117,18 @@ impl Shared {
     }
 }
 
-/// Each delivered event retains its queue byte reservation until consumed.
-/// The receiver is the protocol dispatcher boundary; TASK-006 supplies Execution routing.
+/// Critical delivered events retain their queue reservation until consumed.
+/// Activity uses a separate latest-value slot and never competes with lifecycle events.
 pub struct Event {
     pub runtime_id: String,
     pub notification: Notification,
-    _bytes: OwnedSemaphorePermit,
+    _bytes: Option<OwnedSemaphorePermit>,
     _slot: Option<OwnedSemaphorePermit>,
 }
 pub struct Client {
     shared: Arc<Shared>,
     events: tokio::sync::Mutex<mpsc::Receiver<Event>>,
+    activity: tokio::sync::Mutex<watch::Receiver<Option<Activity>>>,
 }
 impl Drop for Client {
     fn drop(&mut self) {
@@ -115,6 +138,33 @@ impl Drop for Client {
         ));
     }
 }
+
+fn turn_start_params(
+    thread: &str,
+    text: &str,
+    mode: crate::agent::execution::ExecutionMode,
+    workspace_root: &str,
+) -> Value {
+    let sandbox_policy = match mode {
+        crate::agent::execution::ExecutionMode::ReadOnly => {
+            json!({"type":"readOnly","networkAccess":true})
+        }
+        crate::agent::execution::ExecutionMode::WorkspaceWrite => json!({
+            "type":"workspaceWrite",
+            "writableRoots":[workspace_root],
+            "networkAccess":true,
+            "excludeTmpdirEnvVar":false,
+            "excludeSlashTmp":false
+        }),
+    };
+    json!({
+        "threadId":thread,
+        "input":[{"type":"text","text":text,"text_elements":[]}],
+        "approvalPolicy":"never",
+        "sandboxPolicy":sandbox_policy
+    })
+}
+
 impl Client {
     /// Transport attachment is crate-internal; production callers use managed::connect,
     /// which verifies the executable and exports schema before launching the Runtime.
@@ -143,10 +193,12 @@ impl Client {
         let (write_tx, mut write_rx) =
             mpsc::channel::<Queued<(Vec<u8>, oneshot::Sender<Result<()>>)>>(QUEUE_COUNT);
         let (events_tx, events) = mpsc::channel(QUEUE_COUNT);
-        let (server_tx, mut server_rx) =
-            mpsc::channel::<Queued<(Value, String, Value)>>(QUEUE_COUNT);
+        let (server_tx, mut server_rx) = mpsc::channel::<ServerRequest>(QUEUE_COUNT);
         let (failure, _) = watch::channel(None);
+        let (activity, activity_rx) = watch::channel(None);
         let shared = Arc::new(Shared {
+            title_scope: Mutex::new(None),
+            observability_scope: Mutex::new(None),
             runtime_id,
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
@@ -154,9 +206,12 @@ impl Client {
             initializing: AtomicBool::new(false),
             cancel: CancellationToken::new(),
             failure,
+            activity,
             writer: write_tx,
             writer_bytes: Arc::new(Semaphore::new(QUEUE_BYTES)),
             stderr: Mutex::new(VecDeque::new()),
+            #[cfg(test)]
+            drop_next_diagnostic: AtomicBool::new(false),
         });
         let s = shared.clone();
         tokio::spawn(async move {
@@ -179,12 +234,22 @@ impl Client {
             }
         });
         let s = shared.clone();
+        let server_events = events_tx.clone();
         tokio::spawn(async move {
             while let Some(item) =
                 tokio::select! { _ = s.cancel.cancelled() => None, v = server_rx.recv() => v }
             {
-                let (id, method, params) = item.value;
-                let response = server_reply(id, &method, &params);
+                let Queued {
+                    value: (id, method, params, diagnostic),
+                    _bytes,
+                    _slot,
+                } = item;
+                let title_enabled = s.title_scope.lock().unwrap().is_some();
+                let response = if method == "item/tool/call" && title_enabled {
+                    title::reply(&s, id, params).await
+                } else {
+                    server_reply(id, &method, &params)
+                };
                 match s.enqueue(response) {
                     Ok(written) => {
                         let outcome = timeout_at(Instant::now() + RPC_TIMEOUT, written).await;
@@ -194,6 +259,33 @@ impl Client {
                                 "Server response could not be flushed",
                             ));
                             break;
+                        }
+                        if let Some(notification) = diagnostic {
+                            let Some(slot) = _slot else {
+                                eprintln!(
+                                    "Codex permission diagnostic dropped: queue reservation unavailable"
+                                );
+                                continue;
+                            };
+                            #[cfg(test)]
+                            let injected_drop =
+                                s.drop_next_diagnostic.swap(false, Ordering::AcqRel);
+                            #[cfg(not(test))]
+                            let injected_drop = false;
+                            if injected_drop
+                                || server_events
+                                .try_send(Event {
+                                    runtime_id: s.runtime_id.clone(),
+                                    notification,
+                                    _bytes: Some(_bytes),
+                                    _slot: Some(slot),
+                                })
+                                .is_err()
+                            {
+                                eprintln!(
+                                    "Codex permission diagnostic dropped: observability queue unavailable"
+                                );
+                            }
                         }
                     }
                     Err(e) => {
@@ -252,8 +344,53 @@ impl Client {
         Self {
             shared,
             events: tokio::sync::Mutex::new(events),
+            activity: tokio::sync::Mutex::new(activity_rx),
         }
     }
+    /// The Provider calls this only after persisting the corresponding Root/Turn
+    /// binding. Observability hints cannot enter their bounded slots beforehand.
+    pub(crate) fn bind_observability_scope(
+        &self,
+        thread_id: &str,
+        turn_id: Option<&str>,
+    ) -> Result<()> {
+        if thread_id.is_empty() || turn_id.is_some_and(str::is_empty) {
+            return Err(ProtocolError::invalid("Empty observability identity"));
+        }
+        let mut current = self.shared.observability_scope.lock().unwrap();
+        match current.as_mut() {
+            None => {
+                *current = Some(ObservabilityScope {
+                    thread_id: thread_id.into(),
+                    turn_id: turn_id.map(str::to_owned),
+                });
+            }
+            Some(scope) if scope.thread_id != thread_id => {
+                return Err(ProtocolError::invalid(
+                    "Observability scope cannot change Root Thread",
+                ));
+            }
+            Some(scope) => match (&scope.turn_id, turn_id) {
+                (None, Some(turn_id)) => scope.turn_id = Some(turn_id.into()),
+                (Some(current), Some(turn_id)) if current == turn_id => {}
+                (None, None) => {}
+                _ => {
+                    return Err(ProtocolError::invalid(
+                        "Observability scope cannot change or clear authoritative Turn",
+                    ));
+                }
+            },
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn drop_next_permission_diagnostic(&self) {
+        self.shared
+            .drop_next_diagnostic
+            .store(true, Ordering::Release);
+    }
+
     pub fn runtime_id(&self) -> &str {
         &self.shared.runtime_id
     }
@@ -278,10 +415,23 @@ impl Client {
     /// Allows the serial Provider dispatcher to observe events while an ACK is pending.
     pub(crate) async fn receive_event(&self) -> Result<Event> {
         let mut events = self.events.lock().await;
+        let mut activity = self.activity.lock().await;
         tokio::select! {
             biased;
             _ = self.shared.cancel.cancelled() => Err(self.shared.failure.borrow().clone().unwrap()),
             event = events.recv() => event.ok_or_else(|| ProtocolError::new("CODEX_STDIO_EOF", "Notification dispatcher closed")),
+            changed = activity.changed() => {
+                changed.map_err(|_| ProtocolError::new("CODEX_STDIO_EOF", "Activity dispatcher closed"))?;
+                let notification = activity.borrow_and_update().clone()
+                    .map(Notification::Activity)
+                    .ok_or_else(|| ProtocolError::invalid("Activity dispatcher produced no value"))?;
+                Ok(Event {
+                    runtime_id: self.shared.runtime_id.clone(),
+                    notification,
+                    _bytes: None,
+                    _slot: None,
+                })
+            },
         }
     }
     async fn rpc(
@@ -416,7 +566,11 @@ impl Client {
             crate::agent::execution::ExecutionMode::ReadOnly => "read-only",
             crate::agent::execution::ExecutionMode::WorkspaceWrite => "workspace-write",
         };
-        let value = self.control("thread/start", json!({"cwd":cwd,"ephemeral":false,"historyMode":"paginated","approvalPolicy":"never","sandbox":sandbox})).await?;
+        let mut params = json!({"cwd":cwd,"ephemeral":false,"historyMode":"paginated","approvalPolicy":"never","sandbox":sandbox});
+        if self.shared.title_scope.lock().unwrap().is_some() {
+            params["dynamicTools"] = title::tools();
+        }
+        let value = self.control("thread/start", params).await?;
         self.validated(thread_response(value).and_then(|thread| {
             if thread.id.is_empty() || thread.history_mode != HistoryMode::Paginated {
                 Err(ProtocolError::incompatible(
@@ -446,11 +600,18 @@ impl Client {
             .await?;
         self.validated(checked_thread(value, thread))
     }
-    pub async fn turn_start(&self, thread: &str, execution: &str, text: &str) -> Result<Turn> {
+    pub async fn turn_start(
+        &self,
+        thread: &str,
+        execution: &str,
+        text: &str,
+        mode: crate::agent::execution::ExecutionMode,
+        workspace_root: &str,
+    ) -> Result<Turn> {
         let v = self
             .rpc(
                 "turn/start",
-                json!({"threadId":thread,"input":[{"type":"text","text":text,"text_elements":[]}]}),
+                turn_start_params(thread, text, mode, workspace_root),
                 Some(execution.into()),
                 Instant::now() + RPC_TIMEOUT,
                 false,
@@ -464,12 +625,14 @@ impl Client {
         thread: &str,
         execution: &str,
         text: &str,
+        mode: crate::agent::execution::ExecutionMode,
+        workspace_root: &str,
         flushed: oneshot::Sender<()>,
     ) -> Result<Turn> {
         let value = self
             .rpc_with_flush(
                 "turn/start",
-                json!({"threadId":thread,"input":[{"type":"text","text":text,"text_elements":[]}]}),
+                turn_start_params(thread, text, mode, workspace_root),
                 Some(execution.into()),
                 Instant::now() + RPC_TIMEOUT,
                 false,
@@ -724,7 +887,7 @@ async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>> {
 fn dispatch(
     s: &Arc<Shared>,
     events: &mpsc::Sender<Event>,
-    server: &mpsc::Sender<Queued<(Value, String, Value)>>,
+    server: &mpsc::Sender<ServerRequest>,
     budget: &Arc<Semaphore>,
     count: &Arc<Semaphore>,
     frame: Vec<u8>,
@@ -746,7 +909,7 @@ fn dispatch(
                         "turn/start ACK for wrong terminal Turn",
                     ));
                 }
-            } else if Instant::now() > p.deadline {
+            } else if p.method != "thread/name/set" && Instant::now() > p.deadline {
                 return Err(ProtocolError::new(
                     "CODEX_RPC_TIMEOUT",
                     format!(
@@ -754,6 +917,11 @@ fn dispatch(
                         p.method, p.execution
                     ),
                 ));
+            }
+            // A title timeout is tool-local. Its single bounded pending entry stays
+            // correlated until the late reply arrives; never replay the rename.
+            if p.method == "thread/name/set" && let Ok(value) = &result {
+                empty_response(value.clone())?;
             }
             let result = result.map_err(|e| {
                 ProtocolError::new(
@@ -771,33 +939,56 @@ fn dispatch(
         }
         Message::Notification { method, params } => {
             let notification = protocol::notification(method, params)?;
-            let slot = count.clone().try_acquire_owned().map_err(|_| {
-                ProtocolError::new(
-                    "CODEX_PROTOCOL_QUEUE_FULL",
-                    "Combined event queue exhausted",
-                )
-            })?;
-            let permit = budget
-                .clone()
-                .try_acquire_many_owned(length as u32)
-                .map_err(|_| {
-                    ProtocolError::new("CODEX_PROTOCOL_QUEUE_FULL", "Event byte budget exhausted")
-                })?;
-            events
-                .try_send(Event {
-                    runtime_id: s.runtime_id.clone(),
-                    notification,
-                    _bytes: permit,
-                    _slot: Some(slot),
-                })
-                .map_err(|_| {
-                    ProtocolError::new(
-                        "CODEX_PROTOCOL_QUEUE_FULL",
-                        "Notification queue unavailable",
-                    )
-                })?;
+            // The Provider consumes lifecycle/name/error events only. Streaming item,
+            // output and legacy notifications have no consumer; retaining them can
+            // exhaust the queue while the Provider awaits a store transaction or RPC.
+            // Decode first, but discard these non-authoritative events before reserving
+            // capacity. Critical events and Server Requests keep their fail-closed bounds.
+            match notification {
+                Notification::Other { .. } => return Ok(()),
+                Notification::Activity(activity) => {
+                    if s.owns_observability(&activity.thread_id, &activity.turn_id) {
+                        s.activity.send_replace(Some(activity));
+                    }
+                    return Ok(());
+                }
+                notification => {
+                    let slot = count.clone().try_acquire_owned().map_err(|_| {
+                        ProtocolError::new(
+                            "CODEX_PROTOCOL_QUEUE_FULL",
+                            "Combined event queue exhausted",
+                        )
+                    })?;
+                    let permit = budget
+                        .clone()
+                        .try_acquire_many_owned(length as u32)
+                        .map_err(|_| {
+                            ProtocolError::new(
+                                "CODEX_PROTOCOL_QUEUE_FULL",
+                                "Event byte budget exhausted",
+                            )
+                        })?;
+                    events
+                        .try_send(Event {
+                            runtime_id: s.runtime_id.clone(),
+                            notification,
+                            _bytes: Some(permit),
+                            _slot: Some(slot),
+                        })
+                        .map_err(|_| {
+                            ProtocolError::new(
+                                "CODEX_PROTOCOL_QUEUE_FULL",
+                                "Notification queue unavailable",
+                            )
+                        })?;
+                }
+            }
         }
         Message::ServerRequest { id, method, params } => {
+            let diagnostic = permission_denied_notification(&method, &params)?.filter(|event| {
+                matches!(event, Notification::PermissionDenied { thread_id, turn_id, .. }
+                    if s.owns_observability(thread_id, turn_id))
+            });
             let slot = count.clone().try_acquire_owned().map_err(|_| {
                 ProtocolError::new(
                     "CODEX_PROTOCOL_QUEUE_FULL",
@@ -812,7 +1003,7 @@ fn dispatch(
                 })?;
             server
                 .try_send(Queued {
-                    value: (id, method, params),
+                    value: (id, method, params, diagnostic),
                     _bytes: permit,
                     _slot: Some(slot),
                 })

@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { HoverCard } from "radix-ui";
 import { CalendarDays, ChevronDown, CircleAlert, Folder, LoaderCircle, Monitor, Trash2 } from "lucide-react";
 import { api } from "./api";
-import { executionStatus, executionTime, taskSummary } from "./agentPresentation";
+import { executionStatus, executionTime, taskTitle } from "./agentPresentation";
 import type { ExecutionView, Workspace } from "./types";
 
 import { toast } from "sonner";
@@ -23,7 +23,12 @@ function TaskItem({ row, workspace, selected, onSelect, onDelete }: {
   const [open, setOpen] = useState(false);
   const infoId = useId();
   const status = executionStatus(row);
-  const days = Math.max(0, Math.floor((Date.now() - row.updatedAt) / 86400000));
+  const title = taskTitle(row);
+  const now = new Date(Date.now());
+  const updated = new Date(row.updatedAt);
+  // Compare local calendar dates; elapsed hours mislabel yesterday and DST days.
+  const days = Math.max(0, (Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+    - Date.UTC(updated.getFullYear(), updated.getMonth(), updated.getDate())) / 86400000);
   return <li className="project-task" data-selected={selected}>
     <HoverCard.Root open={open} onOpenChange={setOpen} openDelay={350} closeDelay={100}>
       <HoverCard.Trigger asChild>
@@ -33,20 +38,20 @@ function TaskItem({ row, workspace, selected, onSelect, onDelete }: {
           onClick={event => { setOpen(false); onSelect(row, event.currentTarget); }}>
           {status.tone === "blue" && <LoaderCircle className="project-task-state-icon tone-blue animate-spin motion-reduce:animate-none" role="img" aria-label={status.label} />}
           {status.tone === "red" && <CircleAlert className="project-task-state-icon tone-red" role="img" aria-label={status.label} />}
-          <span>{taskSummary(row.prompt) || "未命名任务"}</span>
-          <time dateTime={new Date(row.updatedAt).toISOString()}>{days ? `${days}天前` : "今天"}</time>
+          <span>{title}</span>
+          <time dateTime={updated.toISOString()}>{days === 0 ? "今天" : days === 1 ? "昨天" : `${days}天前`}</time>
         </button>
       </HoverCard.Trigger>
       <HoverCard.Portal>
         <HoverCard.Content id={infoId} className="project-task-preview" side="right" align="start" sideOffset={12} collisionPadding={16}>
-          <strong>{taskSummary(row.prompt) || "未命名任务"}</strong>
+          <strong>{title}</strong>
           <p><Monitor aria-hidden="true" />本地任务 <span className={`agent-status tone-${status.tone}`}>{status.label}</span></p>
           <p><Folder aria-hidden="true" />所属项目：{workspace.name}</p>
           <p><CalendarDays aria-hidden="true" />更新于 {executionTime(row.updatedAt)}</p>
         </HoverCard.Content>
       </HoverCard.Portal>
     </HoverCard.Root>
-    <TooltipHint content="仅从本机列表删除，不取消执行"><button className="project-task-delete" aria-label={`删除任务：${taskSummary(row.prompt) || "未命名任务"}`}
+    <TooltipHint content="仅从本机列表删除，不取消执行"><button className="project-task-delete" aria-label={`删除任务：${title}`}
       onClick={event => {
         const item = event.currentTarget.closest("li");
         const target = item?.nextElementSibling?.querySelector<HTMLElement>(".project-task-link")

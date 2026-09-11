@@ -1,5 +1,7 @@
 //! One product boundary for MCP and Tauri. Runtime owns all mutation workers.
 use super::{
+    activity::{ActivityPhase, ToolCategory},
+    coordinator::now,
     store::{
         StateStore,
         transactions::product::{WorkspaceSnapshot, continuation_eligible},
@@ -70,8 +72,13 @@ pub struct AvailableActions {
     pub can_resume_pending: bool,
 }
 #[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct Progress {
     pub phase: ProgressPhase,
+    pub activity_phase: Option<ActivityPhase>,
+    pub tool_category: Option<ToolCategory>,
+    pub last_activity_at: Option<i64>,
+    pub activity_age_ms: Option<i64>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,8 +124,12 @@ pub struct ExecutionView {
     pub status: String,
     pub dispatch_state: String,
     pub thread_id: Option<String>,
+    pub thread_name: Option<String>,
     pub turn_id: Option<String>,
     pub provider_terminal_status: Option<String>,
+    /// Last diagnostic only; status and Provider terminal remain lifecycle authorities.
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
     pub result_completeness: String,
     pub revision: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -141,13 +152,16 @@ impl ExecutionView {
     fn observation_revision(&self) -> String {
         // Product semantics only: never expose the store's CAS revision or hash clocks/result text.
         let input = json!([
-            "agent-observation-v1",
+            "agent-observation-v2",
             self.execution_id,
             self.status,
             self.dispatch_state,
             self.thread_id,
+            self.thread_name,
             self.turn_id,
             self.provider_terminal_status,
+            self.error_code,
+            self.error_message,
             self.result_completeness,
             self.result_available,
             self.interrupt_requested,
@@ -155,7 +169,10 @@ impl ExecutionView {
             self.interrupt_timed_out,
             self.attention,
             self.available_actions,
-            self.progress.phase
+            self.progress.phase,
+            self.progress.activity_phase,
+            self.progress.tool_category,
+            self.progress.last_activity_at
         ]);
         Sha256::digest(input.to_string().as_bytes())
             .iter()
@@ -539,6 +556,25 @@ impl AgentProductService {
                     _ => return Err(format!("Invalid persisted execution status: {}", r.status)),
                 };
                 let result_available = r.final_result_json.is_some();
+                let activity_phase = r
+                    .activity_phase
+                    .as_deref()
+                    .map(ActivityPhase::try_from)
+                    .transpose()?;
+                let tool_category = r
+                    .tool_category
+                    .as_deref()
+                    .map(ToolCategory::try_from)
+                    .transpose()?;
+                match (r.last_activity_at, activity_phase, tool_category) {
+                    (None, None, None)
+                    | (Some(_), Some(ActivityPhase::Provider), None)
+                    | (Some(_), Some(ActivityPhase::Tool), Some(_)) => {}
+                    _ => return Err("Invalid persisted execution activity".into()),
+                }
+                let activity_age_ms = r
+                    .last_activity_at
+                    .map(|last| now().saturating_sub(last).max(0));
                 let next_action = match attention {
                     "manual_resolution_required" => Some(NextAction::ManualResolution),
                     "pending_explicit_resume" => Some(NextAction::ResumePending),
@@ -565,13 +601,27 @@ impl AgentProductService {
                     status: r.status.clone(),
                     dispatch_state: r.dispatch_state.clone(),
                     thread_id: r.thread_id.clone(),
+                    thread_name: s.thread_name,
                     turn_id: r.turn_id.clone(),
                     provider_terminal_status: r.provider_terminal_status.clone(),
+                    error_code: r.error_code.as_ref().map(|code| match code.as_str() {
+                        "CODEX_TURN_ERROR" => code.clone(),
+                        "CODEX_PROVIDER_FAILURE" => code.clone(),
+                        "CODEX_PERMISSION_DENIED" => code.clone(),
+                        _ => "EXECUTION_DIAGNOSTIC".into(),
+                    }),
+                    error_message: execution_diagnostic_message(r),
                     result_completeness: r.result_completeness.clone(),
                     revision: String::new(),
                     unchanged: None,
                     result_available,
-                    progress: Progress { phase },
+                    progress: Progress {
+                        phase,
+                        activity_phase,
+                        tool_category,
+                        last_activity_at: r.last_activity_at,
+                        activity_age_ms,
+                    },
                     next_action,
                     final_result,
                     interrupt_requested: r.interrupt_requested_at.is_some(),
@@ -588,6 +638,44 @@ impl AgentProductService {
             })
             .collect()
     }
+}
+
+// Project only typed categories and fixed text. Raw Provider messages may contain
+// credentials even when short; truncating or keyword redaction is not sufficient.
+fn execution_diagnostic_message(row: &super::store::ExecutionRecord) -> Option<String> {
+    let code = row.error_code.as_deref()?;
+    let raw = row.error_message.as_deref().unwrap_or("");
+    let message = match code {
+        "CODEX_TURN_ERROR" => {
+            let category = serde_json::from_str::<Value>(raw).ok()
+                .and_then(|v| serde_json::from_value::<super::codex::protocol::CodexErrorInfo>(v["error"]["codexErrorInfo"].clone()).ok())
+                .and_then(|v| serde_json::to_value(v).ok())
+                .and_then(|v| match v { Value::String(s) => Some(s), Value::Object(o) => o.keys().next().cloned(), _ => None })
+                .unwrap_or_else(|| "other".into());
+            format!("{category}: Codex reported a turn diagnostic.")
+        }
+        "CODEX_PROVIDER_FAILURE" => match raw.split(':').next().unwrap_or("") {
+            "CODEX_PROTOCOL_QUEUE_FULL" => "CODEX_PROTOCOL_QUEUE_FULL: Protocol event queue exhausted.".into(),
+            "CODEX_STDIO_EOF" => "CODEX_STDIO_EOF: App Server stdout closed.".into(),
+            "CODEX_PROTOCOL_INVALID_MESSAGE" => "CODEX_PROTOCOL_INVALID_MESSAGE: Invalid App Server message.".into(),
+            "CODEX_APP_SERVER_INCOMPATIBLE" => "CODEX_APP_SERVER_INCOMPATIBLE: App Server protocol mismatch.".into(),
+            "CODEX_TURN_ERROR_TERMINAL_TIMEOUT" => "CODEX_TURN_ERROR_TERMINAL_TIMEOUT: No authoritative terminal after non-retry error.".into(),
+            "PROVIDER_THREAD_MISMATCH" => "PROVIDER_THREAD_MISMATCH: Notification does not belong to the Execution thread.".into(),
+            "CODEX_RPC_TIMEOUT" => "CODEX_RPC_TIMEOUT: App Server request timed out.".into(),
+            _ => "Codex Provider failed; raw details withheld.".into(),
+        },
+        "CODEX_PERMISSION_DENIED" => {
+            let category = match raw {
+                "command" => "command",
+                "file_change" => "file change",
+                "permissions" => "permissions",
+                _ => "unknown",
+            };
+            format!("CODEX_PERMISSION_DENIED: Unexpected {category} approval request was denied.")
+        }
+        _ => "Execution diagnostic recorded; raw details withheld.".into(),
+    };
+    Some(message.chars().take(256).collect())
 }
 
 #[cfg(test)]

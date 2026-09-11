@@ -1,5 +1,7 @@
 import { AgentPanel } from "./AgentPanel";
-import { House, Activity, Settings, ScrollText, Bot } from "lucide-react";
+import { House, Activity, Settings, ScrollText, Bot, Globe } from "lucide-react";
+import { useRemoteAccess } from "./useRemoteAccess";
+import { RemoteApprovalDialog } from "./RemoteApprovalDialog";
 import { Button } from "@/components/ui/button";
 import { lazy, Suspense, useState } from "react";
 import { toast } from "sonner";
@@ -9,6 +11,7 @@ import type { ServerStatus } from "./types";
 
 const StatusPage = lazy(() => import("./features/status/StatusPage"));
 const SettingsPage = lazy(() => import("./features/settings/SettingsPage"));
+const RemoteAccessPage = lazy(() => import("./RemoteAccessPage"));
 const McpLogs = lazy(() => import("./McpLogs").then(module => ({ default: module.McpLogs })));
 
 const appLogo = new URL("../src-tauri/icons/128x128.png", import.meta.url).href;
@@ -21,7 +24,8 @@ const statusCopy: Record<ServerStatus, { label: string; detail: string }> = {
 };
 
 function App() {
-  const [tab, setTab] = useState<"console" | "serena" | "settings" | "logs" | "agent">("console");
+  const [tab, setTab] = useState<"console" | "serena" | "settings" | "logs" | "agent" | "remote">("console");
+  const remote = useRemoteAccess();
   const [projectNavigation, setProjectNavigation] = useState<HTMLDivElement | null>(null);
   const controller = useAppController(tab === "serena");
   const { state, brokerController } = controller;
@@ -93,6 +97,7 @@ function App() {
             <ScrollText aria-hidden="true" />日志
           </Button>
           <Button className="justify-start" aria-current={tab === "agent" ? "page" : undefined} variant={tab === "agent" ? "secondary" : "ghost"} onClick={() => setTab("agent")}><Bot aria-hidden="true" />Agent</Button>
+          <Button className="justify-start" aria-current={tab === "remote" ? "page" : undefined} variant={tab === "remote" ? "secondary" : "ghost"} onClick={() => setTab("remote")}><Globe aria-hidden="true" />远程访问</Button>
         </nav>
         <div className="project-navigation-slot" ref={setProjectNavigation} />
       </aside>
@@ -105,12 +110,15 @@ function App() {
               state={state}
               controller={brokerController}
               onSettings={() => setTab("settings")}
+              onRemote={() => setTab("remote")}
               onSerena={() => setTab("serena")}
               onCopied={() => {
                 toast.success("复制成功");
               }}
             />
           </section>
+        ) : tab === "remote" ? (
+          <RemoteAccessPage controller={remote} port={state.config.broker.port} allowLan={state.config.broker.allowLan} onSettings={() => setTab("settings")} />
         ) : tab === "serena" ? (
           <StatusPage {...controller} state={state} />
         ) : tab === "agent" ? (
@@ -121,7 +129,8 @@ function App() {
           <SettingsPage {...controller} state={state} />
         )}
         </Suspense>
-        <div hidden={tab !== "agent"}><AgentPanel sidebarContainer={projectNavigation} onShowTask={() => setTab("agent")} workspace={brokerController.broker?.activeWorkspace ?? null} workspaces={brokerController.broker?.projects ?? state.config.workspaces} onSelectWorkspace={() => setTab("console")} /></div>
+        <div hidden={tab !== "agent"}><AgentPanel active={tab === "agent"} sidebarContainer={projectNavigation} onShowTask={() => setTab("agent")} workspace={brokerController.broker?.activeWorkspace ?? null} workspaces={brokerController.broker?.projects ?? state.config.workspaces} onSelectWorkspace={() => setTab("console")} /></div>
+        <RemoteApprovalDialog controller={remote} />
       </main>
 
       <footer>

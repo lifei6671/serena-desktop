@@ -916,6 +916,97 @@ fn immutable_binding_trigger_remains_active_through_public_dispatch_api() {
 }
 
 #[test]
+fn permission_hint_cannot_replace_turn_or_provider_failure_diagnostic() {
+    for authoritative in ["CODEX_TURN_ERROR", "CODEX_PROVIDER_FAILURE"] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(dir.path());
+        fixture(&store, Status::Running, DispatchState::Dispatched);
+        block(store.execution_diagnostic(
+            "e".into(),
+            authoritative.into(),
+            "authoritative".into(),
+            2,
+        ))
+        .unwrap();
+        let before = status(&store);
+        block(store.execution_diagnostic(
+            "e".into(),
+            "CODEX_PERMISSION_DENIED".into(),
+            "command".into(),
+            3,
+        ))
+        .unwrap();
+        let after = status(&store);
+        assert_eq!(after.error_code.as_deref(), Some(authoritative));
+        assert_eq!(after.error_message.as_deref(), Some("authoritative"));
+        assert_eq!(after.revision, before.revision);
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Running, DispatchState::Dispatched);
+    block(store.execution_diagnostic(
+        "e".into(),
+        "CODEX_PERMISSION_DENIED".into(),
+        "command".into(),
+        2,
+    ))
+    .unwrap();
+    block(store.execution_diagnostic("e".into(), "CODEX_TURN_ERROR".into(), "turn".into(), 3))
+        .unwrap();
+    let row = status(&store);
+    assert_eq!(row.error_code.as_deref(), Some("CODEX_TURN_ERROR"));
+    assert_eq!(row.error_message.as_deref(), Some("turn"));
+}
+
+#[test]
+fn delayed_activity_event_time_does_not_regress_execution_updated_at() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Running, DispatchState::Dispatched);
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET thread_id='ROOT',turn_id='TURN' WHERE id='e'",
+            [],
+        )
+        .unwrap();
+    block(store.execution_diagnostic("e".into(), "CODEX_TURN_ERROR".into(), "turn".into(), 20))
+        .unwrap();
+    let before_revision = status(&store).revision;
+
+    block(store.execution_activity(
+        "e".into(),
+        "ROOT".into(),
+        "TURN".into(),
+        ActivityPhase::Tool,
+        Some(ToolCategory::Test),
+        10,
+    ))
+    .unwrap();
+
+    let row = status(&store);
+    let updated_at: i64 = store
+        .connection
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT updated_at FROM executions WHERE id='e'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(row.last_activity_at, Some(10));
+    assert_eq!(row.activity_phase.as_deref(), Some("tool"));
+    assert_eq!(row.tool_category.as_deref(), Some("test"));
+    assert_eq!(row.revision, before_revision + 1);
+    assert_eq!(updated_at, 20);
+    assert_eq!(row.error_code.as_deref(), Some("CODEX_TURN_ERROR"));
+}
+
+#[test]
 fn late_diagnostics_do_not_hide_new_runtime_evidence_and_consumption_is_atomic() {
     let dir = tempfile::tempdir().unwrap();
     let s = open(dir.path());

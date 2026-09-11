@@ -36,6 +36,10 @@ export function taskSummary(prompt: string) {
   return chars.length > 100 ? `${chars.slice(0, 100).join("")}…` : text;
 }
 
+export function taskTitle(row: Pick<ExecutionView, "threadName" | "prompt">) {
+  return row.threadName?.trim() || taskSummary(row.prompt) || "未命名任务";
+}
+
 export function resultText(result: unknown): string {
   if (typeof result === "string") return result;
   if (!result || typeof result !== "object" || !("finalResult" in result) || !Array.isArray(result.finalResult)) return "";

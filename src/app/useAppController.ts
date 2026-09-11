@@ -7,6 +7,7 @@ import type { AppState, ManagerConfig } from "../types";
 
 const initialConfig: ManagerConfig = {
   agentEnabled: false,
+  remoteAccess: { mode: "mcp_only", selfHosted: { publicOrigin: null }, mcpOnly: { securityDeclaration: "external_auth", publicOrigin: null } },
   broker: { enabled: false, port: 9120, allowLan: false },
   workspaces: [],
   serenaPath: null,

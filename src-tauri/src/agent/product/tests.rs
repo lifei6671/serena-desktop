@@ -2,12 +2,12 @@ use super::*;
 use crate::agent::{codex::app_server::Client, coordinator::now};
 use std::{sync::Arc, time::Duration};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-#[path = "restart_tests.rs"]
-mod restart_tests;
 #[path = "control_tests.rs"]
 mod control_tests;
 #[path = "observe_tests.rs"]
 mod observe_tests;
+#[path = "restart_tests.rs"]
+mod restart_tests;
 #[path = "workspace_write_tests.rs"]
 mod workspace_write_tests;
 fn run(f: impl std::future::Future<Output = ()>) {
@@ -21,6 +21,58 @@ fn w(root: &std::path::Path, id: &str) -> Option<WorkspaceSnapshot> {
         id: id.into(),
         root: root.to_string_lossy().into(),
     })
+}
+
+#[tokio::test]
+async fn thread_names_are_shared_persistent_and_change_observation_revision_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    for id in ["a", "b"] {
+        store
+            .product_create_fresh(
+                id.into(),
+                id.into(),
+                "k".into(),
+                "prompt".into(),
+                "W".into(),
+                w(dir.path(), "W"),
+                10,
+            )
+            .await
+            .unwrap();
+        store.request_cancel(id.into(), 11).await.unwrap();
+    }
+    let c = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    c.execute("UPDATE executions SET thread_id='T'", [])
+        .unwrap();
+    let service = AgentProductService::new(store.clone());
+    let before = service.observe("a".into(), false).await.unwrap();
+    let record = store.execution("a".into()).await.unwrap();
+    store
+        .save_thread_name("T".into(), Some("官方名称".into()))
+        .await
+        .unwrap();
+    let renamed = service.observe("a".into(), false).await.unwrap();
+    assert_eq!(renamed.thread_name.as_deref(), Some("官方名称"));
+    assert_ne!(renamed.revision, before.revision);
+    assert_eq!(renamed.updated_at, before.updated_at);
+    assert_eq!(store.execution("a".into()).await.unwrap(), record);
+    let reopened = AgentProductService::new(StateStore::open(dir.path().into()).await.unwrap());
+    let page = reopened.history_page(None, None).await.unwrap();
+    assert!(
+        page.executions
+            .iter()
+            .all(|r| r.thread_name.as_deref() == Some("官方名称") && r.final_result.is_none())
+    );
+    store.save_thread_name("T".into(), None).await.unwrap();
+    assert!(
+        reopened
+            .observe("b".into(), false)
+            .await
+            .unwrap()
+            .thread_name
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -401,6 +453,26 @@ async fn fake_service(
                 }
                 "turn/start" => {
                     assert_eq!(v["params"]["threadId"], "THREAD");
+                    assert_eq!(v["params"]["approvalPolicy"], "never");
+                    let writable_roots = v["params"]["sandboxPolicy"]["writableRoots"]
+                        .as_array()
+                        .unwrap();
+                    assert_eq!(writable_roots.len(), 1);
+                    assert!(
+                        writable_roots[0]
+                            .as_str()
+                            .is_some_and(|root| !root.is_empty())
+                    );
+                    assert_eq!(
+                        v["params"]["sandboxPolicy"],
+                        json!({
+                            "type":"workspaceWrite",
+                            "writableRoots":writable_roots,
+                            "networkAccess":true,
+                            "excludeTmpdirEnvVar":false,
+                            "excludeSlashTmp":false
+                        })
+                    );
                     wait.take().unwrap().await.unwrap();
                     let notification = json!({"method":"turn/completed","params":{"threadId":"THREAD","turn":terminal}});
                     io.write_all(format!("{notification}\n").as_bytes())

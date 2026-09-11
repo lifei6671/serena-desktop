@@ -7,8 +7,12 @@ mod commands;
 mod config;
 mod discovery;
 mod installer;
+#[cfg(windows)]
+mod load_error;
 mod logs;
 mod mcp;
+mod oauth;
+mod remote;
 mod serena;
 mod tray;
 
@@ -91,6 +95,8 @@ pub fn run() {
         ))
         .setup(|app| {
             #[cfg(windows)]
+            load_error::install(&app.get_webview_window("main").expect("main window"))?;
+            #[cfg(windows)]
             app.get_webview_window("main")
                 .expect("main webview window must exist")
                 .with_webview(|webview| unsafe {
@@ -108,43 +114,50 @@ pub fn run() {
                 std::sync::Arc::new(SupervisorState::new(paths).map_err(std::io::Error::other)?);
             app.manage(supervisor.clone());
             let broker = std::sync::Arc::new(mcp::Broker::new(supervisor));
+            let _ = broker.remote.app.set(app.handle().clone());
             let store = tauri::async_runtime::block_on(agent::store::StateStore::open_for_app(
                 app.handle(),
             ))
             .map_err(std::io::Error::other)?;
             let (product, outcomes) = tauri::async_runtime::block_on(
                 agent::product::AgentProductService::initialize(store),
-            ).map_err(std::io::Error::other)?;
+            )
+            .map_err(std::io::Error::other)?;
             if let Some(error) = product.backend_diagnostic() {
-                logs::append(&app.state::<std::sync::Arc<SupervisorState>>().paths.app_log, "agent backend", &format!("Agent backend unavailable: {error}"));
+                logs::append(
+                    &app.state::<std::sync::Arc<SupervisorState>>().paths.app_log,
+                    "agent backend",
+                    &format!("Agent backend unavailable: {error}"),
+                );
             }
             for outcome in outcomes {
                 use agent::task_manager::recovery::RecoveryOutcome::*;
                 let (kind, id) = match &outcome {
                     Released { execution_id } => ("released", execution_id),
-                    Inconsistent { execution_id, .. } => ("inconsistent; claim retained", execution_id),
-                    PendingExplicitResume { execution_id } => ("pending explicit resume", execution_id),
+                    Inconsistent { execution_id, .. } => {
+                        ("inconsistent; claim retained", execution_id)
+                    }
+                    PendingExplicitResume { execution_id } => {
+                        ("pending explicit resume", execution_id)
+                    }
                     Unknown { execution_id, .. } => ("unknown; claim retained", execution_id),
-                    RuntimeFailure { execution_id, .. } => ("runtime failure; claim retained", execution_id),
-                    Interrupted { execution, .. } => ("interrupted; safely released", &execution.id),
+                    RuntimeFailure { execution_id, .. } => {
+                        ("runtime failure; claim retained", execution_id)
+                    }
+                    Interrupted { execution, .. } => {
+                        ("interrupted; safely released", &execution.id)
+                    }
                 };
-                logs::append(&app.state::<std::sync::Arc<SupervisorState>>().paths.app_log, "agent recovery", &format!("{id}: {kind}"));
+                logs::append(
+                    &app.state::<std::sync::Arc<SupervisorState>>().paths.app_log,
+                    "agent recovery",
+                    &format!("{id}: {kind}"),
+                );
             }
             let product = std::sync::Arc::new(product);
             let _ = broker.product.set(product.clone());
             app.manage(product);
             app.manage(broker.clone());
-            let sync_app = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = commands::sync_workspaces(sync_app).await {
-                    *broker.sync_warnings.lock().unwrap() = vec![format!("同步失败：{e}")];
-                }
-                if broker.config().broker.enabled
-                    && let Err(e) = broker.start().await
-                {
-                    *broker.error.lock().unwrap() = Some(e);
-                }
-            });
             app.manage(ShutdownState::default());
             tray::create(app.handle())?;
 
@@ -157,7 +170,7 @@ pub fn run() {
             }
 
             let handle = app.handle().clone();
-            tauri::async_runtime::spawn_blocking(move || {
+            let serena_startup = tauri::async_runtime::spawn_blocking(move || {
                 let installation = handle
                     .state::<std::sync::Arc<SupervisorState>>()
                     .detect_serena();
@@ -181,6 +194,15 @@ pub fn run() {
                     }
                 }
             });
+            let sync_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = commands::sync_workspaces(sync_app).await {
+                    *broker.sync_warnings.lock().unwrap() = vec![format!("同步失败：{e}")];
+                }
+                if let Err(e) = broker.startup_after_serena(serena_startup).await {
+                    *broker.error.lock().unwrap() = Some(e);
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -200,6 +222,11 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            remote::remote_state,
+            remote::remote_start,
+            remote::remote_stop,
+            remote::remote_probe,
+            remote::remote_approve,
             commands::agent_operation,
             commands::agent_history,
             commands::get_app_state,

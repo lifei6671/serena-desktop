@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>界面加载失败 · Serena Desktop</title>
+<style>
+:root{font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#29352e;background:#e7e9e4;color-scheme:light}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:32px}
+main{width:100%;max-width:520px;padding:40px;background:#f8f9f5;border:1px solid #d4d9d0;border-radius:20px;box-shadow:0 12px 36px #29352e08}
+.brand{display:flex;align-items:center;gap:10px;font-size:13px;color:#59665c}.brand img{width:28px;height:28px}
+h1{margin:32px 0 12px;font-size:26px;letter-spacing:-.5px}p{margin:0;color:#59665c;font-size:14px;line-height:1.8}
+nav{display:flex;flex-wrap:wrap;gap:10px;margin:28px 0}a{display:inline-block;padding:10px 16px;border:1px solid #cbd3c7;border-radius:9px;color:#354d3c;text-decoration:none;font-size:14px;font-weight:600;background:#fff}
+a.primary{background:#3b5846;border-color:#3b5846;color:#fff}a:hover{filter:brightness(.95)}a:focus-visible,summary:focus-visible{outline:3px solid #809b6f;outline-offset:4px}
+details{border-top:1px solid #dce1d7;padding-top:18px;font-size:12px;color:#657061}summary{cursor:pointer;width:fit-content}pre{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;font-family:inherit}
+@media(max-width:520px){body{padding:18px}main{padding:26px}h1{font-size:23px}}
+</style>
+<main>
+  <div class="brand"><img src="data:image/png;base64,__ICON__" alt="">Serena Desktop</div>
+  <h1>界面暂时无法加载</h1>
+  <p>请尝试重新加载。若问题持续，可打开日志目录，查看启动日志以帮助排查。</p>
+  <nav aria-label="恢复操作">
+    <a class="primary" href="https://serena-recovery.invalid/reload">重新加载</a>
+    <a href="https://serena-recovery.invalid/logs">打开日志</a>
+    <a href="https://serena-recovery.invalid/exit">退出应用</a>
+  </nav>
+  <details><summary>技术详情</summary><pre>__DETAIL__</pre></details>
+</main>
+</html>

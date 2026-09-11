@@ -36,6 +36,7 @@ pub struct Listener {
     handle: tokio::task::JoinHandle<()>,
 }
 pub struct Broker {
+    pub remote: Arc<crate::remote::Remote>,
     pub product: std::sync::OnceLock<Arc<crate::agent::product::AgentProductService>>,
     pub supervisor: Arc<SupervisorState>,
     pub workspace: RwLock<Option<Active>>,
@@ -90,6 +91,10 @@ fn project_config(root: &std::path::Path) -> Result<Vec<u8>, String> {
 impl Broker {
     pub fn new(supervisor: Arc<SupervisorState>) -> Self {
         Self {
+            remote: Arc::new(crate::remote::Remote::from_config(
+                &supervisor.snapshot().config.remote_access,
+                supervisor.paths.runtime_directory.join("oauth-state.json"),
+            )),
             supervisor,
             product: std::sync::OnceLock::new(),
             workspace: RwLock::new(None),
@@ -767,7 +772,7 @@ mod integration_tests {
         broker.stop().await.unwrap();
     }
     #[tokio::test]
-    async fn http_negotiates_supported_versions_and_preserves_legacy_sessions() {
+    async fn http_negotiates_supported_versions_with_json_without_sessions() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
         async fn post(port: u16, session: Option<&str>, body: Value) -> String {
@@ -797,17 +802,17 @@ mod integration_tests {
             .expect("HTTP request timed out")
         }
 
-        // SSE priming events have no JSON data and are not protocol messages.
         fn messages(response: &str) -> Vec<Value> {
             assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-            let messages: Vec<Value> = response
-                .lines()
-                .filter_map(|line| line.strip_prefix("data: "))
-                .filter(|data| !data.trim().is_empty())
-                .map(|data| serde_json::from_str(data).unwrap())
-                .collect();
-            assert!(!messages.is_empty(), "missing SSE response: {response}");
-            messages
+            let (headers, body) = response.split_once("\r\n\r\n").unwrap();
+            assert!(
+                headers
+                    .to_ascii_lowercase()
+                    .contains("content-type: application/json")
+            );
+            assert!(!headers.to_ascii_lowercase().contains("mcp-session-id"));
+            assert!(!headers.to_ascii_lowercase().contains("text/event-stream"));
+            vec![serde_json::from_str(body).unwrap()]
         }
 
         let dir = tempfile::tempdir().unwrap();
@@ -819,24 +824,16 @@ mod integration_tests {
             messages(&init)[0]["result"]["protocolVersion"],
             "2025-03-26"
         );
-        let session = init
-            .lines()
-            .find_map(|line| {
-                line.split_once(':')
-                    .filter(|(name, _)| name.eq_ignore_ascii_case("mcp-session-id"))
-                    .map(|(_, value)| value.trim())
-            })
-            .unwrap();
         let notified = post(
             port,
-            Some(session),
+            None,
             json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
         )
         .await;
         assert!(notified.starts_with("HTTP/1.1 202"));
         let tools = post(
             port,
-            Some(session),
+            None,
             json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}),
         )
         .await;
@@ -938,7 +935,7 @@ mod integration_tests {
                     while !broker
                         .log_snapshot()
                         .iter()
-                        .any(|line| line.contains("workspace_deactivate\" · 入参="))
+                        .any(|line| line.contains("tool=\"workspace_deactivate\""))
                     {
                         tokio::task::yield_now().await;
                     }
@@ -965,7 +962,12 @@ mod integration_tests {
         let logs = broker.log_snapshot();
         assert!(logs.iter().any(|line| line.starts_with("INFO ")
             && line.contains("request=")
-            && line.contains("入参={\"query\":\"x\"}")));
+            && line.contains("tool=")));
+        assert!(
+            !logs
+                .iter()
+                .any(|line| line.contains("入参=") || line.contains("\"query\":\"x\""))
+        );
         for line in &logs {
             if line.contains("tools/call ") {
                 assert!(line.contains("[TOOL] tools/call "), "{line}");
@@ -976,37 +978,24 @@ mod integration_tests {
         }
         assert!(
             logs.iter()
-                .any(|line| line.starts_with("ERROR ") && line.contains("WORKSPACE_NOT_ACTIVE"))
+                .any(|line| line.starts_with("ERROR ") && line.contains("success=false"))
         );
-        assert!(
-            logs.iter()
-                .any(|line| line.starts_with("WARN ") && line.contains("参数校验失败"))
-        );
+        assert!(logs.iter().any(|line| line.starts_with("WARN ") && line.contains("error_code=INVALID_PARAMS")));
         assert!(logs.iter().any(|line| line.contains("MCP 已监听")));
         assert!(logs.iter().any(|line| line.contains("HTTP POST")));
         assert!(logs.iter().any(|line| line.contains("tools/list")));
-        assert!(logs.iter().any(|line| line.contains("git_status\" · 失败")));
-        assert!(
-            logs.iter()
-                .any(|line| line.contains("workspace_deactivate\" · 成功"))
-        );
-        for outcome in [
-            "git_status\" · 失败",
-            "workspace_deactivate\" · 成功",
-            "参数校验失败",
+        for (tool, outcome) in [
+            ("git_status", "success=false"),
+            ("workspace_deactivate", "success=true"),
+            ("workspace_activate", "error_code=INVALID_PARAMS"),
         ] {
-            let line = logs.iter().find(|line| line.contains(outcome)).unwrap();
-            let elapsed: f64 = line
-                .split(" · 耗时 ")
-                .nth(1)
-                .unwrap()
-                .split(" ms")
-                .next()
-                .unwrap()
-                .parse()
+            let line = logs
+                .iter()
+                .find(|line| line.contains(&format!("tool={tool:?}")) && line.contains(outcome))
                 .unwrap();
+            let elapsed: f64 = line.split("duration_ms=").nth(1).unwrap().parse().unwrap();
             assert!(elapsed >= 0.0);
-            if outcome == "workspace_deactivate\" · 成功" {
+            if tool == "workspace_deactivate" {
                 // Includes time waiting for the workspace lock, not just HTTP headers.
                 assert!(elapsed >= 40.0, "{line}");
             }
@@ -1332,7 +1321,8 @@ mod integration_tests {
             assert_eq!(invalid.structured_content.unwrap()["error"]["code"], "AGENT_INVALID_ARGUMENT");
             let log = broker.log_snapshot().join("\n");
             assert!(!log.contains(secret));
-            assert!(log.contains("promptBytes"));
+            assert!(log.contains("tool=\"agent\""));
+            assert!(!log.contains("promptBytes"));
             let before = store.execution("observe-e".into()).await.unwrap().unwrap();
             let args = json!({"action":"observe","executionId":"observe-e","waitMs":500});
             assert!(tokio::time::timeout(Duration::from_millis(60), client.call_tool(CallToolRequestParams::new("agent").with_arguments(args.as_object().unwrap().clone()))).await.is_err());
