@@ -1,6 +1,6 @@
 //! One product boundary for MCP and Tauri. Runtime owns all mutation workers.
 use super::{
-    activity::{ActivityPhase, ToolCategory},
+    activity::{ActivityPhase, ActivitySilence, ToolCategory},
     coordinator::now,
     store::{
         StateStore,
@@ -79,6 +79,7 @@ pub struct Progress {
     pub tool_category: Option<ToolCategory>,
     pub last_activity_at: Option<i64>,
     pub activity_age_ms: Option<i64>,
+    pub silence_level: Option<ActivitySilence>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -575,6 +576,7 @@ impl AgentProductService {
                 let activity_age_ms = r
                     .last_activity_at
                     .map(|last| now().saturating_sub(last).max(0));
+                let silence_level = ActivitySilence::from_activity_age_ms(activity_age_ms);
                 let next_action = match attention {
                     "manual_resolution_required" => Some(NextAction::ManualResolution),
                     "pending_explicit_resume" => Some(NextAction::ResumePending),
@@ -621,6 +623,7 @@ impl AgentProductService {
                         tool_category,
                         last_activity_at: r.last_activity_at,
                         activity_age_ms,
+                        silence_level,
                     },
                     next_action,
                     final_result,

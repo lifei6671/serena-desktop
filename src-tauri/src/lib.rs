@@ -223,6 +223,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             remote::remote_state,
+            remote::remote_save_ngrok_auth,
+            remote::remote_clear_ngrok_auth,
+            remote::remote_start_ngrok,
             remote::remote_start,
             remote::remote_stop,
             remote::remote_probe,

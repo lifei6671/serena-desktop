@@ -3,8 +3,10 @@ import { Cable, Check, Cloud, Copy, ShieldCheck, Shield, ShieldOff, ChevronDown,
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { api } from "./api";
-import type { RemoteAccessMode, RemoteState, SecurityDeclaration } from "./types";
+import type { RemoteAccessMode, RemoteState, SecurityDeclaration, SelfHostedProvider } from "./types";
 import type { RemoteController } from "./useRemoteAccess";
+
+type SelfHostedUiProvider = Extract<SelfHostedProvider, "custom_https" | "ngrok">;
 
 const states: Record<RemoteState["status"], string> = {
   stopped: "未开启", starting: "正在准备本地服务", installing: "正在检查与安装组件",
@@ -36,8 +38,12 @@ export default function RemoteAccessPage({ controller, port, allowLan, onSetting
   }
 
   const [selectedMode, setMode] = useState<RemoteAccessMode | null>(null);
+  const [providerDraft, setProvider] = useState<SelfHostedUiProvider | null>(null);
+  const configuredProvider: SelfHostedUiProvider = state?.config?.selfHosted?.provider === "ngrok" ? "ngrok" : "custom_https";
+  const provider = providerDraft ?? configuredProvider;
   const [originDraft, setOrigin] = useState<string | null>(null);
   const origin = originDraft ?? state?.config?.selfHosted.publicOrigin ?? "";
+  const [ngrokToken, setNgrokToken] = useState("");
   const [declarationDraft, setDeclaration] = useState<SecurityDeclaration | null>(null);
   const declaration = declarationDraft ?? state?.config?.mcpOnly.securityDeclaration ?? "external_auth";
   const [onlyOriginDraft, setOnlyOrigin] = useState<string | null>(null);
@@ -50,8 +56,9 @@ export default function RemoteAccessPage({ controller, port, allowLan, onSetting
   const active = state?.active ?? false;
   const mode = selectedMode ?? state?.mode ?? "mcp_only";
   const quickTunnelActive = active && state?.mode === "quick_tunnel";
-  const selfHostedActive = active && state?.mode === "self_hosted_oauth";
-  const resource = state?.status === "ready" && state.mode === mode ? state.publicContext?.mcpResource : null;
+  const runtimeProvider: SelfHostedUiProvider = state?.config?.selfHosted?.provider === "ngrok" ? "ngrok" : "custom_https";
+  const selectedSelfHostedActive = active && state?.mode === "self_hosted_oauth" && runtimeProvider === provider;
+  const resource = state?.status === "ready" && state.mode === mode && (mode !== "self_hosted_oauth" || runtimeProvider === provider) ? state.publicContext?.mcpResource : null;
   const copied = !!resource && copiedResource === resource;
   const probeFeedback = probeResult && <p className="remote-probe-feedback" data-result={probeResult} role={probeResult === "error" ? "alert" : "status"}>{probeResult === "success" ? "连接测试成功：公网入口和 MCP 服务均可用。" : "连接测试失败：请检查公网地址或查看上方错误详情。"}</p>;
   useEffect(() => {
@@ -65,6 +72,22 @@ export default function RemoteAccessPage({ controller, port, allowLan, onSetting
     try { await navigator.clipboard.writeText(resource); setCopiedResource(resource); }
     catch (e) { toast.error(`复制失败：${String(e)}`); }
     finally { setCopying(false); }
+  }
+  async function saveNgrokToken() {
+    const token = ngrokToken.trim();
+    if (!token) return;
+    if (await operate("保存 ngrok 凭据", () => api.remoteSaveNgrokAuth(token))) setNgrokToken("");
+  }
+  async function clearNgrokToken() {
+    if (await operate("清除 ngrok 凭据", api.remoteClearNgrokAuth)) setNgrokToken("");
+  }
+  async function startNgrok() {
+    const token = ngrokToken.trim();
+    const started = await operate("开启", async () => {
+      if (token) await api.remoteSaveNgrokAuth(token);
+      await api.remoteStartNgrok();
+    });
+    if (started) setNgrokToken("");
   }
   return <section className="remote-page">
     <div className="page-heading"><div><h1>远程访问</h1><p>让 ChatGPT 连接这台电脑上的 MCP 工具。</p></div><span className="remote-status" data-ready={state?.status === "ready"} role="status">{state ? states[state.status] : error ? "状态不可用" : "正在读取状态…"}</span></div>
@@ -98,25 +121,70 @@ export default function RemoteAccessPage({ controller, port, allowLan, onSetting
       </div>
     </section> : mode === "self_hosted_oauth" ? <section className="remote-detail" aria-labelledby="self-title">
       <header><Globe aria-hidden="true"/><div><h2 id="self-title">自建接入</h2><p>使用自己的公网入口，由这台电脑批准 OAuth 授权。</p></div></header>
-      <p>适用于已有 ngrok、Tailscale Funnel、自有域名或 HTTPS 反向代理的用户。</p>
-      <dl className="remote-facts"><div><dt>公网地址示例</dt><dd><code>https://mcp.example.com</code></dd></div><div><dt>本地目标</dt><dd><code>http://127.0.0.1:{port}</code></dd></div></dl>
-      <p className="helper">代理需要转发整个 Origin，包括 <code>/mcp</code>、<code>/.well-known/*</code> 和 <code>/oauth/*</code>。SerenaDesktop 将负责本机授权。</p>
-      <label className="field-label" htmlFor="self-origin">公网 HTTPS 地址</label>
-      <div className="remote-address"><input id="self-origin" type="url" placeholder="https://mcp.example.com" value={selfHostedActive && state.publicContext ? state.publicContext.publicOrigin : origin} disabled={selfHostedActive || !!busy} onChange={event => setOrigin(event.target.value)} aria-describedby="self-origin-help" /></div>
-      <p id="self-origin-help" className="helper">只填写域名和可选端口，不包含 /mcp、查询参数或片段。自建接入运行期间不可修改地址。</p>
-      {resource && <>
-        <label className="field-label" htmlFor="self-mcp-url">公网 MCP 地址</label>
-        <div className="remote-address"><input id="self-mcp-url" readOnly value={resource}/><Button variant="outline" disabled={copying || copied} onClick={() => void copy()}>{copied ? "已复制" : copying ? "正在复制…" : "复制地址"}</Button></div>
-        <p className="helper">已授权客户端：{state?.authorizedClients ?? 0}。将 MCP 地址填入 ChatGPT，发起授权后在本机核对确认码。</p>
+      <fieldset disabled={!!busy} className="mcp-security">
+        <legend>公网入口方式</legend>
+        <p className="mcp-security-intro">选择由你管理公网入口，或由 SerenaDesktop 创建 ngrok 隧道。</p>
+        <div className="mcp-security-options">
+          <div className="mcp-security-option" data-selected={provider === "custom_https"}>
+            <label className="mcp-security-choice">
+              <Globe size={19} aria-hidden="true" />
+              <span><strong>自有 HTTPS</strong><small>使用你自行管理的域名、外部 ngrok、Tailscale Funnel 或 HTTPS 反向代理。</small></span>
+              <input type="radio" name="self-hosted-provider" value="custom_https" checked={provider === "custom_https"} onChange={() => { setProvider("custom_https"); setProbeResult(null); }} />
+            </label>
+          </div>
+          <div className="mcp-security-option" data-selected={provider === "ngrok"}>
+            <label className="mcp-security-choice">
+              <Cloud size={19} aria-hidden="true" />
+              <span><strong>ngrok 托管隧道</strong><small>由 SerenaDesktop 使用本机保存的 Auth Token 自动创建 HTTPS 隧道。</small></span>
+              <input type="radio" name="self-hosted-provider" value="ngrok" checked={provider === "ngrok"} onChange={() => { setProvider("ngrok"); setProbeResult(null); }} />
+            </label>
+          </div>
+        </div>
+      </fieldset>
+      {provider === "custom_https" ? <>
+        <p>适用于自行管理外部 ngrok、Tailscale Funnel、自有域名或 HTTPS 反向代理的用户。</p>
+        <dl className="remote-facts"><div><dt>公网地址示例</dt><dd><code>https://mcp.example.com</code></dd></div><div><dt>本地目标</dt><dd><code>http://127.0.0.1:{port}</code></dd></div></dl>
+        <p className="helper">代理需要转发整个 Origin，包括 <code>/mcp</code>、<code>/.well-known/*</code> 和 <code>/oauth/*</code>。SerenaDesktop 将负责本机授权。</p>
+        <label className="field-label" htmlFor="self-origin">公网 HTTPS 地址</label>
+        <div className="remote-address"><input id="self-origin" type="url" placeholder="https://mcp.example.com" value={selectedSelfHostedActive && state.publicContext ? state.publicContext.publicOrigin : origin} disabled={selectedSelfHostedActive || !!busy} onChange={event => setOrigin(event.target.value)} aria-describedby="self-origin-help" /></div>
+        <p id="self-origin-help" className="helper">只填写域名和可选端口，不包含 /mcp、查询参数或片段。自建接入运行期间不可修改地址。</p>
+        {resource && <>
+          <label className="field-label" htmlFor="self-mcp-url">公网 MCP 地址</label>
+          <div className="remote-address"><input id="self-mcp-url" readOnly value={resource}/><Button variant="outline" disabled={copying || copied} onClick={() => void copy()}>{copied ? "已复制" : copying ? "正在复制…" : "复制地址"}</Button></div>
+          <p className="helper">已授权客户端：{state?.authorizedClients ?? 0}。将 MCP 地址填入 ChatGPT，发起授权后在本机核对确认码。</p>
+        </>}
+        <p className="remote-notice">停止会撤销本次授权，并继续保护 MCP；你的公网代理仍由你管理。切换到「仅 MCP」会解除本机 OAuth 保护，请先关闭公网代理或配置自己的认证网关。退出或重启应用会保留未过期的授权，同一公网地址无需重新授权。{allowLan && "开启期间，局域网客户端也需要 OAuth 授权。"}</p>
+        <div className="remote-actions">
+          {selectedSelfHostedActive ? <>
+            {state?.mode === mode && state.status !== "stopping" && state.status !== "verifying" && <Button disabled={!!busy} onClick={() => void probe()}>{busy === "测试连接" ? "正在测试…" : "测试连接"}</Button>}
+            <Button variant="destructive" disabled={!!busy} onClick={() => void stop()}>停止远程访问</Button>
+          </> : <Button disabled={!state || !!busy || !origin.trim()} onClick={() => void operate("开启", () => api.remoteStart("self_hosted_oauth", origin.trim()))}>{busy === "开启" ? "正在开启…" : "应用此方式"}</Button>}
+          {selectedSelfHostedActive && probeFeedback}
+        </div>
+      </> : <>
+        <p>SerenaDesktop 使用你在本机填写的 ngrok Auth Token 创建临时 HTTPS 隧道，公网地址无需手工填写。</p>
+        <dl className="remote-facts"><div><dt>凭据状态</dt><dd>{state?.ngrokAuthConfigured ? "已保存 Auth Token" : "尚未保存 Auth Token"}</dd></div><div><dt>本地目标</dt><dd><code>http://127.0.0.1:{port}</code></dd></div></dl>
+        <label className="field-label" htmlFor="ngrok-auth-token">ngrok Auth Token</label>
+        <div className="remote-address"><input id="ngrok-auth-token" type="password" autoComplete="off" placeholder={state?.ngrokAuthConfigured ? "已保存，留空继续使用" : "输入 ngrok Auth Token"} value={ngrokToken} disabled={selectedSelfHostedActive || !!busy} onChange={event => setNgrokToken(event.target.value)} aria-describedby="ngrok-auth-token-help" /></div>
+        <p id="ngrok-auth-token-help" className="helper">{state?.ngrokAuthConfigured ? "已保存 Auth Token。留空即可继续使用本机保存的值。" : "Auth Token 只会提交给 SerenaDesktop 并保存在本机。"}</p>
+        <div className="remote-actions">
+          <Button variant="outline" disabled={selectedSelfHostedActive || !!busy || !ngrokToken.trim()} onClick={() => void saveNgrokToken()}>{busy === "保存 ngrok 凭据" ? "正在保存…" : "保存凭据"}</Button>
+          {state?.ngrokAuthConfigured && <Button variant="outline" disabled={selectedSelfHostedActive || !!busy} onClick={() => void clearNgrokToken()}>{busy === "清除 ngrok 凭据" ? "正在清除…" : "清除凭据"}</Button>}
+        </div>
+        {resource && <>
+          <label className="field-label" htmlFor="self-mcp-url">公网 MCP 地址</label>
+          <div className="remote-address"><input id="self-mcp-url" readOnly value={resource}/><Button variant="outline" disabled={copying || copied} onClick={() => void copy()}>{copied ? "已复制" : copying ? "正在复制…" : "复制地址"}</Button></div>
+          <p className="helper">已授权客户端：{state?.authorizedClients ?? 0}。将 MCP 地址填入 ChatGPT，发起授权后在本机核对确认码。</p>
+        </>}
+        <p className="remote-notice">停止会关闭 SerenaDesktop 创建的 ngrok tunnel 并撤销本次授权。已应用此方式时，应用重启会自动重连；重新连接可能获得新地址，需要更新 ChatGPT 中的 MCP 地址。{allowLan && "开启期间，局域网客户端也需要 OAuth 授权。"}</p>
+        <div className="remote-actions">
+          {selectedSelfHostedActive ? <>
+            {state?.mode === mode && state.status !== "stopping" && state.status !== "verifying" && <Button disabled={!!busy} onClick={() => void probe()}>{busy === "测试连接" ? "正在测试…" : "测试连接"}</Button>}
+            <Button variant="destructive" disabled={!!busy} onClick={() => void stop()}>停止远程访问</Button>
+          </> : <Button disabled={!state || !!busy || (!state.ngrokAuthConfigured && !ngrokToken.trim())} onClick={() => void startNgrok()}>{busy === "开启" ? "正在开启…" : "应用此方式"}</Button>}
+          {selectedSelfHostedActive && probeFeedback}
+        </div>
       </>}
-      <p className="remote-notice">停止会撤销本次授权，并继续保护 MCP；你的公网代理仍由你管理。切换到「仅 MCP」会解除本机 OAuth 保护，请先关闭公网代理或配置自己的认证网关。退出或重启应用会保留未过期的授权，同一公网地址无需重新授权。{allowLan && "开启期间，局域网客户端也需要 OAuth 授权。"}</p>
-      <div className="remote-actions">
-        {selfHostedActive ? <>
-          {state?.mode === mode && state.status !== "stopping" && state.status !== "verifying" && <Button disabled={!!busy} onClick={() => void probe()}>{busy === "测试连接" ? "正在测试…" : "测试连接"}</Button>}
-          <Button variant="destructive" disabled={!!busy} onClick={() => void stop()}>停止远程访问</Button>
-        </> : <Button disabled={!state || !!busy || !origin.trim()} onClick={() => void operate("开启", () => api.remoteStart("self_hosted_oauth", origin.trim()))}>{busy === "开启" ? "正在开启…" : "应用此方式"}</Button>}
-        {selfHostedActive && probeFeedback}
-      </div>
     </section> : <section className="remote-detail" aria-labelledby="only-title">
       <header><Cable aria-hidden="true"/><div><h2 id="only-title">仅 MCP</h2><p>默认连接方式，沿用设置中的 MCP 服务，不创建公网隧道。</p></div></header>
       <div className="mcp-only-settings">

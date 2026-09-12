@@ -169,6 +169,14 @@ impl Broker {
         // Broker::new already installed the persisted policy before any listener.
         let config = self.config();
         if config.remote_access.mode == crate::remote::RemoteAccessMode::SelfHostedOAuth {
+            if config.remote_access.self_hosted.provider == crate::remote::SelfHostedProvider::Ngrok
+            {
+                let result = self.remote.start_managed_ngrok_locked(self).await;
+                if result.is_err() && config.broker.enabled {
+                    self.start().await?;
+                }
+                return result;
+            }
             let context = self
                 .remote
                 .inner

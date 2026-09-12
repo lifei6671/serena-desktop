@@ -1,4 +1,11 @@
 mod manager;
+#[allow(
+    dead_code,
+    reason = "ngrok persistence is intentionally not wired to UI or runtime in this unit"
+)]
+pub(crate) mod ngrok_store;
+#[allow(dead_code, reason = "ngrok transport staged before lifecycle wiring")]
+pub(crate) mod ngrok_tunnel;
 mod process;
 mod quick_tunnel;
 pub use manager::*;
@@ -12,6 +19,15 @@ pub enum RemoteAccessMode {
     SelfHostedOAuth,
     #[default]
     McpOnly,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelfHostedProvider {
+    #[default]
+    CustomHttps,
+    Ngrok,
+    TailscaleFunnel,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +48,7 @@ pub struct RemoteAccessConfig {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct SelfHostedConfig {
+    pub provider: SelfHostedProvider,
     pub public_origin: Option<String>,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,7 +60,7 @@ pub struct McpOnlyConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::RemoteAccessMode;
+    use super::{RemoteAccessMode, SelfHostedProvider};
 
     #[test]
     fn mode_wire_names_match_frontend_contract() {
@@ -58,6 +75,22 @@ mod tests {
                 mode
             );
             assert_eq!(serde_json::to_value(mode).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn self_hosted_provider_wire_names_round_trip() {
+        for (name, provider) in [
+            ("custom_https", SelfHostedProvider::CustomHttps),
+            ("ngrok", SelfHostedProvider::Ngrok),
+            ("tailscale_funnel", SelfHostedProvider::TailscaleFunnel),
+        ] {
+            let value = serde_json::json!(name);
+            assert_eq!(
+                serde_json::from_value::<SelfHostedProvider>(value.clone()).unwrap(),
+                provider
+            );
+            assert_eq!(serde_json::to_value(provider).unwrap(), value);
         }
     }
 }

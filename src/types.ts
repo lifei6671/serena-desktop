@@ -1,10 +1,11 @@
 export type ServerStatus = "stopped" | "starting" | "running" | "error";
 
 export type RemoteAccessMode = "quick_tunnel" | "self_hosted_oauth" | "mcp_only";
+export type SelfHostedProvider = "custom_https" | "ngrok" | "tailscale_funnel";
 export type SecurityDeclaration = "external_auth" | "none";
 export interface RemoteAccessConfig {
   mode: RemoteAccessMode;
-  selfHosted: { publicOrigin: string | null };
+  selfHosted: { provider: SelfHostedProvider; publicOrigin: string | null };
   mcpOnly: { securityDeclaration: SecurityDeclaration; publicOrigin: string | null };
 }
 export interface RemoteApproval {
@@ -25,6 +26,7 @@ export interface RemoteState {
   authorizedClients: number;
   pending: RemoteApproval[];
   active: boolean;
+  ngrokAuthConfigured: boolean;
 }
 
 export interface ManagerConfig {
@@ -124,6 +126,7 @@ export interface ExecutionView {
     toolCategory: "build" | "test" | "command" | "read" | "edit" | "tool" | null;
     lastActivityAt: number | null;
     activityAgeMs: number | null;
+    silenceLevel: "fresh" | "quiet" | "prolonged" | null;
   };
   nextAction: { action: "observe"; waitMs: number } | { action: "review_result"; includeResult: boolean }
     | { action: "resume_pending" | "manual_resolution" } | null;

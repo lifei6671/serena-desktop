@@ -103,7 +103,7 @@ test('remote access offers three entry explanations, switches running modes and 
   assert.match(document.body.textContent, /包括 Agent/);
   await act(async () => document.querySelectorAll('input[name="mcp-security"]')[0].click());
   await act(async () => document.querySelector('input[value="quick_tunnel"]').click());
-  controller.state = { ...state, mode: 'quick_tunnel', status: 'ready', active: true, config: { mode: 'quick_tunnel', selfHosted: { publicOrigin: 'https://saved.example.com' }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } }, publicContext: { publicOrigin: 'https://old.trycloudflare.com', mcpResource: 'https://old.trycloudflare.com/mcp', instanceId: 'one' } };
+  controller.state = { ...state, mode: 'quick_tunnel', status: 'ready', active: true, config: { mode: 'quick_tunnel', selfHosted: { provider: 'custom_https', publicOrigin: 'https://saved.example.com' }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } }, publicContext: { publicOrigin: 'https://old.trycloudflare.com', mcpResource: 'https://old.trycloudflare.com/mcp', instanceId: 'one' } };
   await render();
   assert.equal(document.getElementById('remote-url').value, 'https://old.trycloudflare.com/mcp');
   assert.equal(document.querySelector('fieldset').disabled, false);
@@ -153,10 +153,17 @@ test('self hosted entry submits origin and hides resources from other modes', as
   });
   await act(async () => [...document.querySelectorAll('button')].find(b => b.textContent === '应用此方式').click());
   assert.deepEqual(calls, [['self_hosted_oauth', 'https://self.example.com']]);
-  controller.state = { mode: 'self_hosted_oauth', status: 'ready', active: true, publicContext: { publicOrigin: 'https://self.example.com', mcpResource: 'https://self.example.com/mcp' } };
+  controller.state = { mode: 'self_hosted_oauth', status: 'ready', active: true, config: { mode: 'self_hosted_oauth', selfHosted: { provider: 'custom_https', publicOrigin: 'https://self.example.com' }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } }, publicContext: { publicOrigin: 'https://self.example.com', mcpResource: 'https://self.example.com/mcp' } };
   await render();
   assert.equal(document.getElementById('self-origin').disabled, true);
   assert.equal(document.getElementById('self-mcp-url').value, 'https://self.example.com/mcp');
+  await act(async () => document.querySelector('input[name="self-hosted-provider"][value="ngrok"]').click());
+  assert.equal(document.getElementById('self-origin'), null);
+  assert.equal(document.getElementById('self-mcp-url'), null);
+  assert.ok(document.getElementById('ngrok-auth-token'));
+  assert.equal(document.getElementById('ngrok-auth-token').disabled, false);
+  assert.ok([...document.querySelectorAll('button')].find(b => b.textContent === '应用此方式'));
+  await act(async () => document.querySelector('input[name="self-hosted-provider"][value="custom_https"]').click());
   await act(async () => document.querySelector('input[value="quick_tunnel"]').click());
   assert.equal(document.getElementById('remote-url'), null);
   assert.equal([...document.querySelectorAll('button')].find(b => b.textContent === '取消启动'), undefined);
@@ -173,6 +180,65 @@ test('self hosted entry submits origin and hides resources from other modes', as
   await act(async () => document.querySelector('input[value="quick_tunnel"]').click());
   assert.equal([...document.querySelectorAll('button')].find(b => b.textContent === '应用此方式').disabled, false);
   assert.doesNotMatch(document.body.textContent, /请先停止|应用「仅 MCP」/);
+});
+
+test('managed ngrok self-hosted flow keeps token private and uses dedicated commands', async () => {
+  const { default: RemoteAccessPage } = await import('./RemoteAccessPage.tsx');
+  const calls = [];
+  api.remoteSaveNgrokAuth = async token => calls.push(['save', token]);
+  api.remoteClearNgrokAuth = async () => calls.push(['clear']);
+  api.remoteStartNgrok = async () => calls.push(['start']);
+  api.remoteStop = async () => calls.push(['stop']);
+  const stopped = {
+    mode: 'mcp_only', status: 'stopped', active: false, ngrokAuthConfigured: false,
+    config: { mode: 'mcp_only', selfHosted: { provider: 'custom_https', publicOrigin: null }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } },
+    publicContext: null, lastError: null, authorizedClients: 0, pending: [],
+  };
+  const controller = { state: stopped, busy: '', error: '', operate: async (_label, action) => { await action(); return true; } };
+  root = createRoot(document.getElementById('root'));
+  const render = async () => act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, onSettings() {} })));
+  const button = text => [...document.querySelectorAll('button')].find(item => item.textContent === text);
+  await render();
+  await act(async () => document.querySelector('input[value="self_hosted_oauth"]').click());
+  await act(async () => document.querySelector('input[name="self-hosted-provider"][value="ngrok"]').click());
+  assert.equal(document.getElementById('self-origin'), null);
+  const tokenInput = document.getElementById('ngrok-auth-token');
+  assert.ok(tokenInput);
+  assert.equal(button('应用此方式').disabled, true);
+
+  const token = 'test-ngrok-token-must-stay-private';
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(tokenInput, token);
+    tokenInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+  });
+  assert.equal(button('应用此方式').disabled, false);
+  assert.doesNotMatch(document.body.textContent, new RegExp(token));
+  await act(async () => button('应用此方式').click());
+  assert.deepEqual(calls, [['save', token], ['start']]);
+  assert.equal(document.getElementById('ngrok-auth-token').value, '');
+  assert.doesNotMatch(document.body.textContent, new RegExp(token));
+
+  controller.state = {
+    ...stopped, mode: 'self_hosted_oauth', ngrokAuthConfigured: true,
+    config: { ...stopped.config, mode: 'self_hosted_oauth', selfHosted: { provider: 'ngrok', publicOrigin: null } },
+  };
+  await render();
+  assert.match(document.body.textContent, /已保存 Auth Token/);
+  assert.ok(button('清除凭据'));
+  calls.length = 0;
+  await act(async () => button('应用此方式').click());
+  assert.deepEqual(calls, [['start']]);
+  await act(async () => button('清除凭据').click());
+  assert.deepEqual(calls, [['start'], ['clear']]);
+
+  controller.state = {
+    ...controller.state, status: 'ready', active: true, authorizedClients: 1,
+    publicContext: { publicOrigin: 'https://managed.example', mcpResource: 'https://managed.example/mcp', instanceId: 'managed-one' },
+  };
+  await render();
+  assert.equal(document.getElementById('self-mcp-url').value, 'https://managed.example/mcp');
+  assert.equal(document.getElementById('ngrok-auth-token').disabled, true);
+  assert.ok(button('停止远程访问'));
 });
 
 test('remote copy confirms only after clipboard success and self-hosted probe shows inline outcomes', async () => {
@@ -206,7 +272,7 @@ test('remote copy confirms only after clipboard success and self-hosted probe sh
     assert.match(notices.at(-1)[1], /复制失败/);
     assert.equal(button('已复制'), undefined);
     await act(async () => document.querySelector('input[value="self_hosted_oauth"]').click());
-    controller.state = { mode: 'self_hosted_oauth', status: 'ready', active: true, pending: [], publicContext: { publicOrigin: 'https://self.example.com', mcpResource: 'https://self.example.com/mcp' } };
+    controller.state = { mode: 'self_hosted_oauth', status: 'ready', active: true, pending: [], config: { mode: 'self_hosted_oauth', selfHosted: { provider: 'custom_https', publicOrigin: 'https://self.example.com' }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } }, publicContext: { publicOrigin: 'https://self.example.com', mcpResource: 'https://self.example.com/mcp' } };
     await act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, onSettings() {} })));
     api.remoteProbe = async () => {};
     await act(async () => button('测试连接').click());
@@ -232,7 +298,7 @@ test('remote copy confirms only after clipboard success and self-hosted probe sh
 
 test('native approval escapes client claims, focuses deny, and binds decisions to request id', async () => {
   const { RemoteApprovalDialog } = await import('./RemoteApprovalDialog.tsx');
-  const pending = { id: 'flow-1', clientName: '<script>untrusted</script>', redirectUri: 'https://client.example/callback', confirmationCode: '482731', expiresInSeconds: 100, scope: 'serena:mcp offline_access' };
+  const pending = { id: 'flow-1', clientName: '<script>untrusted</script>', redirectUri: 'https://client.example/callback', confirmationCode: '482731', expiresInSeconds: 100, scope: 'serena:mcp offline_access', refreshAllowed: true };
   const controller = { state: { pending: [pending] }, busy: '测试连接', approvalBusy: false, approvalError: '', approve: (id, allow) => api.remoteApprove(id, allow) };
   const decisions = [];
   api.remoteApprove = async (id, allow) => { decisions.push([id, allow]); };
@@ -244,8 +310,8 @@ test('native approval escapes client claims, focuses deny, and binds decisions t
   assert.equal(dialog.querySelector('script'), null);
   await act(async () => [...dialog.querySelectorAll('button')].find(b => b.textContent === '允许连接').click());
   assert.deepEqual(decisions, [['flow-1', true]]);
-  assert.match(document.querySelector('[role="dialog"]').textContent, /可刷新、持续授权/);
-  controller.state = { pending: [{ ...pending, id: 'flow-2', expiresInSeconds: 0, scope: 'serena:mcp' }] };
+  assert.match(document.querySelector('[role="dialog"]').textContent, /客户端可自动刷新/);
+  controller.state = { pending: [{ ...pending, id: 'flow-2', expiresInSeconds: 0, scope: 'serena:mcp', refreshAllowed: false }] };
   await act(async () => root.render(createElement(RemoteApprovalDialog, { controller })));
   assert.equal(document.activeElement.textContent, '拒绝');
   assert.ok([...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent === '允许连接').disabled);
@@ -259,7 +325,7 @@ test('MCP Only requires risk acceptance and submits the selected declaration', a
   const { default: RemoteAccessPage } = await import('./RemoteAccessPage.tsx');
   const calls = [];
   api.remoteStart = async (...args) => calls.push(args);
-  const controller = { state: { mode: 'quick_tunnel', status: 'stopped', active: false, config: { mode: 'quick_tunnel', selfHosted: { publicOrigin: 'https://saved.example' }, mcpOnly: { securityDeclaration: 'external_auth' } } }, busy: '', error: '', operate: async (_label, action) => { await action(); return true; } };
+  const controller = { state: { mode: 'quick_tunnel', status: 'stopped', active: false, config: { mode: 'quick_tunnel', selfHosted: { provider: 'custom_https', publicOrigin: 'https://saved.example' }, mcpOnly: { securityDeclaration: 'external_auth' } } }, busy: '', error: '', operate: async (_label, action) => { await action(); return true; } };
   root = createRoot(document.getElementById('root'));
   await act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, onSettings() {} })));
   await act(async () => document.querySelector('input[value="self_hosted_oauth"]').click());
@@ -285,7 +351,7 @@ test('MCP Only restores and submits its own public Origin without OAuth', async 
   const { default: RemoteAccessPage } = await import('./RemoteAccessPage.tsx');
   const calls = [];
   api.remoteStart = async (...args) => calls.push(args);
-  const controller = { state: { mode: 'mcp_only', status: 'stopped', active: false, config: { mode: 'mcp_only', selfHosted: { publicOrigin: 'https://oauth.example' }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: 'https://gateway.example:8443' } } }, busy: '', error: '', operate: async (_label, action) => { await action(); return true; } };
+  const controller = { state: { mode: 'mcp_only', status: 'stopped', active: false, config: { mode: 'mcp_only', selfHosted: { provider: 'custom_https', publicOrigin: 'https://oauth.example' }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: 'https://gateway.example:8443' } } }, busy: '', error: '', operate: async (_label, action) => { await action(); return true; } };
   root = createRoot(document.getElementById('root'));
   await act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, onSettings() {} })));
   const input = document.getElementById('mcp-only-origin');

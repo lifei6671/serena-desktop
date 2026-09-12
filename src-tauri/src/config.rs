@@ -82,7 +82,9 @@ impl Default for ManagerConfig {
 
 impl ManagerConfig {
     pub fn validate(&self) -> Result<(), String> {
-        if let Some(origin) = &self.remote_access.self_hosted.public_origin {
+        if self.remote_access.self_hosted.provider == crate::remote::SelfHostedProvider::CustomHttps
+            && let Some(origin) = &self.remote_access.self_hosted.public_origin
+        {
             crate::remote::validate_https_origin(origin)?;
         }
         if let Some(origin) = &self.remote_access.mcp_only.public_origin {
@@ -177,6 +179,47 @@ mod tests {
     #[test]
     fn default_config_is_valid() {
         assert!(ManagerConfig::default().validate().is_ok());
+    }
+
+    #[test]
+    fn legacy_self_hosted_config_defaults_to_custom_https() {
+        let config: ManagerConfig = serde_json::from_str(
+            r#"{"remoteAccess":{"mode":"self_hosted_oauth","selfHosted":{"publicOrigin":"https://legacy.example"}}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.remote_access.self_hosted.provider,
+            crate::remote::SelfHostedProvider::CustomHttps
+        );
+        assert_eq!(
+            config.remote_access.self_hosted.public_origin.as_deref(),
+            Some("https://legacy.example")
+        );
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn custom_https_rejects_invalid_public_origin() {
+        let mut config = ManagerConfig::default();
+        config.remote_access.self_hosted.provider = crate::remote::SelfHostedProvider::CustomHttps;
+        config.remote_access.self_hosted.public_origin = Some("http://example.com".into());
+
+        assert_eq!(config.validate().unwrap_err(), "PUBLIC_ORIGIN_INVALID");
+    }
+
+    #[test]
+    fn managed_self_hosted_providers_ignore_residual_public_origin() {
+        for provider in [
+            crate::remote::SelfHostedProvider::Ngrok,
+            crate::remote::SelfHostedProvider::TailscaleFunnel,
+        ] {
+            let mut config = ManagerConfig::default();
+            config.remote_access.self_hosted.provider = provider;
+            config.remote_access.self_hosted.public_origin = Some("not-an-origin".into());
+
+            assert!(config.validate().is_ok(), "{provider:?}");
+        }
     }
 
     #[test]

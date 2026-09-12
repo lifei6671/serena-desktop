@@ -552,6 +552,7 @@ fn disconnected_quick_tunnel_keeps_configured_mode_without_context_or_restart() 
             ..Default::default()
         },
         directory.path().join("oauth-state.json"),
+        directory.path().join("config.json"),
     );
     {
         let mut inner = remote.inner.lock().unwrap();

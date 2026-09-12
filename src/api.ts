@@ -3,6 +3,9 @@ import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, 
 
 export const api = {
   remoteState: () => invoke<RemoteState>("remote_state"),
+  remoteSaveNgrokAuth: (authToken: string) => invoke<void>("remote_save_ngrok_auth", { authToken }),
+  remoteClearNgrokAuth: () => invoke<void>("remote_clear_ngrok_auth"),
+  remoteStartNgrok: () => invoke<void>("remote_start_ngrok"),
   remoteStart: (mode: RemoteAccessMode, publicOrigin?: string, securityDeclaration?: SecurityDeclaration, riskAccepted = false) => invoke<void>("remote_start", { mode, publicOrigin, securityDeclaration, riskAccepted }),
   remoteStop: () => invoke<void>("remote_stop"),
   remoteProbe: () => invoke<void>("remote_probe"),

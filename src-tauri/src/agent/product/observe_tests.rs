@@ -141,6 +141,7 @@ async fn progress_phase_follows_persisted_dispatch_and_execution_facts() {
         assert_eq!(response["data"]["progress"]["toolCategory"], Value::Null);
         assert_eq!(response["data"]["progress"]["lastActivityAt"], Value::Null);
         assert_eq!(response["data"]["progress"]["activityAgeMs"], Value::Null);
+        assert_eq!(response["data"]["progress"]["silenceLevel"], Value::Null);
         if status == "dispatch_pending" && dispatch == "not_dispatched" {
             assert_eq!(response["control"]["providerInvoked"], false);
             assert_eq!(response["control"]["dispatchCertainty"], "not_dispatched");
@@ -294,8 +295,14 @@ async fn revision_tracks_semantics_and_ignores_store_cas_clocks_and_result_proje
     change!(view.progress.activity_phase, Some(ActivityPhase::Provider));
     change!(view.progress.tool_category, Some(ToolCategory::Test));
     change!(view.progress.last_activity_at, Some(5));
-    view.progress.activity_age_ms = Some(500);
-    assert_eq!(view.observation_revision(), revision);
+    for silence_level in [
+        ActivitySilence::Fresh,
+        ActivitySilence::Quiet,
+        ActivitySilence::Prolonged,
+    ] {
+        view.progress.silence_level = Some(silence_level);
+        assert_eq!(view.observation_revision(), revision);
+    }
     db.execute("UPDATE executions SET status='unknown' WHERE id='e'", [])
         .unwrap();
     let unknown = service
@@ -337,6 +344,8 @@ async fn activity_changes_wake_observe_age_does_not_change_revision_and_restart_
         initial.progress.activity_phase,
         Some(ActivityPhase::Provider)
     );
+    assert_eq!(initial.progress.tool_category, None);
+    assert_eq!(initial.progress.silence_level, Some(ActivitySilence::Fresh));
     let initial_revision = initial.revision.clone();
     let waiter = service.checked_operation(
         json!({"action":"observe","executionId":"e","knownRevision":initial_revision.clone(),"waitMs":2500}),
@@ -363,6 +372,7 @@ async fn activity_changes_wake_observe_age_does_not_change_revision_and_restart_
     assert_eq!(observed["data"]["progress"]["phase"], "running");
     assert_eq!(observed["data"]["progress"]["activityPhase"], "tool");
     assert_eq!(observed["data"]["progress"]["toolCategory"], "test");
+    assert_eq!(observed["data"]["progress"]["silenceLevel"], "fresh");
     assert_ne!(observed["data"]["revision"], initial_revision);
     let revision = observed["data"]["revision"].as_str().unwrap().to_owned();
     let age = observed["data"]["progress"]["activityAgeMs"]
@@ -372,6 +382,22 @@ async fn activity_changes_wake_observe_age_does_not_change_revision_and_restart_
     let aged = service.observe("e".into(), false).await.unwrap();
     assert_eq!(aged.revision, revision);
     assert!(aged.progress.activity_age_ms.unwrap() >= age);
+    assert_eq!(aged.progress.silence_level, Some(ActivitySilence::Fresh));
+    let unchanged = service
+        .checked_operation(
+            json!({"action":"observe","executionId":"e","knownRevision":revision,"waitMs":0}),
+            None,
+        )
+        .await;
+    assert_eq!(unchanged["data"]["unchanged"], true);
+    assert_eq!(unchanged["data"]["revision"], revision);
+    assert!(
+        unchanged["data"]["progress"]["activityAgeMs"]
+            .as_i64()
+            .unwrap()
+            >= age
+    );
+    assert_eq!(unchanged["data"]["progress"]["silenceLevel"], "fresh");
 
     drop(service);
     drop(store);
@@ -382,6 +408,10 @@ async fn activity_changes_wake_observe_age_does_not_change_revision_and_restart_
     assert_eq!(restored.progress.activity_phase, Some(ActivityPhase::Tool));
     assert_eq!(restored.progress.tool_category, Some(ToolCategory::Test));
     assert!(restored.progress.last_activity_at.is_some());
+    assert_eq!(
+        restored.progress.silence_level,
+        Some(ActivitySilence::Fresh)
+    );
 }
 
 #[tokio::test]

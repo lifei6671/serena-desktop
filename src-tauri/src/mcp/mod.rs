@@ -94,6 +94,7 @@ impl Broker {
             remote: Arc::new(crate::remote::Remote::from_config(
                 &supervisor.snapshot().config.remote_access,
                 supervisor.paths.runtime_directory.join("oauth-state.json"),
+                supervisor.paths.config_file.clone(),
             )),
             supervisor,
             product: std::sync::OnceLock::new(),

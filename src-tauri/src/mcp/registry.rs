@@ -385,6 +385,19 @@ fn agent_output_schema() -> Value {
                     "null"
                   ],
                   "minimum": 0
+                },
+                "silenceLevel": {
+                  "description": "silenceLevel 是由 activityAgeMs 派生的展示桶：fresh <30s；quiet 30s–<120s；prolonged >=120s；null 表示尚无可观察 Activity。quiet/prolonged 不表示 stalled、timeout、失败或卡死，不能单独作为控制行为依据。",
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "fresh",
+                    "quiet",
+                    "prolonged",
+                    null
+                  ]
                 }
               },
               "required": [
@@ -392,7 +405,8 @@ fn agent_output_schema() -> Value {
                 "activityPhase",
                 "toolCategory",
                 "lastActivityAt",
-                "activityAgeMs"
+                "activityAgeMs",
+                "silenceLevel"
               ],
               "additionalProperties": false
             },
@@ -516,7 +530,7 @@ fn agent_output_schema() -> Value {
 pub fn agent_tool() -> Tool {
     let mut agent = Tool::new(
         "agent",
-        "【定位】\nAgent 是 ChatGPT 的本地执行器。ChatGPT 负责读取代码、调查问题、分析、设计和 Review；Agent 负责按照 ChatGPT 已确定的目标实施修改并执行工程任务。\n\n【什么时候使用】\n仅当需要实际执行时使用，例如：修改/创建文件、实现代码、运行命令、lint、build、单元测试、集成测试、E2E、Native 测试或真实运行验证。\n\n【不要使用】\n不要把只读调查委托给 Agent，包括源码阅读、搜索、Symbol/Reference 查询、Git 查看、调用链分析、Bug 根因分析、架构设计、影响分析和代码 Review。这些应由 ChatGPT 使用 workspace/source/git/codegraph/media 工具自行完成。\n任务复杂、多步骤或跨文件，不是使用 Agent 的理由；是否需要实际执行才是判断依据。\n\n【生命周期】\nfresh 执行使用 start；同一 lineage 的后续执行使用 continue；resume_pending 仅用于已经 durable 创建、可靠证明尚未跨越 Provider side-effect boundary 且未建立 Runtime attempt 的 pending Execution；Host crash、Provider/backend 不可用或 binary discovery failure（均在 Runtime 创建前）都可能产生此状态；observe/list 用于查看状态；cancel 仅取消指定 executionId。agentId 不跨 Workspace 或 fresh Thread。start/continue/resume_pending 接受后立即返回，执行由本地 Worker 继续；使用 observe 携带 knownRevision 等待有意义状态变化，waitMs 默认 20000、最大 25000，0 表示立即读取。连接中断不取消执行，可按 executionId 重连观察。默认不返回结果正文；resultAvailable=true 时使用 observe(includeResult=true) 获取已持久化结果，可重复读取。nextAction 仅为提示，操作资格仍由 availableActions 和后端校验决定。control.requestAccepted 表示当前请求已获得 durable Execution identity；providerInvoked 为 true/false/null，dispatching/uncertain 不能证明已派发。错误优先按 error.code 与 control.nextAction 处理，不根据 message 推断。control=null 或连接结果不明时，仅原样重试同一 action 和全部原始参数；start/continue 保留原 requestKey，其他 action 不新增 requestKey。不得自动生成新 key、replay Provider 或夺取 Claim。\n\n【进度提示】\nprogress.activityPhase、toolCategory、lastActivityAt、activityAgeMs 仅表示最近观察到的非权威 Activity；toolCategory 是 best-effort 分类。长时间没有 Activity 或 activityAgeMs 较大不代表 stalled、失败或卡死，不得仅因此 cancel、重新 start/continue、重放 Provider 请求或夺取 Workspace Claim。Execution lifecycle、providerTerminalStatus 和 availableActions 才是控制行为的权威依据。\n\n【action 参数】\nstart(agentId, requestKey, prompt, workspaceId)\ncontinue(executionId, requestKey, prompt)\nresume_pending(executionId)\nresume_pending 仅用于已经 durable 创建、可靠证明尚未跨越 Provider side-effect boundary、未建立 Runtime attempt 的 pending Execution。Host crash、Provider/backend 不可用、binary discovery/resolution failure（均在 Runtime 创建前）都可能产生此状态，并允许 explicit resume 或 cancel-before-dispatch。\n\n必须同时满足 dispatch_pending + not_dispatched + runtime_instance_id=NULL + provider_terminal_status=NULL、原 Execution 拥有 Workspace Claim、无 persisted Runtime attempt。拒绝 dispatching/dispatched/uncertain、已绑定 Runtime、已有 Runtime attempt、已有 Provider terminal、running/finalizing/reconciling/unknown、completed/failed/cancelled/interrupted，以及 Claim missing/mismatch。\n\n只接受 exact executionId；不创建 Execution、不生成 requestKey、不 replay uncertain Provider request、不重新绑定旧 Runtime、不夺取其他 Claim。继续复用原首次 Provider pipeline；并发 duplicate resume 不得产生第二个 Runtime/Thread/Turn。\nobserve(executionId, knownRevision?, waitMs?, includeResult?)\ncancel(executionId)\nlist(agentId?, workspaceId?, limit?)\nstart.workspaceId 是调用方期望执行的当前 Workspace 身份；ActiveWorkspace 变化时必须拒绝，不得执行到新的 Workspace。括号内为 action 之外的参数，? 表示可选。只传当前 action 对应的字段；不要携带其他 action 的参数。",
+        "【定位】\nAgent 是 ChatGPT 的本地执行器。ChatGPT 负责读取代码、调查问题、分析、设计和 Review；Agent 负责按照 ChatGPT 已确定的目标实施修改并执行工程任务。\n\n【什么时候使用】\n仅当需要实际执行时使用，例如：修改/创建文件、实现代码、运行命令、lint、build、单元测试、集成测试、E2E、Native 测试或真实运行验证。\n\n【不要使用】\n不要把只读调查委托给 Agent，包括源码阅读、搜索、Symbol/Reference 查询、Git 查看、调用链分析、Bug 根因分析、架构设计、影响分析和代码 Review。这些应由 ChatGPT 使用 workspace/source/git/codegraph/media 工具自行完成。\n任务复杂、多步骤或跨文件，不是使用 Agent 的理由；是否需要实际执行才是判断依据。\n\n【生命周期】\nfresh 执行使用 start；同一 lineage 的后续执行使用 continue；resume_pending 仅用于已经 durable 创建、可靠证明尚未跨越 Provider side-effect boundary 且未建立 Runtime attempt 的 pending Execution；Host crash、Provider/backend 不可用或 binary discovery failure（均在 Runtime 创建前）都可能产生此状态；observe/list 用于查看状态；cancel 仅取消指定 executionId。agentId 不跨 Workspace 或 fresh Thread。start/continue/resume_pending 接受后立即返回，执行由本地 Worker 继续；使用 observe 携带 knownRevision 等待有意义状态变化，waitMs 默认 20000、最大 25000，0 表示立即读取。连接中断不取消执行，可按 executionId 重连观察。默认不返回结果正文；resultAvailable=true 时使用 observe(includeResult=true) 获取已持久化结果，可重复读取。nextAction 仅为提示，操作资格仍由 availableActions 和后端校验决定。control.requestAccepted 表示当前请求已获得 durable Execution identity；providerInvoked 为 true/false/null，dispatching/uncertain 不能证明已派发。错误优先按 error.code 与 control.nextAction 处理，不根据 message 推断。control=null 或连接结果不明时，仅原样重试同一 action 和全部原始参数；start/continue 保留原 requestKey，其他 action 不新增 requestKey。不得自动生成新 key、replay Provider 或夺取 Claim。\n\n【进度提示】\nprogress.activityPhase、toolCategory、lastActivityAt、activityAgeMs、silenceLevel 仅表示最近观察到的非权威 Activity；toolCategory 是 best-effort 分类。silenceLevel 仅由 activityAgeMs 派生的固定展示桶：fresh <30s、quiet 30s–<120s、prolonged >=120s；尚无可观察 Activity 时为 null。quiet/prolonged 本身不表示 stalled、timeout、失败或卡死；长时间没有 Activity 或 activityAgeMs 较大不代表 stalled、失败或卡死。不得仅因 quiet/prolonged 或 Activity 时间而 cancel、重新 start/continue、重放 Provider 请求或夺取 Workspace Claim。Execution lifecycle、providerTerminalStatus 和 availableActions 才是控制行为的权威依据。\n\n【action 参数】\nstart(agentId, requestKey, prompt, workspaceId)\ncontinue(executionId, requestKey, prompt)\nresume_pending(executionId)\nresume_pending 仅用于已经 durable 创建、可靠证明尚未跨越 Provider side-effect boundary、未建立 Runtime attempt 的 pending Execution。Host crash、Provider/backend 不可用、binary discovery/resolution failure（均在 Runtime 创建前）都可能产生此状态，并允许 explicit resume 或 cancel-before-dispatch。\n\n必须同时满足 dispatch_pending + not_dispatched + runtime_instance_id=NULL + provider_terminal_status=NULL、原 Execution 拥有 Workspace Claim、无 persisted Runtime attempt。拒绝 dispatching/dispatched/uncertain、已绑定 Runtime、已有 Runtime attempt、已有 Provider terminal、running/finalizing/reconciling/unknown、completed/failed/cancelled/interrupted，以及 Claim missing/mismatch。\n\n只接受 exact executionId；不创建 Execution、不生成 requestKey、不 replay uncertain Provider request、不重新绑定旧 Runtime、不夺取其他 Claim。继续复用原首次 Provider pipeline；并发 duplicate resume 不得产生第二个 Runtime/Thread/Turn。\nobserve(executionId, knownRevision?, waitMs?, includeResult?)\ncancel(executionId)\nlist(agentId?, workspaceId?, limit?)\nstart.workspaceId 是调用方期望执行的当前 Workspace 身份；ActiveWorkspace 变化时必须拒绝，不得执行到新的 Workspace。括号内为 action 之外的参数，? 表示可选。只传当前 action 对应的字段；不要携带其他 action 的参数。",
         // MCP discovery uses a flat compatibility schema. Product DTO parsing
         // remains the authority for action-specific requirements and validation.
         json!({
@@ -1158,12 +1172,33 @@ mod agent_contract_tests {
             assert!(input.contains(action));
         }
         assert!(agent.output_schema.is_some());
+        let silence_level_description = agent.output_schema.as_ref().unwrap()["$defs"]["execution"]
+            ["properties"]["progress"]["properties"]["silenceLevel"]["description"]
+            .as_str()
+            .expect("silenceLevel description must be present");
+        for contract in [
+            "silenceLevel 是由 activityAgeMs 派生的展示桶",
+            "fresh <30s",
+            "quiet 30s–<120s",
+            "prolonged >=120s",
+            "null 表示尚无可观察 Activity",
+            "quiet/prolonged 不表示 stalled、timeout、失败或卡死",
+            "不能单独作为控制行为依据",
+        ] {
+            assert!(
+                silence_level_description.contains(contract),
+                "missing silenceLevel schema contract: {contract}"
+            );
+        }
         let description = agent.description.as_deref().unwrap();
         for contract in [
             "非权威 Activity",
+            "silenceLevel 仅由 activityAgeMs 派生的固定展示桶",
+            "fresh <30s、quiet 30s–<120s、prolonged >=120s",
+            "quiet/prolonged 本身不表示 stalled、timeout、失败或卡死",
             "activityAgeMs 较大不代表 stalled、失败或卡死",
-            "不得仅因此 cancel、重新 start/continue、重放 Provider 请求",
-            "lifecycle、providerTerminalStatus 和 availableActions 才是控制行为的权威依据",
+            "不得仅因 quiet/prolonged 或 Activity 时间而 cancel、重新 start/continue、重放 Provider 请求或夺取 Workspace Claim",
+            "Execution lifecycle、providerTerminalStatus 和 availableActions 才是控制行为的权威依据",
         ] {
             assert!(description.contains(contract), "missing contract: {contract}");
         }

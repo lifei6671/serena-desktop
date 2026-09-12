@@ -42,11 +42,12 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
     const toolCategory: 'build' | 'test' | 'command' | 'read' | 'edit' | 'tool' | null = row.progress.toolCategory;
     const lastActivityAt: number | null = row.progress.lastActivityAt;
     const activityAgeMs: number | null = row.progress.activityAgeMs;
+    const silenceLevel: 'fresh' | 'quiet' | 'prolonged' | null = row.progress.silenceLevel;
     // @ts-expect-error activity is a hint, never a lifecycle phase
     const invalidPhase: ExecutionView['progress']['phase'] = 'stalled';
     void [threadName, errorCode, errorMessage, threadNameAcceptsNullable, errorCodeAcceptsNullable,
       errorMessageAcceptsNullable, noThreadName, noErrorCode, noErrorMessage,
-      pendingPhase, activityPhase, toolCategory, lastActivityAt, activityAgeMs, invalidPhase];
+      pendingPhase, activityPhase, toolCategory, lastActivityAt, activityAgeMs, silenceLevel, invalidPhase];
     const prompt: string = row.prompt;
     const revision: string = row.revision;
     const observation: AgentAction = {action:'observe',executionId:'E',knownRevision:revision,waitMs:0,includeResult:true};
