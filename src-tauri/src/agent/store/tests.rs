@@ -2,6 +2,8 @@ use super::super::execution::{CreateExecutionInput, canonicalize_request};
 use super::*;
 use serde_json::json;
 
+mod work_runs;
+
 fn open(directory: &std::path::Path) -> StateStore {
     tauri::async_runtime::block_on(StateStore::open(directory.to_path_buf())).unwrap()
 }
@@ -29,7 +31,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
         let store = open(dir.path());
         let c = store.connection.lock().unwrap();
         for (pragma, expected) in [
-            ("user_version", 4),
+            ("user_version", 5),
             ("foreign_keys", 1),
             ("synchronous", 2),
             ("busy_timeout", 5000),
@@ -50,6 +52,8 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
             "runtime_instances",
             "executions",
             "workspace_claims",
+            "work_runs",
+            "work_execution_links",
             "prevent_execution_runtime_rebind",
             "executions_runtime_state",
             "executions_one_unresolved_per_agent",
@@ -106,7 +110,7 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        4
+        5
     );
     assert_eq!(
         c.query_row(
@@ -187,7 +191,7 @@ fn v2_migration_preserves_history_and_adds_nullable_activity() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        4
+        5
     );
     let old = execution_record(&c, "old").unwrap().unwrap();
     assert_eq!(old.last_activity_at, None);
@@ -218,12 +222,12 @@ fn unsupported_or_unversioned_history_is_not_guessed_or_rewritten() {
             .unwrap(),
         0
     );
-    c.pragma_update(None, "user_version", 5).unwrap();
+    c.pragma_update(None, "user_version", 6).unwrap();
     assert!(migrate(&mut c).unwrap_err().contains("unsupported"));
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        5
+        6
     );
 }
 

@@ -4,6 +4,10 @@ use crate::agent::execution::{
     CreateExecutionInput, ExecutionMode, Provider, canonicalize_request,
 };
 
+mod work;
+pub use work::WorkExecutionContext;
+use work::{create_with_work, require_membership, require_retry_context, validate_new_work};
+
 #[derive(Clone, Debug)]
 pub struct WorkspaceSnapshot {
     pub id: String,
@@ -180,13 +184,54 @@ impl StateStore {
         workspace: Option<WorkspaceSnapshot>,
         now: i64,
     ) -> Result<CreateOutcome, String> {
+        self.product_create_fresh_with_work(
+            id,
+            agent,
+            request_key,
+            prompt,
+            expected_workspace_id,
+            workspace,
+            None,
+            now,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn product_create_fresh_with_work(
+        &self,
+        id: String,
+        agent: String,
+        request_key: String,
+        prompt: String,
+        expected_workspace_id: String,
+        workspace: Option<WorkspaceSnapshot>,
+        work: Option<WorkExecutionContext>,
+        now: i64,
+    ) -> Result<CreateOutcome, String> {
         self.write(move |tx| {
+            if work
+                .as_ref()
+                .is_some_and(|w| w.parent_execution_id.is_some())
+            {
+                return Err("WORK_INVALID_ARGUMENT".into());
+            }
             if let Some(row) = key(tx, &agent, &request_key)? {
                 if row.workspace_id != expected_workspace_id {
                     return Err("EXECUTION_REQUEST_KEY_CONFLICT".into());
                 }
                 let request = canonicalize_request(input(&row, request_key, prompt, None)?)?;
+                if let Some(work) = &work {
+                    require_retry_context(tx, &row.id, work)?;
+                }
                 return prior_outcome(row, &request);
+            }
+            if let Some(work) = &work {
+                let root = workspace
+                    .as_ref()
+                    .filter(|w| w.id == expected_workspace_id)
+                    .map(|w| w.root.as_str());
+                validate_new_work(tx, work, &expected_workspace_id, root)?;
             }
             let history: bool = tx
                 .query_row(
@@ -213,7 +258,7 @@ impl StateStore {
                 mode: ExecutionMode::WorkspaceWrite,
                 thread_id: None,
             })?;
-            create(tx, &id, &request, now)
+            create_with_work(tx, &id, &request, work.as_ref(), now)
         })
         .await
     }
@@ -225,7 +270,32 @@ impl StateStore {
         prompt: String,
         now: i64,
     ) -> Result<CreateOutcome, String> {
+        self.product_create_continuation_with_work(id, source, request_key, prompt, None, now)
+            .await
+    }
+
+    pub(crate) async fn product_create_continuation_with_work(
+        &self,
+        id: String,
+        source: String,
+        request_key: String,
+        prompt: String,
+        mut work: Option<WorkExecutionContext>,
+        now: i64,
+    ) -> Result<CreateOutcome, String> {
         self.write(move |tx| {
+            if let Some(work) = &mut work {
+                if work
+                    .parent_execution_id
+                    .as_ref()
+                    .is_some_and(|parent| parent != &source)
+                {
+                    return Err("WORK_INVALID_ARGUMENT".into());
+                }
+                // Source is authoritative; an omitted parent is recorded as source too.
+                work.parent_execution_id = Some(source.clone());
+                require_membership(tx, &source, &work.work_run_id)?;
+            }
             let row = execution_record(tx, &source)
                 .map_err(|e| e.to_string())?
                 .ok_or("EXECUTION_NOT_FOUND")?;
@@ -236,7 +306,18 @@ impl StateStore {
                 row.thread_id.clone(),
             )?)?;
             if let Some(prior) = key(tx, &row.agent_id, &request_key)? {
+                if let Some(work) = &work {
+                    require_retry_context(tx, &prior.id, work)?;
+                }
                 return prior_outcome(prior, &request);
+            }
+            if let Some(work) = &work {
+                validate_new_work(
+                    tx,
+                    work,
+                    &request.input().workspace_id,
+                    Some(&request.input().canonical_workspace_root),
+                )?;
             }
             let claimed: bool = tx
                 .query_row(
@@ -248,7 +329,7 @@ impl StateStore {
             if !continuation_eligible(&row) || claimed {
                 return Err("AGENT_CONTINUE_NOT_ALLOWED".into());
             }
-            create(tx, &id, &request, now)
+            create_with_work(tx, &id, &request, work.as_ref(), now)
         })
         .await
     }

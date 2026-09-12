@@ -490,6 +490,242 @@ fn cancelled_turn_is_reusable_but_cleanup_uncertainty_is_not() {
 }
 
 #[test]
+fn work_adapter_queries_are_passive_and_inactive_work_cancels_running_execution() {
+    run(async {
+        use crate::agent::work::{FinishOutcome, HostAcceptance, UpdateAction, WorkProductService};
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::open(dir.path().into()).await.unwrap();
+        store
+            .create_work_run(
+                "work".into(),
+                "W".into(),
+                dir.path().to_string_lossy().into(),
+                "title".into(),
+                None,
+                1,
+            )
+            .await
+            .unwrap();
+        let evidence = Arc::new(Evidence::default());
+        evidence.hold_turn.store(true, Ordering::SeqCst);
+        let s = service(
+            store.clone(),
+            dir.path().join("agent-state.db"),
+            evidence.clone(),
+        );
+        let first = s
+            .agent_execute(
+                AgentExecuteAction::Start {
+                    work_run_id: "work".into(),
+                    request_key: "key".into(),
+                    prompt: "hello".into(),
+                    delegation_context_json: None,
+                },
+                w(dir.path(), "W"),
+            )
+            .await
+            .unwrap();
+        let id = first.execution_id;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while store
+                .execution(id.clone())
+                .await
+                .unwrap()
+                .unwrap()
+                .tool_category
+                .is_none()
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let before = store.execution(id.clone()).await.unwrap().unwrap();
+        assert_eq!(before.status, "running");
+        let methods = evidence.methods.lock().unwrap().clone();
+        let initial = match s
+            .agent_query(AgentQueryAction::Get {
+                execution_id: id.clone(),
+                include_result: Some(true),
+            })
+            .await
+            .unwrap()
+        {
+            ProductData::Execution(view) => view,
+            _ => panic!("expected execution"),
+        };
+        assert!(initial.final_result.is_none());
+        let rows = match s
+            .agent_query(AgentQueryAction::List {
+                work_run_id: "work".into(),
+                limit: None,
+            })
+            .await
+            .unwrap()
+        {
+            ProductData::List { executions } => executions,
+            _ => panic!("expected list"),
+        };
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].execution_id, id);
+        let observed = match s
+            .agent_query(AgentQueryAction::Observe {
+                execution_id: id.clone(),
+                known_revision: Some(initial.control_revision),
+                wait_ms: Some(80),
+                include_result: Some(true),
+            })
+            .await
+            .unwrap()
+        {
+            ProductData::Execution(view) => view,
+            _ => panic!("expected execution"),
+        };
+        assert_eq!(observed.unchanged, Some(true));
+        assert_eq!(store.execution(id.clone()).await.unwrap(), Some(before));
+        assert_eq!(*evidence.methods.lock().unwrap(), methods);
+        assert_eq!(evidence.launches.lock().unwrap().len(), 1);
+
+        let work_service = WorkProductService::new(store.clone());
+        let work_before = store.work_run("work".into()).await.unwrap().unwrap();
+        let execution_before = store.execution(id.clone()).await.unwrap().unwrap();
+        let claim_before = store
+            .workspace_claim(execution_before.canonical_workspace_root.clone())
+            .await
+            .unwrap();
+        let runtime_before = store
+            .runtime(execution_before.runtime_instance_id.clone().unwrap())
+            .await
+            .unwrap();
+        for outcome in [FinishOutcome::Completed, FinishOutcome::Failed] {
+            assert_eq!(
+                work_service
+                    .update(
+                        UpdateAction::Finish {
+                            work_run_id: "work".into(),
+                            outcome,
+                            acceptance: None
+                        },
+                        None
+                    )
+                    .await
+                    .unwrap_err(),
+                "WORK_HAS_ACTIVE_EXECUTIONS"
+            );
+            assert_eq!(
+                store.work_run("work".into()).await.unwrap(),
+                Some(work_before.clone())
+            );
+        }
+        let cancelled_work = work_service
+            .update(
+                UpdateAction::Cancel {
+                    work_run_id: "work".into(),
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(cancelled_work.status, "cancelled");
+        assert_eq!(cancelled_work.revision, work_before.revision + 1);
+        assert_eq!(cancelled_work.completed_at, Some(cancelled_work.updated_at));
+        assert_eq!(cancelled_work.acceptance_json, None);
+        assert_eq!(
+            store.execution(id.clone()).await.unwrap(),
+            Some(execution_before.clone())
+        );
+        assert_eq!(
+            store
+                .workspace_claim(execution_before.canonical_workspace_root.clone())
+                .await
+                .unwrap(),
+            claim_before
+        );
+        assert_eq!(
+            store
+                .runtime(execution_before.runtime_instance_id.clone().unwrap())
+                .await
+                .unwrap(),
+            runtime_before
+        );
+        assert_eq!(*evidence.methods.lock().unwrap(), methods);
+        assert_eq!(evidence.launches.lock().unwrap().len(), 1);
+
+        // Empty Work completion also does not contact this running Provider.
+        store
+            .create_work_run(
+                "empty".into(),
+                "W".into(),
+                dir.path().to_string_lossy().into(),
+                "title".into(),
+                None,
+                1,
+            )
+            .await
+            .unwrap();
+        work_service
+            .update(
+                UpdateAction::Finish {
+                    work_run_id: "empty".into(),
+                    outcome: FinishOutcome::Completed,
+                    acceptance: Some(HostAcceptance {
+                        summary: "Host review".into(),
+                        execution_ids: vec![],
+                    }),
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(*evidence.methods.lock().unwrap(), methods);
+        assert_eq!(evidence.launches.lock().unwrap().len(), 1);
+        s.agent_execute(
+            AgentExecuteAction::Cancel {
+                work_run_id: "work".into(),
+                execution_id: id.clone(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        let terminal = final_row(&s, &id).await;
+        assert_eq!(terminal.status, "cancelled");
+        assert!(
+            store
+                .workspace_claim(terminal.canonical_workspace_root.clone())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            store
+                .work_execution_links("work".into())
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            store.work_run("work".into()).await.unwrap().unwrap().status,
+            "cancelled"
+        );
+        let runtime = terminal.runtime_instance_id.unwrap();
+        assert_eq!(counts(&evidence, &runtime), [1, 1, 0, 1]);
+        assert_eq!(
+            evidence
+                .methods
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(_, m)| m == "turn/interrupt")
+                .count(),
+            1
+        );
+        s.shutdown().await.unwrap();
+    });
+}
+
+#[test]
 fn shutdown_cancels_active_provider_and_awaits_monitor() {
     run(async {
         let dir = tempfile::tempdir().unwrap();
@@ -854,3 +1090,6 @@ fn termination_failure_quarantines_only_its_workspace_and_recovery_allows_cold_r
         s.shutdown().await.unwrap();
     });
 }
+
+#[path = "work_crash_tests.rs"]
+mod work_crash_tests;

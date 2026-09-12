@@ -80,15 +80,10 @@ impl ServerHandler for Handler {
         }
         let tools = registry::list(&client.tools, self.0.config().agent_enabled)
             .map_err(|e| ErrorData::internal_error(e, None))?;
-        if let Some(agent) = tools.iter().find(|t| t.name == "agent") {
-            self.0.log(&format!(
-                "agent contract published {}",
-                registry::agent_contract_diagnostic(true, agent)
-            ));
-        } else {
-            self.0
-                .log("agent contract published agentEnabled=false (agent absent)");
-        }
+        self.0.log(&registry::orchestration_contract_diagnostic(
+            self.0.config().agent_enabled,
+            &tools,
+        ));
         self.0
             .log("tools/list · 返回工具列表（Serena 描述原样传递）");
         Ok(ListToolsResult {
@@ -108,10 +103,14 @@ impl ServerHandler for Handler {
             "INFO",
             &format!("tools/call request={request_id:?} tool={:?}", request.name),
         );
-        registry::validate(&request.name, &args).map_err(|e| {
+        // Orchestration uses the same typed validation in Broker, returning its
+        // product envelope (including control) rather than a JSON-RPC parameter error.
+        if !super::orchestration::contains(&request.name) {
+            registry::validate(&request.name, &args).map_err(|e| {
             self.0.log_tool("WARN", &format!("tools/call request={request_id:?} tool={:?} error_code=INVALID_PARAMS duration_ms={:.3}", request.name, started.elapsed().as_secs_f64() * 1000.0));
             ErrorData::invalid_params(e, None)
         })?;
+        }
         let result = if request.name == "media_read_image" {
             self.0.read_image(args, context.ct).await
         } else {
@@ -122,7 +121,7 @@ impl ServerHandler for Handler {
                     let content = vec![ContentBlock::text(v.to_string())];
                     let mut result = if (request.name == "codegraph_explore"
                         && v.get("error").is_some())
-                        || (request.name == "agent" && v["ok"] == false)
+                        || (super::orchestration::contains(&request.name) && v["ok"] == false)
                     {
                         CallToolResult::error(content)
                     } else {
@@ -321,12 +320,14 @@ impl Broker {
             handle,
         });
         self.log(&format!("MCP 已监听 · http://{address}/mcp"));
-        self.log(&format!(
-            "agent contract startup {}",
-            registry::agent_contract_diagnostic(
-                self.config().agent_enabled,
-                &registry::agent_tool()
-            )
+        let enabled = self.config().agent_enabled;
+        self.log(&registry::orchestration_contract_diagnostic(
+            enabled,
+            &if enabled {
+                super::orchestration::descriptors()
+            } else {
+                Vec::new()
+            },
         ));
         Ok(())
     }

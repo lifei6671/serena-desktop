@@ -12,6 +12,10 @@ const SCHEMA_V2: &str =
     "CREATE TABLE thread_names (thread_id TEXT PRIMARY KEY NOT NULL, name TEXT);";
 const SCHEMA_V4: &str = include_str!("schema_v4.sql");
 const SCHEMA_V3: &str = include_str!("schema_v3.sql");
+const SCHEMA_V5: &str = include_str!("schema_v5.sql");
+
+mod work_runs;
+pub use work_runs::{WorkExecutionLinkRecord, WorkRunRecord};
 
 #[derive(Clone)]
 pub struct StateStore {
@@ -276,7 +280,7 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
             }
             apply_migration(&transaction, 1, SCHEMA_V1).map_err(|e| e.to_string())?;
         }
-        1..=4 => {}
+        1..=5 => {}
         _ => return Err(format!("unsupported agent state schema version: {version}")),
     }
     if version < 2 {
@@ -287,6 +291,9 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     }
     if version < 4 {
         apply_migration(&transaction, 4, SCHEMA_V4).map_err(|e| e.to_string())?;
+    }
+    if version < 5 {
+        apply_migration(&transaction, 5, SCHEMA_V5).map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())
 }
@@ -333,8 +340,8 @@ fn insert_execution(
 #[cfg(test)]
 mod tests;
 
-pub mod transactions;
 mod runtime_attempts;
+pub mod transactions;
 
 fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<ExecutionRecord>> {
     c.query_row(

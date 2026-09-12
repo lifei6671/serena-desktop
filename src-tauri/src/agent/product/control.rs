@@ -78,6 +78,20 @@ impl ControlReceipt {
 }
 
 impl AgentProductService {
+    /// Transport projection only; durable acceptance always comes from the existing view.
+    pub(crate) async fn adapter_error_response(&self, mut error: ProductError) -> Value {
+        if let Some(id) = error.accepted_execution_id.clone() {
+            let control = self
+                .observe(id.clone(), false)
+                .await
+                .map(|view| view.control)
+                .unwrap_or_else(|_| ControlReceipt::accepted_unreadable(id.clone()));
+            error.execution_id = Some(id);
+            error.message = error.code.clone();
+            return json!({"ok":false,"error":error,"control":control});
+        }
+        adapter_rejection(error)
+    }
     pub(super) async fn error_response(
         &self,
         action: Action,
@@ -174,4 +188,18 @@ impl AgentProductService {
         })
         .unwrap()
     }
+}
+
+pub(crate) fn adapter_rejection(mut error: ProductError) -> Value {
+    let next = match error.code.as_str() {
+        "WORK_INVALID_ARGUMENT" | "CONTEXT_STALE" | "EXECUTION_REQUEST_KEY_CONFLICT" => {
+            Some(NextAction::CorrectInput)
+        }
+        "WORKSPACE_CONTEXT_MISMATCH" | "AGENT_NO_ACTIVE_WORKSPACE" | "AGENT_WORKSPACE_CHANGED" => {
+            Some(NextAction::ActivateWorkspace)
+        }
+        _ => None,
+    };
+    error.message = error.code.clone();
+    json!({"ok":false,"error":error,"control":ControlReceipt::rejected(next, None)})
 }

@@ -9,3 +9,6 @@ pub mod task_manager;
 
 #[cfg(windows)]
 pub mod product;
+
+#[cfg(windows)]
+pub mod work;

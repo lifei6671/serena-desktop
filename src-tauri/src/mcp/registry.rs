@@ -135,6 +135,12 @@ fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
         output["properties"]["hint"] = json!({"type":"string"});
         output["required"] = json!(["workspace", "text", "truncated"]);
     }
+    if name == "source_read_file" {
+        output["properties"]["path"] =
+            json!({"type":"string", "description":"Validated workspace-relative file path."});
+        output["properties"]["sha256"] = json!({"type":"string", "pattern":"^[0-9a-f]{64}$", "description":"SHA-256 of the complete local file bytes, independent of the returned line range or budget."});
+        output["required"] = json!(["workspace", "text", "truncated", "path", "sha256"]);
+    }
     if name == "codegraph_explore" {
         output = json!({"type":"object", "oneOf":[output, {
             "type":"object", "required":["error"], "properties":{"error":{
@@ -149,7 +155,7 @@ fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
     t
 }
 // Stable core only; open execution fields preserve dynamic Product data.
-fn agent_output_schema() -> Value {
+pub(crate) fn agent_output_schema() -> Value {
     json!({
       "type": "object",
       "oneOf": [
@@ -537,46 +543,7 @@ fn agent_output_schema() -> Value {
       }
     })
 }
-pub fn agent_tool() -> Tool {
-    let mut agent = Tool::new(
-        "agent",
-        "【定位】\nAgent 是 ChatGPT 的本地执行器。ChatGPT 负责读取代码、调查问题、分析、设计和 Review；Agent 负责按照 ChatGPT 已确定的目标实施修改并执行工程任务。\n\n【什么时候使用】\n仅当需要实际执行时使用，例如：修改/创建文件、实现代码、运行命令、lint、build、单元测试、集成测试、E2E、Native 测试或真实运行验证。\n\n【不要使用】\n不要把只读调查委托给 Agent，包括源码阅读、搜索、Symbol/Reference 查询、Git 查看、调用链分析、Bug 根因分析、架构设计、影响分析和代码 Review。这些应由 ChatGPT 使用 workspace/source/git/codegraph/media 工具自行完成。\n任务复杂、多步骤或跨文件，不是使用 Agent 的理由；是否需要实际执行才是判断依据。\n\n【生命周期】\nfresh 执行使用 start；同一 lineage 的后续执行使用 continue；resume_pending 仅用于已经 durable 创建、可靠证明尚未跨越 Provider side-effect boundary 且未建立 Runtime attempt 的 pending Execution；Host crash、Provider/backend 不可用或 binary discovery failure（均在 Runtime 创建前）都可能产生此状态；observe/list 用于查看状态；cancel 仅取消指定 executionId。agentId 不跨 Workspace 或 fresh Thread。start/continue/resume_pending 接受后立即返回，执行由本地 Worker 继续；使用 observe 携带 knownControlRevision 等待权威控制状态变化；默认 wakeOn=control，普通 Activity/Progress 更新不会单独唤醒 observe，返回时仍包含最新 progress，waitMs 默认 20000、最大 25000，0 表示立即读取。连接中断不取消执行，可按 executionId 重连观察。默认不返回结果正文；resultAvailable=true 时使用 observe(includeResult=true) 获取已持久化结果，可重复读取。nextAction 仅为提示，操作资格仍由 availableActions 和后端校验决定。control.requestAccepted 表示当前请求已获得 durable Execution identity；providerInvoked 为 true/false/null，dispatching/uncertain 不能证明已派发。错误优先按 error.code 与 control.nextAction 处理，不根据 message 推断。control=null 或连接结果不明时，仅原样重试同一 action 和全部原始参数；start/continue 保留原 requestKey，其他 action 不新增 requestKey。不得自动生成新 key、replay Provider 或夺取 Claim。\n\n【进度提示】\nprogress.activityPhase、toolCategory、lastActivityAt、activityAgeMs、silenceLevel 仅表示最近观察到的非权威 Activity；toolCategory 是 best-effort 分类。silenceLevel 仅由 activityAgeMs 派生的固定展示桶：fresh <30s、quiet 30s–<120s、prolonged >=120s；尚无可观察 Activity 时为 null。quiet/prolonged 本身不表示 stalled、timeout、失败或卡死；长时间没有 Activity 或 activityAgeMs 较大不代表 stalled、失败或卡死。不得仅因 Activity 静默而 cancel、resume、重新 start/continue、重放 Provider 请求或夺取 Workspace Claim。Execution lifecycle、providerTerminalStatus 和 availableActions 才是控制行为的权威依据。\n\n【action 参数】\nstart(agentId, requestKey, prompt, workspaceId)\ncontinue(executionId, requestKey, prompt)\nresume_pending(executionId)\nresume_pending 仅用于已经 durable 创建、可靠证明尚未跨越 Provider side-effect boundary、未建立 Runtime attempt 的 pending Execution。Host crash、Provider/backend 不可用、binary discovery/resolution failure（均在 Runtime 创建前）都可能产生此状态，并允许 explicit resume 或 cancel-before-dispatch。\n\n必须同时满足 dispatch_pending + not_dispatched + runtime_instance_id=NULL + provider_terminal_status=NULL、原 Execution 拥有 Workspace Claim、无 persisted Runtime attempt。拒绝 dispatching/dispatched/uncertain、已绑定 Runtime、已有 Runtime attempt、已有 Provider terminal、running/finalizing/reconciling/unknown、completed/failed/cancelled/interrupted，以及 Claim missing/mismatch。\n\n只接受 exact executionId；不创建 Execution、不生成 requestKey、不 replay uncertain Provider request、不重新绑定旧 Runtime、不夺取其他 Claim。继续复用原首次 Provider pipeline；并发 duplicate resume 不得产生第二个 Runtime/Thread/Turn。\nobserve(executionId, knownControlRevision?, waitMs?, includeResult?, wakeOn?)\nknownRevision 是 legacy control revision 别名；同时提供时 knownControlRevision 优先。wakeOn=activity 仅供实时 Activity 诊断。revision 是 controlRevision 的别名。\ncancel(executionId)\nlist(agentId?, workspaceId?, limit?)\nstart.workspaceId 是调用方期望执行的当前 Workspace 身份；ActiveWorkspace 变化时必须拒绝，不得执行到新的 Workspace。括号内为 action 之外的参数，? 表示可选。只传当前 action 对应的字段；不要携带其他 action 的参数。",
-        // MCP discovery uses a flat compatibility schema. Product DTO parsing
-        // remains the authority for action-specific requirements and validation.
-        json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "action": {"type": "string", "enum": ["start", "continue", "resume_pending", "observe", "cancel", "list"]},
-                "agentId": {"type": "string"},
-                "executionId": {"type": "string"},
-                "requestKey": {"type": "string"},
-                "prompt": {"type": "string"},
-                "workspaceId": {"type": "string", "description": "start 必填：调用方期望的当前 Workspace ID；list 可选：筛选 Workspace。"},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
-                "knownRevision": {"type": "string"},
-                "knownControlRevision": {"type": "string", "description": "优先于 knownRevision；用于等待权威控制状态变化。"},
-                "waitMs": {"type": "integer", "minimum": 0, "maximum": 25000, "default": 20000},
-                "includeResult": {"type": "boolean", "default": false},
-                "wakeOn": {"type": "string", "enum": ["control", "activity"], "default": "control"}
-            },
-            "required": ["action"]
-        })
-            .as_object()
-            .unwrap()
-            .clone(),
-    );
-    agent.annotations = Some(
-        ToolAnnotations::default()
-            .read_only(false)
-            .destructive(true)
-            .idempotent(false)
-            .open_world(true),
-    );
-    agent.output_schema = Some(agent_output_schema().as_object().unwrap().clone().into());
-    agent
-}
-pub fn agent_contract_hash(descriptor: &Tool) -> String {
+pub fn tool_contract_hash(descriptor: &Tool) -> String {
     use sha2::{Digest, Sha256};
     fn sorted(value: Value) -> Value {
         match value {
@@ -599,25 +566,20 @@ pub fn agent_contract_hash(descriptor: &Tool) -> String {
         .map(|b| format!("{b:02x}"))
         .collect()
 }
-pub fn agent_contract_diagnostic(enabled: bool, descriptor: &Tool) -> String {
-    let mut properties = descriptor.input_schema["properties"]
-        .as_object()
-        .unwrap()
-        .keys()
-        .cloned()
+pub fn orchestration_contract_diagnostic(enabled: bool, descriptors: &[Tool]) -> String {
+    let mut contracts = descriptors
+        .iter()
+        .filter(|tool| super::orchestration::contains(&tool.name))
+        .map(|tool| format!("{}={}", tool.name, tool_contract_hash(tool)))
         .collect::<Vec<_>>();
-    properties.sort();
+    contracts.sort();
     format!(
-        "agentEnabled={enabled} agent tool contract sha256={} properties={} annotations={}",
-        agent_contract_hash(descriptor),
-        properties.join(","),
-        json!(descriptor.annotations)
+        "agentEnabled={enabled} orchestration contracts sha256 {}",
+        contracts.join(",")
     )
 }
 pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String> {
-    let agent = agent_tool();
     let mut list = vec![
-        agent,
         tool(
             "workspace_list",
             "【做什么】\n列出 Desktop 已从 Serena 同步的项目，返回项目 ID、名称和根目录。\n\n【什么时候使用】\n查找可激活的项目，或在调用 workspace_activate 前获取项目 ID。\n\n【关键约束】\n只读取已同步列表，不扫描目录、不初始化项目，也不切换当前活动项目。新项目需先在 Serena 初始化，再由 Desktop 同步。",
@@ -696,15 +658,15 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
     );
     media.output_schema = None;
     list.push(media);
-    if !agent_enabled {
-        list.retain(|tool| tool.name != "agent");
+    if agent_enabled {
+        list.extend(super::orchestration::descriptors());
     }
     Ok(list)
 }
 pub fn validate(name: &str, args: &Value) -> Result<(), String> {
-    if name == "agent" {
-        return Ok(());
-    } // Product Service owns DTO errors and its stable envelope.
+    if super::orchestration::contains(name) {
+        return super::orchestration::validate(name, args);
+    }
     if let Some((_, _, allowed, required)) = SOURCES.iter().find(|t| t.0 == name) {
         let object = args.as_object().ok_or("INVALID_PARAMS: 参数必须是对象")?;
         if object.keys().any(|k| !allowed.contains(&k.as_str()))
@@ -818,83 +780,54 @@ mod tests {
     }
 
     #[test]
-    fn agent_contract_fingerprint_covers_descriptor_and_ignores_object_key_order() {
-        let agent = agent_tool();
-        let hash = agent_contract_hash(&agent);
-        assert_eq!(hash.len(), 64);
-        assert_eq!(hash, agent_contract_hash(&agent_tool()));
-        let description = agent.description.as_deref().unwrap();
-        for signature in [
-            "start(agentId, requestKey, prompt, workspaceId)",
-            "continue(executionId, requestKey, prompt)",
-            "resume_pending(executionId)",
-            "observe(executionId, knownControlRevision?, waitMs?, includeResult?, wakeOn?)\nknownRevision 是 legacy control revision 别名；同时提供时 knownControlRevision 优先。wakeOn=activity 仅供实时 Activity 诊断。revision 是 controlRevision 的别名。",
-            "cancel(executionId)",
-            "list(agentId?, workspaceId?, limit?)",
-            "只传当前 action 对应的字段；不要携带其他 action 的参数。",
-        ] {
-            assert!(description.contains(signature), "{signature}");
-        }
-        assert!(!description.contains("仅 crash 前"));
-        for clause in ["Provider side-effect boundary", "未建立 Runtime attempt", "binary discovery failure", "Claim missing/mismatch", "不重新绑定旧 Runtime"] {
-            assert!(description.contains(clause), "{clause}");
-        }
-        let mut old = agent.clone();
-        old.description = Some(
-            description
-                .split("\n\n【action 参数】")
-                .next()
-                .unwrap()
-                .to_owned()
-                .into(),
-        );
-        assert_ne!(hash, agent_contract_hash(&old));
-        assert_eq!(
-            json!(agent.annotations),
-            json!({"readOnlyHint":false,"destructiveHint":true,"idempotentHint":false,"openWorldHint":true})
-        );
-        for field in [
-            "name",
-            "description",
-            "inputSchema",
-            "annotations",
-            "outputSchema",
-        ] {
-            let mut value = serde_json::to_value(&agent).unwrap();
-            match field {
-                "name" => value["name"] = json!("changed"),
-                "description" => value["description"] = json!("changed"),
-                "inputSchema" => {
-                    value["inputSchema"]["properties"]["waitMs"]["maximum"] = json!(24999)
-                }
-                "annotations" => value["annotations"]["openWorldHint"] = json!(false),
-                "outputSchema" => value["outputSchema"]["description"] = json!("changed"),
-                _ => unreachable!(),
+    fn orchestration_fingerprints_cover_each_descriptor_and_ignore_object_key_order() {
+        fn reverse(value: Value) -> Value {
+            match value {
+                Value::Object(map) => Value::Object(
+                    map.into_iter()
+                        .rev()
+                        .map(|(k, v)| (k, reverse(v)))
+                        .collect(),
+                ),
+                Value::Array(values) => Value::Array(values.into_iter().map(reverse).collect()),
+                value => value,
             }
-            assert_ne!(
-                hash,
-                agent_contract_hash(&serde_json::from_value(value).unwrap()),
-                "{field}"
+        }
+        let tools = super::super::orchestration::descriptors();
+        for tool in &tools {
+            let hash = tool_contract_hash(tool);
+            assert_eq!(hash.len(), 64);
+            for field in [
+                "name",
+                "description",
+                "inputSchema",
+                "outputSchema",
+                "annotations",
+            ] {
+                let mut value = serde_json::to_value(tool).unwrap();
+                match field {
+                    "name" | "description" => value[field] = json!("changed"),
+                    "annotations" => {
+                        value[field]["openWorldHint"] =
+                            json!(!value[field]["openWorldHint"].as_bool().unwrap())
+                    }
+                    _ => value[field]["description"] = json!("changed"),
+                }
+                assert_ne!(
+                    hash,
+                    tool_contract_hash(&serde_json::from_value(value).unwrap()),
+                    "{} {field}",
+                    tool.name
+                );
+            }
+            let reordered: Tool =
+                serde_json::from_value(reverse(serde_json::to_value(tool).unwrap())).unwrap();
+            assert_eq!(hash, tool_contract_hash(&reordered));
+            assert!(
+                orchestration_contract_diagnostic(true, &tools)
+                    .contains(&format!("{}={hash}", tool.name))
             );
         }
-        let mut reordered = agent.clone();
-        let mut properties = serde_json::Map::new();
-        for (key, value) in agent.input_schema["properties"]
-            .as_object()
-            .unwrap()
-            .iter()
-            .rev()
-        {
-            properties.insert(key.clone(), value.clone());
-        }
-        let mut schema = (*agent.input_schema).clone();
-        schema.insert("properties".into(), Value::Object(properties));
-        reordered.input_schema = schema.into();
-        assert_eq!(hash, agent_contract_hash(&reordered));
-        let diagnostic = agent_contract_diagnostic(true, &agent);
-        assert!(diagnostic.contains(&hash));
-        assert!(diagnostic.contains("knownRevision"));
-        assert!(!diagnostic.contains("【定位】"));
     }
     fn upstream() -> Vec<Tool> {
         SOURCES.iter().map(|(_, name, _, _)| {
@@ -902,65 +835,67 @@ mod tests {
         }).collect()
     }
     #[test]
-    fn agent_discovery_schema_is_flat_and_stable() {
-        let tools = list(&upstream(), true).unwrap();
-        let agent = tools.iter().find(|t| t.name == "agent").unwrap();
-        let schema = &agent.input_schema;
-        assert_eq!(schema["type"], "object");
-        assert_eq!(schema["additionalProperties"], false);
-        assert_eq!(schema["required"], json!(["action"]));
-        assert_eq!(
-            schema["properties"],
-            json!({
-                "action": {"type":"string", "enum":["start","continue","resume_pending","observe","cancel","list"]},
-                "agentId": {"type":"string"},
-                "executionId": {"type":"string"},
-                "requestKey": {"type":"string"},
-                "prompt": {"type":"string"},
-                "workspaceId": {"type":"string", "description":"start 必填：调用方期望的当前 Workspace ID；list 可选：筛选 Workspace。"},
-                "limit": {"type":"integer", "minimum":1, "maximum":100},
-                "knownRevision": {"type":"string"},
-                "knownControlRevision": {"type":"string", "description":"优先于 knownRevision；用于等待权威控制状态变化。"},
-                "waitMs": {"type":"integer", "minimum":0, "maximum":25000, "default":20000},
-                "includeResult": {"type":"boolean", "default":false},
-                "wakeOn": {"type":"string", "enum":["control","activity"], "default":"control"}
-            })
-        );
-        fn assert_simple(value: &Value) {
-            match value {
-                Value::Object(map) => {
-                    for (key, value) in map {
-                        assert!(
-                            ![
-                                "oneOf", "anyOf", "allOf", "$ref", "$defs", "if", "then", "else"
-                            ]
-                            .contains(&key.as_str()),
-                            "{key}"
-                        );
-                        assert_simple(value);
-                    }
+    fn orchestration_discovery_is_typed_and_action_specific() {
+        for tool in super::super::orchestration::descriptors() {
+            assert_eq!(tool.input_schema["type"], "object");
+            let branches = tool.input_schema["oneOf"].as_array().unwrap();
+            assert_eq!(
+                branches.len(),
+                match tool.name.as_ref() {
+                    "work_query" => 2,
+                    "agent_execute" => 4,
+                    _ => 3,
                 }
-                Value::Array(items) => items.iter().for_each(assert_simple),
-                _ => {}
+            );
+            for branch in branches {
+                assert_eq!(branch["additionalProperties"], false);
+                assert!(
+                    branch["required"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&json!("action"))
+                );
+            }
+            let schema = serde_json::to_string(&tool.input_schema).unwrap();
+            for private in [
+                "delegationContextJson",
+                "delegation_context_json",
+                "wakeOn",
+                "knownControlRevision",
+                "agentId",
+                "acceptedAt",
+            ] {
+                assert!(!schema.contains(private), "{} {private}", tool.name);
+            }
+            assert!(tool.output_schema.is_some());
+            let read_only = tool.name.ends_with("query");
+            assert_eq!(
+                json!(tool.annotations),
+                json!({"readOnlyHint":read_only,"destructiveHint":!read_only,"idempotentHint":read_only,"openWorldHint":tool.name=="agent_execute"})
+            );
+            if tool.name == "agent_execute" {
+                assert_eq!(tool.input_schema["$defs"]["Context"]["type"], "object");
+                assert_eq!(
+                    tool.input_schema["$defs"]["Context"]["additionalProperties"],
+                    false
+                );
             }
         }
-        assert_simple(&serde_json::to_value(schema).unwrap());
-        assert!(agent.output_schema.is_some());
-        assert!(
-            serde_json::to_value(agent)
-                .unwrap()
-                .get("outputSchema")
-                .is_some()
-        );
     }
-
     #[test]
-    fn agent_toggle_only_adds_one_tool() {
+    fn orchestration_toggle_only_adds_four_tools() {
         let disabled = list(&upstream(), false).unwrap();
         let enabled = list(&upstream(), true).unwrap();
         assert!(!disabled.iter().any(|t| t.name == "agent"));
-        assert_eq!(enabled.iter().filter(|t| t.name == "agent").count(), 1);
-        assert_eq!(enabled.len(), disabled.len() + 1);
+        assert_eq!(
+            enabled
+                .iter()
+                .filter(|t| super::super::orchestration::contains(&t.name))
+                .count(),
+            4
+        );
+        assert_eq!(disabled.len(), 19);
+        assert_eq!(enabled.len(), 23);
         assert_eq!(
             enabled
                 .iter()
@@ -972,7 +907,7 @@ mod tests {
         assert_eq!(
             enabled
                 .into_iter()
-                .filter(|t| t.name != "agent")
+                .filter(|t| !super::super::orchestration::contains(&t.name))
                 .collect::<Vec<_>>(),
             disabled
         );
@@ -1001,13 +936,25 @@ mod tests {
                 }
             }
         }
-        // Existing compatibility finding, deliberately outside the Agent fix.
+        // Typed union schemas are intentional for these public tools.
         assert_eq!(
             findings,
             [
-                "agent output oneOf",
-                "agent output $defs",
-                "codegraph_explore output oneOf"
+                "codegraph_explore output oneOf",
+                "work_query input oneOf",
+                "work_query output anyOf",
+                "work_query output $defs",
+                "work_update input oneOf",
+                "work_update input $defs",
+                "work_update output anyOf",
+                "work_update output $defs",
+                "agent_query input oneOf",
+                "agent_query output oneOf",
+                "agent_query output $defs",
+                "agent_execute input oneOf",
+                "agent_execute input $defs",
+                "agent_execute output oneOf",
+                "agent_execute output $defs"
             ]
         );
     }
@@ -1015,9 +962,12 @@ mod tests {
     #[test]
     fn fixed_surface() {
         let tools = list(&upstream(), true).unwrap();
-        assert_eq!(tools.len(), 20);
+        assert_eq!(tools.len(), 23);
         let mut expected = vec![
-            "agent",
+            "work_query",
+            "work_update",
+            "agent_query",
+            "agent_execute",
             "workspace_list",
             "workspace_current",
             "workspace_activate",
@@ -1058,7 +1008,7 @@ mod tests {
                 .map(|t| &t.name)
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
-            20
+            23
         );
         assert!(
             validate(
@@ -1095,6 +1045,39 @@ mod tests {
     }
 
     #[test]
+    fn source_read_file_alone_requires_local_file_version_output() {
+        let tools = list(&upstream(), true).unwrap();
+        for tool in tools
+            .iter()
+            .filter(|t| t.name.starts_with("source_") || t.name.starts_with("git_"))
+        {
+            let output = tool.output_schema.as_ref().unwrap();
+            let required = output["required"].as_array().unwrap();
+            assert!(required.contains(&json!("workspace")));
+            assert!(required.contains(&json!("text")));
+            assert!(required.contains(&json!("truncated")));
+            assert!(output["properties"].get("content").is_none());
+            for field in ["path", "sha256"] {
+                if tool.name == "source_read_file" {
+                    assert!(required.contains(&json!(field)));
+                    assert_eq!(output["properties"][field]["type"], "string");
+                } else {
+                    assert!(!required.contains(&json!(field)), "{}", tool.name);
+                    assert!(output["properties"].get(field).is_none(), "{}", tool.name);
+                }
+            }
+            if tool.name == "source_read_file" {
+                assert_eq!(output["properties"]["sha256"]["pattern"], "^[0-9a-f]{64}$");
+                let properties = tool.input_schema["properties"].as_object().unwrap();
+                assert_eq!(properties.len(), 4);
+                for field in ["relative_path", "start_line", "end_line", "max_bytes"] {
+                    assert!(properties.contains_key(field));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn forwarded_descriptions_are_exact_and_local_descriptions_have_expected_sections() {
         let upstream = upstream();
         let tools = list(&upstream, true).unwrap();
@@ -1109,18 +1092,7 @@ mod tests {
                 .lines()
                 .filter(|line| line.starts_with('【'))
                 .collect();
-            let expected: &[&str] = if tool.name == "agent" {
-                &[
-                    "【定位】",
-                    "【什么时候使用】",
-                    "【不要使用】",
-                    "【生命周期】",
-                    "【进度提示】",
-                    "【action 参数】",
-                ]
-            } else {
-                &["【做什么】", "【什么时候使用】", "【关键约束】"]
-            };
+            let expected = &["【做什么】", "【什么时候使用】", "【关键约束】"];
             assert_eq!(sections, expected, "{}", tool.name);
         }
         let activate = tools
@@ -1155,39 +1127,18 @@ mod tests {
 
 #[cfg(test)]
 mod agent_contract_tests {
-    use super::*;
     #[test]
-    fn one_mutating_agent_tool_with_compatibility_schema() {
-        let upstream = SOURCES
-            .iter()
-            .map(|(_, name, _, _)| Tool::new(*name, "upstream", serde_json::Map::new()))
-            .collect::<Vec<_>>();
-        let tools = list(&upstream, true).unwrap();
-        let disabled = list(&upstream, false).unwrap();
-        assert!(!disabled.iter().any(|tool| tool.name == "agent"));
-        assert_eq!(tools.len(), disabled.len() + 1);
-        let agent = tools
-            .iter()
-            .filter(|t| t.name == "agent")
-            .collect::<Vec<_>>();
-        assert_eq!(agent.len(), 1);
-        let agent = agent[0];
+    fn agent_query_and_execute_retain_the_existing_execution_output_contract() {
+        let tools = super::super::orchestration::descriptors();
+        let agent = tools.iter().find(|t| t.name == "agent_execute").unwrap();
         assert_eq!(
-            agent.annotations.as_ref().unwrap().read_only_hint,
-            Some(false)
+            agent.output_schema,
+            tools
+                .iter()
+                .find(|t| t.name == "agent_query")
+                .unwrap()
+                .output_schema
         );
-        let input = serde_json::to_string(&agent.input_schema).unwrap();
-        for action in [
-            "start",
-            "continue",
-            "resume_pending",
-            "observe",
-            "cancel",
-            "list",
-        ] {
-            assert!(input.contains(action));
-        }
-        assert!(agent.output_schema.is_some());
         let silence_level_description = agent.output_schema.as_ref().unwrap()["$defs"]["execution"]
             ["properties"]["progress"]["properties"]["silenceLevel"]["description"]
             .as_str()
@@ -1208,15 +1159,16 @@ mod agent_contract_tests {
         }
         let description = agent.description.as_deref().unwrap();
         for contract in [
-            "非权威 Activity",
-            "silenceLevel 仅由 activityAgeMs 派生的固定展示桶",
-            "fresh <30s、quiet 30s–<120s、prolonged >=120s",
-            "quiet/prolonged 本身不表示 stalled、timeout、失败或卡死",
-            "activityAgeMs 较大不代表 stalled、失败或卡死",
-            "不得仅因 Activity 静默而 cancel、resume、重新 start/continue、重放 Provider 请求或夺取 Workspace Claim",
-            "Execution lifecycle、providerTerminalStatus 和 availableActions 才是控制行为的权威依据",
+            "ChatGPT",
+            "Review",
+            "continue",
+            "新 Execution",
+            "Thread",
+            "context",
+            "requestKey",
+            "resume_pending",
         ] {
-            assert!(description.contains(contract), "missing contract: {contract}");
+            assert!(description.contains(contract));
         }
     }
 }

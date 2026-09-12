@@ -465,7 +465,7 @@ async fn listener_bind_failure_rolls_back_config_and_policy_before_returning() {
     assert!(!broker.snapshot().await.running);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn quick_first_listener_is_protected_and_runtime_demand_preserves_preferences() {
     for enabled in [false, true] {
         let directory = tempfile::tempdir().unwrap();
@@ -475,9 +475,15 @@ async fn quick_first_listener_is_protected_and_runtime_demand_preserves_preferen
         config.broker.allow_lan = true;
         config::save(&paths.config_file, &config).unwrap();
         let broker = broker(paths.clone());
-        // Single-thread runtime: start installs protection and listener before worker runs.
+        // On this runtime, start returns before the spawned tunnel worker is polled.
         broker.remote.start(broker.clone()).await.unwrap();
-        broker.remote.cancel(); // No public tunnel is needed for the listener boundary test.
+        // Remove and abort it without yielding: this test needs the real listener,
+        // but no cloudflared work or worker cleanup racing the boundary assertions.
+        let worker = broker.remote.task.try_lock().unwrap().take().unwrap();
+        worker.abort();
+        assert!(worker.await.unwrap_err().is_cancelled());
+        assert!(broker.remote.snapshot().active);
+        assert!(broker.snapshot().await.running);
         assert_eq!(broker.remote.policy(), McpAuthPolicy::EmbeddedOAuth);
         assert_eq!(
             post(&broker, "initialize", None, "127.0.0.1", None)

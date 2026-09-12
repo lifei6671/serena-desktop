@@ -6,12 +6,16 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 mod control_tests;
 #[path = "observe_tests.rs"]
 mod observe_tests;
+#[path = "orchestration_tests.rs"]
+mod orchestration_tests;
 #[path = "restart_tests.rs"]
 mod restart_tests;
 #[path = "workspace_write_tests.rs"]
 mod workspace_write_tests;
 #[path = "persistence_tests.rs"]
 mod persistence_tests;
+#[path = "work_adapter_tests.rs"]
+mod work_adapter_tests;
 fn run(f: impl std::future::Future<Output = ()>) {
     tokio::runtime::Runtime::new().unwrap().block_on(f)
 }
@@ -410,6 +414,8 @@ async fn fake_service(
         tokio::io::empty(),
     ));
     let mut manager = AgentTaskManager::new(store.clone(), "unused".into());
+    let prompt_db = db.clone();
+    let prompt_runtime = runtime.to_string();
     manager.test_client = Some((client.clone(), db));
     let (release, wait) = tokio::sync::oneshot::channel();
     let turn = turn.to_string();
@@ -454,6 +460,15 @@ async fn fake_service(
                     }
                 }
                 "turn/start" => {
+                    let db = rusqlite::Connection::open(&prompt_db).unwrap();
+                    let prompt: String = db
+                        .query_row(
+                            "SELECT prompt FROM executions WHERE runtime_instance_id=?1",
+                            [&prompt_runtime],
+                            |r| r.get(0),
+                        )
+                        .unwrap();
+                    assert_eq!(v["params"]["input"][0]["text"], prompt);
                     assert_eq!(v["params"]["threadId"], "THREAD");
                     assert_eq!(v["params"]["approvalPolicy"], "never");
                     let writable_roots = v["params"]["sandboxPolicy"]["writableRoots"]
@@ -1500,7 +1515,7 @@ impl AgentProductService {
 fn assert_output_contract(response: &Value) {
     use std::io::Write;
     use std::process::{Command, Stdio};
-    let schema = crate::mcp::registry::agent_tool().output_schema.unwrap();
+    let schema = crate::mcp::registry::agent_output_schema();
     let mut child = Command::new("node")
         .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap())
         .args(["-e", r#"

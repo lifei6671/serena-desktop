@@ -93,6 +93,15 @@ impl AgentTaskManager {
         action: super::product::Action,
         workspace: Option<super::store::transactions::product::WorkspaceSnapshot>,
     ) -> Result<String, super::product::ProductError> {
+        self.product_submit_with_work(action, workspace, None).await
+    }
+
+    pub(crate) async fn product_submit_with_work(
+        &self,
+        action: super::product::Action,
+        workspace: Option<super::store::transactions::product::WorkspaceSnapshot>,
+        work: Option<super::store::transactions::product::WorkExecutionContext>,
+    ) -> Result<String, super::product::ProductError> {
         let manager = self.clone();
         // Host owns creation through handoff even if the adapter drops its wait.
         tokio::spawn(async move {
@@ -110,13 +119,14 @@ impl AgentTaskManager {
                 } => Some(
                     manager
                         .store
-                        .product_create_fresh(
+                        .product_create_fresh_with_work(
                             Self::id("execution"),
                             agent_id,
                             request_key,
                             prompt,
                             workspace_id,
                             workspace,
+                            work,
                             super::coordinator::now(),
                         )
                         .await?,
@@ -128,11 +138,12 @@ impl AgentTaskManager {
                 } => Some(
                     manager
                         .store
-                        .product_create_continuation(
+                        .product_create_continuation_with_work(
                             Self::id("execution"),
                             execution_id,
                             request_key,
                             prompt,
+                            work,
                             super::coordinator::now(),
                         )
                         .await?,

@@ -1,11 +1,13 @@
 mod codegraph;
 pub mod git;
 mod media;
+mod orchestration;
 pub mod process;
 pub mod projects;
 pub mod registry;
 pub mod serena;
 mod server;
+mod source_read;
 use crate::{
     config::{ManagerConfig, Workspace},
     serena::{ServerStatus, SupervisorState},
@@ -370,15 +372,8 @@ impl Broker {
         args: Value,
         cancel: CancellationToken,
     ) -> Result<Value, String> {
-        if name == "agent" {
-            if !self.config().agent_enabled {
-                return Ok(crate::agent::product::failure(
-                    "AGENT_DISABLED: Agent 工具未开启，请在 Serena Desktop 设置中开启 Agent。"
-                        .into(),
-                    None,
-                ));
-            }
-            return Ok(self.agent_operation(args).await);
+        if orchestration::contains(name) {
+            return Ok(self.orchestration_operation(name, args).await);
         }
         registry::validate(name, &args)?;
         if name == "codegraph_explore" {
@@ -461,16 +456,18 @@ impl Broker {
                 return Err("INVALID_PARAMS: max_bytes 超出范围".into());
             }
             let rel = a.relative_path.as_deref().unwrap_or("");
-            let checked = process::safe_relative(&active.workspace.root, rel)?;
-            let checked = if name == "source_find_references" {
-                active.workspace.root.clone()
-            } else {
-                checked
-            };
-            let tree_root = active.workspace.root.clone();
-            tokio::task::spawn_blocking(move || process::check_subtree(&tree_root, &checked))
-                .await
-                .map_err(|e| e.to_string())??;
+            if name != "source_read_file" {
+                let checked = process::safe_relative(&active.workspace.root, rel)?;
+                let checked = if name == "source_find_references" {
+                    active.workspace.root.clone()
+                } else {
+                    checked
+                };
+                let tree_root = active.workspace.root.clone();
+                tokio::task::spawn_blocking(move || process::check_subtree(&tree_root, &checked))
+                    .await
+                    .map_err(|e| e.to_string())??;
+            }
             let mut remote = args.as_object().unwrap().clone();
             remote.remove("max_bytes");
             remote.retain(|_, v| !v.is_null());
@@ -481,6 +478,16 @@ impl Broker {
             }
             if name == "source_list_dir" {
                 remote.entry("recursive").or_insert(json!(false));
+            }
+            if name == "source_read_file" {
+                return source_read::read(
+                    &active.workspace,
+                    &active.client,
+                    Value::Object(remote),
+                    limit,
+                    cancel,
+                )
+                .await;
             }
             let text = tokio::select! {
                 result = active.client.call(remote_name, Value::Object(remote)) => result?,
@@ -1128,6 +1135,17 @@ mod integration_tests {
                 )))
                 .is_ok()
         );
+        store
+            .create_work_run(
+                "contract-work".into(),
+                "W".into(),
+                dir.path().to_string_lossy().into(),
+                "title".into(),
+                None,
+                1,
+            )
+            .await
+            .unwrap();
         let supervisor = broker.supervisor.clone();
         tauri::async_runtime::spawn_blocking(move || supervisor.start())
             .await
@@ -1157,8 +1175,8 @@ mod integration_tests {
                 }
                 let tools = page.tools;
                 if enabled {
-                    assert_eq!(tools.len(), disabled_tools.len() + 1);
-                    assert_eq!(tools.iter().filter(|t| t.name == "agent").count(), 1);
+                    assert_eq!(tools.len(), disabled_tools.len() + 4);
+                    assert_eq!(tools.iter().filter(|t| orchestration::contains(&t.name)).count(), 4);
                     assert_eq!(
                         tools
                             .iter()
@@ -1167,14 +1185,14 @@ mod integration_tests {
                             .len(),
                         tools.len()
                     );
-                    let agent = tools.iter().find(|t| t.name == "agent").unwrap();
-                    assert_eq!(agent, &registry::agent_tool());
+                    let agent = tools.iter().find(|t| t.name == "agent_execute").unwrap();
+                    assert_eq!(agent, &orchestration::descriptors().pop().unwrap());
                     assert_eq!(json!(agent.annotations), json!({"readOnlyHint":false,"destructiveHint":true,"idempotentHint":false,"openWorldHint":true}));
-                    let hash = registry::agent_contract_hash(agent);
+                    let hash = registry::tool_contract_hash(agent);
                     let logs = broker.log_snapshot().join("\n");
-                    assert!(logs.contains(&format!("agent tool contract sha256={hash}")));
-                    assert!(logs.contains("agent contract startup"));
-                    assert!(logs.contains("agent contract published agentEnabled=true"));
+                    assert!(logs.contains(&format!("agent_execute={hash}")));
+                    assert!(logs.contains("orchestration contracts sha256"));
+                    assert!(logs.contains("agentEnabled=true orchestration"));
                     if let Some(path) = std::env::var_os("SERENA_AGENT_CONTRACT_EVIDENCE") {
                         let path = PathBuf::from(path);
                         std::fs::write(path.join("agent-contract-sha256.txt"), &hash).unwrap();
@@ -1191,29 +1209,29 @@ mod integration_tests {
                     assert_eq!(
                         tools
                             .into_iter()
-                            .filter(|t| t.name != "agent")
+                            .filter(|t| !orchestration::contains(&t.name))
                             .collect::<Vec<_>>(),
                         disabled_tools
                     );
                 } else {
-                    assert!(!tools.iter().any(|t| t.name == "agent"));
+                    assert!(!tools.iter().any(|t| t.name == "agent_execute"));
                     disabled_tools = tools;
                 }
                 for (args, error) in [
-                    (json!({"action":"list"}), None),
-                    (json!({"action":"start"}), Some("AGENT_INVALID_ARGUMENT")),
+                    (json!({"action":"list","workRunId":"contract-work"}), None),
+                    (json!({"action":"start"}), Some("WORK_INVALID_ARGUMENT")),
                     (
                         json!({"action":"list","limit":101}),
-                        Some("AGENT_INVALID_ARGUMENT"),
+                        Some("WORK_INVALID_ARGUMENT"),
                     ),
                     (
                         json!({"action":"list","unexpected":true}),
-                        Some("AGENT_INVALID_ARGUMENT"),
+                        Some("WORK_INVALID_ARGUMENT"),
                     ),
                 ] {
                     let result = client
                         .call_tool(
-                            CallToolRequestParams::new("agent")
+                            CallToolRequestParams::new("agent_query")
                                 .with_arguments(args.as_object().unwrap().clone()),
                         )
                         .await
@@ -1245,7 +1263,7 @@ mod integration_tests {
                 }
                 if enabled {
                     store.product_create_fresh("contract-e".into(), "contract-a".into(), "key".into(), "contract-fixture".into(), (Some(crate::agent::store::transactions::product::WorkspaceSnapshot { id:"W".into(), root:dir.path().to_string_lossy().into() })).as_ref().unwrap().id.clone(), Some(crate::agent::store::transactions::product::WorkspaceSnapshot { id:"W".into(), root:dir.path().to_string_lossy().into() }), 1).await.unwrap();
-                    let observed = client.call_tool(CallToolRequestParams::new("agent").with_arguments(json!({"action":"observe","executionId":"contract-e","waitMs":0}).as_object().unwrap().clone())).await.unwrap();
+                    let observed = client.call_tool(CallToolRequestParams::new("agent_query").with_arguments(json!({"action":"observe","executionId":"contract-e","waitMs":0}).as_object().unwrap().clone())).await.unwrap();
                     let envelope = observed.structured_content.as_ref().unwrap();
                     assert_eq!(envelope["ok"], true);
                     assert_eq!(envelope["control"]["requestAccepted"], true);
@@ -1318,15 +1336,15 @@ mod integration_tests {
             let uri = format!("http://127.0.0.1:{}/mcp", broker.config().broker.port);
             let client = ().serve(StreamableHttpClientTransport::from_uri(uri.clone())).await.unwrap();
             let secret = "AGENT_HTTP_PROMPT_SECRET_59317";
-            let invalid = client.call_tool(CallToolRequestParams::new("agent").with_arguments(json!({"action":"start","prompt":secret}).as_object().unwrap().clone())).await.unwrap();
-            assert_eq!(invalid.structured_content.unwrap()["error"]["code"], "AGENT_INVALID_ARGUMENT");
+            let invalid = client.call_tool(CallToolRequestParams::new("agent_query").with_arguments(json!({"action":"start","prompt":secret}).as_object().unwrap().clone())).await.unwrap();
+            assert_eq!(invalid.structured_content.unwrap()["error"]["code"], "WORK_INVALID_ARGUMENT");
             let log = broker.log_snapshot().join("\n");
             assert!(!log.contains(secret));
-            assert!(log.contains("tool=\"agent\""));
+            assert!(log.contains("tool=\"agent_query\""));
             assert!(!log.contains("promptBytes"));
             let before = store.execution("observe-e".into()).await.unwrap().unwrap();
             let args = json!({"action":"observe","executionId":"observe-e","waitMs":500});
-            assert!(tokio::time::timeout(Duration::from_millis(60), client.call_tool(CallToolRequestParams::new("agent").with_arguments(args.as_object().unwrap().clone()))).await.is_err());
+            assert!(tokio::time::timeout(Duration::from_millis(60), client.call_tool(CallToolRequestParams::new("agent_query").with_arguments(args.as_object().unwrap().clone()))).await.is_err());
             client.cancel().await.unwrap();
             assert_eq!(store.execution("observe-e".into()).await.unwrap().unwrap(), before);
             assert!(store.workspace_claim(root.clone()).await.unwrap().is_some());
@@ -1341,8 +1359,8 @@ mod integration_tests {
             for _ in 0..2 {
                 let client = ().serve(StreamableHttpClientTransport::from_uri(uri.clone())).await.unwrap();
                 for include in [false, true, true] {
-                    let args = json!({"action":"observe","executionId":"observe-e","knownRevision":revision,"includeResult":include,"waitMs":25000});
-                    let response = client.call_tool(CallToolRequestParams::new("agent").with_arguments(args.as_object().unwrap().clone())).await.unwrap();
+                    let args = json!({"action":"observe","executionId":"observe-e","knownRevision":revision,"includeResult":include,"waitMs":20000});
+                    let response = client.call_tool(CallToolRequestParams::new("agent_query").with_arguments(args.as_object().unwrap().clone())).await.unwrap();
                     assert_ne!(response.is_error, Some(true));
                     let envelope = response.structured_content.unwrap();
                     let rmcp::model::ContentBlock::Text(text) = &response.content[0] else { panic!("text JSON required") };
@@ -1361,8 +1379,8 @@ mod integration_tests {
                         assert_eq!(envelope["control"]["nextAction"]["action"], "review_result");
                     }
                 }
-                let invalid = client.call_tool(CallToolRequestParams::new("agent").with_arguments(json!({"action":"observe","executionId":"observe-e","waitMs":25001}).as_object().unwrap().clone())).await.unwrap();
-                assert_eq!(invalid.structured_content.unwrap()["error"]["code"], "AGENT_INVALID_ARGUMENT");
+                let invalid = client.call_tool(CallToolRequestParams::new("agent_query").with_arguments(json!({"action":"observe","executionId":"observe-e","waitMs":20001}).as_object().unwrap().clone())).await.unwrap();
+                assert_eq!(invalid.structured_content.unwrap()["error"]["code"], "WORK_INVALID_ARGUMENT");
                 client.cancel().await.unwrap();
             }
             assert_eq!(store.execution("observe-e".into()).await.unwrap().unwrap(), finished);
@@ -1436,13 +1454,15 @@ mod integration_tests {
                 )))
                 .await
                 .map_err(|e| e.to_string())?;
+            let tools = discovery
+                .list_all_tools()
+                .await
+                .map_err(|e| e.to_string())?;
+            assert_eq!(tools.len(), if b.config().agent_enabled { 23 } else { 19 });
+            assert!(!tools.iter().any(|tool| tool.name == "agent"));
             assert_eq!(
-                discovery
-                    .list_all_tools()
-                    .await
-                    .map_err(|e| e.to_string())?
-                    .len(),
-                20
+                tools.iter().filter(|tool| orchestration::contains(&tool.name)).count(),
+                if b.config().agent_enabled { 4 } else { 0 }
             );
             assert!(b.snapshot().await.active_workspace.is_none());
             let activated = b.activate("project-1", CancellationToken::new()).await?;
@@ -1928,67 +1948,4 @@ mod integration_tests {
 }
 
 #[cfg(test)]
-mod agent_adapter_tests {
-    use super::*;
-    #[test]
-    fn mcp_and_tauri_entry_share_product_envelope_without_active_workspace() {
-        tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let temp = tempfile::tempdir().unwrap();
-            let paths = crate::config::AppPaths {
-                runtime_directory: temp.path().join("runtime"),
-                config_file: temp.path().join("config.json"),
-                log_directory: temp.path().join("logs"),
-                app_log: temp.path().join("app.log"),
-                serena_log: temp.path().join("serena.log"),
-            };
-            let broker = Broker::new(Arc::new(SupervisorState::new(paths).unwrap()));
-            for request in [json!({"action":"list"}), json!({"action":"cancel","executionId":"x"}), json!({"action":"invalid"})] {
-                let denied = broker.call_tool("agent", request, CancellationToken::new()).await.unwrap();
-                assert_eq!(denied, json!({"ok":false,"error":{"code":"AGENT_DISABLED","message":"AGENT_DISABLED: Agent 工具未开启，请在 Serena Desktop 设置中开启 Agent。"},"control":{"requestAccepted":false,"providerInvoked":false,"dispatchCertainty":"not_dispatched","nextAction":null}}));
-            }
-            assert!(broker.product.get().is_none());
-            assert!(!temp.path().join("agent/agent-state.db").exists());
-            let mut config = broker.config();
-            config.agent_enabled = true;
-            broker.supervisor.replace_config(config).unwrap();
-            let store = crate::agent::store::StateStore::open(temp.path().join("agent"))
-                .await
-                .unwrap();
-            let _ = broker
-                .product
-                .set(Arc::new(crate::agent::product::AgentProductService::new(
-                    store,
-                )));
-            for request in [
-                json!({"action":"list"}),
-                json!({"action":"observe","executionId":"missing"}),
-                json!({"action":"start","agentId":"a","requestKey":"k","prompt":"p"}),
-                json!({"action":"list","limit":101}),
-                json!({"action":"start","provider":"other"}),
-            ] {
-                let tauri = broker.agent_operation(request.clone()).await;
-                let mcp = broker
-                    .call_tool("agent", request, CancellationToken::new())
-                    .await
-                    .unwrap();
-                assert_eq!(tauri, mcp);
-                assert!(tauri.get("ok").is_some());
-                assert!(tauri.get("truncated").is_none());
-            }
-            for request in [
-                json!({"action":"start"}),
-                json!({"action":"list","limit":101}),
-                json!({"action":"list","unexpected":true}),
-            ] {
-                let result = broker.call_tool("agent", request, CancellationToken::new()).await.unwrap();
-                assert_eq!(result["ok"], false);
-                assert_eq!(result["error"]["code"], "AGENT_INVALID_ARGUMENT");
-            }
-            let mut config = broker.config();
-            config.agent_enabled = false;
-            broker.supervisor.replace_config(config).unwrap();
-            assert_eq!(broker.call_tool("agent", json!({"action":"list"}), CancellationToken::new()).await.unwrap()["error"]["code"], "AGENT_DISABLED");
-            assert_eq!(broker.agent_operation(json!({"action":"list"})).await["ok"], true);
-        });
-    }
-}
+pub(crate) mod orchestration_tests;

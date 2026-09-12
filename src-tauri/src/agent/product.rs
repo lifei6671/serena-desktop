@@ -16,6 +16,10 @@ use std::time::Duration;
 use tokio::time::Instant;
 mod control;
 pub use control::ControlReceipt;
+pub(crate) use control::adapter_rejection;
+mod work_adapter;
+mod work_context;
+pub use work_adapter::{AgentExecuteAction, AgentQueryAction};
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(
@@ -250,6 +254,14 @@ impl ProductError {
             ("WORKSPACE_CLAIM_NOT_OWNED", "AGENT_RESUME_NOT_ALLOWED"),
         ];
         let stable = [
+            "WORK_NOT_FOUND",
+            "WORK_NOT_ACTIVE",
+            "WORK_HAS_ACTIVE_EXECUTIONS",
+            "WORK_ACCEPTANCE_REQUIRED",
+            "EXECUTION_NOT_IN_WORK",
+            "WORK_INVALID_ARGUMENT",
+            "CONTEXT_STALE",
+            "WORKSPACE_CONTEXT_MISMATCH",
             "AGENT_DISABLED",
             "AGENT_INVALID_ARGUMENT",
             "AGENT_NO_ACTIVE_WORKSPACE",
@@ -356,6 +368,9 @@ pub struct AgentProductService {
     manager: AgentTaskManager,
 }
 impl AgentProductService {
+    pub(crate) fn work_product(&self) -> super::work::WorkProductService {
+        super::work::WorkProductService::new(self.store.clone())
+    }
     pub async fn shutdown(&self) -> Result<(), String> {
         self.manager.runtime_pool.shutdown().await
     }
