@@ -42,8 +42,10 @@ pub enum Action {
     Observe {
         execution_id: String,
         known_revision: Option<String>,
+        known_control_revision: Option<String>,
         wait_ms: Option<u32>,
         include_result: Option<bool>,
+        wake_on: Option<WakeOn>,
     },
     Cancel {
         execution_id: String,
@@ -97,6 +99,12 @@ pub enum ProgressPhase {
     Reconciling,
     Terminal,
 }
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WakeOn {
+    Control,
+    Activity,
+}
 #[derive(Clone, Debug, Serialize, JsonSchema)]
 #[serde(
     tag = "action",
@@ -132,7 +140,14 @@ pub struct ExecutionView {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
     pub result_completeness: String,
+    /// Legacy alias of control_revision; never changes for Activity alone.
     pub revision: String,
+    pub control_revision: String,
+    pub activity_revision: String,
+    #[serde(skip)]
+    runtime_instance_id: Option<String>,
+    #[serde(skip)]
+    owns_claim: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unchanged: Option<bool>,
     pub result_available: bool,
@@ -150,15 +165,18 @@ pub struct ExecutionView {
     pub completed_at: Option<i64>,
 }
 impl ExecutionView {
-    fn observation_revision(&self) -> String {
-        // Product semantics only: never expose the store's CAS revision or hash clocks/result text.
+    fn control_revision(&self) -> String {
+        // Product control token is independent of the store's durable CAS revision.
         let input = json!([
-            "agent-observation-v2",
+            "agent-control-v1",
             self.execution_id,
             self.status,
             self.dispatch_state,
+            self.control.provider_invoked,
+            self.control.dispatch_certainty,
+            self.runtime_instance_id,
+            self.owns_claim,
             self.thread_id,
-            self.thread_name,
             self.turn_id,
             self.provider_terminal_status,
             self.error_code,
@@ -171,10 +189,20 @@ impl ExecutionView {
             self.attention,
             self.available_actions,
             self.progress.phase,
+            self.completed_at
+        ]);
+        Self::hash_revision(input)
+    }
+    fn activity_revision(&self) -> String {
+        Self::hash_revision(json!([
+            "agent-activity-v1",
+            self.execution_id,
             self.progress.activity_phase,
             self.progress.tool_category,
             self.progress.last_activity_at
-        ]);
+        ]))
+    }
+    fn hash_revision(input: Value) -> String {
         Sha256::digest(input.to_string().as_bytes())
             .iter()
             .map(|byte| format!("{byte:02x}"))
@@ -430,14 +458,17 @@ impl AgentProductService {
             Action::Observe {
                 execution_id,
                 known_revision,
+                known_control_revision,
                 wait_ms,
                 include_result,
+                wake_on,
             } => Ok(ProductData::Execution(Box::new(
                 self.observe_wait(
                     execution_id,
-                    known_revision,
+                    known_control_revision.or(known_revision),
                     wait_ms.unwrap_or(20_000),
                     include_result.unwrap_or(false),
+                    wake_on.unwrap_or(WakeOn::Control),
                 )
                 .await?,
             ))),
@@ -463,19 +494,36 @@ impl AgentProductService {
     async fn observe_wait(
         &self,
         id: String,
-        known_revision: Option<String>,
+        known_control_revision: Option<String>,
         wait_ms: u32,
         include_result: bool,
+        wake_on: WakeOn,
     ) -> Result<ExecutionView, String> {
         let deadline = Instant::now() + Duration::from_millis(u64::from(wait_ms));
+        let mut initial_control_revision = None;
+        let mut initial_activity_revision = None;
         loop {
             // Each read finishes its transaction before sleeping. Dropping this future has no side effects.
             let mut view = self.observe(id.clone(), include_result).await?;
-            let unchanged = known_revision.as_ref() == Some(&view.revision);
+            let unchanged = known_control_revision.as_ref() == Some(&view.control_revision);
             view.unchanged = Some(unchanged);
+            let control_changed = initial_control_revision
+                .as_ref()
+                .is_some_and(|initial| initial != &view.control_revision);
+            if initial_control_revision.is_none() {
+                initial_control_revision = Some(view.control_revision.clone());
+            }
+            let activity_changed = initial_activity_revision
+                .as_ref()
+                .is_some_and(|initial| initial != &view.activity_revision);
+            if initial_activity_revision.is_none() {
+                initial_activity_revision = Some(view.activity_revision.clone());
+            }
             if view.progress.phase == ProgressPhase::Terminal
                 || (include_result && view.result_available)
-                || (known_revision.is_some() && !unchanged)
+                || (known_control_revision.is_some() && !unchanged)
+                || control_changed
+                || (matches!(wake_on, WakeOn::Activity) && activity_changed)
                 || Instant::now() >= deadline
             {
                 return Ok(view);
@@ -615,6 +663,10 @@ impl AgentProductService {
                     error_message: execution_diagnostic_message(r),
                     result_completeness: r.result_completeness.clone(),
                     revision: String::new(),
+                    control_revision: String::new(),
+                    activity_revision: String::new(),
+                    runtime_instance_id: r.runtime_instance_id.clone(),
+                    owns_claim: s.owns_claim,
                     unchanged: None,
                     result_available,
                     progress: Progress {
@@ -636,7 +688,9 @@ impl AgentProductService {
                     updated_at: s.updated_at,
                     completed_at: s.completed_at,
                 };
-                view.revision = view.observation_revision();
+                view.control_revision = view.control_revision();
+                view.revision = view.control_revision.clone();
+                view.activity_revision = view.activity_revision();
                 Ok(view)
             })
             .collect()

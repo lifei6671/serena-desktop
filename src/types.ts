@@ -109,7 +109,7 @@ export interface BrokerState {
 export type AgentAction =
   | { action: "start"; workspaceId: string; agentId: string; requestKey: string; prompt: string }
   | { action: "continue"; executionId: string; requestKey: string; prompt: string }
-  | { action: "observe"; executionId: string; knownRevision?: string; waitMs?: number; includeResult?: boolean }
+  | { action: "observe"; executionId: string; knownRevision?: string; knownControlRevision?: string; waitMs?: number; includeResult?: boolean; wakeOn?: "control" | "activity" }
   | { action: "cancel" | "resume_pending"; executionId: string }
   | { action: "list"; agentId?: string; workspaceId?: string; limit?: number };
 export interface ExecutionView {
@@ -119,7 +119,9 @@ export interface ExecutionView {
   providerTerminalStatus: string | null; resultCompleteness: string; finalResult?: unknown;
   /** Last diagnostic, independent of lifecycle status and Provider terminal. */
   errorCode: string | null; errorMessage: string | null;
-  revision: string; unchanged?: boolean; resultAvailable: boolean;
+  /** Legacy alias of controlRevision. */
+  revision: string; controlRevision: string; activityRevision: string;
+  unchanged?: boolean; resultAvailable: boolean;
   progress: {
     phase: "pending" | "dispatching" | "running" | "finalizing" | "reconciling" | "terminal";
     activityPhase: "provider" | "tool" | null;

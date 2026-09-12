@@ -24,7 +24,7 @@ fn w(root: &std::path::Path, id: &str) -> Option<WorkspaceSnapshot> {
 }
 
 #[tokio::test]
-async fn thread_names_are_shared_persistent_and_change_observation_revision_only() {
+async fn thread_names_are_shared_persistent_without_control_revision_change() {
     let dir = tempfile::tempdir().unwrap();
     let store = StateStore::open(dir.path().into()).await.unwrap();
     for id in ["a", "b"] {
@@ -54,7 +54,7 @@ async fn thread_names_are_shared_persistent_and_change_observation_revision_only
         .unwrap();
     let renamed = service.observe("a".into(), false).await.unwrap();
     assert_eq!(renamed.thread_name.as_deref(), Some("官方名称"));
-    assert_ne!(renamed.revision, before.revision);
+    assert_eq!(renamed.revision, before.revision);
     assert_eq!(renamed.updated_at, before.updated_at);
     assert_eq!(store.execution("a".into()).await.unwrap(), record);
     let reopened = AgentProductService::new(StateStore::open(dir.path().into()).await.unwrap());

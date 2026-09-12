@@ -50,7 +50,10 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
       pendingPhase, activityPhase, toolCategory, lastActivityAt, activityAgeMs, silenceLevel, invalidPhase];
     const prompt: string = row.prompt;
     const revision: string = row.revision;
+    const controlRevision: string = row.controlRevision;
+    const activityRevision: string = row.activityRevision;
     const observation: AgentAction = {action:'observe',executionId:'E',knownRevision:revision,waitMs:0,includeResult:true};
+    const activityObservation: AgentAction = {action:'observe',executionId:'E',knownControlRevision:controlRevision,wakeOn:'activity'};
     // @ts-expect-error observation revision is opaque, not numeric
     const numeric: number = row.revision;
     // @ts-expect-error result projection flag is observe-only
@@ -68,7 +71,7 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
     row.executionRevision;
     // @ts-expect-error no new diagnostics field
     row.diagnostics;
-    void [prompt, root, noPrompt, noRoot, resume];`;
+    void [prompt, root, noPrompt, noRoot, resume, activityRevision, activityObservation];`;
   const options = { strict:true, noEmit:true, skipLibCheck:true, target:ts.ScriptTarget.ES2022, module:ts.ModuleKind.ESNext, moduleResolution:ts.ModuleResolutionKind.Bundler };
   const host = ts.createCompilerHost(options);
   const original = host.getSourceFile.bind(host);

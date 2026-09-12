@@ -44,6 +44,11 @@ async fn bounded_observe_timeout_and_changed_revision_do_not_mutate_execution_or
     assert!(start.elapsed() < Duration::from_secs(2));
     assert_eq!(same["data"]["unchanged"], true);
     assert_eq!(same["data"]["revision"], revision);
+    assert_eq!(same["data"]["controlRevision"], revision);
+    let priority = service.checked_operation(
+        json!({"action":"observe","executionId":"e","knownRevision":"stale","knownControlRevision":revision,"waitMs":60}), None,
+    ).await;
+    assert_eq!(priority["data"]["unchanged"], true);
     assert!(same["data"].get("finalResult").is_none());
     assert_eq!(store.execution("e".into()).await.unwrap().unwrap(), before);
     assert!(
@@ -159,6 +164,8 @@ async fn observe_validation_stays_at_product_boundary() {
         json!({"action":"observe","executionId":"e","waitMs":-1}),
         json!({"action":"observe","executionId":"e","waitMs":0.5}),
         json!({"action":"observe","executionId":"e","knownRevision":1}),
+        json!({"action":"observe","executionId":"e","knownControlRevision":1}),
+        json!({"action":"observe","executionId":"e","wakeOn":"invalid"}),
         json!({"action":"observe","executionId":"e","includeResult":"yes"}),
         json!({"action":"observe","executionId":"e","unexpected":true}),
         json!({"action":"list","includeResult":true}),
@@ -249,10 +256,11 @@ async fn persisted_result_is_opt_in_repeatable_and_does_not_change_revision_or_s
 }
 
 #[tokio::test]
-async fn revision_tracks_semantics_and_ignores_store_cas_clocks_and_result_projection() {
+async fn revisions_separate_control_activity_and_store_cas() {
     let (dir, _store, service) = pending().await;
     let mut view = service.observe("e".into(), false).await.unwrap();
     let revision = view.revision.clone();
+    let activity_revision = view.activity_revision.clone();
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
     db.execute(
         "UPDATE executions SET revision=revision+1,updated_at=99 WHERE id='e'",
@@ -265,15 +273,14 @@ async fn revision_tracks_semantics_and_ignores_store_cas_clocks_and_result_proje
     );
     view.created_at += 1;
     view.updated_at += 1;
-    view.completed_at = Some(8);
     view.final_result = Some(json!({"large":"result"}));
     view.unchanged = Some(true);
-    assert_eq!(view.observation_revision(), revision);
+    assert_eq!(view.control_revision(), revision);
     macro_rules! change {
         ($field:expr, $value:expr) => {{
             let mut old = $value;
             std::mem::swap(&mut $field, &mut old);
-            assert_ne!(view.observation_revision(), revision);
+            assert_ne!(view.control_revision(), revision);
             $field = old;
         }};
     }
@@ -292,16 +299,47 @@ async fn revision_tracks_semantics_and_ignores_store_cas_clocks_and_result_proje
     change!(view.available_actions.can_continue, true);
     change!(view.available_actions.can_resume_pending, false);
     change!(view.progress.phase, ProgressPhase::Running);
-    change!(view.progress.activity_phase, Some(ActivityPhase::Provider));
-    change!(view.progress.tool_category, Some(ToolCategory::Test));
-    change!(view.progress.last_activity_at, Some(5));
+    change!(view.completed_at, Some(8));
+    change!(view.runtime_instance_id, Some("R".into()));
+    change!(view.owns_claim, false);
+    for (phase, category, last) in [
+        (Some(ActivityPhase::Provider), None, Some(5)),
+        (Some(ActivityPhase::Tool), Some(ToolCategory::Test), Some(6)),
+    ] {
+        view.progress.activity_phase = phase;
+        view.progress.tool_category = category;
+        view.progress.last_activity_at = last;
+        assert_eq!(view.control_revision(), revision);
+        assert_ne!(view.activity_revision(), activity_revision);
+    }
+    view.progress.activity_phase = None;
+    view.progress.tool_category = None;
+    view.progress.last_activity_at = None;
+    view.progress.activity_age_ms = Some(1);
+    assert_eq!(view.activity_revision(), activity_revision);
+    view.progress.activity_age_ms = None;
     for silence_level in [
         ActivitySilence::Fresh,
         ActivitySilence::Quiet,
         ActivitySilence::Prolonged,
     ] {
         view.progress.silence_level = Some(silence_level);
-        assert_eq!(view.observation_revision(), revision);
+        assert_eq!(view.control_revision(), revision);
+        assert_eq!(view.activity_revision(), activity_revision);
+    }
+    view.progress.activity_phase = Some(ActivityPhase::Tool);
+    view.progress.tool_category = Some(ToolCategory::Test);
+    view.progress.last_activity_at = Some(5);
+    let source_revision = view.activity_revision();
+    for (age, silence) in [
+        (1, ActivitySilence::Fresh),
+        (30_000, ActivitySilence::Quiet),
+        (120_000, ActivitySilence::Prolonged),
+    ] {
+        view.progress.activity_age_ms = Some(age);
+        view.progress.silence_level = Some(silence);
+        assert_eq!(view.activity_revision(), source_revision);
+        assert_eq!(view.control_revision(), revision);
     }
     db.execute("UPDATE executions SET status='unknown' WHERE id='e'", [])
         .unwrap();
@@ -320,7 +358,7 @@ async fn revision_tracks_semantics_and_ignores_store_cas_clocks_and_result_proje
 }
 
 #[tokio::test]
-async fn activity_changes_wake_observe_age_does_not_change_revision_and_restart_restores_hint() {
+async fn activity_does_not_wake_control_observe_and_restart_restores_hint() {
     let (dir, store, service) = pending().await;
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
     db.execute(
@@ -347,8 +385,9 @@ async fn activity_changes_wake_observe_age_does_not_change_revision_and_restart_
     assert_eq!(initial.progress.tool_category, None);
     assert_eq!(initial.progress.silence_level, Some(ActivitySilence::Fresh));
     let initial_revision = initial.revision.clone();
+    let initial_activity_revision = initial.activity_revision.clone();
     let waiter = service.checked_operation(
-        json!({"action":"observe","executionId":"e","knownRevision":initial_revision.clone(),"waitMs":2500}),
+        json!({"action":"observe","executionId":"e","knownControlRevision":initial_revision.clone(),"waitMs":700}),
         None,
     );
     let activity = async {
@@ -367,13 +406,16 @@ async fn activity_changes_wake_observe_age_does_not_change_revision_and_restart_
     };
     let started = Instant::now();
     let (observed, ()) = tokio::join!(waiter, activity);
+    assert!(started.elapsed() >= Duration::from_millis(700));
     assert!(started.elapsed() < Duration::from_secs(2));
-    assert_eq!(observed["data"]["unchanged"], false);
+    assert_eq!(observed["data"]["unchanged"], true);
     assert_eq!(observed["data"]["progress"]["phase"], "running");
     assert_eq!(observed["data"]["progress"]["activityPhase"], "tool");
     assert_eq!(observed["data"]["progress"]["toolCategory"], "test");
     assert_eq!(observed["data"]["progress"]["silenceLevel"], "fresh");
-    assert_ne!(observed["data"]["revision"], initial_revision);
+    assert_eq!(observed["data"]["revision"], initial_revision);
+    assert_eq!(observed["data"]["controlRevision"], initial_revision);
+    assert_ne!(observed["data"]["activityRevision"], initial_activity_revision);
     let revision = observed["data"]["revision"].as_str().unwrap().to_owned();
     let age = observed["data"]["progress"]["activityAgeMs"]
         .as_i64()
@@ -405,6 +447,7 @@ async fn activity_changes_wake_observe_age_does_not_change_revision_and_restart_
     let reopened = AgentProductService::new(reopened_store);
     let restored = reopened.observe("e".into(), false).await.unwrap();
     assert_eq!(restored.revision, revision);
+    assert_eq!(restored.progress.last_activity_at, observed["data"]["progress"]["lastActivityAt"].as_i64());
     assert_eq!(restored.progress.activity_phase, Some(ActivityPhase::Tool));
     assert_eq!(restored.progress.tool_category, Some(ToolCategory::Test));
     assert!(restored.progress.last_activity_at.is_some());
@@ -412,6 +455,168 @@ async fn activity_changes_wake_observe_age_does_not_change_revision_and_restart_
         restored.progress.silence_level,
         Some(ActivitySilence::Fresh)
     );
+}
+
+#[tokio::test]
+async fn activity_mode_without_new_activity_waits_for_deadline_despite_display_aging() {
+    let (dir, _store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    // Activity age uses UTC wall time, so a paused Tokio clock cannot exercise aging.
+    let last_activity_at = now() - 29_000;
+    db.execute(
+        "UPDATE executions SET status='running',dispatch_state='dispatched',last_activity_at=?1,activity_phase='tool',tool_category='test' WHERE id='e'",
+        [last_activity_at],
+    )
+    .unwrap();
+    let initial = service.observe("e".into(), false).await.unwrap();
+    assert_eq!(initial.progress.silence_level, Some(ActivitySilence::Fresh));
+    let wait_ms = 1400;
+    let started = Instant::now();
+    let observed = service.checked_operation(
+        json!({"action":"observe","executionId":"e","knownControlRevision":initial.control_revision,"wakeOn":"activity","waitMs":wait_ms}),
+        None,
+    ).await;
+    let elapsed = started.elapsed();
+    assert!(elapsed >= Duration::from_millis(wait_ms), "elapsed: {elapsed:?}");
+    assert!(elapsed < Duration::from_secs(5), "elapsed: {elapsed:?}");
+    assert_eq!(observed["ok"], true, "{observed}");
+    assert_eq!(observed["data"]["activityRevision"], initial.activity_revision);
+    assert_eq!(observed["data"]["controlRevision"], initial.control_revision);
+    assert_eq!(observed["data"]["unchanged"], true);
+    assert_eq!(observed["data"]["status"], "running");
+    assert_eq!(observed["data"]["progress"]["lastActivityAt"], last_activity_at);
+    assert_eq!(observed["data"]["progress"]["activityPhase"], "tool");
+    assert_eq!(observed["data"]["progress"]["toolCategory"], "test");
+    assert!(observed["data"]["progress"]["activityAgeMs"].as_i64().unwrap() > initial.progress.activity_age_ms.unwrap());
+    assert_eq!(observed["data"]["progress"]["silenceLevel"], "quiet");
+}
+
+#[tokio::test]
+async fn default_control_mode_without_known_revision_wakes_on_control_change() {
+    let (dir, _store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e'", []).unwrap();
+    let initial = service.observe("e".into(), false).await.unwrap();
+    let waiter = service.checked_operation(
+        json!({"action":"observe","executionId":"e","waitMs":2500}), None,
+    );
+    let transition = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        db.execute("UPDATE executions SET status='finalizing' WHERE id='e'", []).unwrap();
+    };
+    let started = Instant::now();
+    let (observed, ()) = tokio::join!(waiter, transition);
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(observed["ok"], true, "{observed}");
+    assert_eq!(observed["data"]["status"], "finalizing");
+    assert_eq!(observed["data"]["progress"]["phase"], "finalizing");
+    assert_ne!(observed["data"]["controlRevision"], initial.control_revision);
+    assert_eq!(observed["data"]["activityRevision"], initial.activity_revision);
+    assert_eq!(observed["data"]["progress"]["lastActivityAt"], Value::Null);
+    assert_eq!(observed["data"]["resultAvailable"], false);
+}
+
+#[tokio::test]
+async fn activity_mode_wakes_without_changing_control_revision() {
+    let (dir, store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched',thread_id='ROOT',turn_id='TURN' WHERE id='e'", []).unwrap();
+    let initial = service.observe("e".into(), false).await.unwrap();
+    let waiter = service.checked_operation(json!({"action":"observe","executionId":"e","knownControlRevision":initial.control_revision,"wakeOn":"activity","waitMs":2500}), None);
+    let update = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        store.execution_activity("e".into(), "ROOT".into(), "TURN".into(), ActivityPhase::Tool, Some(ToolCategory::Test), now()).await.unwrap();
+    };
+    let started = Instant::now();
+    let (observed, ()) = tokio::join!(waiter, update);
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(observed["data"]["unchanged"], true);
+    assert_eq!(observed["data"]["controlRevision"], initial.control_revision);
+    assert_ne!(observed["data"]["activityRevision"], initial.activity_revision);
+    assert_eq!(observed["data"]["progress"]["toolCategory"], "test");
+}
+
+#[tokio::test]
+async fn activity_mode_without_known_revision_also_wakes_on_control_change() {
+    let (dir, _store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e'", []).unwrap();
+    let waiter = service.checked_operation(json!({"action":"observe","executionId":"e","wakeOn":"activity","waitMs":2500}), None);
+    let transition = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        db.execute("UPDATE executions SET status='finalizing' WHERE id='e'", []).unwrap();
+    };
+    let started = Instant::now();
+    let (observed, ()) = tokio::join!(waiter, transition);
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(observed["data"]["status"], "finalizing");
+}
+
+#[tokio::test]
+async fn many_activity_updates_do_not_restart_control_deadline() {
+    let (dir, store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched',thread_id='ROOT',turn_id='TURN' WHERE id='e'", []).unwrap();
+    let initial = service.observe("e".into(), false).await.unwrap();
+    let started = Instant::now();
+    let waiter = service.checked_operation(json!({"action":"observe","executionId":"e","knownControlRevision":initial.control_revision,"waitMs":2200}), None);
+    let updates = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        for i in 0..100 {
+            store.execution_activity("e".into(), "ROOT".into(), "TURN".into(), ActivityPhase::Tool, Some(ToolCategory::Command), now() + i).await.unwrap();
+        }
+    };
+    let (observed, ()) = tokio::join!(waiter, updates);
+    assert!(started.elapsed() >= Duration::from_millis(2200));
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(observed["data"]["unchanged"], true);
+    assert_eq!(observed["data"]["controlRevision"], initial.control_revision);
+    assert_ne!(observed["data"]["activityRevision"], initial.activity_revision);
+    assert_eq!(observed["data"]["progress"]["toolCategory"], "command");
+    assert_eq!(observed["data"]["progress"]["lastActivityAt"], json!(store.execution("e".into()).await.unwrap().unwrap().last_activity_at));
+}
+
+#[tokio::test]
+async fn completed_control_change_wakes_with_latest_activity_and_result() {
+    let (dir, _store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e'", []).unwrap();
+    let initial = service.observe("e".into(), false).await.unwrap();
+    let waiter = service.checked_operation(json!({"action":"observe","executionId":"e","knownControlRevision":initial.control_revision,"waitMs":2500}), None);
+    let transition = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        db.execute("UPDATE executions SET status='completed',provider_terminal_status='completed',final_result_json='{}',completed_at=10,last_activity_at=9,activity_phase='provider' WHERE id='e'", []).unwrap();
+    };
+    let started = Instant::now();
+    let (observed, ()) = tokio::join!(waiter, transition);
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(observed["data"]["status"], "completed");
+    assert_eq!(observed["data"]["resultAvailable"], true);
+    assert_ne!(observed["data"]["controlRevision"], initial.control_revision);
+    assert_ne!(observed["data"]["activityRevision"], initial.activity_revision);
+    assert_eq!(observed["data"]["revision"], observed["data"]["controlRevision"]);
+    assert_eq!(observed["data"]["progress"]["activityPhase"], "provider");
+}
+
+#[tokio::test]
+async fn uncertain_dispatch_convergence_wakes_control_observe() {
+    let (dir, _store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute("UPDATE executions SET dispatch_state='uncertain' WHERE id='e'", []).unwrap();
+    let initial = service.observe("e".into(), false).await.unwrap();
+    assert!(initial.control.provider_invoked.is_none());
+    let waiter = service.checked_operation(json!({"action":"observe","executionId":"e","knownControlRevision":initial.control_revision,"waitMs":2500}), None);
+    let transition = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        db.execute("UPDATE executions SET dispatch_state='dispatched' WHERE id='e'", []).unwrap();
+    };
+    let started = Instant::now();
+    let (observed, ()) = tokio::join!(waiter, transition);
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_ne!(observed["data"]["controlRevision"], initial.control_revision);
+    assert_eq!(observed["data"]["dispatchState"], "dispatched");
+    assert_eq!(observed["control"]["providerInvoked"], true);
+    assert_eq!(observed["control"]["dispatchCertainty"], "dispatched");
 }
 
 #[tokio::test]
@@ -608,6 +813,14 @@ async fn dropping_observer_does_not_stop_owned_worker_or_create_another_turn() {
     tokio::time::sleep(Duration::from_millis(60)).await;
     observer.abort();
     assert!(observer.await.unwrap_err().is_cancelled());
+    // The fake Provider holds turn/start until release, so simulate an Activity snapshot here.
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute("UPDATE executions SET last_activity_at=?1,activity_phase='tool',tool_category='test' WHERE id=?2", rusqlite::params![now(), id]).unwrap();
+    let reconnected = service.checked_operation(
+        json!({"action":"observe","executionId":id,"knownControlRevision":receipt["data"]["controlRevision"],"waitMs":0}), None,
+    ).await;
+    assert_eq!(reconnected["data"]["progress"]["toolCategory"], "test");
+    assert_eq!(reconnected["data"]["executionId"], id);
     assert!(
         store
             .workspace_claim(dir.path().to_string_lossy().into())
@@ -617,6 +830,7 @@ async fn dropping_observer_does_not_stop_owned_worker_or_create_another_turn() {
     );
     release.send(()).unwrap();
     let finished = final_row(&service, &id).await;
+    assert_ne!(finished.control_revision, reconnected["data"]["controlRevision"]);
     assert_eq!(finished.status, "completed");
     assert_eq!(finished.result_completeness, "complete");
     assert!(!finished.interrupt_requested);
