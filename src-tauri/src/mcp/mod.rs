@@ -1249,16 +1249,15 @@ mod integration_tests {
                     } else {
                         Some("AGENT_DISABLED")
                     };
+                    assert_eq!(envelope.as_object().unwrap().len(), 2);
+                    assert!(envelope.get("control").is_none());
                     if let Some(code) = expected_error {
                         assert_eq!(result.is_error, Some(true));
                         assert_eq!(envelope["ok"], false);
                         assert_eq!(envelope["error"]["code"], code);
-                        if enabled {
-                            assert_eq!(envelope["control"], json!({"requestAccepted":false,"providerInvoked":false,"dispatchCertainty":"not_dispatched","nextAction":{"action":"correct_input"}}));
-                        }
                     } else {
                         assert_ne!(result.is_error, Some(true));
-                        assert_eq!(envelope, &json!({"ok":true,"data":{"executions":[]},"control":null}));
+                        assert_eq!(envelope, &json!({"ok":true,"data":{"executions":[]}}));
                     }
                 }
                 if enabled {
@@ -1266,9 +1265,11 @@ mod integration_tests {
                     let observed = client.call_tool(CallToolRequestParams::new("agent_query").with_arguments(json!({"action":"observe","executionId":"contract-e","waitMs":0}).as_object().unwrap().clone())).await.unwrap();
                     let envelope = observed.structured_content.as_ref().unwrap();
                     assert_eq!(envelope["ok"], true);
-                    assert_eq!(envelope["control"]["requestAccepted"], true);
-                    assert_eq!(envelope["control"]["providerInvoked"], false);
-                    assert_eq!(envelope["control"]["dispatchCertainty"], "not_dispatched");
+                    assert_eq!(envelope.as_object().unwrap().len(), 2);
+                    assert!(envelope.get("control").is_none());
+                    assert_eq!(envelope["data"]["status"], "dispatch_pending");
+                    assert_eq!(envelope["data"]["unchanged"], false);
+                    assert_eq!(envelope["data"]["nextAction"]["action"], "resume_pending");
                     if let Some(path) = std::env::var_os("SERENA_AGENT_CONTRACT_EVIDENCE") {
                         std::fs::write(PathBuf::from(path).join("observe-control.json"), serde_json::to_vec_pretty(&observed).unwrap()).unwrap();
                     }
@@ -1366,17 +1367,17 @@ mod integration_tests {
                     let rmcp::model::ContentBlock::Text(text) = &response.content[0] else { panic!("text JSON required") };
                     assert_eq!(serde_json::from_str::<Value>(&text.text).unwrap(), envelope);
                     assert_eq!(envelope["ok"], true);
+                    assert_eq!(envelope.as_object().unwrap().len(), 2);
+                    assert!(envelope.get("control").is_none());
                     assert_eq!(envelope["data"]["resultAvailable"], true);
                     if revision.is_string() { assert_eq!(envelope["data"]["revision"], revision); assert_eq!(envelope["data"]["unchanged"], true); }
                     revision = envelope["data"]["revision"].clone();
                     if include { assert_eq!(envelope["data"]["finalResult"], result); }
                     else { assert!(envelope["data"].get("finalResult").is_none()); }
                     if include {
-                        assert!(envelope["data"]["nextAction"].is_null());
-                        assert!(envelope["control"]["nextAction"].is_null());
+                        assert!(envelope["data"].get("nextAction").is_none());
                     } else {
                         assert_eq!(envelope["data"]["nextAction"]["action"], "review_result");
-                        assert_eq!(envelope["control"]["nextAction"]["action"], "review_result");
                     }
                 }
                 let invalid = client.call_tool(CallToolRequestParams::new("agent_query").with_arguments(json!({"action":"observe","executionId":"observe-e","waitMs":20001}).as_object().unwrap().clone())).await.unwrap();

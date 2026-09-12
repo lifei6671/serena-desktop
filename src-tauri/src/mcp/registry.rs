@@ -928,7 +928,7 @@ mod tests {
                         "{} {kind}",
                         tool.name
                     );
-                    for key in ["oneOf", "anyOf", "allOf", "$ref", "$defs"] {
+                    for key in ["oneOf", "anyOf", "allOf", "$ref", "$defs", "definitions"] {
                         if schema.contains_key(key) {
                             findings.push(format!("{} {kind} {key}", tool.name));
                         }
@@ -949,8 +949,8 @@ mod tests {
                 "work_update output anyOf",
                 "work_update output $defs",
                 "agent_query input oneOf",
-                "agent_query output oneOf",
-                "agent_query output $defs",
+                "agent_query output anyOf",
+                "agent_query output definitions",
                 "agent_execute input oneOf",
                 "agent_execute input $defs",
                 "agent_execute output oneOf",
@@ -1128,10 +1128,10 @@ mod tests {
 #[cfg(test)]
 mod agent_contract_tests {
     #[test]
-    fn agent_query_and_execute_retain_the_existing_execution_output_contract() {
+    fn agent_query_compact_schema_is_separate_and_execute_retains_existing_contract() {
         let tools = super::super::orchestration::descriptors();
         let agent = tools.iter().find(|t| t.name == "agent_execute").unwrap();
-        assert_eq!(
+        assert_ne!(
             agent.output_schema,
             tools
                 .iter()
@@ -1139,6 +1139,92 @@ mod agent_contract_tests {
                 .unwrap()
                 .output_schema
         );
+        assert_eq!(
+            serde_json::to_value(agent.output_schema.as_ref().unwrap()).unwrap(),
+            super::agent_output_schema()
+        );
+        let query = tools.iter().find(|t| t.name == "agent_query").unwrap();
+        let query = serde_json::to_value(query.output_schema.as_ref().unwrap()).unwrap();
+        for (branch, field, ok) in [(0, "data", true), (1, "error", false)] {
+            let envelope = &query["anyOf"][branch];
+            assert_eq!(envelope["properties"]["ok"]["const"], ok);
+            assert_eq!(envelope["properties"].as_object().unwrap().len(), 2);
+            assert!(envelope["properties"].get("control").is_none());
+            assert_eq!(envelope["required"], serde_json::json!(["ok", field]));
+            assert_eq!(envelope["additionalProperties"], false);
+            assert!(
+                agent.output_schema.as_ref().unwrap()["oneOf"][branch]["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!("control"))
+            );
+        }
+        let defs = &query["definitions"];
+        assert_eq!(defs["QueryData"]["anyOf"].as_array().unwrap().len(), 3);
+        let observation = &defs["QueryObservation"];
+        for field in [
+            "executionId",
+            "status",
+            "revision",
+            "unchanged",
+            "resultAvailable",
+            "resultCompleteness",
+            "progress",
+        ] {
+            assert!(
+                observation["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!(field))
+            );
+        }
+        assert_eq!(observation["required"].as_array().unwrap().len(), 7);
+        assert_eq!(observation["properties"].as_object().unwrap().len(), 11);
+        assert_eq!(observation["additionalProperties"], false);
+        for field in [
+            "prompt",
+            "canonicalWorkspaceRoot",
+            "controlRevision",
+            "activityRevision",
+            "threadId",
+            "dispatchState",
+        ] {
+            assert!(observation["properties"].get(field).is_none());
+        }
+        let summary = &defs["QuerySummary"];
+        assert_eq!(summary["properties"].as_object().unwrap().len(), 11);
+        assert_eq!(summary["required"].as_array().unwrap().len(), 8);
+        assert_eq!(summary["additionalProperties"], false);
+        for field in [
+            "prompt",
+            "canonicalWorkspaceRoot",
+            "controlRevision",
+            "activityRevision",
+            "threadId",
+            "finalResult",
+        ] {
+            assert!(summary["properties"].get(field).is_none());
+            if field != "finalResult" {
+                assert!(
+                    defs["ExecutionView"]["required"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!(field))
+                );
+            }
+        }
+        assert_eq!(
+            defs["QueryProgress"]["required"],
+            serde_json::json!(["phase"])
+        );
+        assert_eq!(
+            defs["QueryProgress"]["properties"]
+                .as_object()
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(defs["QueryProgress"]["additionalProperties"], false);
         let silence_level_description = agent.output_schema.as_ref().unwrap()["$defs"]["execution"]
             ["properties"]["progress"]["properties"]["silenceLevel"]["description"]
             .as_str()

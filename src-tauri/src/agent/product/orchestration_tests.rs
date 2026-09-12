@@ -674,7 +674,8 @@ async fn public_vertical_work_source_start_continue_acceptance_e2e() {
     .unwrap();
     assert_eq!(observed["ok"], true);
     assert_ne!(observed["data"]["status"], "completed");
-    assert_eq!(observed["control"]["requestAccepted"], true);
+    assert!(observed.get("control").is_none());
+    assert_eq!(observed.as_object().unwrap().len(), 2);
     release.send(()).unwrap();
     let terminal1 = completed(&broker, &e1).await;
     assert!(terminal1["finalResult"].is_null());
@@ -745,7 +746,7 @@ async fn public_vertical_work_source_start_continue_acceptance_e2e() {
         .unwrap()
         .to_owned();
     assert_ne!(e2, e1);
-    assert_eq!(continued["data"]["threadId"], terminal1["threadId"]);
+    assert_eq!(continued["data"]["threadId"], result1["data"]["threadId"]);
     let link2 = store
         .work_execution_link(e2.clone())
         .await

@@ -49,9 +49,42 @@ fn work_failure(error: &str) -> Value {
 pub(super) fn failure(name: &str, code: &str) -> Value {
     if name.starts_with("work_") {
         work_failure(code)
+    } else if name == "agent_query" {
+        query_response(Err(code.to_string().into()), false)
     } else {
         product::adapter_rejection(code.to_string().into())
     }
+}
+fn query_response(result: Result<ProductData, product::ProductError>, observe: bool) -> Value {
+    let envelope = match result {
+        Ok(data) => QueryEnvelope::Success {
+            ok: true,
+            data: QueryData::project(data, observe),
+        },
+        Err(mut error) => {
+            // Preserve the existing adapter's sanitized public error message.
+            error.message = error.code.clone();
+            QueryEnvelope::Failure { ok: false, error }
+        }
+    };
+    serde_json::to_value(envelope).expect("Query view serialization")
+}
+
+fn query_output_schema() -> Value {
+    let mut output = serde_json::to_value(
+        schemars::generate::SchemaSettings::draft07()
+            .for_serialize()
+            .into_generator()
+            .into_root_schema_for::<QueryEnvelope>(),
+    )
+    .unwrap();
+    output["type"] = json!("object");
+    output["anyOf"][0]["properties"]["ok"] = json!({"const":true});
+    output["anyOf"][1]["properties"]["ok"] = json!({"const":false});
+    output["definitions"]["ProductError"]["additionalProperties"] = json!(false);
+    output["definitions"]["ProductError"]["properties"]["executionId"]["type"] = json!("string");
+    output["definitions"]["QueryDiagnostic"]["minProperties"] = json!(1);
+    output
 }
 pub fn descriptors() -> Vec<Tool> {
     fn schema<T: JsonSchema>() -> Value {
@@ -72,7 +105,7 @@ pub fn descriptors() -> Vec<Tool> {
     [
         ("work_query", "【做什么】\n只查询 Work 业务容器，不执行任务。\n\n【什么时候使用】\nget 查询单个 Work；list 查询列表。\n\n【关键约束】\n只读；不要求当前活动 Workspace。", schema::<WorkQuery>(), work_output.clone(), true, false),
         ("work_update", "【做什么】\nbegin 创建 Work，finish 提交 Host Acceptance，cancel 关闭 Work。\n\n【什么时候使用】\n管理业务任务容器。\n\n【关键约束】\nWork 不拥有 Workspace Claim；cancel 不等于取消 Execution。finish/cancel 不可逆。", schema::<WorkUpdate>(), work_output, false, false),
-        ("agent_query", "【做什么】\n只读查询或 observe Work 内 Execution。\n\n【什么时候使用】\n耗时任务用 bounded observe；结果按需 includeResult，可重复读取。\n\n【关键约束】\nobserve 默认 15000ms、最大 20000ms，只等待 control 变化，不执行 Provider。", schema::<AgentQuery>(), super::registry::agent_output_schema(), true, false),
+        ("agent_query", "【做什么】\n只读查询或 observe Work 内 Execution。\n\n【什么时候使用】\n耗时任务用 bounded observe；结果按需 includeResult，可重复读取。\n\n【关键约束】\nobserve 默认 15000ms、最大 20000ms，只等待 control 变化，不执行 Provider。", schema::<AgentQuery>(), query_output_schema(), true, false),
         ("agent_execute", "【做什么】\n执行已确定的修改或测试。\n\n【什么时候使用】\nChatGPT 负责 source/git/codegraph 分析与 Review；实际工程执行交给 Agent。\n\n【关键约束】\ncontinue 创建新 Execution，可复用 Thread；context 传递 Host 验证的 path+sha256 引用。start/continue 重试保留原 requestKey 和请求；cancel 取消指定 Execution，resume_pending 仅显式恢复允许首次派发的原 Execution。", schema::<AgentExecute>(), super::registry::agent_output_schema(), false, true),
     ].into_iter().map(|(name, description, input, output, read_only, open_world)| {
         let mut tool=Tool::new(name, description, input.as_object().unwrap().clone());
@@ -182,7 +215,8 @@ impl Broker {
                 };
             }
             Request::AgentQuery(action) => {
-                product
+                let observe = matches!(&action, AgentQuery::Observe { .. });
+                let result = product
                     .agent_query(match action {
                         AgentQuery::Get {
                             execution_id,
@@ -206,7 +240,8 @@ impl Broker {
                             include_result,
                         },
                     })
-                    .await
+                    .await;
+                return query_response(result, observe);
             }
             Request::AgentExecute(action) => {
                 let context_json = |context: Option<Context>| {

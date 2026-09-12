@@ -146,6 +146,7 @@ async fn four_tools_enforce_disabled_and_uninitialized_policy_and_legacy_is_unkn
         for name in orchestration::NAMES {
             let response = call(&broker, name, json!({"action":"invalid"})).await;
             assert_eq!(response["ok"], false);
+            assert_eq!(response.get("control").is_some(), name == "agent_execute");
             assert_eq!(
                 response["error"]["code"],
                 if enabled {
@@ -259,7 +260,9 @@ async fn http_work_projection_guards_errors_and_reopen_preserve_public_contract(
     ] {
         let result = client.call_tool(request(name, args)).await.unwrap();
         assert_eq!(result.is_error, Some(true));
-        assert_eq!(result.structured_content.unwrap()["error"]["code"], code);
+        let response = result.structured_content.unwrap();
+        assert_eq!(response["error"]["code"], code);
+        assert_eq!(response.get("control").is_some(), name == "agent_execute");
         let malformed = client
             .call_tool(request(
                 name,
@@ -268,6 +271,15 @@ async fn http_work_projection_guards_errors_and_reopen_preserve_public_contract(
             .await
             .unwrap();
         assert_eq!(malformed.is_error, Some(true));
+        assert_eq!(
+            malformed
+                .structured_content
+                .as_ref()
+                .unwrap()
+                .get("control")
+                .is_some(),
+            name == "agent_execute"
+        );
         assert_eq!(
             malformed.structured_content.unwrap()["error"]["code"],
             "WORK_INVALID_ARGUMENT"
@@ -383,6 +395,377 @@ async fn http_work_projection_guards_errors_and_reopen_preserve_public_contract(
         call(&broker, "work_query", json!({"action":"list"})).await["data"]["workRuns"],
         json!([row])
     );
+}
+
+fn assert_compact_observation(response: &Value) {
+    assert_eq!(response["ok"], true);
+    assert_eq!(response.as_object().unwrap().len(), 2);
+    assert!(response.get("control").is_none());
+    let data = &response["data"];
+    for field in [
+        "prompt",
+        "canonicalWorkspaceRoot",
+        "agentId",
+        "workspaceId",
+        "dispatchState",
+        "controlRevision",
+        "activityRevision",
+        "availableActions",
+        "threadId",
+        "threadName",
+        "turnId",
+        "providerTerminalStatus",
+        "createdAt",
+        "updatedAt",
+        "completedAt",
+        "interruptRequested",
+        "interruptAcknowledged",
+        "interruptTimedOut",
+        "errorCode",
+        "errorMessage",
+    ] {
+        assert!(
+            data.get(field).is_none(),
+            "unexpected observe field: {field}"
+        );
+    }
+    for field in ["executionId", "status", "revision", "resultCompleteness"] {
+        assert!(data[field].is_string(), "missing {field}");
+    }
+    assert!(data["unchanged"].is_boolean());
+    assert!(data["resultAvailable"].is_boolean());
+    assert!(data["progress"]["phase"].is_string());
+    for field in [
+        "activityPhase",
+        "lastActivityAt",
+        "activityAgeMs",
+        "activityRevision",
+    ] {
+        assert!(data["progress"].get(field).is_none());
+    }
+}
+
+fn assert_query_output_contract(responses: &[Value]) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let tool = orchestration::descriptors()
+        .into_iter()
+        .find(|t| t.name == "agent_query")
+        .unwrap();
+    let mut child = Command::new("node")
+        .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap())
+        .args(["-e", r#"
+const Ajv = require('ajv');
+let input = '';
+process.stdin.on('data', chunk => input += chunk);
+process.stdin.on('end', () => {
+  const {schema, responses} = JSON.parse(input);
+  const validate = new Ajv({allErrors:true, formats:{
+    int64: {type:'number', validate:Number.isInteger},
+    uint32: {type:'number', validate:n => Number.isInteger(n) && n >= 0 && n <= 4294967295}
+  }}).compile(schema);
+  for (const response of responses) {
+    if (!validate(response)) throw new Error(JSON.stringify(validate.errors));
+    const invalid = [{...response, control:null}, {...response, ok:!response.ok}];
+    if (!response.ok) invalid.push({...response, error:{...response.error, executionId:null}});
+    if (response.ok && response.data.executions) {
+      const row = response.data.executions[0];
+      invalid.push({...response, data:{executions:[{...row, prompt:'must be absent'}]}});
+      const missing = {...row}; delete missing.revision;
+      invalid.push({...response, data:{executions:[missing]}});
+    } else if (response.ok && !('prompt' in response.data)) {
+      for (const field of ['unchanged', 'revision', 'resultAvailable', 'progress']) {
+        const missing = {...response.data}; delete missing[field];
+        invalid.push({...response, data:missing});
+      }
+      for (const extra of [{prompt:'forbidden'}, {unchanged:null}, {error:{}}, {nextAction:null}]) {
+        invalid.push({...response, data:{...response.data, ...extra}});
+      }
+      invalid.push({...response, data:{...response.data, progress:{phase:'running', toolCategory:null}}});
+    }
+    for (const changed of invalid) if (validate(changed)) throw new Error('invalid response accepted: '+JSON.stringify(changed));
+  }
+});
+"#])
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().expect("Query output contract tests require npm install and Node");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            json!({"schema":tool.output_schema,"responses":responses})
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[tokio::test]
+async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_execute_receipts() {
+    use crate::agent::{
+        product::AgentQueryAction,
+        store::transactions::product::{WorkExecutionContext, WorkspaceSnapshot},
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_string_lossy().into_owned();
+    let store = StateStore::open(dir.path().join("state")).await.unwrap();
+    store
+        .create_work_run(
+            "work".into(),
+            "W".into(),
+            root.clone(),
+            "query fixture".into(),
+            None,
+            1,
+        )
+        .await
+        .unwrap();
+    let prompt = "long prompt excluded from frequent observations / ".repeat(2048);
+    store
+        .product_create_fresh_with_work(
+            "E".into(),
+            "work".into(),
+            "key".into(),
+            prompt.clone(),
+            "W".into(),
+            Some(WorkspaceSnapshot {
+                id: "W".into(),
+                root: root.clone(),
+            }),
+            Some(WorkExecutionContext {
+                work_run_id: "work".into(),
+                parent_execution_id: None,
+                delegation_context_json: None,
+            }),
+            1,
+        )
+        .await
+        .unwrap();
+    let broker = fixture(dir.path());
+    let product = Arc::new(AgentProductService::new(store.clone()));
+    assert!(broker.product.set(product.clone()).is_ok());
+    broker.start().await.unwrap();
+    let client = ()
+        .serve(StreamableHttpClientTransport::from_uri(format!(
+            "http://127.0.0.1:{}/mcp",
+            broker.config().broker.port
+        )))
+        .await
+        .unwrap();
+    let request = |name: &str, args: Value| {
+        CallToolRequestParams::new(name.to_string())
+            .with_arguments(args.as_object().unwrap().clone())
+    };
+    let mut samples = Vec::new();
+    let before = store.execution("E".into()).await.unwrap();
+    let claim = store.workspace_claim(root.clone()).await.unwrap();
+    let work = store.work_run("work".into()).await.unwrap();
+    let detail = client
+        .call_tool(request(
+            "agent_query",
+            json!({"action":"get","executionId":"E"}),
+        ))
+        .await
+        .unwrap();
+    let detail = detail.structured_content.unwrap();
+    let internal = product
+        .agent_query(AgentQueryAction::Get {
+            execution_id: "E".into(),
+            include_result: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(detail["data"], serde_json::to_value(internal).unwrap());
+    assert_eq!(detail["data"]["prompt"], prompt);
+    assert_eq!(detail["data"]["canonicalWorkspaceRoot"], root);
+    assert!(detail.get("control").is_none());
+    assert!(detail["data"].get("finalResult").is_none());
+    samples.push(detail.clone());
+    let first = client
+        .call_tool(request(
+            "agent_query",
+            json!({"action":"observe","executionId":"E","waitMs":0,"includeResult":true}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(first.is_error, Some(false));
+    let first = first.structured_content.unwrap();
+    assert_compact_observation(&first);
+    assert_eq!(first["data"]["revision"], detail["data"]["controlRevision"]);
+    assert_eq!(first["data"]["unchanged"], false);
+    assert_eq!(first["data"]["progress"], json!({"phase":"pending"}));
+    assert_eq!(first["data"]["attention"], "pending_explicit_resume");
+    assert!(first["data"].get("finalResult").is_none());
+    assert!(first["data"].get("error").is_none());
+    assert!(!first.to_string().contains(&prompt));
+    let started = tokio::time::Instant::now();
+    let same = client.call_tool(request("agent_query", json!({"action":"observe","executionId":"E","knownRevision":first["data"]["revision"],"waitMs":80,"includeResult":false}))).await.unwrap();
+    assert!(started.elapsed() >= std::time::Duration::from_millis(80));
+    let same = same.structured_content.unwrap();
+    assert_compact_observation(&same);
+    assert_eq!(same["data"]["unchanged"], true);
+    assert_eq!(same["data"]["revision"], first["data"]["revision"]);
+    assert!(same["data"].get("finalResult").is_none());
+    samples.extend([first, same]);
+    let list = client
+        .call_tool(request(
+            "agent_query",
+            json!({"action":"list","workRunId":"work"}),
+        ))
+        .await
+        .unwrap()
+        .structured_content
+        .unwrap();
+    assert_eq!(
+        list,
+        json!({"ok":true,"data":{"executions":[{
+            "executionId":"E","status":"dispatch_pending","dispatchState":"not_dispatched",
+            "revision":detail["data"]["controlRevision"],"resultAvailable":false,"resultCompleteness":"unknown",
+            "attention":"pending_explicit_resume","nextAction":{"action":"resume_pending"},"createdAt":1
+        }]}})
+    );
+    samples.push(list);
+    assert_eq!(store.execution("E".into()).await.unwrap(), before);
+    assert_eq!(store.workspace_claim(root.clone()).await.unwrap(), claim);
+    assert_eq!(store.work_run("work".into()).await.unwrap(), work);
+    assert!(!store.product_worker_owned("E"));
+
+    let db = rusqlite::Connection::open(dir.path().join("state/agent-state.db")).unwrap();
+    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched',thread_id='T',turn_id='TURN',last_activity_at=?1,activity_phase='tool',tool_category='test' WHERE id='E'", [chrono::Utc::now().timestamp_millis()]).unwrap();
+    store
+        .save_thread_name("T".into(), Some("Test thread".into()))
+        .await
+        .unwrap();
+    let running = client
+        .call_tool(request(
+            "agent_query",
+            json!({"action":"observe","executionId":"E","waitMs":0}),
+        ))
+        .await
+        .unwrap()
+        .structured_content
+        .unwrap();
+    assert_compact_observation(&running);
+    assert_eq!(
+        running["data"]["progress"],
+        json!({"phase":"running","toolCategory":"test","silenceLevel":"fresh"})
+    );
+    assert_eq!(
+        running["data"]["nextAction"],
+        json!({"action":"observe","waitMs":20000})
+    );
+    assert!(running["data"].get("attention").is_none());
+    samples.push(running);
+
+    // Restore an undispatched fixture so execute.cancel exercises a real control receipt without a Provider.
+    db.execute("UPDATE executions SET status='dispatch_pending',dispatch_state='not_dispatched',thread_id=NULL,turn_id=NULL,last_activity_at=NULL,activity_phase=NULL,tool_category=NULL WHERE id='E'", []).unwrap();
+    let cancelled = client
+        .call_tool(request(
+            "agent_execute",
+            json!({"action":"cancel","workRunId":"work","executionId":"E"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(cancelled.is_error, Some(false));
+    let cancelled = cancelled.structured_content.unwrap();
+    assert_eq!(cancelled["data"]["prompt"], prompt);
+    assert_eq!(cancelled["data"]["canonicalWorkspaceRoot"], root);
+    assert_eq!(
+        cancelled["control"],
+        json!({"requestAccepted":true,"providerInvoked":false,"dispatchCertainty":"not_dispatched","nextAction":null})
+    );
+
+    // Seed an exact persisted terminal result. Reads must neither execute nor consume it.
+    let persisted = json!({"text":"exact final result\n中文", "items":[{"id":"item-1","content":"original"}],"nested":{"zero":0,"null":null}});
+    db.execute("UPDATE executions SET status='completed',dispatch_state='dispatched',thread_id='T',turn_id='TURN',provider_terminal_status='completed',result_completeness='complete',final_result_json=?1,completed_at=42 WHERE id='E'", [persisted.to_string()]).unwrap();
+    let terminal_before = store.execution("E".into()).await.unwrap();
+    for include in [false, true, true, false] {
+        for action in ["get", "observe"] {
+            let mut args = json!({"action":action,"executionId":"E","includeResult":include});
+            if action == "observe" {
+                args["waitMs"] = json!(0);
+            }
+            let response = client
+                .call_tool(request("agent_query", args))
+                .await
+                .unwrap()
+                .structured_content
+                .unwrap();
+            if action == "observe" {
+                assert_compact_observation(&response);
+            } else {
+                assert_eq!(response["data"]["prompt"], prompt);
+                assert_eq!(response["data"]["canonicalWorkspaceRoot"], root);
+            }
+            assert!(response.get("control").is_none());
+            assert_eq!(response["data"]["status"], "completed");
+            assert_eq!(response["data"]["resultAvailable"], true);
+            assert_eq!(response["data"]["resultCompleteness"], "complete");
+            if include {
+                assert_eq!(response["data"]["finalResult"], persisted);
+            } else {
+                assert!(response["data"].get("finalResult").is_none());
+            }
+            if action == "observe" && include {
+                assert!(response["data"].get("nextAction").is_none());
+            }
+            samples.push(response);
+        }
+    }
+    let terminal_detail = samples.last().unwrap();
+    let terminal_list = client
+        .call_tool(request(
+            "agent_query",
+            json!({"action":"list","workRunId":"work"}),
+        ))
+        .await
+        .unwrap()
+        .structured_content
+        .unwrap();
+    assert_eq!(
+        terminal_list,
+        json!({"ok":true,"data":{"executions":[{
+            "executionId":"E","status":"completed","dispatchState":"dispatched","revision":terminal_detail["data"]["revision"],
+            "resultAvailable":true,"resultCompleteness":"complete","attention":"none","threadName":"Test thread",
+            "nextAction":{"action":"review_result","includeResult":true},"createdAt":1,"completedAt":42
+        }]}})
+    );
+    samples.push(terminal_list);
+    assert_eq!(store.execution("E".into()).await.unwrap(), terminal_before);
+    assert_eq!(store.work_run("work".into()).await.unwrap(), work);
+    assert!(store.workspace_claim(root).await.unwrap().is_none());
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM runtime_instances", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+
+    for args in [
+        json!({"action":"get","executionId":"missing"}),
+        json!({"action":"observe","executionId":"E","waitMs":20001}),
+    ] {
+        let failure = client
+            .call_tool(request("agent_query", args))
+            .await
+            .unwrap();
+        assert_eq!(failure.is_error, Some(true));
+        let failure = failure.structured_content.unwrap();
+        assert_eq!(failure.as_object().unwrap().len(), 2);
+        assert!(failure.get("control").is_none());
+        assert_eq!(failure["error"]["message"], failure["error"]["code"]);
+        samples.push(failure);
+    }
+    assert_query_output_contract(&samples);
+    client.cancel().await.unwrap();
+    broker.stop().await.unwrap();
 }
 
 #[test]
