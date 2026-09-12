@@ -102,7 +102,7 @@ async fn rt01_unbound_runtime_attempt_restart_is_unknown_without_replay() {
             .unwrap()
             .unwrap()
             .state,
-        "running"
+        "unknown" // Orphan recovery observes missing Job policy; no fabricated termination.
     );
 }
 
@@ -443,7 +443,8 @@ async fn rt05_finalizing_restart_retains_terminal_and_recovers_result_under_v04(
         drop(db);
         drop(service);
         let (service, report) = initialize(dir.path()).await;
-        assert!(report.is_empty());
+        assert!(report.iter().all(|outcome| matches!(outcome, RecoveryOutcome::OrphanRuntime { .. })));
+        assert_ne!(service.store.runtime("R2".into()).await.unwrap().unwrap().state, "running");
         assert_eq!(
             service.store.execution("E1".into()).await.unwrap().unwrap(),
             finished
@@ -451,4 +452,57 @@ async fn rt05_finalizing_restart_retains_terminal_and_recovers_result_under_v04(
         let view = service.observe("E1".into(), true).await.unwrap();
         assert!(view.result_available && view.final_result.is_some());
     }
+}
+
+#[tokio::test]
+async fn explicit_random_runtime_attempt_prebind_crash_is_never_resumable() {
+    for persisted_runtime in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::open(dir.path().into()).await.unwrap();
+        pending(&store, dir.path(), "E1").await;
+        store.reserve_runtime_attempt("E1".into(), "R123-independent".into(), 2).await.unwrap();
+        if persisted_runtime {
+            Connection::open(dir.path().join("agent-state.db")).unwrap().execute(
+                "INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES ('R123-independent','old-host','starting',2,2)", []).unwrap();
+        }
+        assert!(store.execution("E1".into()).await.unwrap().unwrap().runtime_instance_id.is_none());
+        assert!(store.has_runtime_attempt("E1".into()).await.unwrap());
+        assert_eq!(store.guard_pending_dispatch("E1".into()).await.err().as_deref(), Some("PENDING_RESUME_REJECTED"));
+        let service = AgentProductService::new(store.clone());
+        assert!(!service.observe("E1".into(),false).await.unwrap().available_actions.can_resume_pending);
+        assert!(!service.checked_operation(json!({"action":"resume_pending","executionId":"E1"}),None).await["ok"].as_bool().unwrap());
+        drop(service); drop(store);
+        let (service, report) = initialize(dir.path()).await;
+        assert!(!report.iter().any(|r| matches!(r, RecoveryOutcome::PendingExplicitResume{..})));
+        let view = service.observe("E1".into(),false).await.unwrap();
+        assert_eq!(view.status,"unknown");
+        assert!(!view.available_actions.can_resume_pending);
+        assert!(service.store.guard_pending_dispatch("E1".into()).await.is_err());
+        let db=Connection::open(dir.path().join("agent-state.db")).unwrap();
+        assert_eq!(count(&db,"runtime_instances"),i64::from(persisted_runtime));
+        assert_eq!(count(&db,"execution_runtime_attempts"),1);
+        assert_eq!(count(&db,"executions"),1);
+        assert!(db.execute("UPDATE execution_runtime_attempts SET runtime_instance_id='R2'",[]).is_err());
+        assert!(db.execute("DELETE FROM execution_runtime_attempts",[]).is_err());
+    }
+}
+
+#[tokio::test]
+async fn old_unresolved_recovery_attempt_quarantines_before_any_new_recovery_connect() {
+    let dir=tempfile::tempdir().unwrap(); let store=StateStore::open(dir.path().into()).await.unwrap();
+    pending(&store,dir.path(),"E1").await;
+    let db=Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,termination_evidence_state,termination_evidence_type,termination_evidence_at,created_at,updated_at) VALUES ('R1','old','terminated','complete','managed_job_destroyed',5,1,5)",[]).unwrap();
+    db.execute("UPDATE executions SET runtime_instance_id='R1',thread_id='T1',turn_id='U1',status='reconciling',dispatch_state='uncertain' WHERE id='E1'",[]).unwrap();
+    store.reserve_recovery_attempt("E1".into(),"recovery-R2".into(),6).await.unwrap();
+    db.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES ('recovery-R2','old','running',6,6)",[]).unwrap();
+    drop(db); drop(store);
+    let store=StateStore::open(dir.path().into()).await.unwrap();
+    let manager=crate::agent::task_manager::AgentTaskManager::new(store.clone(),dir.path().join("must-not-launch.exe"));
+    let report=manager.recover_startup().await.unwrap();
+    let service=AgentProductService{store,manager};
+    assert_eq!(count(&Connection::open(dir.path().join("agent-state.db")).unwrap(),"execution_runtime_attempts"),1);
+    assert!(report.iter().any(|r|matches!(r,RecoveryOutcome::Unknown{execution_id,..} if execution_id=="E1")));
+    assert_eq!(service.manager.runtime_pool.check_workspace(dir.path().to_str().unwrap()).unwrap_err(),"AGENT_RUNTIME_QUARANTINED");
+    assert_eq!(count(&Connection::open(dir.path().join("agent-state.db")).unwrap(),"runtime_instances"),2);
 }

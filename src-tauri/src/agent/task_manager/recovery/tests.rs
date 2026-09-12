@@ -583,6 +583,7 @@ fn crash_host() {
             r1.clone(),
             fixed_binary(),
             root.join("workspace"),
+            None,
         )
         .await
         .unwrap();
@@ -924,7 +925,7 @@ fn startup_guard_product_and_provider_agree_on_persisted_runtime_attempt() {
             let guard = manager.store.guard_pending_dispatch(id.clone()).await;
             assert_eq!(guard.is_ok(), !attempted);
             drop(guard);
-            crate::agent::codex::provider::CodexProvider {
+            crate::agent::codex::provider::CodexProvider { runtime_pool: Default::default(),
                 store: manager.store.clone(), executable: "never-launched".into(), owner: "new-host".into(),
             }.failed(&id).await.unwrap();
             assert_eq!(retained(&manager, &id).await.status, if attempted { "reconciling" } else { "dispatch_pending" });

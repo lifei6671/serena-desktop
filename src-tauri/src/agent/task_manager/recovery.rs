@@ -14,6 +14,10 @@ use std::{path::PathBuf, time::Duration};
 
 #[derive(Debug)]
 pub enum RecoveryOutcome {
+    OrphanRuntime {
+        runtime_id: String,
+        failure: Option<runtime::RuntimeFailure>,
+    },
     Released {
         execution_id: String,
     },
@@ -43,6 +47,19 @@ impl AgentTaskManager {
     pub async fn recover_startup(&self) -> Result<Vec<RecoveryOutcome>, String> {
         let claims = self.store.recover_claims(now()).await?;
         let mut outcomes = Vec::new();
+        let mut orphan_outcomes = Vec::new();
+        // The single-instance Host has acquired startup ownership; no old Client
+        // may be reused. Include idle runtimes which no longer have a Claim.
+        for runtime_id in self.store.orphan_runtimes(self.owner.clone()).await? {
+            let workspace = self.store.runtime_workspace(runtime_id.clone()).await?.unwrap_or_default();
+            if self.runtime_pool.retains_runtime(&workspace, &runtime_id) {
+                let _ = self.runtime_pool.retry_workspace(&self.store, &workspace).await;
+                if self.runtime_pool.retains_runtime(&workspace, &runtime_id) { continue; }
+            }
+            let failure = runtime::recover(self.store.clone(), runtime_id.clone(), Duration::from_secs(10))
+                .await.err().map(|failure| self.runtime_pool.retain_failure(&self.store, &workspace, &runtime_id, failure));
+            orphan_outcomes.push(RecoveryOutcome::OrphanRuntime { runtime_id, failure });
+        }
         for claim in claims {
             let id = match claim {
                 ClaimRecovery::PendingExplicitResume { execution_id } => {
@@ -82,6 +99,14 @@ impl AgentTaskManager {
                 });
                 continue;
             };
+            if self.runtime_pool.retains_runtime(&row.canonical_workspace_root, &original) {
+                let _ = self.runtime_pool.retry_workspace(&self.store, &row.canonical_workspace_root).await;
+                if self.runtime_pool.retains_runtime(&row.canonical_workspace_root, &original) {
+                    mark_unknown(&self.store, &id).await?;
+                    outcomes.push(RecoveryOutcome::Unknown { execution_id: id, failure: None });
+                    continue;
+                }
+            }
             if let Err(failure) = runtime::recover(
                 self.store.clone(),
                 original.clone(),
@@ -89,6 +114,8 @@ impl AgentTaskManager {
             )
             .await
             {
+                // Transfer the Job owner before any fallible Execution write.
+                let failure = self.runtime_pool.retain_failure(&self.store, &row.canonical_workspace_root, &original, failure);
                 if row.status != "unknown" {
                     if row.status != "reconciling" {
                         self.store
@@ -105,17 +132,23 @@ impl AgentTaskManager {
                 });
                 continue;
             }
-            outcomes.push(
-                reconcile_execution_after_runtime_end(
+            if self.runtime_pool.check_workspace(&row.canonical_workspace_root).is_err() {
+                mark_unknown(&self.store, &id).await?;
+                outcomes.push(RecoveryOutcome::Unknown { execution_id: id, failure: None });
+                continue;
+            }
+            let outcome = reconcile_execution_after_runtime_end(
                     &self.store,
                     &self.executable,
                     &self.owner,
+                    &self.runtime_pool,
                     self.backend_error.as_deref(),
                     &id,
                 )
-                .await?,
-            );
+                .await?;
+            outcomes.push(outcome);
         }
+        outcomes.extend(orphan_outcomes);
         Ok(outcomes)
     }
 }
@@ -126,6 +159,7 @@ pub(crate) async fn reconcile_execution_after_runtime_end(
     store: &crate::agent::store::StateStore,
     executable: &std::path::Path,
     owner: &str,
+    pool: &crate::agent::codex::pool::CodexRuntimePool,
     backend_error: Option<&str>,
     execution_id: &str,
 ) -> Result<RecoveryOutcome, String> {
@@ -199,17 +233,20 @@ pub(crate) async fn reconcile_execution_after_runtime_end(
                         runtime: None,
                     })
                 } else {
+                    pool.check_workspace(&row.canonical_workspace_root)?;
                     managed::connect(
                         store.clone(),
                         owner.to_owned(),
-                        recovery_id,
+                        recovery_id.clone(),
                         executable.to_owned(),
                         PathBuf::from(&row.canonical_workspace_root),
+                        Some(managed::RuntimeAttempt::Recovery(id.clone())),
                     )
                     .await
                 };
                 match connected {
-                    Err(mut failure) => {
+                    Err(failure) => {
+                        let mut failure = pool.retain_attempt_failure(store, &row.canonical_workspace_root, &recovery_id, failure).await;
                         if let Err(error) = mark_unknown(store, &id).await {
                             failure.message.push_str(&format!("; mark unknown: {error}"));
                         }
@@ -226,7 +263,8 @@ pub(crate) async fn reconcile_execution_after_runtime_end(
                             }
                             Err(error) => diagnostic = Some(error.to_string()),
                         }
-                        if let Err(mut failure) = managed.shutdown().await {
+                        if let Err(failure) = managed.shutdown().await {
+                            let mut failure = pool.retain_failure(store, &row.canonical_workspace_root, &recovery_id, failure);
                             if let Err(error) = mark_unknown(store, &id).await {
                                 failure.message.push_str(&format!("; mark unknown: {error}"));
                             }

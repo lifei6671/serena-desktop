@@ -220,7 +220,7 @@ async fn race(case: &'static str) {
         );
     });
     client.initialize().await.unwrap();
-    let provider = CodexProvider {
+    let provider = CodexProvider { runtime_pool: Default::default(),
         store: store.clone(),
         executable: "unused".into(),
         owner: "test".into(),
@@ -400,7 +400,7 @@ fn cancel_wins_and_late_cancel_is_absorbing() {
         let (wire, mut server) = tokio::io::duplex(1024);
         let (read, write) = tokio::io::split(wire);
         let client = Client::transport("unused".into(), read, write, tokio::io::empty());
-        let provider = CodexProvider {
+        let provider = CodexProvider { runtime_pool: Default::default(),
             store: store.clone(),
             owner: "test".into(),
             executable: "unused".into(),
@@ -542,7 +542,7 @@ fn partial_write_and_unconfirmed_flush_are_uncertain_without_replay() {
                 }
             });
             client.initialize().await.unwrap();
-            let provider = CodexProvider {
+            let provider = CodexProvider { runtime_pool: Default::default(),
                 store: store.clone(),
                 executable: "unused".into(),
                 owner: "test".into(),
@@ -645,7 +645,7 @@ fn real_fixed_binary_interrupt_smoke() {
         let manager = AgentTaskManager::new(store.clone(), exe.clone());
         let created = manager.create(input(&workspace)).await.unwrap();
         let id = created.execution_id;
-        let provider = CodexProvider {
+        let provider = CodexProvider { runtime_pool: Default::default(),
             store: store.clone(),
             executable: exe,
             owner: "task007-smoke".into(),

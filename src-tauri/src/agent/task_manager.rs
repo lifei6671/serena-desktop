@@ -15,6 +15,7 @@ pub struct AgentTaskManager {
     executable: PathBuf,
     pub(crate) backend_error: Option<String>,
     owner: String,
+    pub(crate) runtime_pool: std::sync::Arc<super::codex::pool::CodexRuntimePool>,
     #[cfg(test)]
     pub(crate) test_handoff: Option<std::sync::Arc<(tokio::sync::Notify, tokio::sync::Notify)>>,
     #[cfg(test)]
@@ -35,13 +36,14 @@ impl AgentTaskManager {
             executable,
             backend_error: None,
             owner: Self::id("host"),
+            runtime_pool: Default::default(),
             #[cfg(test)]
             test_handoff: None,
             #[cfg(test)]
             test_client: None,
         }
     }
-    fn id(prefix: &str) -> String {
+    pub(crate) fn id(prefix: &str) -> String {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         format!(
             "{prefix}-{}-{}-{}",
@@ -95,6 +97,9 @@ impl AgentTaskManager {
         // Host owns creation through handoff even if the adapter drops its wait.
         tokio::spawn(async move {
             use super::product::Action;
+            if manager.runtime_pool.stop.is_cancelled() {
+                return Err("AGENT_SHUTTING_DOWN".to_string().into());
+            }
             let continuation = matches!(&action, Action::Continue { .. });
             let outcome = match action {
                 Action::Start {
@@ -204,6 +209,7 @@ impl AgentTaskManager {
             store: self.store.clone(),
             executable: self.executable.clone(),
             owner: self.owner.clone(),
+            runtime_pool: self.runtime_pool.clone(),
         };
         let backend_error = self.backend_error.clone();
         let id = execution_id.to_owned();
@@ -212,7 +218,12 @@ impl AgentTaskManager {
         // The owned worker retains the permit even if its caller stops waiting.
         // Provider/ManagedClient continue to own Runtime and Job convergence.
         tokio::spawn(async move {
-            let permit = provider.store.guard_pending_dispatch(id.clone()).await;
+            let admission = async {
+                let row = provider.store.execution(id.clone()).await?.ok_or("EXECUTION_NOT_FOUND")?;
+                provider.runtime_pool.check_workspace(&row.canonical_workspace_root)?;
+                provider.store.guard_pending_dispatch(id.clone()).await
+            }.await;
+            let permit = admission;
             let _permit = match permit {
                 Ok(p)=>p,
                 Err(e)=>{if let Some(receipt)=receipt {let _=receipt.send(Err(e.clone()));}return Err(e.into());}

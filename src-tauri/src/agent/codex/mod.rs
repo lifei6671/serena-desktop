@@ -3,6 +3,8 @@ pub mod protocol;
 #[cfg(windows)]
 pub mod provider;
 #[cfg(windows)]
+pub(crate) mod pool;
+#[cfg(windows)]
 pub mod runtime;
 #[cfg(windows)]
 pub mod windows_launcher;

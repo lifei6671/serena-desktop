@@ -29,7 +29,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
         let store = open(dir.path());
         let c = store.connection.lock().unwrap();
         for (pragma, expected) in [
-            ("user_version", 3),
+            ("user_version", 4),
             ("foreign_keys", 1),
             ("synchronous", 2),
             ("busy_timeout", 5000),
@@ -106,7 +106,7 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     assert_eq!(
         c.query_row(
@@ -187,7 +187,7 @@ fn v2_migration_preserves_history_and_adds_nullable_activity() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     let old = execution_record(&c, "old").unwrap().unwrap();
     assert_eq!(old.last_activity_at, None);
@@ -218,12 +218,12 @@ fn unsupported_or_unversioned_history_is_not_guessed_or_rewritten() {
             .unwrap(),
         0
     );
-    c.pragma_update(None, "user_version", 4).unwrap();
+    c.pragma_update(None, "user_version", 5).unwrap();
     assert!(migrate(&mut c).unwrap_err().contains("unsupported"));
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        4
+        5
     );
 }
 
@@ -479,4 +479,22 @@ fn repository_wait_does_not_block_single_thread_async_executor() {
         );
     });
     drop(guard);
+}
+
+#[test]
+fn v3_migration_adds_attempt_reservations_without_changing_legacy_rows() {
+    let mut c=Connection::open_in_memory().unwrap();
+    c.pragma_update(None,"foreign_keys",true).unwrap();
+    c.execute_batch(SCHEMA_V1).unwrap(); c.execute_batch(SCHEMA_V2).unwrap(); c.execute_batch(SCHEMA_V3).unwrap();
+    c.pragma_update(None,"user_version",3).unwrap();
+    insert(&mut c,"E1","A","W"); runtime(&c,"runtime-E1");
+    let before=execution_record(&c,"E1").unwrap().unwrap();
+    migrate(&mut c).unwrap(); migrate(&mut c).unwrap();
+    assert_eq!(execution_record(&c,"E1").unwrap().unwrap(),before);
+    assert!(runtime_attempts::runtime_attempt_exists(&c,"E1").unwrap());
+    c.execute("INSERT INTO execution_runtime_attempts(execution_id,runtime_instance_id,created_at) VALUES ('E1','R123',1)",[]).unwrap();
+    assert!(runtime_attempts::runtime_attempt_exists(&c,"E1").unwrap());
+    assert!(c.execute("UPDATE execution_runtime_attempts SET runtime_instance_id='R2'",[]).is_err());
+    assert!(c.execute("DELETE FROM execution_runtime_attempts",[]).is_err());
+    assert!(c.execute("INSERT INTO execution_runtime_attempts(execution_id,runtime_instance_id,created_at) VALUES ('missing','R2',1)",[]).is_err());
 }

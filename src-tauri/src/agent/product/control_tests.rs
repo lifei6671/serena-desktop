@@ -1,5 +1,101 @@
 use super::*;
 
+#[test]
+fn quarantine_is_a_stable_product_error() {
+    let response = failure("AGENT_RUNTIME_QUARANTINED: fixture".into(), None);
+    assert_eq!(response["error"]["code"], "AGENT_RUNTIME_QUARANTINED");
+    no_dispatch(&response["control"], false);
+    assert_eq!(response["control"]["nextAction"]["action"], "manual_resolution");
+}
+
+#[tokio::test]
+async fn quarantine_pending_receipts_preserve_identity_without_replay() {
+    let (dir, store, service) = fixture().await;
+    service.manager.runtime_pool.retain_failure(
+        &store,
+        dir.path().to_str().unwrap(),
+        "old-runtime",
+        crate::agent::codex::runtime::RuntimeFailure {
+            code: "CODEX_RUNTIME_TERMINATION_TIMEOUT",
+            message: "fixture quarantine".into(),
+            runtime: None,
+        },
+    );
+    let rejected = service.error_response(
+        parse(json!({"action":"start","workspaceId":"W","agentId":"a","requestKey":"k","prompt":"hello"})).unwrap(),
+        w(dir.path(), "W"),
+        ProductError::new("AGENT_RUNTIME_QUARANTINED".into(), None),
+    ).await;
+    no_dispatch(&rejected["control"], false);
+    assert_eq!(rejected["control"]["nextAction"]["action"], "manual_resolution");
+    assert_eq!(count(dir.path(), "executions"), 0);
+
+    let accepted = service.checked_operation(start("a", "k"), w(dir.path(), "W")).await;
+    assert_eq!(accepted["error"]["code"], "AGENT_RUNTIME_QUARANTINED");
+    no_dispatch(&accepted["control"], true);
+    let id = accepted["error"]["executionId"].as_str().unwrap();
+    assert_eq!(accepted["control"]["nextAction"], json!({"action":"manual_resolution","executionId":id}));
+    let before = store.execution(id.into()).await.unwrap().unwrap();
+    assert_eq!(before.status, "dispatch_pending");
+    assert_eq!(before.dispatch_state, "not_dispatched");
+    assert!(before.runtime_instance_id.is_none());
+    for request in [
+        json!({"action":"observe","executionId":id,"waitMs":0}),
+        json!({"action":"list"}),
+        start("a", "k"),
+    ] {
+        let response = service.checked_operation(request, w(dir.path(), "W")).await;
+        assert_eq!(response["ok"], true, "{response}");
+        let view = if response["data"]["executions"].is_array() {
+            &response["data"]["executions"][0]
+        } else {
+            &response["data"]
+        };
+        assert_eq!(view["executionId"], id);
+        assert_eq!(view["attention"], "manual_resolution_required");
+        assert_eq!(view["availableActions"]["canResumePending"], false);
+        assert_eq!(view["availableActions"]["canCancel"], true);
+        assert_eq!(view["nextAction"]["action"], "manual_resolution");
+        if !response["data"]["executions"].is_array() {
+            assert_eq!(response["control"]["nextAction"], json!({"action":"manual_resolution","executionId":id}));
+            no_dispatch(&response["control"], true);
+        }
+    }
+    let resumed = service.checked_operation(json!({"action":"resume_pending","executionId":id}), None).await;
+    assert_eq!(resumed["error"]["code"], "AGENT_RUNTIME_QUARANTINED");
+    assert_eq!(resumed["error"]["executionId"], id);
+    no_dispatch(&resumed["control"], true);
+    assert_eq!(resumed["control"]["nextAction"], json!({"action":"manual_resolution","executionId":id}));
+    assert_eq!(store.execution(id.into()).await.unwrap().unwrap(), before);
+    assert_eq!(count(dir.path(), "executions"), 1);
+    assert_eq!(count(dir.path(), "runtime_instances"), 0);
+    assert_eq!(count(dir.path(), "execution_runtime_attempts"), 0);
+    let cancelled = service.checked_operation(json!({"action":"cancel","executionId":id}), None).await;
+    assert_eq!(cancelled["data"]["status"], "cancelled");
+    assert_eq!(count(dir.path(), "workspace_claims"), 0);
+}
+
+#[tokio::test]
+async fn control_attention_distinguishes_clean_pending_unknown_and_active_work() {
+    let (dir, store, service) = fixture().await;
+    store.product_create_fresh("e".into(), "a".into(), "k".into(), "hello".into(), "W".into(), w(dir.path(), "W"), 1).await.unwrap();
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    for (status, dispatch, attention, next, resume) in [
+        ("dispatch_pending", "not_dispatched", "pending_explicit_resume", "resume_pending", true),
+        ("dispatch_pending", "dispatching", "none", "observe", false),
+        ("unknown", "uncertain", "manual_resolution_required", "manual_resolution", false),
+        ("running", "dispatched", "none", "observe", false),
+        ("finalizing", "dispatched", "none", "observe", false),
+    ] {
+        db.execute("UPDATE executions SET status=?1,dispatch_state=?2 WHERE id='e'", [status, dispatch]).unwrap();
+        let response = service.checked_operation(json!({"action":"observe","executionId":"e","waitMs":0}), None).await;
+        assert_eq!(response["data"]["attention"], attention);
+        assert_eq!(response["data"]["availableActions"]["canResumePending"], resume);
+        assert_eq!(response["data"]["nextAction"]["action"], next);
+        assert_eq!(response["control"]["nextAction"]["action"], next);
+    }
+}
+
 async fn fixture() -> (tempfile::TempDir, StateStore, AgentProductService) {
     let dir = tempfile::tempdir().unwrap();
     let store = StateStore::open(dir.path().into()).await.unwrap();
@@ -510,7 +606,7 @@ async fn unbound_persisted_runtime_attempt_stays_fail_closed() {
     assert_eq!(rejected["ok"], false, "{rejected}");
     assert_eq!(store.execution("e".into()).await.unwrap().unwrap(), before);
     assert_eq!(count(dir.path(), "runtime_instances"), 1);
-    let provider = crate::agent::codex::provider::CodexProvider {
+    let provider = crate::agent::codex::provider::CodexProvider { runtime_pool: Default::default(),
         store: store.clone(),
         executable: "unused".into(),
         owner: "fixture".into(),

@@ -257,14 +257,29 @@ pub(super) fn handoff_creation(
     });
     receiver
 }
+pub(crate) enum RuntimeAttempt {
+    Dispatch(String),
+    Recovery(String),
+}
+
 pub async fn connect(
     store: StateStore,
     owner: String,
     runtime_id: String,
     executable: PathBuf,
     cwd: PathBuf,
+    attempt: Option<RuntimeAttempt>,
 ) -> std::result::Result<ManagedClient, RuntimeFailure> {
     let compatibility = verify(executable.clone()).await.map_err(runtime_error)?;
+    // Compatibility probes use an isolated temporary cwd and precede the actual
+    // managed Runtime attempt. Commit origin identity before Runtime::create can
+    // persist its row or enter CreateProcess; never wait for Execution binding.
+    let now = crate::agent::coordinator::now();
+    match attempt {
+        Some(RuntimeAttempt::Dispatch(id)) => store.reserve_runtime_attempt(id, runtime_id.clone(), now).await,
+        Some(RuntimeAttempt::Recovery(id)) => store.reserve_recovery_attempt(id, runtime_id.clone(), now).await,
+        None => Ok(()), // Protocol-only integration tests have no Execution.
+    }.map_err(|e| RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", e))?;
     let runtime = handoff_creation(Runtime::create(
         store,
         owner,

@@ -1,5 +1,6 @@
 mod binding;
 mod title;
+mod session;
 // Bounded protocol client. It never mutates Executions or releases Claims.
 use super::protocol::{self, *};
 use serde_json::{Value, json};
@@ -31,13 +32,16 @@ struct Pending {
     terminal_turn: Option<String>,
 }
 type WriteItem = Queued<(Vec<u8>, oneshot::Sender<Result<()>>)>;
-type ServerRequest = Queued<(Value, String, Value, Option<Notification>)>;
+type ServerRequest = (Queued<(Value, String, Value, Option<Notification>)>, session::ServerWork);
 #[derive(Clone)]
 struct ObservabilityScope {
     thread_id: String,
     turn_id: Option<String>,
 }
 struct Shared {
+    loaded_threads: Mutex<HashMap<String, Thread>>,
+    completed_turns: Mutex<HashSet<(String, String)>>,
+    server_work: Arc<std::sync::atomic::AtomicUsize>,
     title_scope: Mutex<Option<title::TitleScope>>,
     observability_scope: Mutex<Option<ObservabilityScope>>,
     runtime_id: String,
@@ -197,6 +201,9 @@ impl Client {
         let (failure, _) = watch::channel(None);
         let (activity, activity_rx) = watch::channel(None);
         let shared = Arc::new(Shared {
+            loaded_threads: Mutex::new(HashMap::new()),
+            completed_turns: Mutex::new(HashSet::new()),
+            server_work: Default::default(),
             title_scope: Mutex::new(None),
             observability_scope: Mutex::new(None),
             runtime_id,
@@ -236,7 +243,7 @@ impl Client {
         let s = shared.clone();
         let server_events = events_tx.clone();
         tokio::spawn(async move {
-            while let Some(item) =
+            while let Some((item, _work)) =
                 tokio::select! { _ = s.cancel.cancelled() => None, v = server_rx.recv() => v }
             {
                 let Queued {
@@ -571,7 +578,7 @@ impl Client {
             params["dynamicTools"] = title::tools();
         }
         let value = self.control("thread/start", params).await?;
-        self.validated(thread_response(value).and_then(|thread| {
+        let thread = self.validated(thread_response(value).and_then(|thread| {
             if thread.id.is_empty() || thread.history_mode != HistoryMode::Paginated {
                 Err(ProtocolError::incompatible(
                     "Managed Thread must return paginated historyMode and nonempty id",
@@ -579,7 +586,9 @@ impl Client {
             } else {
                 Ok(thread)
             }
-        }))
+        }))?;
+        self.shared.loaded_threads.lock().unwrap().insert(thread.id.clone(), thread.clone());
+        Ok(thread)
     }
     pub async fn thread_resume(&self, thread: &str) -> Result<Thread> {
         // Continuing a Thread is separate from recovering its history.
@@ -589,7 +598,9 @@ impl Client {
                 json!({"threadId":thread,"excludeTurns":true}),
             )
             .await?;
-        self.validated(checked_thread(value, thread))
+        let thread = self.validated(checked_thread(value, thread))?;
+        self.shared.loaded_threads.lock().unwrap().insert(thread.id.clone(), thread.clone());
+        Ok(thread)
     }
     pub async fn thread_read(&self, thread: &str) -> Result<Thread> {
         let value = self
@@ -939,6 +950,7 @@ fn dispatch(
         }
         Message::Notification { method, params } => {
             let notification = protocol::notification(method, params)?;
+            if s.completed_notification(&notification) { return Ok(()); }
             // The Provider consumes lifecycle/name/error events only. Streaming item,
             // output and legacy notifications have no consumer; retaining them can
             // exhaust the queue while the Provider awaits a store transaction or RPC.
@@ -1001,12 +1013,13 @@ fn dispatch(
                 .map_err(|_| {
                     ProtocolError::new("CODEX_PROTOCOL_QUEUE_FULL", "Event byte budget exhausted")
                 })?;
+            s.server_work.fetch_add(1, Ordering::AcqRel);
             server
-                .try_send(Queued {
+                .try_send((Queued {
                     value: (id, method, params, diagnostic),
                     _bytes: permit,
                     _slot: Some(slot),
-                })
+                }, session::ServerWork(s.server_work.clone())))
                 .map_err(|_| {
                     ProtocolError::new(
                         "CODEX_PROTOCOL_QUEUE_FULL",

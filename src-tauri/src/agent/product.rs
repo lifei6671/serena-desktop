@@ -260,6 +260,7 @@ impl ProductError {
             "AGENT_CONTINUE_NOT_ALLOWED",
             "AGENT_RESUME_NOT_ALLOWED",
             "AGENT_MANUAL_RESOLUTION_REQUIRED",
+            "AGENT_RUNTIME_QUARANTINED",
             "BACKEND_UNAVAILABLE",
             "CODEX_APP_SERVER_INCOMPATIBLE",
         ];
@@ -293,6 +294,7 @@ pub fn failure(message: String, execution_id: Option<String>) -> Value {
         match error.code.as_str() {
             "AGENT_INVALID_ARGUMENT" => Some(NextAction::CorrectInput),
             "AGENT_NO_ACTIVE_WORKSPACE" => Some(NextAction::ActivateWorkspace),
+            "AGENT_RUNTIME_QUARANTINED" => Some(NextAction::ManualResolution),
             _ => None,
         },
         None,
@@ -354,6 +356,9 @@ pub struct AgentProductService {
     manager: AgentTaskManager,
 }
 impl AgentProductService {
+    pub async fn shutdown(&self) -> Result<(), String> {
+        self.manager.runtime_pool.shutdown().await
+    }
     /// Desktop-only read pagination; MCP Action/list stays unchanged.
     pub async fn history_page(
         &self,
@@ -561,13 +566,15 @@ impl AgentProductService {
                     && s.owns_claim
                     && !s.runtime_attempt_exists
                     && !self.store.product_worker_owned(&r.id);
+                let quarantined_pending = pending
+                    && self.manager.runtime_pool.check_workspace(&r.canonical_workspace_root).is_err();
                 let actions = AvailableActions {
                     can_cancel: matches!(
                         r.status.as_str(),
                         "dispatch_pending" | "running" | "cancel_requested" | "cancelling"
                     ) && r.provider_terminal_status.is_none(),
                     can_continue: continuation_eligible(r) && s.claim_free && s.agent_free,
-                    can_resume_pending: pending,
+                    can_resume_pending: pending && !quarantined_pending,
                 };
                 let final_result = r
                     .final_result_json
@@ -578,7 +585,7 @@ impl AgentProductService {
                             .map_err(|e| format!("Invalid persisted result: {e}"))
                     })
                     .transpose()?;
-                let attention = if r.status == "unknown" {
+                let attention = if r.status == "unknown" || quarantined_pending {
                     "manual_resolution_required"
                 } else if pending {
                     "pending_explicit_resume"

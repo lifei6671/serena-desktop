@@ -10,6 +10,7 @@ use std::{
 const SCHEMA_V1: &str = include_str!("schema_v1.sql");
 const SCHEMA_V2: &str =
     "CREATE TABLE thread_names (thread_id TEXT PRIMARY KEY NOT NULL, name TEXT);";
+const SCHEMA_V4: &str = include_str!("schema_v4.sql");
 const SCHEMA_V3: &str = include_str!("schema_v3.sql");
 
 #[derive(Clone)]
@@ -173,6 +174,16 @@ impl StateStore {
         .await
     }
 
+    pub(crate) async fn orphan_runtimes(&self, owner: String) -> Result<Vec<String>, String> {
+        self.read(move |c| {
+            let mut statement = c.prepare("SELECT r.id FROM runtime_instances r
+                WHERE r.owner_host_instance_id != ?1 AND r.state != 'terminated'
+                AND NOT EXISTS (SELECT 1 FROM executions e JOIN workspace_claims w ON w.execution_id=e.id
+                    WHERE e.runtime_instance_id=r.id)")?;
+            statement.query_map([owner], |r| r.get(0))?.collect()
+        }).await
+    }
+
     pub async fn workspace_claim(
         &self,
         root: String,
@@ -265,7 +276,7 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
             }
             apply_migration(&transaction, 1, SCHEMA_V1).map_err(|e| e.to_string())?;
         }
-        1..=3 => {}
+        1..=4 => {}
         _ => return Err(format!("unsupported agent state schema version: {version}")),
     }
     if version < 2 {
@@ -273,6 +284,9 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     }
     if version < 3 {
         apply_migration(&transaction, 3, SCHEMA_V3).map_err(|e| e.to_string())?;
+    }
+    if version < 4 {
+        apply_migration(&transaction, 4, SCHEMA_V4).map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())
 }
@@ -320,6 +334,7 @@ fn insert_execution(
 mod tests;
 
 pub mod transactions;
+mod runtime_attempts;
 
 fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<ExecutionRecord>> {
     c.query_row(

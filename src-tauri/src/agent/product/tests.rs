@@ -10,6 +10,8 @@ mod observe_tests;
 mod restart_tests;
 #[path = "workspace_write_tests.rs"]
 mod workspace_write_tests;
+#[path = "persistence_tests.rs"]
+mod persistence_tests;
 fn run(f: impl std::future::Future<Output = ()>) {
     tokio::runtime::Runtime::new().unwrap().block_on(f)
 }
@@ -618,7 +620,7 @@ fn real_fixed_product_continuation_e2e() {
     )
     .unwrap();
     let evidence = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../docs/tasks/evidence/TASK-009/backend-degraded-2026-09-09")
+        .join("../docs/tasks/evidence/runtime-persistence")
         .join(format!("real-product-{}-{}", std::process::id(), now()));
     std::fs::create_dir_all(&evidence).unwrap();
     struct Env(Vec<(&'static str, Option<std::ffi::OsString>)>);
@@ -670,7 +672,7 @@ fn real_fixed_product_continuation_e2e() {
         assert_eq!(r["ok"], true, "{r}");
         let id2 = r["data"]["executionId"].as_str().unwrap();
         let e2 = final_row(&s, id2).await;
-        assert_ne!(
+        assert_eq!(
             store
                 .execution(id.into())
                 .await
@@ -708,15 +710,7 @@ fn real_fixed_product_continuation_e2e() {
                 .unwrap()
                 .unwrap();
             let runtime = row.runtime_instance_id.clone().unwrap();
-            let end = tokio::time::Instant::now() + Duration::from_secs(20);
-            loop {
-                let rt = store.runtime(runtime.clone()).await.unwrap().unwrap();
-                if rt.termination_evidence_state == "complete" {
-                    break;
-                }
-                assert!(tokio::time::Instant::now() < end);
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
+            assert_eq!(store.runtime(runtime.clone()).await.unwrap().unwrap().state, "running");
             let raw = std::fs::read_to_string(evidence.join(format!("{runtime}.stdin.raw.jsonl")))
                 .unwrap();
             let messages: Vec<Value> = raw
@@ -724,10 +718,11 @@ fn real_fixed_product_continuation_e2e() {
                 .map(|l| serde_json::from_str(l).unwrap())
                 .collect();
             let count = |method: &str| messages.iter().filter(|m| m["method"] == method).count();
-            assert_eq!(count("turn/start"), 1);
-            assert_eq!(count("thread/start"), usize::from(i == 1));
-            assert_eq!(count("thread/resume"), usize::from(i == 2));
-            std::fs::write(evidence.join(format!("execution-{i}.json")),serde_json::to_vec_pretty(&json!({"view":e,"runtime":runtime,"job":"complete","claim":"absent","turnStart":count("turn/start"),"threadStart":count("thread/start"),"threadResume":count("thread/resume")})).unwrap()).unwrap();
+            assert_eq!(count("initialize"), 1);
+            assert_eq!(count("turn/start"), 2);
+            assert_eq!(count("thread/start"), 1);
+            assert_eq!(count("thread/resume"), 0);
+            std::fs::write(evidence.join(format!("execution-{i}.json")),serde_json::to_vec_pretty(&json!({"view":e,"runtime":runtime,"job":"running","claim":"absent","initialize":count("initialize"),"turnStart":count("turn/start"),"threadStart":count("thread/start"),"threadResume":count("thread/resume")})).unwrap()).unwrap();
         }
         let r=s.checked_operation(json!({"action":"start","agentId":"cancel-lineage","requestKey":"cancel-first","prompt":"Use the shell to sleep for 30 seconds, then reply DONE. Do not modify files."}),w(&workspace,"real-workspace")).await;
         assert_eq!(r["ok"], true);
@@ -735,7 +730,10 @@ fn real_fixed_product_continuation_e2e() {
         let end = tokio::time::Instant::now() + Duration::from_secs(60);
         loop {
             let v = s.observe(id3.into(), false).await.unwrap();
-            if v.turn_id.is_some() {
+            // The start ACK can reserve a Turn ID before the server accepts
+            // interrupts. This case tests cancellation of an authoritative
+            // started Turn; early rejected interrupts remain fail-closed.
+            if v.status == "running" && v.turn_id.is_some() {
                 break;
             }
             assert!(tokio::time::Instant::now() < end);
@@ -761,6 +759,7 @@ fn real_fixed_product_continuation_e2e() {
         );
         let row = store.execution(id3.into()).await.unwrap().unwrap();
         let rid = row.runtime_instance_id.unwrap();
+        s.shutdown().await.unwrap();
         let end = tokio::time::Instant::now() + Duration::from_secs(20);
         while store
             .runtime(rid.clone())
@@ -779,7 +778,7 @@ fn real_fixed_product_continuation_e2e() {
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
         for method in ["turn/start", "turn/interrupt"] {
-            assert_eq!(messages.iter().filter(|m| m["method"] == method).count(), 1);
+            assert_eq!(messages.iter().filter(|m| m["method"] == method).count(), if method == "turn/start" { 3 } else { 1 });
         }
         std::fs::write(
             evidence.join("cancel.json"),
@@ -1422,6 +1421,11 @@ fn unavailable_continuation_never_accepts_or_dispatches() {
         final_row(&first, &id).await;
         drop(first);
         fake.await.unwrap();
+        // This case tests backend discovery after a safely ended old Runtime.
+        // An unresolved old Runtime is covered by workspace quarantine tests.
+        rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap().execute(
+            "UPDATE runtime_instances SET state='terminated',termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',termination_evidence_at=10 WHERE id='R1'",[]).unwrap();
+
         let (service, _) = TEST_DISCOVERY
             .scope(
                 Err("BACKEND_UNAVAILABLE: missing".into()),

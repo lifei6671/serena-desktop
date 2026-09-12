@@ -14,6 +14,7 @@ pub(crate) struct CodexProvider {
     pub store: StateStore,
     pub executable: PathBuf,
     pub owner: String,
+    pub runtime_pool: std::sync::Arc<super::pool::CodexRuntimePool>,
 }
 #[derive(Debug)]
 pub enum ExecutionFailure {
@@ -34,21 +35,36 @@ impl CodexProvider {
         id: &str,
         acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<ExecutionRecord, ExecutionFailure> {
+        let _worker = self.runtime_pool.enter().await?;
         let row = self.row(id).await?;
         if row.status == "cancelled" && row.dispatch_state == "not_dispatched" {
             return Ok(row);
         }
-        let managed = match managed::connect(
+        let mut lease = self.runtime_pool.lease(&self.store, &row.canonical_workspace_root).await?;
+        if self.runtime_pool.stop.is_cancelled() {
+            return Err("AGENT_SHUTTING_DOWN".to_string().into());
+        }
+        if lease.as_ref().is_some_and(|m| !m.client.reusable()) {
+            let stale = lease.take().unwrap();
+            let runtime_id = stale.client.runtime_id().to_owned();
+            stale.shutdown().await.map_err(|failure|
+                ExecutionFailure::Runtime(self.runtime_pool.retain_failure(&self.store, &row.canonical_workspace_root, &runtime_id, failure)))?;
+        }
+        if lease.is_none() {
+        let runtime_id = crate::agent::task_manager::AgentTaskManager::id("runtime");
+        let managed = match self.connect(
+            id,
             self.store.clone(),
             self.owner.clone(),
-            format!("runtime-{id}"),
+            runtime_id.clone(),
             self.executable.clone(),
             PathBuf::from(&row.canonical_workspace_root),
         )
         .await
         {
             Ok(managed) => managed,
-            Err(mut error) => {
+            Err(error) => {
+                let mut error = self.runtime_pool.retain_attempt_failure(&self.store, &row.canonical_workspace_root, &runtime_id, error).await;
                 if let Err(state) = self.failed(id).await {
                     error
                         .message
@@ -68,16 +84,62 @@ impl CodexProvider {
                 return Err(ExecutionFailure::Runtime(error));
             }
         };
-        self.run_managed(id, managed, acceptance).await
+        *lease = Some(managed);
+        }
+        self.run_leased(id, &mut lease, acceptance).await
     }
+    async fn connect(&self, id: &str, store: StateStore, owner: String, runtime_id: String, executable: PathBuf, workspace: PathBuf)
+        -> Result<managed::ManagedClient, super::runtime::RuntimeFailure> {
+        #[cfg(test)]
+        {
+            let connect = self.runtime_pool.test_connect.lock().unwrap().clone();
+            if let Some(connect) = connect {
+                store.reserve_runtime_attempt(id.into(), runtime_id.clone(), now()).await
+                    .map_err(|e| super::runtime::RuntimeError::new("CODEX_RUNTIME_STORE_FAILED",e))?;
+                return connect(runtime_id, workspace).await;
+            }
+        }
+        managed::connect(store, owner, runtime_id, executable, workspace, Some(managed::RuntimeAttempt::Dispatch(id.into()))).await
+    }
+    #[cfg(test)]
     async fn run_managed(
         &self, id: &str, managed: managed::ManagedClient,
         acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<ExecutionRecord, ExecutionFailure> {
-        let result = self
-            .run_client_with_acceptance(id, &managed.client, acceptance)
-            .await;
-        let termination = managed.shutdown().await;
+        let _worker = self.runtime_pool.enter().await?;
+        let mut lease = self.runtime_pool.lease(&self.store, &self.row(id).await?.canonical_workspace_root).await?;
+        assert!(lease.is_none());
+        *lease = Some(managed);
+        self.run_leased(id, &mut lease, acceptance).await
+    }
+    async fn run_leased(
+        &self, id: &str, lease: &mut Option<managed::ManagedClient>,
+        acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ) -> Result<ExecutionRecord, ExecutionFailure> {
+        let client = &lease.as_ref().unwrap().client;
+        let result = tokio::select! {
+            biased;
+            _ = self.runtime_pool.stop.cancelled() => {
+                self.failed(id).await?;
+                Err("AGENT_SHUTTING_DOWN".into())
+            },
+            result = self.run_client_with_acceptance(id, client, acceptance) => result,
+        };
+        let row = self.row(id).await;
+        if let Ok(row) = &row
+            && matches!(row.status.as_str(), "completed" | "failed" | "cancelled" | "interrupted")
+            && row.release_evidence_kind.as_deref() == Some("same_runtime_cleanup")
+            && row.release_evidence_state == "complete"
+            && row.result_completeness == "complete"
+            && client.finish_execution(&self.store, row.thread_id.as_deref(), row.turn_id.as_deref()).await.is_ok()
+            && !self.runtime_pool.stop.is_cancelled()
+        {
+            return result.map_err(ExecutionFailure::State);
+        }
+        let runtime_id = client.runtime_id().to_owned();
+        let workspace = self.row(id).await?.canonical_workspace_root;
+        let termination = lease.take().unwrap().shutdown().await
+            .map_err(|failure| self.runtime_pool.retain_failure(&self.store, &workspace, &runtime_id, failure));
         self.finish_after_shutdown(id, result, termination).await
     }
     /// Only called after the ManagedClient monitor has returned ownership/evidence.
@@ -96,7 +158,7 @@ impl CodexProvider {
         }
         let row = self.row(id).await?;
         if result.is_err() && !matches!(row.status.as_str(), "completed" | "failed" | "cancelled" | "interrupted") {
-            match reconcile_execution_after_runtime_end(&self.store, &self.executable, &self.owner, None, id).await {
+            match reconcile_execution_after_runtime_end(&self.store, &self.executable, &self.owner, &self.runtime_pool, None, id).await {
                 Ok(RecoveryOutcome::RuntimeFailure { failure, .. }) => return Err(ExecutionFailure::Runtime(failure)),
                 Ok(_) => {},
                 Err(error) => {
@@ -130,8 +192,8 @@ impl CodexProvider {
             && row.dispatch_state == "not_dispatched"
             && row.runtime_instance_id.is_none()
             && row.provider_terminal_status.is_none()
-            // A created but unbound Runtime cannot reuse this immutable attempt ID.
-            && self.store.runtime(format!("runtime-{id}")).await?.is_none()
+            // Persisted pre-bind attempts are never safe to replay.
+            && !self.store.has_runtime_attempt(id.into()).await?
             && self.store.workspace_claim(row.canonical_workspace_root.clone()).await?
                 .is_some_and(|claim| claim.execution_id == row.id)
         {
@@ -194,7 +256,12 @@ impl CodexProvider {
         client: &Client,
         acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<ExecutionRecord, String> {
-        let outcome = self.run_active_client(id, client, acceptance).await;
+        let outcome = async {
+            let row = self.row(id).await?;
+            if row.status == "cancelled" && row.dispatch_state == "not_dispatched" { return Ok(row); }
+            client.prepare_execution(&self.store).await.map_err(|e| e.to_string())?;
+            self.run_active_client(id, client, acceptance).await
+        }.await;
         if let Err(error) = &outcome {
             self.store.execution_diagnostic(id.into(), "CODEX_PROVIDER_FAILURE".into(), error.clone(), now()).await?;
             self.failed(id).await?;
@@ -230,11 +297,12 @@ impl CodexProvider {
         client.enable_root_title(self.store.clone(), id).map_err(|e| e.to_string())?;
         let mode =
             serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?;
+        let warm = row.thread_id.as_deref().is_some_and(|id| client.loaded_thread(id).is_some());
         let thread = if let Some(thread_id) = &row.thread_id {
-            let thread = client
+            let thread = if let Some(thread) = client.loaded_thread(thread_id) { thread } else { client
                 .thread_resume(thread_id)
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| e.to_string())? };
             if thread.history_mode != super::protocol::HistoryMode::Paginated {
                 return Err(
                     "CODEX_APP_SERVER_INCOMPATIBLE: continuation requires paginated history".into(),
@@ -248,7 +316,7 @@ impl CodexProvider {
                 .map_err(|e| e.to_string())?
         };
         self.bind(id, client, &thread.id, None).await?;
-        self.store.save_thread_name(thread.id.clone(), thread.name.clone()).await?;
+        if !warm { self.store.save_thread_name(thread.id.clone(), thread.name.clone()).await?; }
         // Product continue is accepted only after exact managed Thread validation.
         if let Some(receipt) = acceptance.take() {
             let _ = receipt.send(Ok(()));
@@ -441,6 +509,13 @@ impl CodexProvider {
         }
         .finish(id, result, empty)
         .await?;
+        // Terminal evidence can safely finish the Execution before the ACK. Only
+        // a settled request can keep the transport reusable; never wait/replay it
+        // to manufacture success. Dropping an unresolved request cancels Client.
+        if !acknowledged {
+            use std::future::Future;
+            let _ = std::future::poll_fn(|cx| std::task::Poll::Ready(request.as_mut().poll(cx))).await;
+        }
         if row.status == "failed" {
             return Err("PROVIDER_TERMINAL_failed".into());
         }

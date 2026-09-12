@@ -280,7 +280,7 @@ impl StateStore {
                 let owns:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM workspace_claims WHERE execution_id=?1 AND canonical_workspace_root=?2)",params![id,row.canonical_workspace_root],|r|r.get(0))?;
                 let claimed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM workspace_claims WHERE execution_id=?1 OR canonical_workspace_root=?2)",params![id,row.canonical_workspace_root],|r|r.get(0))?;
                 let busy:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM executions WHERE agent_id=?1 AND status NOT IN ('completed','failed','cancelled','interrupted'))",[&row.agent_id],|r|r.get(0))?;
-                let runtime_attempt_exists:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM runtime_instances WHERE id=?1)",[format!("runtime-{id}")],|r|r.get(0))?;
+                let runtime_attempt_exists:bool=crate::agent::store::runtime_attempts::runtime_attempt_exists(&tx,&id)?;
                 Ok(ProductSnapshot{execution:row,thread_name,owns_claim:owns,runtime_attempt_exists,claim_free:!claimed,agent_free:!busy,created_at,updated_at,completed_at})
             }).collect()
         }).await

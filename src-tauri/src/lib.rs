@@ -133,6 +133,10 @@ pub fn run() {
             for outcome in outcomes {
                 use agent::task_manager::recovery::RecoveryOutcome::*;
                 let (kind, id) = match &outcome {
+                    OrphanRuntime { runtime_id, failure } => (
+                        if failure.is_some() { "orphan runtime unknown" } else { "orphan runtime terminated" },
+                        runtime_id,
+                    ),
                     Released { execution_id } => ("released", execution_id),
                     Inconsistent { execution_id, .. } => {
                         ("inconsistent; claim retained", execution_id)

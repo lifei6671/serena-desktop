@@ -711,7 +711,7 @@ async fn slice_case(case: &'static str) {
             "extra dispatch/fallback: {extra}"
         );
     });
-    let provider = CodexProvider {
+    let provider = CodexProvider { runtime_pool: Default::default(),
         store: store.clone(),
         executable: "unused".into(),
         owner: "fixture".into(),
@@ -1388,7 +1388,7 @@ async fn live_failure_case(case: &'static str, evidence: bool, bind_turn: bool) 
     });
     client.initialize().await.unwrap();
     let managed = managed::ManagedClient::test_owned(client, monitor);
-    let provider = CodexProvider { store:store.clone(),executable:"C:/missing-result-provider.exe".into(),owner:"fixture".into() };
+    let provider = CodexProvider { runtime_pool: Default::default(), store:store.clone(),executable:"C:/missing-result-provider.exe".into(),owner:"fixture".into() };
     let worker_id = id.clone();
     let worker = tokio::spawn(async move { provider.run_managed(&worker_id, managed, &mut None).await });
     tokio::time::timeout(Duration::from_secs(20), ending_rx).await.unwrap().unwrap();
@@ -1456,7 +1456,7 @@ fn shutdown_failure_survives_unknown_persistence_failure() {
         let db = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
         db.execute("UPDATE executions SET status='reconciling',dispatch_state='uncertain' WHERE id=?1",[&id]).unwrap();
         db.execute_batch("CREATE TRIGGER reject_unknown BEFORE UPDATE OF status ON executions WHEN NEW.status='unknown' BEGIN SELECT RAISE(ABORT,'fixture persistence failure'); END;").unwrap();
-        let provider = CodexProvider {store,executable:"unused".into(),owner:"fixture".into()};
+        let provider = CodexProvider { runtime_pool: Default::default(),store,executable:"unused".into(),owner:"fixture".into()};
         let result = provider.finish_after_shutdown(&id,Err("provider error".into()),
             Err(super::super::runtime::RuntimeFailure {code:"CODEX_JOB_QUERY_FAILED",message:"original termination error".into(),runtime:None})).await;
         match result.unwrap_err() {

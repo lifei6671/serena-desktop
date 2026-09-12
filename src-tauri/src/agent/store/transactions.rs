@@ -61,11 +61,7 @@ impl StateStore {
                 return Err("PENDING_RESUME_REJECTED".into());
             }
             owns_claim(tx, &id)?;
-            let attempted: bool = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM runtime_instances WHERE id=?1)",
-                [format!("runtime-{id}")],
-                |r| r.get(0),
-            ).map_err(|e| e.to_string())?;
+            let attempted = super::runtime_attempts::runtime_attempt_exists(tx, &id).map_err(|e| e.to_string())?;
             if attempted {
                 return Err("PENDING_RESUME_REJECTED".into());
             }
@@ -222,7 +218,7 @@ impl StateStore {
         }).await
     }
 
-    async fn write<T: Send + 'static>(
+    pub(super) async fn write<T: Send + 'static>(
         &self,
         operation: impl FnOnce(&Transaction<'_>) -> Result<T, String> + Send + 'static,
     ) -> Result<T, String> {
@@ -334,11 +330,7 @@ impl StateStore {
                     && row.dispatch == DispatchState::NotDispatched
                     && row.runtime.is_none()
                     && row.terminal.is_none()
-                    && !tx.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM runtime_instances WHERE id=?1)",
-                        [format!("runtime-{id}")],
-                        |r| r.get::<_, bool>(0),
-                    ).map_err(|e| e.to_string())?
+                    && !super::runtime_attempts::runtime_attempt_exists(tx, &id).map_err(|e| e.to_string())?
                 {
                     if owns_claim(tx, &id).is_ok() {
                         recovered.push(ClaimRecovery::PendingExplicitResume { execution_id: id });
@@ -483,7 +475,7 @@ enum Mutation {
     CancelBeforeDispatch,
 }
 
-fn owns_claim(tx: &Transaction<'_>, id: &str) -> Result<(), String> {
+pub(super) fn owns_claim(tx: &Transaction<'_>, id: &str) -> Result<(), String> {
     let owns: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM workspace_claims c JOIN executions e ON c.execution_id=e.id AND c.canonical_workspace_root=e.canonical_workspace_root WHERE e.id=?1)",[id],|r|r.get(0)).map_err(|e| e.to_string())?;
     if owns {
         Ok(())

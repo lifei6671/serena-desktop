@@ -1089,6 +1089,7 @@ fn real_fixed_binary_contract() {
             r1id.clone(),
             exe.clone(),
             temp.path().into(),
+            None,
         )
         .await
         .unwrap();
@@ -1148,6 +1149,7 @@ fn real_fixed_binary_contract() {
             r2id.clone(),
             exe.clone(),
             temp.path().into(),
+            None,
         )
         .await
         .unwrap();
@@ -1191,6 +1193,7 @@ fn real_fixed_binary_contract() {
                 id.clone(),
                 exe.clone(),
                 temp.path().into(),
+                None,
             )
             .await
             .unwrap();
@@ -2154,7 +2157,7 @@ fn streaming_burst_without_consumer_preserves_terminal_error_and_server_requests
         assert!(matches!(received.recv().await.unwrap().notification, Notification::TurnError {will_retry:true,..}));
         assert!(matches!(received.recv().await.unwrap().notification, Notification::TurnCompleted {..}));
         let request = server_received.recv().await.unwrap();
-        assert_eq!(server_reply(request.value.0.clone(), &request.value.1, &request.value.2)["result"]["decision"], "cancel");
+        assert_eq!(server_reply(request.0.value.0.clone(), &request.0.value.1, &request.0.value.2)["result"]["decision"], "cancel");
         drop(request);
         assert_eq!(count.available_permits(), QUEUE_COUNT);
         assert_eq!(bytes.available_permits(), QUEUE_BYTES);
@@ -2243,9 +2246,9 @@ fn unbound_turn_drops_old_activity_and_permission_hint_but_still_refuses_rpc() {
         )
         .unwrap();
         let request = server_received.recv().await.unwrap();
-        assert!(request.value.3.is_none(), "old-Turn diagnostic must be discarded");
+        assert!(request.0.value.3.is_none(), "old-Turn diagnostic must be discarded");
         assert_eq!(
-            server_reply(request.value.0.clone(), &request.value.1, &request.value.2)["result"]
+            server_reply(request.0.value.0.clone(), &request.0.value.1, &request.0.value.2)["result"]
                 ["decision"],
             "cancel"
         );

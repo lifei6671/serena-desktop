@@ -352,6 +352,8 @@ pub fn shutdown_impl(app: &AppHandle) -> Result<(), String> {
         token.cancel();
     }
     tauri::async_runtime::block_on(async {
+        app.state::<std::sync::Arc<crate::agent::product::AgentProductService>>()
+            .shutdown().await?;
         let _m = broker.management.lock().await;
         broker.shutdown().await?;
         app.state::<std::sync::Arc<SupervisorState>>().stop()

@@ -116,7 +116,10 @@ impl AgentProductService {
                 .await
                 .map(|v| v.control)
                 .unwrap_or_else(|_| ControlReceipt::accepted_unreadable(id.clone()));
-            if error.code == "AGENT_MANUAL_RESOLUTION_REQUIRED" {
+            if matches!(
+                error.code.as_str(),
+                "AGENT_MANUAL_RESOLUTION_REQUIRED" | "AGENT_RUNTIME_QUARANTINED"
+            ) {
                 receipt.next_action = Some(DirectedNextAction {
                     instruction: NextAction::ManualResolution,
                     execution_id: Some(id),
@@ -152,7 +155,9 @@ impl AgentProductService {
                     }),
                     blocker,
                 ),
-                "AGENT_MANUAL_RESOLUTION_REQUIRED" => (Some(NextAction::ManualResolution), related),
+                "AGENT_MANUAL_RESOLUTION_REQUIRED" | "AGENT_RUNTIME_QUARANTINED" => {
+                    (Some(NextAction::ManualResolution), related)
+                }
                 _ => (None, None),
             };
             // If storage itself is unavailable, do not assert a false non-acceptance.

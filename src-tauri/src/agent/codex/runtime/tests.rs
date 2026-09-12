@@ -7,6 +7,36 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 static IDS: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn completed_execution_idle_runtime_is_recovered_without_a_claim() {
+    let dir = tempfile::tempdir().unwrap();
+    let exe = fixture(dir.path());
+    let store = open(dir.path());
+    let req = request(&exe, dir.path(), "tree");
+    let id = req.runtime_instance_id.clone();
+    let runtime = block(Runtime::create(store.clone(), "old-host".into(), req, Duration::from_secs(5))).unwrap();
+    let leaf = observe_pid(&dir.path().join("leaf.pid"));
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute("UPDATE runtime_instances SET state='running' WHERE id=?1", [&id]).unwrap();
+    let manager = crate::agent::task_manager::AgentTaskManager::new(store.clone(), "unused.exe".into());
+    let input = serde_json::from_value(serde_json::json!({"agent_id":"idle","request_key":"key","prompt":"done","execution_profile":{},"workspace_id":"W","canonical_workspace_root":dir.path().to_str().unwrap(),"mode":"read_only"})).unwrap();
+    let execution = block(manager.create(input)).unwrap().execution_id;
+    db.execute("UPDATE executions SET runtime_instance_id=?1,status='completed',dispatch_state='dispatched',release_evidence_state='complete',release_evidence_kind='same_runtime_cleanup',release_evidence_json='{}' WHERE id=?2", [&id,&execution]).unwrap();
+    db.execute("DELETE FROM workspace_claims WHERE execution_id=?1", [&execution]).unwrap();
+    let snapshot = block(store.execution(execution.clone())).unwrap();
+    // Equivalent kernel boundary to Host death: the sole KILL_ON_JOB_CLOSE owner
+    // disappears. Startup must still observe the named Job, never infer from PID.
+    drop(runtime);
+    let outcomes = block(manager.recover_startup()).unwrap();
+    assert!(outcomes.iter().any(|o| matches!(o, crate::agent::task_manager::recovery::RecoveryOutcome::OrphanRuntime { runtime_id, failure: None } if runtime_id == &id)));
+    let recovered = row(&store,&id);
+    assert_eq!(recovered.state,"terminated");
+    assert_eq!(recovered.termination_evidence_state,"complete");
+    assert_eq!(unsafe { WaitForSingleObject(leaf.as_raw_handle(), 5000) }, WAIT_OBJECT_0);
+    assert_eq!(block(store.execution(execution)).unwrap(), snapshot);
+    assert!(block(manager.recover_startup()).unwrap().is_empty());
+}
 fn block<T>(f: impl std::future::Future<Output = T>) -> T {
     tauri::async_runtime::block_on(f)
 }
@@ -188,6 +218,49 @@ fn failed_evidence_commit_retains_unknown_and_owned_job_for_retry() {
     block(retained.terminate(Duration::from_secs(5))).unwrap();
     complete(&store, &id, "job_active_processes_zero");
     assert_eq!(error_fields(dir.path(), &id), (None, None));
+}
+
+#[test]
+fn pool_retains_failed_job_owner_and_blocks_shutdown_until_evidence_commits() {
+    let dir = tempfile::tempdir().unwrap();
+    let exe = fixture(dir.path());
+    let store = open(dir.path());
+    let req = request(&exe, dir.path(), "tree");
+    let id = req.runtime_instance_id.clone();
+    let runtime = block(Runtime::create(store.clone(), "host".into(), req, Duration::from_secs(5))).unwrap();
+    let db = Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute_batch("CREATE TRIGGER fail_evidence BEFORE UPDATE ON runtime_instances WHEN NEW.termination_evidence_state='complete' BEGIN SELECT RAISE(ABORT,'injected evidence persistence failure'); END;").unwrap();
+    let failure = block(runtime.terminate(Duration::from_secs(5))).unwrap_err();
+    let pool = crate::agent::codex::pool::CodexRuntimePool::default();
+    let diagnostic = pool.retain_failure(&store, dir.path().to_str().unwrap(), &id, failure);
+    assert!(diagnostic.runtime.is_none());
+    assert!(block(pool.shutdown()).unwrap_err().contains("CODEX_RUNTIME_EVIDENCE_PERSIST_FAILED"));
+    unknown(&store, &id);
+    db.execute_batch("DROP TRIGGER fail_evidence").unwrap();
+    block(pool.shutdown()).unwrap();
+    complete(&store, &id, "job_active_processes_zero");
+}
+
+#[test]
+fn claimed_startup_retains_recovered_owner_before_failing_execution_write() {
+    let dir=tempfile::tempdir().unwrap(); let exe=fixture(dir.path()); let store=open(dir.path());
+    let req=request(&exe,dir.path(),"tree"); let id=req.runtime_instance_id.clone();
+    let runtime=block(Runtime::create(store.clone(),"old-host".into(),req,Duration::from_secs(5))).unwrap();
+    let manager=crate::agent::task_manager::AgentTaskManager::new(store.clone(),"unused.exe".into());
+    let input=serde_json::from_value(serde_json::json!({"agent_id":"claimed","request_key":"key","prompt":"p","execution_profile":{},"workspace_id":"W","canonical_workspace_root":dir.path().to_str().unwrap(),"mode":"read_only"})).unwrap();
+    let execution=block(manager.create(input)).unwrap().execution_id;
+    let db=Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute("UPDATE executions SET runtime_instance_id=?1,status='reconciling',dispatch_state='uncertain' WHERE id=?2",[&id,&execution]).unwrap();
+    db.execute_batch("CREATE TRIGGER fail_evidence BEFORE UPDATE ON runtime_instances WHEN NEW.termination_evidence_state='complete' BEGIN SELECT RAISE(ABORT,'evidence failure'); END;
+        CREATE TRIGGER fail_unknown BEFORE UPDATE OF status ON executions WHEN NEW.status='unknown' BEGIN SELECT RAISE(ABORT,'execution failure'); END;").unwrap();
+    // Retain a named Job handle across original Host-owner destruction so startup
+    // obtains an actual recovered owner, then fails its evidence commit.
+    let job=open_job(&format!("Local\\SerenaDesktop.Codex.{id}")).unwrap(); drop(runtime);
+    assert!(block(manager.recover_startup()).unwrap_err().contains("execution failure"));
+    assert!(block(manager.runtime_pool.shutdown()).is_err());
+    db.execute_batch("DROP TRIGGER fail_evidence; DROP TRIGGER fail_unknown;").unwrap();
+    block(manager.runtime_pool.shutdown()).unwrap();
+    complete(&store,&id,"job_active_processes_zero"); drop(job);
 }
 
 fn error_fields(dir: &Path, id: &str) -> (Option<String>, Option<String>) {
@@ -638,4 +711,59 @@ fn host_abrupt_exit_and_creation_crashes_recover_from_persisted_policy_only() {
         .unwrap();
         complete(&store, "crash-runtime", "managed_job_destroyed");
     }
+}
+
+#[test]
+fn ownerless_quarantine_retries_named_job_recovery_after_failed_evidence_commit() {
+    let dir=tempfile::tempdir().unwrap(); let store=open(dir.path());
+    let id=format!("ownerless-quarantine-{}",std::process::id()); prepare(&store,&id);
+    let db=Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute_batch("CREATE TRIGGER fail_recovery_evidence BEFORE UPDATE ON runtime_instances WHEN NEW.termination_evidence_state='complete' BEGIN SELECT RAISE(ABORT,'retry fixture'); END;").unwrap();
+    let pool=crate::agent::codex::pool::CodexRuntimePool::default();
+    pool.retain_failure(&store,dir.path().to_str().unwrap(),&id,RuntimeFailure{code:"CODEX_RUNTIME_WORKER_FAILED",message:"ownerless post-create".into(),runtime:None});
+    assert!(block(pool.shutdown()).is_err());
+    assert!(pool.check_workspace(dir.path().to_str().unwrap()).is_err());
+    db.execute_batch("DROP TRIGGER fail_recovery_evidence").unwrap();
+    block(pool.shutdown()).unwrap();
+    pool.check_workspace(dir.path().to_str().unwrap()).unwrap();
+    complete(&store,&id,"managed_job_destroyed");
+}
+
+#[test]
+fn owned_timeout_quarantines_workspace_until_job_termination_is_proven() {
+    let dir=tempfile::tempdir().unwrap(); let exe=fixture(dir.path()); let store=open(dir.path());
+    let req=request(&exe,dir.path(),"tree"); let id=req.runtime_instance_id.clone();
+    let runtime=block(Runtime::create(store.clone(),"host".into(),req,Duration::from_secs(5))).unwrap();
+    let leaf=observe_pid(&dir.path().join("leaf.pid"));
+    let pool=crate::agent::codex::pool::CodexRuntimePool::default();
+    // Inject the timeout result while retaining the actual live Windows Job owner.
+    pool.retain_failure(&store,"W",&id,RuntimeFailure{code:"CODEX_RUNTIME_TERMINATION_TIMEOUT",message:"injected bounded termination timeout".into(),runtime:Some(Box::new(runtime))});
+    assert!(block(pool.lease(&store,"W")).is_err());
+    assert!(block(pool.lease(&store,"other-workspace")).is_ok());
+    assert_ne!(unsafe{WaitForSingleObject(leaf.as_raw_handle(),0)},WAIT_OBJECT_0);
+    block(pool.retry_workspace(&store,"W")).unwrap();
+    assert!(block(pool.lease(&store,"W")).is_ok());
+    complete(&store,&id,"job_active_processes_zero");
+    assert_eq!(unsafe{WaitForSingleObject(leaf.as_raw_handle(),5000)},WAIT_OBJECT_0);
+    block(pool.shutdown()).unwrap();
+}
+
+#[test]
+fn repeated_claimed_recovery_reuses_retained_owner_and_shutdown_converges_once() {
+    let dir=tempfile::tempdir().unwrap(); let exe=fixture(dir.path()); let store=open(dir.path());
+    let req=request(&exe,dir.path(),"tree"); let id=req.runtime_instance_id.clone();
+    let runtime=block(Runtime::create(store.clone(),"old-host".into(),req,Duration::from_secs(5))).unwrap();
+    let manager=crate::agent::task_manager::AgentTaskManager::new(store.clone(),dir.path().join("must-not-launch.exe"));
+    let input=serde_json::from_value(serde_json::json!({"agent_id":"repeat","request_key":"key","prompt":"p","execution_profile":{},"workspace_id":"W","canonical_workspace_root":dir.path().to_str().unwrap(),"mode":"read_only"})).unwrap();
+    let execution=block(manager.create(input)).unwrap().execution_id;
+    let db=Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute("UPDATE executions SET runtime_instance_id=?1,status='reconciling',dispatch_state='uncertain' WHERE id=?2",[&id,&execution]).unwrap();
+    db.execute_batch("CREATE TRIGGER repeat_evidence BEFORE UPDATE ON runtime_instances WHEN NEW.termination_evidence_state='complete' BEGIN SELECT RAISE(ABORT,'retry fixture'); END;").unwrap();
+    let job=open_job(&format!("Local\\SerenaDesktop.Codex.{id}")).unwrap(); drop(runtime);
+    block(manager.recover_startup()).unwrap();
+    block(manager.recover_startup()).unwrap();
+    assert!(manager.runtime_pool.retains_runtime(dir.path().to_str().unwrap(),&id));
+    db.execute_batch("DROP TRIGGER repeat_evidence").unwrap();
+    block(manager.runtime_pool.shutdown()).unwrap();
+    complete(&store,&id,"job_active_processes_zero"); drop(job);
 }
