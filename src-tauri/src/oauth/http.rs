@@ -1,3 +1,4 @@
+use super::cimd;
 use super::*;
 use crate::remote::{McpAuthPolicy, Remote, Status};
 use axum::{
@@ -104,7 +105,7 @@ async fn authorize(
     State(remote): State<Arc<Remote>>,
     Query(request): Query<Authorization>,
 ) -> Response {
-    let view = {
+    let (dcr_result, cimd_runtime_id) = {
         let mut inner = remote.inner.lock().unwrap();
         if inner.status != Status::Ready {
             return unavailable();
@@ -112,21 +113,59 @@ async fn authorize(
         let Some(oauth) = &mut inner.oauth else {
             return unavailable();
         };
-        let redirect_uri = request.redirect_uri.clone();
-        let state = request.state.clone();
-        match oauth.authorize(request) {
-            Ok(view) => view,
-            // Runtime emits these only after validating the registered client and redirect.
-            Err(e) if matches!(e.0, "invalid_scope" | "unsupported_response_type") => {
-                let mut redirect = url::Url::parse(&redirect_uri).expect("validated redirect URI");
-                redirect
-                    .query_pairs_mut()
-                    .append_pair("error", e.0)
-                    .append_pair("state", &state);
-                return (StatusCode::FOUND, [("location", redirect.as_str())]).into_response();
+        if oauth.has_registered_client(&request.client_id) {
+            (Some(oauth.authorize(request.clone())), None)
+        } else if cimd::is_client_id_metadata_url(&request.client_id) {
+            if let Err(error) = oauth.preflight_cimd_authorization(&request) {
+                return error.into_response();
             }
-            Err(e) => return e.into_response(),
+            (None, Some(oauth.context.instance_id.clone()))
+        } else {
+            return OAuthError("invalid_request", "OAUTH_CLIENT_INVALID").into_response();
         }
+    };
+    let result = match dcr_result {
+        Some(result) => result,
+        None => {
+            // DNS and HTTPS retrieval deliberately occur after releasing remote.inner.
+            let metadata = match cimd::resolve_client_metadata_with_logger(
+                &request.client_id,
+                &|level, message| remote.log_mcp(level, message),
+            )
+            .await
+            {
+                Ok(metadata) => metadata,
+                Err(error) => return cimd::into_oauth_error(error).into_response(),
+            };
+            let mut inner = remote.inner.lock().unwrap();
+            if inner.status != Status::Ready {
+                return unavailable();
+            }
+            let Some(oauth) = &mut inner.oauth else {
+                return unavailable();
+            };
+            // A mode/context transition replaces the Runtime with a new instance id.
+            // Never apply metadata fetched for the earlier instance to this one.
+            if oauth.context.instance_id != cimd_runtime_id.as_deref().expect("CIMD runtime id") {
+                return unavailable();
+            }
+            oauth.authorize_cimd(request.clone(), metadata)
+        }
+    };
+    let redirect_uri = request.redirect_uri.clone();
+    let state = request.state.clone();
+    let view = match result {
+        Ok(view) => view,
+        // Runtime emits these only after validating the resolved client and redirect.
+        Err(e) if matches!(e.0, "invalid_scope" | "unsupported_response_type") => {
+            let mut redirect = url::Url::parse(&redirect_uri).expect("validated redirect URI");
+            redirect
+                .query_pairs_mut()
+                .append_pair("error", e.0)
+                .append_pair("state", &state);
+            return (StatusCode::FOUND, [("location", redirect.as_str())]).into_response();
+        }
+        Err(e) => return e.into_response(),
     };
     if let Some(app) = remote.app.get()
         && view.created

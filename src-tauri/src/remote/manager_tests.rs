@@ -415,15 +415,13 @@ impl NgrokConnector for WorkerNgrokConnector {
                     origin,
                     close_mode,
                     wait_mode,
-                } => {
-                    Ok(Box::new(WorkerNgrokTunnel {
-                        origin: origin.to_owned(),
-                        wait_calls,
-                        close_calls,
-                        close_mode,
-                        wait_mode,
-                    }) as Box<dyn NgrokTunnelHandle>)
-                }
+                } => Ok(Box::new(WorkerNgrokTunnel {
+                    origin: origin.to_owned(),
+                    wait_calls,
+                    close_calls,
+                    close_mode,
+                    wait_mode,
+                }) as Box<dyn NgrokTunnelHandle>),
                 WorkerConnectOutcome::Error(error) => Err(NgrokConnectorFailure::new(error)),
                 WorkerConnectOutcome::Pending => std::future::pending().await,
             }
@@ -451,9 +449,7 @@ impl NgrokTunnelHandle for LifecycleNgrokTunnel {
         Box::pin(async move {
             calls.fetch_add(1, Ordering::SeqCst);
             match wait_mode {
-                LifecycleWait::Pending => {
-                    std::future::pending::<Result<(), String>>().await
-                }
+                LifecycleWait::Pending => std::future::pending::<Result<(), String>>().await,
                 LifecycleWait::Ok => Ok(()),
                 LifecycleWait::Err(error) => Err(error.to_string()),
             }
@@ -533,7 +529,11 @@ async fn started_signaled_managed_ngrok_worker(
     let mut config = ManagerConfig::default();
     config.broker.enabled = false;
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9120 { 9121 } else { 9120 };
+    config.port = if config.broker.port == 9120 {
+        9121
+    } else {
+        9120
+    };
     let broker = broker_with_ngrok_connector(
         &directory,
         &config,
@@ -567,10 +567,7 @@ async fn started_signaled_managed_ngrok_worker(
 
 async fn start_managed_ngrok_entry(broker: &Arc<Broker>) -> Result<(), String> {
     let _management = broker.management.lock().await;
-    broker
-        .remote
-        .switch_to_managed_ngrok_locked(broker)
-        .await
+    broker.remote.switch_to_managed_ngrok_locked(broker).await
 }
 
 #[tokio::test]
@@ -824,7 +821,10 @@ async fn activate_connected_ngrok_reaches_ready_without_durable_oauth_or_close()
     };
 
     assert_eq!(connector_calls.load(Ordering::SeqCst), 1);
-    assert_eq!(connected.context.public_origin, "https://activation.example");
+    assert_eq!(
+        connected.context.public_origin,
+        "https://activation.example"
+    );
     assert_eq!(wait_calls.load(Ordering::SeqCst), 0);
     assert_eq!(close_calls.load(Ordering::SeqCst), 0);
     let snapshot = broker.remote.snapshot();
@@ -840,7 +840,11 @@ async fn activate_connected_ngrok_reaches_ready_without_durable_oauth_or_close()
     assert!(broker.remote.inner.lock().unwrap().oauth.is_some());
     assert_eq!(broker.remote.policy(), McpAuthPolicy::EmbeddedOAuth);
     assert!(!snapshot.active);
-    assert!(!serde_json::to_string(&snapshot).unwrap().contains(auth_token));
+    assert!(
+        !serde_json::to_string(&snapshot)
+            .unwrap()
+            .contains(auth_token)
+    );
     assert!(!directory.path().join("runtime/oauth-state.json").exists());
 }
 
@@ -935,9 +939,11 @@ async fn activate_connected_ngrok_close_failure_uses_stable_error() {
     };
 
     assert_eq!(failure.code(), "NGROK_TUNNEL_STOP_FAILED");
-    assert!(!failure
-        .code()
-        .contains("FAKE_CLOSE_DETAIL_SHOULD_NOT_ESCAPE"));
+    assert!(
+        !failure
+            .code()
+            .contains("FAKE_CLOSE_DETAIL_SHOULD_NOT_ESCAPE")
+    );
     assert_eq!(wait_calls.load(Ordering::SeqCst), 0);
     assert_eq!(close_calls.load(Ordering::SeqCst), 1);
     assert!(broker.remote.inner.lock().unwrap().oauth.is_none());
@@ -947,11 +953,13 @@ async fn activate_connected_ngrok_close_failure_uses_stable_error() {
         snapshot.last_error.as_deref(),
         Some("NGROK_TUNNEL_STOP_FAILED")
     );
-    assert!(!snapshot
-        .last_error
-        .as_deref()
-        .unwrap()
-        .contains("FAKE_CLOSE_DETAIL_SHOULD_NOT_ESCAPE"));
+    assert!(
+        !snapshot
+            .last_error
+            .as_deref()
+            .unwrap()
+            .contains("FAKE_CLOSE_DETAIL_SHOULD_NOT_ESCAPE")
+    );
     assert!(!snapshot.active);
     let mut connected = match failure.into_retained() {
         Some(connected) => connected,
@@ -993,8 +1001,7 @@ async fn activate_connected_ngrok_identity_replacement_preserves_new_runtime() {
         Err(_) => panic!("ngrok plan connection failed"),
     };
     stage_managed_ngrok(&broker.remote);
-    let replacement_context =
-        RemotePublicContext::new("https://replacement.example").unwrap();
+    let replacement_context = RemotePublicContext::new("https://replacement.example").unwrap();
     let replacement_instance_id = replacement_context.instance_id.clone();
     let remote = Arc::downgrade(&broker.remote);
     broker.remote.set_probe_hook(Arc::new(move || {
@@ -1260,7 +1267,11 @@ async fn managed_ngrok_worker_reaches_ready_and_stop_closes_once() {
     let mut config = ManagerConfig::default();
     config.broker.enabled = false;
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9120 { 9121 } else { 9120 };
+    config.port = if config.broker.port == 9120 {
+        9121
+    } else {
+        9120
+    };
     let broker = broker_with_ngrok_connector(
         &directory,
         &config,
@@ -1296,7 +1307,10 @@ async fn managed_ngrok_worker_reaches_ready_and_stop_closes_once() {
 
     let snapshot = broker.remote.snapshot();
     assert_eq!(snapshot.mode, RemoteAccessMode::SelfHostedOAuth);
-    assert_eq!(snapshot.config.self_hosted.provider, SelfHostedProvider::Ngrok);
+    assert_eq!(
+        snapshot.config.self_hosted.provider,
+        SelfHostedProvider::Ngrok
+    );
     assert!(snapshot.config.self_hosted.public_origin.is_none());
     assert_eq!(
         snapshot.public_context.as_ref().unwrap().public_origin,
@@ -1307,7 +1321,11 @@ async fn managed_ngrok_worker_reaches_ready_and_stop_closes_once() {
     assert_eq!(connect_calls.load(Ordering::SeqCst), 1);
     assert_eq!(probe_calls.load(Ordering::SeqCst), 1);
     assert_eq!(close_calls.load(Ordering::SeqCst), 0);
-    assert!(!serde_json::to_string(&snapshot).unwrap().contains(auth_token));
+    assert!(
+        !serde_json::to_string(&snapshot)
+            .unwrap()
+            .contains(auth_token)
+    );
     assert!(!directory.path().join("runtime/oauth-state.json").exists());
 
     broker.remote.stop().await.unwrap();
@@ -1452,7 +1470,10 @@ async fn managed_ngrok_terminal_hides_context_before_pending_close_and_retains_f
     tokio::time::advance(Duration::from_secs(12)).await;
     wait_for_remote_status(&broker.remote, Status::Error).await;
     let failed = broker.remote.snapshot();
-    assert_eq!(failed.last_error.as_deref(), Some("NGROK_TUNNEL_STOP_FAILED"));
+    assert_eq!(
+        failed.last_error.as_deref(),
+        Some("NGROK_TUNNEL_STOP_FAILED")
+    );
     assert!(failed.active);
     assert!(broker.remote.pending_ngrok.lock().await.is_some());
     assert_eq!(wait_calls.load(Ordering::SeqCst), 1);
@@ -1496,9 +1517,11 @@ async fn managed_ngrok_application_shutdown_closes_once_and_preserves_auth_token
     assert!(!snapshot.active);
     assert!(snapshot.public_context.is_none());
     assert!(snapshot.ngrok_auth_configured);
-    assert!(remote_with_config_file(&directory.path().join("config.json"))
-        .snapshot()
-        .ngrok_auth_configured);
+    assert!(
+        remote_with_config_file(&directory.path().join("config.json"))
+            .snapshot()
+            .ngrok_auth_configured
+    );
 }
 
 #[tokio::test]
@@ -1539,9 +1562,11 @@ async fn managed_ngrok_application_shutdown_retains_failed_close_for_retry_witho
     assert!(failed.public_context.is_none());
     assert!(failed.ngrok_auth_configured);
     assert!(broker.remote.pending_ngrok.lock().await.is_some());
-    assert!(remote_with_config_file(&directory.path().join("config.json"))
-        .snapshot()
-        .ngrok_auth_configured);
+    assert!(
+        remote_with_config_file(&directory.path().join("config.json"))
+            .snapshot()
+            .ngrok_auth_configured
+    );
 
     broker.shutdown().await.unwrap();
 
@@ -1553,9 +1578,11 @@ async fn managed_ngrok_application_shutdown_retains_failed_close_for_retry_witho
     assert!(stopped.ngrok_auth_configured);
     assert!(broker.remote.pending_ngrok.lock().await.is_none());
     assert_eq!(wait_calls.load(Ordering::SeqCst), 0);
-    assert!(remote_with_config_file(&directory.path().join("config.json"))
-        .snapshot()
-        .ngrok_auth_configured);
+    assert!(
+        remote_with_config_file(&directory.path().join("config.json"))
+            .snapshot()
+            .ngrok_auth_configured
+    );
 }
 
 #[tokio::test]
@@ -1567,7 +1594,11 @@ async fn managed_ngrok_worker_cancels_pending_connect_without_becoming_ready() {
     let mut config = ManagerConfig::default();
     config.broker.enabled = false;
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9120 { 9121 } else { 9120 };
+    config.port = if config.broker.port == 9120 {
+        9121
+    } else {
+        9120
+    };
     let broker = broker_with_ngrok_connector(
         &directory,
         &config,
@@ -1616,7 +1647,11 @@ async fn managed_ngrok_worker_connector_failure_becomes_inactive_error() {
     let mut config = ManagerConfig::default();
     config.broker.enabled = false;
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9120 { 9121 } else { 9120 };
+    config.port = if config.broker.port == 9120 {
+        9121
+    } else {
+        9120
+    };
     let broker = broker_with_ngrok_connector(
         &directory,
         &config,
@@ -1655,7 +1690,11 @@ async fn managed_ngrok_worker_connector_failure_becomes_inactive_error() {
     assert_eq!(probe_calls.load(Ordering::SeqCst), 0);
     assert_eq!(wait_calls.load(Ordering::SeqCst), 0);
     assert_eq!(close_calls.load(Ordering::SeqCst), 0);
-    assert!(!serde_json::to_string(&snapshot).unwrap().contains(auth_token));
+    assert!(
+        !serde_json::to_string(&snapshot)
+            .unwrap()
+            .contains(auth_token)
+    );
 
     broker.remote.stop().await.unwrap();
     let stopped = broker.remote.snapshot();
@@ -1673,7 +1712,11 @@ async fn managed_ngrok_worker_retains_context_cleanup_failure_until_stop() {
     let mut config = ManagerConfig::default();
     config.broker.enabled = false;
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9120 { 9121 } else { 9120 };
+    config.port = if config.broker.port == 9120 {
+        9121
+    } else {
+        9120
+    };
     let invalid_origin = "http://invalid-managed.example";
     let raw_close_error = "FAKE_CLOSE_DETAIL_SHOULD_NOT_ESCAPE";
     let broker = broker_with_ngrok_connector(
@@ -1779,7 +1822,11 @@ async fn managed_ngrok_entry_switches_from_active_custom_self_hosted_then_starts
     let mut config = ManagerConfig::default();
     config.broker.enabled = false;
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9120 { 9121 } else { 9120 };
+    config.port = if config.broker.port == 9120 {
+        9121
+    } else {
+        9120
+    };
     let broker = broker_with_ngrok_connector(
         &directory,
         &config,
@@ -1803,8 +1850,7 @@ async fn managed_ngrok_entry_switches_from_active_custom_self_hosted_then_starts
         .remote
         .save_ngrok_auth_token("unit7e1-switch-token".to_owned())
         .unwrap();
-    let custom_context =
-        RemotePublicContext::new("https://custom-before-ngrok.example").unwrap();
+    let custom_context = RemotePublicContext::new("https://custom-before-ngrok.example").unwrap();
     let custom_instance_id = custom_context.instance_id.clone();
     broker
         .remote
@@ -1830,9 +1876,15 @@ async fn managed_ngrok_entry_switches_from_active_custom_self_hosted_then_starts
     let managed_context = snapshot.public_context.as_ref().unwrap();
     assert!(custom_cancel.is_cancelled());
     assert_ne!(managed_context.instance_id, custom_instance_id);
-    assert_eq!(managed_context.public_origin, "https://managed-entry.example");
+    assert_eq!(
+        managed_context.public_origin,
+        "https://managed-entry.example"
+    );
     assert_eq!(snapshot.mode, RemoteAccessMode::SelfHostedOAuth);
-    assert_eq!(snapshot.config.self_hosted.provider, SelfHostedProvider::Ngrok);
+    assert_eq!(
+        snapshot.config.self_hosted.provider,
+        SelfHostedProvider::Ngrok
+    );
     assert!(snapshot.config.self_hosted.public_origin.is_none());
     assert!(broker.remote.policy() == McpAuthPolicy::EmbeddedOAuth);
     assert!(snapshot.active);
@@ -1857,7 +1909,11 @@ async fn managed_ngrok_preflight_missing_token_preserves_active_custom_https() {
     let mut config = ManagerConfig::default();
     config.broker.enabled = false;
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9120 { 9121 } else { 9120 };
+    config.port = if config.broker.port == 9120 {
+        9121
+    } else {
+        9120
+    };
     let broker = broker_with_ngrok_connector(
         &directory,
         &config,
@@ -1905,7 +1961,10 @@ async fn managed_ngrok_preflight_missing_token_preserves_active_custom_https() {
     assert!(snapshot.active);
     assert!(snapshot.status == Status::Ready);
     assert_eq!(snapshot.mode, RemoteAccessMode::SelfHostedOAuth);
-    assert_eq!(snapshot.config.self_hosted.provider, SelfHostedProvider::CustomHttps);
+    assert_eq!(
+        snapshot.config.self_hosted.provider,
+        SelfHostedProvider::CustomHttps
+    );
     assert_eq!(context.public_origin, custom_origin);
     assert_eq!(context.instance_id, custom_instance_id);
     assert_eq!(broker.config().remote_access, config_before);
@@ -1927,7 +1986,11 @@ async fn managed_ngrok_preflight_database_failure_preserves_active_custom_https(
     let mut config = ManagerConfig::default();
     config.broker.enabled = false;
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9120 { 9121 } else { 9120 };
+    config.port = if config.broker.port == 9120 {
+        9121
+    } else {
+        9120
+    };
     let broker = broker_with_ngrok_connector(
         &directory,
         &config,
@@ -1984,7 +2047,10 @@ async fn managed_ngrok_preflight_database_failure_preserves_active_custom_https(
     assert!(snapshot.active);
     assert!(snapshot.status == Status::Ready);
     assert_eq!(snapshot.mode, RemoteAccessMode::SelfHostedOAuth);
-    assert_eq!(snapshot.config.self_hosted.provider, SelfHostedProvider::CustomHttps);
+    assert_eq!(
+        snapshot.config.self_hosted.provider,
+        SelfHostedProvider::CustomHttps
+    );
     assert_eq!(context.public_origin, custom_origin);
     assert_eq!(context.instance_id, custom_instance_id);
     assert_eq!(broker.config().remote_access, config_before);
@@ -2006,7 +2072,11 @@ async fn managed_ngrok_can_switch_to_custom_https() {
     let mut config = ManagerConfig::default();
     config.broker.enabled = false;
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9120 { 9121 } else { 9120 };
+    config.port = if config.broker.port == 9120 {
+        9121
+    } else {
+        9120
+    };
     let broker = broker_with_ngrok_connector(
         &directory,
         &config,
@@ -2073,7 +2143,12 @@ async fn managed_ngrok_can_switch_to_custom_https() {
         "https://custom-after-ngrok.example"
     );
     assert_eq!(
-        broker.config().remote_access.self_hosted.public_origin.as_deref(),
+        broker
+            .config()
+            .remote_access
+            .self_hosted
+            .public_origin
+            .as_deref(),
         Some("https://custom-after-ngrok.example")
     );
 
@@ -2088,13 +2163,16 @@ async fn active_custom_https_still_rejects_duplicate_custom_start() {
     let mut config = ManagerConfig::default();
     config.broker.enabled = false;
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9120 { 9121 } else { 9120 };
-    let broker = broker_with_unused_ngrok_connector(
-        &directory,
-        &config,
-        Arc::clone(&connector_calls),
-    );
-    broker.remote.set_probe_hook(Arc::new(|| Box::pin(async { Ok(()) })));
+    config.port = if config.broker.port == 9120 {
+        9121
+    } else {
+        9120
+    };
+    let broker =
+        broker_with_unused_ngrok_connector(&directory, &config, Arc::clone(&connector_calls));
+    broker
+        .remote
+        .set_probe_hook(Arc::new(|| Box::pin(async { Ok(()) })));
     broker
         .remote
         .start_mode(
@@ -2147,16 +2225,20 @@ async fn active_tailscale_funnel_can_switch_to_custom_https() {
     let mut config = ManagerConfig::default();
     config.broker.enabled = false;
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9120 { 9121 } else { 9120 };
+    config.port = if config.broker.port == 9120 {
+        9121
+    } else {
+        9120
+    };
     config.remote_access.mode = RemoteAccessMode::SelfHostedOAuth;
     config.remote_access.self_hosted.provider = SelfHostedProvider::TailscaleFunnel;
-    config.remote_access.self_hosted.public_origin = Some("https://legacy-tailscale.example".into());
-    let broker = broker_with_unused_ngrok_connector(
-        &directory,
-        &config,
-        Arc::clone(&connector_calls),
-    );
-    broker.remote.set_probe_hook(Arc::new(|| Box::pin(async { Ok(()) })));
+    config.remote_access.self_hosted.public_origin =
+        Some("https://legacy-tailscale.example".into());
+    let broker =
+        broker_with_unused_ngrok_connector(&directory, &config, Arc::clone(&connector_calls));
+    broker
+        .remote
+        .set_probe_hook(Arc::new(|| Box::pin(async { Ok(()) })));
     let tailscale_cancel = CancellationToken::new();
     {
         let mut inner = broker.remote.inner.lock().unwrap();
@@ -2202,7 +2284,11 @@ async fn managed_ngrok_entry_rejects_duplicate_active_ngrok() {
     let mut config = ManagerConfig::default();
     config.broker.enabled = false;
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9120 { 9121 } else { 9120 };
+    config.port = if config.broker.port == 9120 {
+        9121
+    } else {
+        9120
+    };
     let broker = broker_with_ngrok_connector(
         &directory,
         &config,
@@ -2217,7 +2303,9 @@ async fn managed_ngrok_entry_rejects_duplicate_active_ngrok() {
             close_calls: Arc::clone(&close_calls),
         }),
     );
-    broker.remote.set_probe_hook(Arc::new(|| Box::pin(async { Ok(()) })));
+    broker
+        .remote
+        .set_probe_hook(Arc::new(|| Box::pin(async { Ok(()) })));
     broker
         .remote
         .save_ngrok_auth_token("unit7e1-duplicate-token".to_owned())
@@ -2273,11 +2361,8 @@ fn prepare_ngrok_start_builds_local_plan_without_side_effects() {
     config.remote_access.mode = RemoteAccessMode::QuickTunnel;
     config.remote_access.self_hosted.provider = SelfHostedProvider::TailscaleFunnel;
     config.remote_access.self_hosted.public_origin = Some("residual-origin".into());
-    let broker = broker_with_unused_ngrok_connector(
-        &directory,
-        &config,
-        Arc::clone(&connector_calls),
-    );
+    let broker =
+        broker_with_unused_ngrok_connector(&directory, &config, Arc::clone(&connector_calls));
     let auth_token = "unit7b-local-test-token";
     broker
         .remote
@@ -2312,11 +2397,8 @@ fn prepare_ngrok_start_rejects_port_conflict_without_side_effects() {
     let connector_calls = Arc::new(AtomicUsize::new(0));
     let mut config = ManagerConfig::default();
     config.port = config.broker.port;
-    let broker = broker_with_unused_ngrok_connector(
-        &directory,
-        &config,
-        Arc::clone(&connector_calls),
-    );
+    let broker =
+        broker_with_unused_ngrok_connector(&directory, &config, Arc::clone(&connector_calls));
     broker
         .remote
         .save_ngrok_auth_token("unit7b-port-conflict-token".into())
@@ -2344,12 +2426,13 @@ async fn apply_ngrok_start_plan_starts_fail_closed_listener_without_connector() 
     let connector_calls = Arc::new(AtomicUsize::new(0));
     let mut config = ManagerConfig::default();
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9121 { 9122 } else { 9121 };
-    let broker = broker_with_unused_ngrok_connector(
-        &directory,
-        &config,
-        Arc::clone(&connector_calls),
-    );
+    config.port = if config.broker.port == 9121 {
+        9122
+    } else {
+        9121
+    };
+    let broker =
+        broker_with_unused_ngrok_connector(&directory, &config, Arc::clone(&connector_calls));
     let auth_token = "unit7c-success-token";
     broker
         .remote
@@ -2376,7 +2459,10 @@ async fn apply_ngrok_start_plan_starts_fail_closed_listener_without_connector() 
     let snapshot = broker.remote.snapshot();
     assert_eq!(snapshot.mode, RemoteAccessMode::SelfHostedOAuth);
     assert_eq!(snapshot.config, plan.config);
-    assert_eq!(snapshot.config.self_hosted.provider, SelfHostedProvider::Ngrok);
+    assert_eq!(
+        snapshot.config.self_hosted.provider,
+        SelfHostedProvider::Ngrok
+    );
     assert!(snapshot.config.self_hosted.public_origin.is_none());
     assert!(broker.remote.policy() == McpAuthPolicy::EmbeddedOAuth);
     assert!(broker.remote.inner.lock().unwrap().oauth.is_none());
@@ -2384,7 +2470,11 @@ async fn apply_ngrok_start_plan_starts_fail_closed_listener_without_connector() 
     assert!(!snapshot.active);
     assert!(broker.snapshot().await.running);
     assert_eq!(connector_calls.load(Ordering::SeqCst), 0);
-    assert!(!serde_json::to_string(&snapshot).unwrap().contains(auth_token));
+    assert!(
+        !serde_json::to_string(&snapshot)
+            .unwrap()
+            .contains(auth_token)
+    );
 
     broker.stop_listener().await;
 }
@@ -2395,12 +2485,13 @@ async fn apply_ngrok_start_plan_installs_fail_closed_state_before_persistence() 
     let connector_calls = Arc::new(AtomicUsize::new(0));
     let mut config = ManagerConfig::default();
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9121 { 9122 } else { 9121 };
-    let broker = broker_with_unused_ngrok_connector(
-        &directory,
-        &config,
-        Arc::clone(&connector_calls),
-    );
+    config.port = if config.broker.port == 9121 {
+        9122
+    } else {
+        9121
+    };
+    let broker =
+        broker_with_unused_ngrok_connector(&directory, &config, Arc::clone(&connector_calls));
     broker
         .remote
         .save_ngrok_auth_token("unit7c-order-token".into())
@@ -2444,12 +2535,13 @@ async fn apply_ngrok_start_plan_persistence_failure_restores_config_and_oauth() 
     let connector_calls = Arc::new(AtomicUsize::new(0));
     let mut config = ManagerConfig::default();
     config.broker.port = available_loopback_port();
-    config.port = if config.broker.port == 9121 { 9122 } else { 9121 };
-    let broker = broker_with_unused_ngrok_connector(
-        &directory,
-        &config,
-        Arc::clone(&connector_calls),
-    );
+    config.port = if config.broker.port == 9121 {
+        9122
+    } else {
+        9121
+    };
+    let broker =
+        broker_with_unused_ngrok_connector(&directory, &config, Arc::clone(&connector_calls));
     let auth_token = "unit7c-persistence-token";
     broker
         .remote
@@ -2506,12 +2598,13 @@ async fn apply_ngrok_start_plan_bind_failure_rolls_back_config_and_runtime() {
     let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let mut config = ManagerConfig::default();
     config.broker.port = occupied.local_addr().unwrap().port();
-    config.port = if config.broker.port == 9121 { 9122 } else { 9121 };
-    let broker = broker_with_unused_ngrok_connector(
-        &directory,
-        &config,
-        Arc::clone(&connector_calls),
-    );
+    config.port = if config.broker.port == 9121 {
+        9122
+    } else {
+        9121
+    };
+    let broker =
+        broker_with_unused_ngrok_connector(&directory, &config, Arc::clone(&connector_calls));
     let auth_token = "unit7c-bind-token";
     broker
         .remote

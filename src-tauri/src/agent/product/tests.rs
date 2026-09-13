@@ -8,14 +8,14 @@ mod control_tests;
 mod observe_tests;
 #[path = "orchestration_tests.rs"]
 mod orchestration_tests;
-#[path = "restart_tests.rs"]
-mod restart_tests;
-#[path = "workspace_write_tests.rs"]
-mod workspace_write_tests;
 #[path = "persistence_tests.rs"]
 mod persistence_tests;
+#[path = "restart_tests.rs"]
+mod restart_tests;
 #[path = "work_adapter_tests.rs"]
 mod work_adapter_tests;
+#[path = "workspace_write_tests.rs"]
+mod workspace_write_tests;
 fn run(f: impl std::future::Future<Output = ()>) {
     tokio::runtime::Runtime::new().unwrap().block_on(f)
 }
@@ -725,7 +725,10 @@ fn real_fixed_product_continuation_e2e() {
                 .unwrap()
                 .unwrap();
             let runtime = row.runtime_instance_id.clone().unwrap();
-            assert_eq!(store.runtime(runtime.clone()).await.unwrap().unwrap().state, "running");
+            assert_eq!(
+                store.runtime(runtime.clone()).await.unwrap().unwrap().state,
+                "running"
+            );
             let raw = std::fs::read_to_string(evidence.join(format!("{runtime}.stdin.raw.jsonl")))
                 .unwrap();
             let messages: Vec<Value> = raw
@@ -793,7 +796,10 @@ fn real_fixed_product_continuation_e2e() {
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
         for method in ["turn/start", "turn/interrupt"] {
-            assert_eq!(messages.iter().filter(|m| m["method"] == method).count(), if method == "turn/start" { 3 } else { 1 });
+            assert_eq!(
+                messages.iter().filter(|m| m["method"] == method).count(),
+                if method == "turn/start" { 3 } else { 1 }
+            );
         }
         std::fs::write(
             evidence.join("cancel.json"),

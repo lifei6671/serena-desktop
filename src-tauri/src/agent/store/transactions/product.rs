@@ -371,7 +371,11 @@ impl StateStore {
 impl StateStore {
     /// Presentation metadata shared by all executions of the same official Thread.
     /// Does not modify execution identity, CAS revisions, timestamps, or claims.
-    pub(crate) async fn save_thread_name(&self, thread_id: String, name: Option<String>) -> Result<(), String> {
+    pub(crate) async fn save_thread_name(
+        &self,
+        thread_id: String,
+        name: Option<String>,
+    ) -> Result<(), String> {
         self.read(move |c| {
             c.execute("INSERT INTO thread_names(thread_id,name) VALUES (?1,?2) ON CONFLICT(thread_id) DO UPDATE SET name=excluded.name", params![thread_id,name])?;
             Ok(())

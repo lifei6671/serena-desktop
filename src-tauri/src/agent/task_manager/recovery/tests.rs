@@ -173,7 +173,11 @@ fn explicit_resume_rejects_invalid_states_bindings_and_claims_without_launch() {
                 db.query_row("SELECT count(*) FROM runtime_instances", [], |r| r
                     .get::<_, i64>(0))
                     .unwrap(),
-                if matches!(case, "bound" | "runtime-attempt") { 1 } else { 0 }
+                if matches!(case, "bound" | "runtime-attempt") {
+                    1
+                } else {
+                    0
+                }
             );
         }
     });
@@ -913,26 +917,69 @@ fn startup_guard_product_and_provider_agree_on_persisted_runtime_attempt() {
     run(async {
         for attempted in [false, true] {
             let temp = tempfile::tempdir().unwrap();
-            let (manager, id, db) = fixture(temp.path(), "dispatch_pending", "not_dispatched").await;
+            let (manager, id, db) =
+                fixture(temp.path(), "dispatch_pending", "not_dispatched").await;
             if attempted {
                 db.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES (?1,'old-host','running',1,1)", [format!("runtime-{id}")]).unwrap();
             }
             let classification = manager.store.recover_claims(now()).await.unwrap();
-            assert_eq!(matches!(&classification[0], crate::agent::store::transactions::ClaimRecovery::PendingExplicitResume { .. }), !attempted);
+            assert_eq!(
+                matches!(
+                    &classification[0],
+                    crate::agent::store::transactions::ClaimRecovery::PendingExplicitResume { .. }
+                ),
+                !attempted
+            );
             let service = crate::agent::product::AgentProductService::new(manager.store.clone());
-            let observed = service.operation(json!({"action":"observe","executionId":id,"waitMs":0}), None).await;
-            assert_eq!(observed["data"]["availableActions"]["canResumePending"], !attempted);
+            let observed = service
+                .operation(
+                    json!({"action":"observe","executionId":id,"waitMs":0}),
+                    None,
+                )
+                .await;
+            assert_eq!(
+                observed["data"]["availableActions"]["canResumePending"],
+                !attempted
+            );
             let guard = manager.store.guard_pending_dispatch(id.clone()).await;
             assert_eq!(guard.is_ok(), !attempted);
             drop(guard);
-            crate::agent::codex::provider::CodexProvider { runtime_pool: Default::default(),
-                store: manager.store.clone(), executable: "never-launched".into(), owner: "new-host".into(),
-            }.failed(&id).await.unwrap();
-            assert_eq!(retained(&manager, &id).await.status, if attempted { "reconciling" } else { "dispatch_pending" });
+            crate::agent::codex::provider::CodexProvider {
+                runtime_pool: Default::default(),
+                store: manager.store.clone(),
+                executable: "never-launched".into(),
+                owner: "new-host".into(),
+            }
+            .failed(&id)
+            .await
+            .unwrap();
+            assert_eq!(
+                retained(&manager, &id).await.status,
+                if attempted {
+                    "reconciling"
+                } else {
+                    "dispatch_pending"
+                }
+            );
             let report = manager.recover_startup().await.unwrap();
-            assert_eq!(matches!(&report[0], RecoveryOutcome::PendingExplicitResume { .. }), !attempted);
-            assert_eq!(retained(&manager, &id).await.status, if attempted { "unknown" } else { "dispatch_pending" });
-            assert_eq!(db.query_row("SELECT count(*) FROM runtime_instances", [], |r| r.get::<_, i64>(0)).unwrap(), i64::from(attempted));
+            assert_eq!(
+                matches!(&report[0], RecoveryOutcome::PendingExplicitResume { .. }),
+                !attempted
+            );
+            assert_eq!(
+                retained(&manager, &id).await.status,
+                if attempted {
+                    "unknown"
+                } else {
+                    "dispatch_pending"
+                }
+            );
+            assert_eq!(
+                db.query_row("SELECT count(*) FROM runtime_instances", [], |r| r
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                i64::from(attempted)
+            );
         }
     });
 }

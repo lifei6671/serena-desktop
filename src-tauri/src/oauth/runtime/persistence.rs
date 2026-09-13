@@ -8,7 +8,7 @@ use std::{
     time::SystemTime,
 };
 
-const STORE_VERSION: u32 = 3;
+const STORE_VERSION: u32 = 4;
 
 pub(super) struct Store {
     path: PathBuf,
@@ -40,6 +40,8 @@ struct StoredClient {
 struct StoredGrant {
     client: String,
     scope: String,
+    #[serde(default)]
+    refresh_allowed: Option<bool>,
     expires_at_ms: u64,
 }
 #[derive(Serialize, Deserialize)]
@@ -129,11 +131,10 @@ impl Runtime {
                             .any(|redirect| validate_redirect(redirect).is_err())
                 })
                 || stored.grants.values().any(|grant| {
-                    !stored.clients.contains_key(&grant.client)
-                        || !matches!(
-                            grant.scope.as_str(),
-                            "serena:mcp" | "serena:mcp offline_access"
-                        )
+                    !matches!(
+                        grant.scope.as_str(),
+                        "serena:mcp" | "serena:mcp offline_access"
+                    ) || grant_refresh_allowed(&stored, grant).is_none()
                 })
                 || stored.access.iter().any(|(digest, token)| {
                     !valid_digest(digest) || !stored.grants.contains_key(&token.family)
@@ -143,15 +144,22 @@ impl Runtime {
                         || (stored.version >= 2 && token.expires_at_ms.is_none())
                         || !stored.grants.get(&token.family).is_some_and(|g| {
                             (stored.version >= 3 || g.scope == "serena:mcp offline_access")
-                                && stored
-                                    .clients
-                                    .get(&g.client)
-                                    .is_some_and(|c| c.refresh_allowed.unwrap_or(true))
+                                && grant_refresh_allowed(&stored, g) == Some(true)
                         })
                 })
             {
                 return Err(storage_error("OAUTH_STORAGE_INVALID"));
             }
+            let grant_refresh_allowed: HashMap<_, _> = stored
+                .grants
+                .iter()
+                .map(|(id, grant)| {
+                    (
+                        id.clone(),
+                        grant_refresh_allowed(&stored, grant).expect("validated stored grant"),
+                    )
+                })
+                .collect();
             for (id, client) in stored.clients {
                 runtime.clients.insert(
                     id,
@@ -165,11 +173,13 @@ impl Runtime {
                 );
             }
             for (id, grant) in stored.grants {
+                let refresh_allowed = grant_refresh_allowed[&id];
                 runtime.grants.insert(
                     id,
                     Grant {
                         client: grant.client,
                         scope: grant.scope,
+                        refresh_allowed,
                         expires: clock.load_deadline(grant.expires_at_ms)?,
                     },
                 );
@@ -285,6 +295,7 @@ impl Runtime {
                         StoredGrant {
                             client: grant.client.clone(),
                             scope: grant.scope.clone(),
+                            refresh_allowed: Some(grant.refresh_allowed),
                             expires_at_ms: clock.save_deadline(grant.expires)?,
                         },
                     ))
@@ -334,6 +345,19 @@ impl Runtime {
             .persist(path)
             .map_err(|_| storage_error("OAUTH_STORAGE_WRITE_FAILED"))?;
         Ok(())
+    }
+}
+
+fn grant_refresh_allowed(stored: &StoredRuntime, grant: &StoredGrant) -> Option<bool> {
+    if stored.version >= 4 {
+        return grant.refresh_allowed;
+    }
+    let client = stored.clients.get(&grant.client)?;
+    if stored.version >= 3 {
+        client.refresh_allowed
+    } else {
+        // v1/v2 registration responses always permitted both flows.
+        Some(client.refresh_allowed.unwrap_or(true))
     }
 }
 

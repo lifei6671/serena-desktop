@@ -239,37 +239,88 @@ pub struct MisalignmentErrorDetails {
     pub steer: Option<MisalignmentSteer>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MisalignmentSteer { pub message: String }
+pub struct MisalignmentSteer {
+    pub message: String,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub enum CodexErrorInfo {
-    ContextWindowExceeded, SessionBudgetExceeded, UsageLimitExceeded,
-    RateLimitExceeded, ServerOverloaded, CyberPolicy, MisalignmentPolicyViolation,
-    InternalServerError, Unauthorized, BadRequest, ThreadRollbackFailed, SandboxError, Other,
-    HttpConnectionFailed { #[serde(rename = "httpStatusCode")] http_status_code: Option<u16> },
-    ResponseStreamConnectionFailed { #[serde(rename = "httpStatusCode")] http_status_code: Option<u16> },
-    ResponseStreamDisconnected { #[serde(rename = "httpStatusCode")] http_status_code: Option<u16> },
-    ResponseTooManyFailedAttempts { #[serde(rename = "httpStatusCode")] http_status_code: Option<u16> },
-    ActiveTurnNotSteerable { #[serde(rename = "turnKind")] turn_kind: NonSteerableTurnKind },
+    ContextWindowExceeded,
+    SessionBudgetExceeded,
+    UsageLimitExceeded,
+    RateLimitExceeded,
+    ServerOverloaded,
+    CyberPolicy,
+    MisalignmentPolicyViolation,
+    InternalServerError,
+    Unauthorized,
+    BadRequest,
+    ThreadRollbackFailed,
+    SandboxError,
+    Other,
+    HttpConnectionFailed {
+        #[serde(rename = "httpStatusCode")]
+        http_status_code: Option<u16>,
+    },
+    ResponseStreamConnectionFailed {
+        #[serde(rename = "httpStatusCode")]
+        http_status_code: Option<u16>,
+    },
+    ResponseStreamDisconnected {
+        #[serde(rename = "httpStatusCode")]
+        http_status_code: Option<u16>,
+    },
+    ResponseTooManyFailedAttempts {
+        #[serde(rename = "httpStatusCode")]
+        http_status_code: Option<u16>,
+    },
+    ActiveTurnNotSteerable {
+        #[serde(rename = "turnKind")]
+        turn_kind: NonSteerableTurnKind,
+    },
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum NonSteerableTurnKind { Review, Compact }
+pub enum NonSteerableTurnKind {
+    Review,
+    Compact,
+}
 #[derive(Debug, Clone)]
 pub enum Notification {
     ThreadStarted(Thread),
-    SubAgentStarted { thread_id: String, turn_id: String, agent_thread_id: String },
-    TurnError { thread_id: String, turn_id: String, error: TurnError, will_retry: bool },
-    ThreadNameUpdated { thread_id: String, name: Option<String> },
-    TurnStarted { thread_id: String, turn: Turn },
-    TurnCompleted { thread_id: String, turn: Turn },
+    SubAgentStarted {
+        thread_id: String,
+        turn_id: String,
+        agent_thread_id: String,
+    },
+    TurnError {
+        thread_id: String,
+        turn_id: String,
+        error: TurnError,
+        will_retry: bool,
+    },
+    ThreadNameUpdated {
+        thread_id: String,
+        name: Option<String>,
+    },
+    TurnStarted {
+        thread_id: String,
+        turn: Turn,
+    },
+    TurnCompleted {
+        thread_id: String,
+        turn: Turn,
+    },
     Activity(Activity),
     PermissionDenied {
         thread_id: String,
         turn_id: String,
         kind: PermissionRequestKind,
     },
-    Other { method: String, params: Value },
+    Other {
+        method: String,
+        params: Value,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -324,10 +375,17 @@ pub fn notification(method: String, params: Value) -> Result<Notification> {
         && params["item"]["type"] == "subAgentActivity"
         && params["item"]["kind"] == "started"
     {
-        for value in [&params["threadId"], &params["turnId"], &params["item"]["id"],
-            &params["item"]["agentThreadId"], &params["item"]["agentPath"]] {
+        for value in [
+            &params["threadId"],
+            &params["turnId"],
+            &params["item"]["id"],
+            &params["item"]["agentThreadId"],
+            &params["item"]["agentPath"],
+        ] {
             if !value.as_str().is_some_and(|s| !s.is_empty()) {
-                return Err(ProtocolError::incompatible("Invalid subAgentActivity identity"));
+                return Err(ProtocolError::incompatible(
+                    "Invalid subAgentActivity identity",
+                ));
             }
         }
         return Ok(Notification::SubAgentStarted {
@@ -344,44 +402,86 @@ pub fn notification(method: String, params: Value) -> Result<Notification> {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
             struct ErrorNotification {
-                thread_id: String, turn_id: String, error: TurnError, will_retry: bool,
+                thread_id: String,
+                turn_id: String,
+                error: TurnError,
+                will_retry: bool,
             }
             // Ordinary serde structs accept positional arrays; this wire schema
             // requires JSON objects at each of these boundaries.
-            let error = params.get("error").filter(|value| value.is_object())
-                .ok_or_else(|| ProtocolError::incompatible("ErrorNotification requires an error object"))?;
+            let error = params
+                .get("error")
+                .filter(|value| value.is_object())
+                .ok_or_else(|| {
+                    ProtocolError::incompatible("ErrorNotification requires an error object")
+                })?;
             if let Some(details) = error.get("misalignment").filter(|value| !value.is_null()) {
-                if !details.is_object() || details.get("steer").is_some_and(|steer| !steer.is_null() && !steer.is_object()) {
-                    return Err(ProtocolError::incompatible("Misalignment details and steer must be objects"));
+                if !details.is_object()
+                    || details
+                        .get("steer")
+                        .is_some_and(|steer| !steer.is_null() && !steer.is_object())
+                {
+                    return Err(ProtocolError::incompatible(
+                        "Misalignment details and steer must be objects",
+                    ));
                 }
             }
             // Serde also accepts {"unitVariant":null}; the fixed schema does not.
-            if let Some(info) = params.get("error").and_then(|e| e.get("codexErrorInfo")).and_then(Value::as_object) {
-                if info.len() != 1 || !info.keys().all(|key| matches!(key.as_str(),
-                    "httpConnectionFailed" | "responseStreamConnectionFailed" | "responseStreamDisconnected"
-                    | "responseTooManyFailedAttempts" | "activeTurnNotSteerable")) {
-                    return Err(ProtocolError::incompatible("Invalid codexErrorInfo object variant"));
+            if let Some(info) = params
+                .get("error")
+                .and_then(|e| e.get("codexErrorInfo"))
+                .and_then(Value::as_object)
+            {
+                if info.len() != 1
+                    || !info.keys().all(|key| {
+                        matches!(
+                            key.as_str(),
+                            "httpConnectionFailed"
+                                | "responseStreamConnectionFailed"
+                                | "responseStreamDisconnected"
+                                | "responseTooManyFailedAttempts"
+                                | "activeTurnNotSteerable"
+                        )
+                    })
+                {
+                    return Err(ProtocolError::incompatible(
+                        "Invalid codexErrorInfo object variant",
+                    ));
                 }
                 if let Some(active) = info.get("activeTurnNotSteerable") {
                     if !active.get("turnKind").is_some_and(Value::is_string) {
-                        return Err(ProtocolError::incompatible("turnKind must be a schema enum string"));
+                        return Err(ProtocolError::incompatible(
+                            "turnKind must be a schema enum string",
+                        ));
                     }
                 }
             }
             let notification: ErrorNotification = from_value(params)?;
             if notification.thread_id.is_empty() || notification.turn_id.is_empty() {
-                return Err(ProtocolError::incompatible("Empty error notification Thread/Turn identity"));
+                return Err(ProtocolError::incompatible(
+                    "Empty error notification Thread/Turn identity",
+                ));
             }
-            Ok(Notification::TurnError { thread_id: notification.thread_id, turn_id: notification.turn_id,
-                error: notification.error, will_retry: notification.will_retry })
+            Ok(Notification::TurnError {
+                thread_id: notification.thread_id,
+                turn_id: notification.turn_id,
+                error: notification.error,
+                will_retry: notification.will_retry,
+            })
         }
         "thread/started" => Ok(Notification::ThreadStarted(thread_response(params)?)),
         "thread/name/updated" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
-            struct NameUpdate { thread_id: String, thread_name: Option<String> }
+            struct NameUpdate {
+                thread_id: String,
+                thread_name: Option<String>,
+            }
             let update: NameUpdate = from_value(params)?;
-            Ok(Notification::ThreadNameUpdated { thread_id: update.thread_id, name: update.thread_name })
+            Ok(Notification::ThreadNameUpdated {
+                thread_id: update.thread_id,
+                name: update.thread_name,
+            })
         }
         "turn/started" | "turn/completed" => {
             let thread_id = params
@@ -504,7 +604,10 @@ fn classify_direct_command(command: &str) -> Option<ToolCategory> {
     });
     let arguments = words
         .take(2)
-        .map(|word| word.trim_matches(|character| character == '"' || character == '\'').to_ascii_lowercase())
+        .map(|word| {
+            word.trim_matches(|character| character == '"' || character == '\'')
+                .to_ascii_lowercase()
+        })
         .collect::<Vec<_>>();
     let first = arguments.first().map(String::as_str);
     let second = arguments.get(1).map(String::as_str);
@@ -512,16 +615,16 @@ fn classify_direct_command(command: &str) -> Option<ToolCategory> {
         return None;
     }
     match (executable.as_deref(), first, second) {
-            (Some("cargo" | "go"), Some("test"), _)
-            | (Some("npm" | "pnpm"), Some("test"), _)
-            | (Some("npm" | "pnpm"), Some("run"), Some("test"))
-            | (Some("pytest" | "vitest" | "jest"), _, _) => Some(ToolCategory::Test),
-            (Some("cargo"), Some("build" | "check"), _)
-            | (Some("go"), Some("build"), _)
-            | (Some("npm" | "pnpm"), Some("build"), _)
-            | (Some("npm" | "pnpm"), Some("run"), Some("build"))
-            | (Some("tsc"), _, _) => Some(ToolCategory::Build),
-            _ => None,
+        (Some("cargo" | "go"), Some("test"), _)
+        | (Some("npm" | "pnpm"), Some("test"), _)
+        | (Some("npm" | "pnpm"), Some("run"), Some("test"))
+        | (Some("pytest" | "vitest" | "jest"), _, _) => Some(ToolCategory::Test),
+        (Some("cargo"), Some("build" | "check"), _)
+        | (Some("go"), Some("build"), _)
+        | (Some("npm" | "pnpm"), Some("build"), _)
+        | (Some("npm" | "pnpm"), Some("run"), Some("build"))
+        | (Some("tsc"), _, _) => Some(ToolCategory::Build),
+        _ => None,
     }
 }
 
@@ -659,8 +762,14 @@ mod activity_tests {
         ] {
             assert_eq!(classify_command(command, &json!([])), ToolCategory::Command);
         }
-        assert_eq!(classify_command("cargo.exe test", &json!([])), ToolCategory::Test);
-        assert_eq!(classify_command("tsc.cmd --noEmit", &json!([])), ToolCategory::Build);
+        assert_eq!(
+            classify_command("cargo.exe test", &json!([])),
+            ToolCategory::Test
+        );
+        assert_eq!(
+            classify_command("tsc.cmd --noEmit", &json!([])),
+            ToolCategory::Build
+        );
         assert_eq!(
             classify_command(
                 "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command 'cargo test --offline'",
@@ -713,34 +822,67 @@ mod error_tests {
     #[test]
     fn fixed_error_notification_schema() {
         let base = json!({"threadId":"T", "turnId":"U", "willRetry":true, "error":{"message":"diagnostic"}});
-        for info in [Value::Null, json!("sandboxError"), json!("other"),
+        for info in [
+            Value::Null,
+            json!("sandboxError"),
+            json!("other"),
             json!({"responseStreamDisconnected":{"httpStatusCode":503}}),
             json!({"responseTooManyFailedAttempts":{}}),
-            json!({"activeTurnNotSteerable":{"turnKind":"compact"}})] {
-            let mut p = base.clone(); p["error"]["codexErrorInfo"] = info;
-            assert!(matches!(notification("error".into(), p).unwrap(), Notification::TurnError {will_retry:true,..}));
+            json!({"activeTurnNotSteerable":{"turnKind":"compact"}}),
+        ] {
+            let mut p = base.clone();
+            p["error"]["codexErrorInfo"] = info;
+            assert!(matches!(
+                notification("error".into(), p).unwrap(),
+                Notification::TurnError {
+                    will_retry: true,
+                    ..
+                }
+            ));
         }
         for key in ["threadId", "turnId", "willRetry", "error"] {
-            let mut p = base.clone(); p.as_object_mut().unwrap().remove(key);
-            assert_eq!(notification("error".into(), p).unwrap_err().code, "CODEX_APP_SERVER_INCOMPATIBLE");
+            let mut p = base.clone();
+            p.as_object_mut().unwrap().remove(key);
+            assert_eq!(
+                notification("error".into(), p).unwrap_err().code,
+                "CODEX_APP_SERVER_INCOMPATIBLE"
+            );
         }
         assert!(notification("error".into(), json!(["T", "U", {"message":"x"}, false])).is_err());
-        for (key, value) in [("threadId",json!("")),("turnId",json!("")),("willRetry",json!("false")),
-            ("error",json!({})),("error",json!({"message":1})),
-            ("error",json!({"message":"x","additionalDetails":false})),
-            ("error",json!({"message":"x","misalignment":{"steer":{}}})),
-            ("error",json!(["x",null,null,null])),
-            ("error",json!({"message":"x","misalignment":[null,null,null]})),
-            ("error",json!({"message":"x","misalignment":{"steer":["x"]}}))] {
-            let mut p = base.clone(); p[key] = value;
+        for (key, value) in [
+            ("threadId", json!("")),
+            ("turnId", json!("")),
+            ("willRetry", json!("false")),
+            ("error", json!({})),
+            ("error", json!({"message":1})),
+            ("error", json!({"message":"x","additionalDetails":false})),
+            ("error", json!({"message":"x","misalignment":{"steer":{}}})),
+            ("error", json!(["x", null, null, null])),
+            (
+                "error",
+                json!({"message":"x","misalignment":[null,null,null]}),
+            ),
+            (
+                "error",
+                json!({"message":"x","misalignment":{"steer":["x"]}}),
+            ),
+        ] {
+            let mut p = base.clone();
+            p[key] = value;
             assert!(notification("error".into(), p).is_err(), "{key}");
         }
-        for info in [json!("unknownFutureError"),json!("responseStreamDisconnected"),
+        for info in [
+            json!("unknownFutureError"),
+            json!("responseStreamDisconnected"),
             json!({"responseStreamDisconnected":{"httpStatusCode":65536}}),
             json!({"activeTurnNotSteerable":{"turnKind":"normal"}}),
-            json!({"sandboxError":{}}),json!({"sandboxError":null}),json!({"other":null}),
-            json!({"activeTurnNotSteerable":{"turnKind":{"review":null}}})] {
-            let mut p = base.clone(); p["error"]["codexErrorInfo"] = info;
+            json!({"sandboxError":{}}),
+            json!({"sandboxError":null}),
+            json!({"other":null}),
+            json!({"activeTurnNotSteerable":{"turnKind":{"review":null}}}),
+        ] {
+            let mut p = base.clone();
+            p["error"]["codexErrorInfo"] = info;
             assert!(notification("error".into(), p).is_err());
         }
     }
@@ -752,13 +894,18 @@ mod subagent_tests {
     #[test]
     fn fixed_subagent_activity_requires_explicit_identity() {
         let base = json!({"threadId":"T","turnId":"U","item":{"type":"subAgentActivity","id":"I","kind":"started","agentThreadId":"C","agentPath":"/root/review"}});
-        assert!(matches!(notification("item/started".into(), base.clone()).unwrap(), Notification::SubAgentStarted {..}));
+        assert!(matches!(
+            notification("item/started".into(), base.clone()).unwrap(),
+            Notification::SubAgentStarted { .. }
+        ));
         for field in ["agentThreadId", "agentPath", "id"] {
-            let mut p = base.clone(); p["item"].as_object_mut().unwrap().remove(field);
+            let mut p = base.clone();
+            p["item"].as_object_mut().unwrap().remove(field);
             assert!(notification("item/started".into(), p).is_err());
         }
         for field in ["threadId", "turnId"] {
-            let mut p = base.clone(); p[field] = json!("");
+            let mut p = base.clone();
+            p[field] = json!("");
             assert!(notification("item/completed".into(), p).is_err());
         }
     }

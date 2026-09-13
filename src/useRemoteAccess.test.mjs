@@ -48,7 +48,7 @@ function Harness() {
   return createElement(RemoteApprovalDialog, { controller });
 }
 const snapshot = (overrides = {}) => ({ mode: 'quick_tunnel', status: 'ready', active: true, pending: [], publicContext: { publicOrigin: 'https://test.example', mcpResource: 'https://test.example/mcp' }, ...overrides });
-const pending = { id: 'P1', clientName: 'Client', redirectUri: 'https://client.example/cb', confirmationCode: '123456', expiresInSeconds: 100, scope: 'serena:mcp', refreshAllowed: true };
+const pending = { id: 'P1', clientName: 'Client', clientIdHostname: null, redirectUri: 'https://client.example/cb', confirmationCode: '123456', expiresInSeconds: 100, scope: 'serena:mcp', refreshAllowed: true };
 async function mount() {
   root = createRoot(document.getElementById('root'));
   await act(async () => root.render(createElement(TooltipProvider, null, createElement(Harness))));
@@ -64,6 +64,7 @@ test('native consent explains registered refresh capability without requiring of
     const text = document.querySelector('[role="dialog"]').textContent;
     assert.match(text, /serena:mcp/);
     assert.match(text, refreshAllowed ? /客户端可自动刷新/ : /不签发刷新令牌/);
+    assert.doesNotMatch(text, /客户端身份域名/);
     assert.equal(document.activeElement.textContent, '拒绝');
     assert.equal(decisions, 0);
     await act(async () => root.unmount()); root = null;

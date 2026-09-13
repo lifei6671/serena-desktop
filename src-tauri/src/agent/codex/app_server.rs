@@ -1,6 +1,6 @@
 mod binding;
-mod title;
 mod session;
+mod title;
 // Bounded protocol client. It never mutates Executions or releases Claims.
 use super::protocol::{self, *};
 use serde_json::{Value, json};
@@ -32,7 +32,10 @@ struct Pending {
     terminal_turn: Option<String>,
 }
 type WriteItem = Queued<(Vec<u8>, oneshot::Sender<Result<()>>)>;
-type ServerRequest = (Queued<(Value, String, Value, Option<Notification>)>, session::ServerWork);
+type ServerRequest = (
+    Queued<(Value, String, Value, Option<Notification>)>,
+    session::ServerWork,
+);
 #[derive(Clone)]
 struct ObservabilityScope {
     thread_id: String,
@@ -281,13 +284,13 @@ impl Client {
                             let injected_drop = false;
                             if injected_drop
                                 || server_events
-                                .try_send(Event {
-                                    runtime_id: s.runtime_id.clone(),
-                                    notification,
-                                    _bytes: Some(_bytes),
-                                    _slot: Some(slot),
-                                })
-                                .is_err()
+                                    .try_send(Event {
+                                        runtime_id: s.runtime_id.clone(),
+                                        notification,
+                                        _bytes: Some(_bytes),
+                                        _slot: Some(slot),
+                                    })
+                                    .is_err()
                             {
                                 eprintln!(
                                     "Codex permission diagnostic dropped: observability queue unavailable"
@@ -587,7 +590,11 @@ impl Client {
                 Ok(thread)
             }
         }))?;
-        self.shared.loaded_threads.lock().unwrap().insert(thread.id.clone(), thread.clone());
+        self.shared
+            .loaded_threads
+            .lock()
+            .unwrap()
+            .insert(thread.id.clone(), thread.clone());
         Ok(thread)
     }
     pub async fn thread_resume(&self, thread: &str) -> Result<Thread> {
@@ -599,7 +606,11 @@ impl Client {
             )
             .await?;
         let thread = self.validated(checked_thread(value, thread))?;
-        self.shared.loaded_threads.lock().unwrap().insert(thread.id.clone(), thread.clone());
+        self.shared
+            .loaded_threads
+            .lock()
+            .unwrap()
+            .insert(thread.id.clone(), thread.clone());
         Ok(thread)
     }
     pub async fn thread_read(&self, thread: &str) -> Result<Thread> {
@@ -931,7 +942,9 @@ fn dispatch(
             }
             // A title timeout is tool-local. Its single bounded pending entry stays
             // correlated until the late reply arrives; never replay the rename.
-            if p.method == "thread/name/set" && let Ok(value) = &result {
+            if p.method == "thread/name/set"
+                && let Ok(value) = &result
+            {
                 empty_response(value.clone())?;
             }
             let result = result.map_err(|e| {
@@ -950,7 +963,9 @@ fn dispatch(
         }
         Message::Notification { method, params } => {
             let notification = protocol::notification(method, params)?;
-            if s.completed_notification(&notification) { return Ok(()); }
+            if s.completed_notification(&notification) {
+                return Ok(());
+            }
             // The Provider consumes lifecycle/name/error events only. Streaming item,
             // output and legacy notifications have no consumer; retaining them can
             // exhaust the queue while the Provider awaits a store transaction or RPC.
@@ -1015,11 +1030,14 @@ fn dispatch(
                 })?;
             s.server_work.fetch_add(1, Ordering::AcqRel);
             server
-                .try_send((Queued {
-                    value: (id, method, params, diagnostic),
-                    _bytes: permit,
-                    _slot: Some(slot),
-                }, session::ServerWork(s.server_work.clone())))
+                .try_send((
+                    Queued {
+                        value: (id, method, params, diagnostic),
+                        _bytes: permit,
+                        _slot: Some(slot),
+                    },
+                    session::ServerWork(s.server_work.clone()),
+                ))
                 .map_err(|_| {
                     ProtocolError::new(
                         "CODEX_PROTOCOL_QUEUE_FULL",

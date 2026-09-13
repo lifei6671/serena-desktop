@@ -1,6 +1,9 @@
 //! Windows main-frame navigation fallback, independent of the frontend and IPC.
 use base64::{Engine, engine::general_purpose::STANDARD};
-use std::{cell::{Cell, RefCell}, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 use tauri::{Manager, WebviewWindow};
 use webview2_com::{
     CoTaskMemPWSTR,

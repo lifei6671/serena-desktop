@@ -51,14 +51,35 @@ impl AgentTaskManager {
         // The single-instance Host has acquired startup ownership; no old Client
         // may be reused. Include idle runtimes which no longer have a Claim.
         for runtime_id in self.store.orphan_runtimes(self.owner.clone()).await? {
-            let workspace = self.store.runtime_workspace(runtime_id.clone()).await?.unwrap_or_default();
+            let workspace = self
+                .store
+                .runtime_workspace(runtime_id.clone())
+                .await?
+                .unwrap_or_default();
             if self.runtime_pool.retains_runtime(&workspace, &runtime_id) {
-                let _ = self.runtime_pool.retry_workspace(&self.store, &workspace).await;
-                if self.runtime_pool.retains_runtime(&workspace, &runtime_id) { continue; }
+                let _ = self
+                    .runtime_pool
+                    .retry_workspace(&self.store, &workspace)
+                    .await;
+                if self.runtime_pool.retains_runtime(&workspace, &runtime_id) {
+                    continue;
+                }
             }
-            let failure = runtime::recover(self.store.clone(), runtime_id.clone(), Duration::from_secs(10))
-                .await.err().map(|failure| self.runtime_pool.retain_failure(&self.store, &workspace, &runtime_id, failure));
-            orphan_outcomes.push(RecoveryOutcome::OrphanRuntime { runtime_id, failure });
+            let failure = runtime::recover(
+                self.store.clone(),
+                runtime_id.clone(),
+                Duration::from_secs(10),
+            )
+            .await
+            .err()
+            .map(|failure| {
+                self.runtime_pool
+                    .retain_failure(&self.store, &workspace, &runtime_id, failure)
+            });
+            orphan_outcomes.push(RecoveryOutcome::OrphanRuntime {
+                runtime_id,
+                failure,
+            });
         }
         for claim in claims {
             let id = match claim {
@@ -99,11 +120,23 @@ impl AgentTaskManager {
                 });
                 continue;
             };
-            if self.runtime_pool.retains_runtime(&row.canonical_workspace_root, &original) {
-                let _ = self.runtime_pool.retry_workspace(&self.store, &row.canonical_workspace_root).await;
-                if self.runtime_pool.retains_runtime(&row.canonical_workspace_root, &original) {
+            if self
+                .runtime_pool
+                .retains_runtime(&row.canonical_workspace_root, &original)
+            {
+                let _ = self
+                    .runtime_pool
+                    .retry_workspace(&self.store, &row.canonical_workspace_root)
+                    .await;
+                if self
+                    .runtime_pool
+                    .retains_runtime(&row.canonical_workspace_root, &original)
+                {
                     mark_unknown(&self.store, &id).await?;
-                    outcomes.push(RecoveryOutcome::Unknown { execution_id: id, failure: None });
+                    outcomes.push(RecoveryOutcome::Unknown {
+                        execution_id: id,
+                        failure: None,
+                    });
                     continue;
                 }
             }
@@ -115,7 +148,12 @@ impl AgentTaskManager {
             .await
             {
                 // Transfer the Job owner before any fallible Execution write.
-                let failure = self.runtime_pool.retain_failure(&self.store, &row.canonical_workspace_root, &original, failure);
+                let failure = self.runtime_pool.retain_failure(
+                    &self.store,
+                    &row.canonical_workspace_root,
+                    &original,
+                    failure,
+                );
                 if row.status != "unknown" {
                     if row.status != "reconciling" {
                         self.store
@@ -132,20 +170,27 @@ impl AgentTaskManager {
                 });
                 continue;
             }
-            if self.runtime_pool.check_workspace(&row.canonical_workspace_root).is_err() {
+            if self
+                .runtime_pool
+                .check_workspace(&row.canonical_workspace_root)
+                .is_err()
+            {
                 mark_unknown(&self.store, &id).await?;
-                outcomes.push(RecoveryOutcome::Unknown { execution_id: id, failure: None });
+                outcomes.push(RecoveryOutcome::Unknown {
+                    execution_id: id,
+                    failure: None,
+                });
                 continue;
             }
             let outcome = reconcile_execution_after_runtime_end(
-                    &self.store,
-                    &self.executable,
-                    &self.owner,
-                    &self.runtime_pool,
-                    self.backend_error.as_deref(),
-                    &id,
-                )
-                .await?;
+                &self.store,
+                &self.executable,
+                &self.owner,
+                &self.runtime_pool,
+                self.backend_error.as_deref(),
+                &id,
+            )
+            .await?;
             outcomes.push(outcome);
         }
         outcomes.extend(orphan_outcomes);
@@ -228,7 +273,11 @@ pub(crate) async fn reconcile_execution_after_runtime_end(
             Ok(scope) => {
                 let connected = if let Some(error) = backend_error {
                     Err(runtime::RuntimeFailure {
-                        code: if error.starts_with("CODEX_APP_SERVER_INCOMPATIBLE") { "CODEX_APP_SERVER_INCOMPATIBLE" } else { "BACKEND_UNAVAILABLE" },
+                        code: if error.starts_with("CODEX_APP_SERVER_INCOMPATIBLE") {
+                            "CODEX_APP_SERVER_INCOMPATIBLE"
+                        } else {
+                            "BACKEND_UNAVAILABLE"
+                        },
                         message: error.to_owned(),
                         runtime: None,
                     })
@@ -246,9 +295,18 @@ pub(crate) async fn reconcile_execution_after_runtime_end(
                 };
                 match connected {
                     Err(failure) => {
-                        let mut failure = pool.retain_attempt_failure(store, &row.canonical_workspace_root, &recovery_id, failure).await;
+                        let mut failure = pool
+                            .retain_attempt_failure(
+                                store,
+                                &row.canonical_workspace_root,
+                                &recovery_id,
+                                failure,
+                            )
+                            .await;
                         if let Err(error) = mark_unknown(store, &id).await {
-                            failure.message.push_str(&format!("; mark unknown: {error}"));
+                            failure
+                                .message
+                                .push_str(&format!("; mark unknown: {error}"));
                         }
                         return Ok(RecoveryOutcome::RuntimeFailure {
                             execution_id: id,
@@ -264,9 +322,16 @@ pub(crate) async fn reconcile_execution_after_runtime_end(
                             Err(error) => diagnostic = Some(error.to_string()),
                         }
                         if let Err(failure) = managed.shutdown().await {
-                            let mut failure = pool.retain_failure(store, &row.canonical_workspace_root, &recovery_id, failure);
+                            let mut failure = pool.retain_failure(
+                                store,
+                                &row.canonical_workspace_root,
+                                &recovery_id,
+                                failure,
+                            );
                             if let Err(error) = mark_unknown(store, &id).await {
-                                failure.message.push_str(&format!("; mark unknown: {error}"));
+                                failure
+                                    .message
+                                    .push_str(&format!("; mark unknown: {error}"));
                             }
                             return Ok(RecoveryOutcome::RuntimeFailure {
                                 execution_id: id,

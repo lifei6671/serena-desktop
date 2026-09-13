@@ -69,11 +69,7 @@ impl fmt::Debug for NgrokConnectorFailure {
 }
 
 pub(crate) type NgrokConnectFuture<'a> = Pin<
-    Box<
-        dyn Future<Output = Result<Box<dyn NgrokTunnelHandle>, NgrokConnectorFailure>>
-            + Send
-            + 'a,
-    >,
+    Box<dyn Future<Output = Result<Box<dyn NgrokTunnelHandle>, NgrokConnectorFailure>> + Send + 'a>,
 >;
 
 pub(crate) trait NgrokConnector: Send + Sync {
@@ -397,15 +393,12 @@ mod tests {
 
     #[tokio::test]
     async fn sdk_connect_tcp_failure_uses_network_error() {
-        let error = run_sdk_connect(
-            Duration::ZERO,
-            async {
-                Err::<(), _>(ConnectError::Tcp(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionRefused,
-                    "test tcp failure",
-                )))
-            },
-        )
+        let error = run_sdk_connect(Duration::ZERO, async {
+            Err::<(), _>(ConnectError::Tcp(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                "test tcp failure",
+            )))
+        })
         .await
         .unwrap_err();
 
@@ -414,15 +407,12 @@ mod tests {
 
     #[tokio::test]
     async fn sdk_connect_tls_failure_uses_network_error() {
-        let error = run_sdk_connect(
-            Duration::ZERO,
-            async {
-                Err::<(), _>(ConnectError::Tls(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "test tls failure",
-                )))
-            },
-        )
+        let error = run_sdk_connect(Duration::ZERO, async {
+            Err::<(), _>(ConnectError::Tls(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "test tls failure",
+            )))
+        })
         .await
         .unwrap_err();
 

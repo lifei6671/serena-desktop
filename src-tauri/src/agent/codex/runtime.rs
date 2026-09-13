@@ -183,17 +183,37 @@ fn poll_empty(
 }
 
 impl Runtime {
-    pub(super) fn clone_stdio(&self) -> std::io::Result<(std::fs::File, std::fs::File, std::fs::File)> {
-        let child = self.child.as_ref().ok_or_else(|| std::io::Error::other("Recovered Runtime has no stdio"))?;
-        Ok((child.stdin.try_clone()?, child.stdout.try_clone()?, child.stderr.try_clone()?))
+    pub(super) fn clone_stdio(
+        &self,
+    ) -> std::io::Result<(std::fs::File, std::fs::File, std::fs::File)> {
+        let child = self
+            .child
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("Recovered Runtime has no stdio"))?;
+        Ok((
+            child.stdin.try_clone()?,
+            child.stdout.try_clone()?,
+            child.stderr.try_clone()?,
+        ))
     }
 
-    pub(super) async fn initialized(&self, identity: &super::protocol::CompatibilityIdentity) -> Result<(), RuntimeError> {
+    pub(super) async fn initialized(
+        &self,
+        identity: &super::protocol::CompatibilityIdentity,
+    ) -> Result<(), RuntimeError> {
         let store = self.store.clone();
         let id = self.id.clone();
         let identity = identity.clone();
-        tokio::task::spawn_blocking(move || store.runtime_initialized(&id, &identity.version, &identity.protocol_schema_sha256, now()))
-            .await.map_err(|e|RuntimeError::new("CODEX_RUNTIME_STORE_FAILED",e.to_string()))?
+        tokio::task::spawn_blocking(move || {
+            store.runtime_initialized(
+                &id,
+                &identity.version,
+                &identity.protocol_schema_sha256,
+                now(),
+            )
+        })
+        .await
+        .map_err(|e| RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", e.to_string()))?
     }
     pub fn id(&self) -> &str {
         &self.id

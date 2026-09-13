@@ -11,6 +11,7 @@ export interface RemoteAccessConfig {
 export interface RemoteApproval {
   id: string;
   clientName: string;
+  clientIdHostname: string | null;
   refreshAllowed: boolean;
   redirectUri: string;
   confirmationCode: string;

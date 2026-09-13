@@ -415,7 +415,10 @@ async fn activity_does_not_wake_control_observe_and_restart_restores_hint() {
     assert_eq!(observed["data"]["progress"]["silenceLevel"], "fresh");
     assert_eq!(observed["data"]["revision"], initial_revision);
     assert_eq!(observed["data"]["controlRevision"], initial_revision);
-    assert_ne!(observed["data"]["activityRevision"], initial_activity_revision);
+    assert_ne!(
+        observed["data"]["activityRevision"],
+        initial_activity_revision
+    );
     let revision = observed["data"]["revision"].as_str().unwrap().to_owned();
     let age = observed["data"]["progress"]["activityAgeMs"]
         .as_i64()
@@ -447,7 +450,10 @@ async fn activity_does_not_wake_control_observe_and_restart_restores_hint() {
     let reopened = AgentProductService::new(reopened_store);
     let restored = reopened.observe("e".into(), false).await.unwrap();
     assert_eq!(restored.revision, revision);
-    assert_eq!(restored.progress.last_activity_at, observed["data"]["progress"]["lastActivityAt"].as_i64());
+    assert_eq!(
+        restored.progress.last_activity_at,
+        observed["data"]["progress"]["lastActivityAt"].as_i64()
+    );
     assert_eq!(restored.progress.activity_phase, Some(ActivityPhase::Tool));
     assert_eq!(restored.progress.tool_category, Some(ToolCategory::Test));
     assert!(restored.progress.last_activity_at.is_some());
@@ -477,17 +483,34 @@ async fn activity_mode_without_new_activity_waits_for_deadline_despite_display_a
         None,
     ).await;
     let elapsed = started.elapsed();
-    assert!(elapsed >= Duration::from_millis(wait_ms), "elapsed: {elapsed:?}");
+    assert!(
+        elapsed >= Duration::from_millis(wait_ms),
+        "elapsed: {elapsed:?}"
+    );
     assert!(elapsed < Duration::from_secs(5), "elapsed: {elapsed:?}");
     assert_eq!(observed["ok"], true, "{observed}");
-    assert_eq!(observed["data"]["activityRevision"], initial.activity_revision);
-    assert_eq!(observed["data"]["controlRevision"], initial.control_revision);
+    assert_eq!(
+        observed["data"]["activityRevision"],
+        initial.activity_revision
+    );
+    assert_eq!(
+        observed["data"]["controlRevision"],
+        initial.control_revision
+    );
     assert_eq!(observed["data"]["unchanged"], true);
     assert_eq!(observed["data"]["status"], "running");
-    assert_eq!(observed["data"]["progress"]["lastActivityAt"], last_activity_at);
+    assert_eq!(
+        observed["data"]["progress"]["lastActivityAt"],
+        last_activity_at
+    );
     assert_eq!(observed["data"]["progress"]["activityPhase"], "tool");
     assert_eq!(observed["data"]["progress"]["toolCategory"], "test");
-    assert!(observed["data"]["progress"]["activityAgeMs"].as_i64().unwrap() > initial.progress.activity_age_ms.unwrap());
+    assert!(
+        observed["data"]["progress"]["activityAgeMs"]
+            .as_i64()
+            .unwrap()
+            > initial.progress.activity_age_ms.unwrap()
+    );
     assert_eq!(observed["data"]["progress"]["silenceLevel"], "quiet");
 }
 
@@ -495,14 +518,20 @@ async fn activity_mode_without_new_activity_waits_for_deadline_despite_display_a
 async fn default_control_mode_without_known_revision_wakes_on_control_change() {
     let (dir, _store, service) = pending().await;
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
-    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e'", []).unwrap();
+    db.execute(
+        "UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e'",
+        [],
+    )
+    .unwrap();
     let initial = service.observe("e".into(), false).await.unwrap();
     let waiter = service.checked_operation(
-        json!({"action":"observe","executionId":"e","waitMs":2500}), None,
+        json!({"action":"observe","executionId":"e","waitMs":2500}),
+        None,
     );
     let transition = async {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        db.execute("UPDATE executions SET status='finalizing' WHERE id='e'", []).unwrap();
+        db.execute("UPDATE executions SET status='finalizing' WHERE id='e'", [])
+            .unwrap();
     };
     let started = Instant::now();
     let (observed, ()) = tokio::join!(waiter, transition);
@@ -510,8 +539,14 @@ async fn default_control_mode_without_known_revision_wakes_on_control_change() {
     assert_eq!(observed["ok"], true, "{observed}");
     assert_eq!(observed["data"]["status"], "finalizing");
     assert_eq!(observed["data"]["progress"]["phase"], "finalizing");
-    assert_ne!(observed["data"]["controlRevision"], initial.control_revision);
-    assert_eq!(observed["data"]["activityRevision"], initial.activity_revision);
+    assert_ne!(
+        observed["data"]["controlRevision"],
+        initial.control_revision
+    );
+    assert_eq!(
+        observed["data"]["activityRevision"],
+        initial.activity_revision
+    );
     assert_eq!(observed["data"]["progress"]["lastActivityAt"], Value::Null);
     assert_eq!(observed["data"]["resultAvailable"], false);
 }
@@ -525,14 +560,30 @@ async fn activity_mode_wakes_without_changing_control_revision() {
     let waiter = service.checked_operation(json!({"action":"observe","executionId":"e","knownControlRevision":initial.control_revision,"wakeOn":"activity","waitMs":2500}), None);
     let update = async {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        store.execution_activity("e".into(), "ROOT".into(), "TURN".into(), ActivityPhase::Tool, Some(ToolCategory::Test), now()).await.unwrap();
+        store
+            .execution_activity(
+                "e".into(),
+                "ROOT".into(),
+                "TURN".into(),
+                ActivityPhase::Tool,
+                Some(ToolCategory::Test),
+                now(),
+            )
+            .await
+            .unwrap();
     };
     let started = Instant::now();
     let (observed, ()) = tokio::join!(waiter, update);
     assert!(started.elapsed() < Duration::from_secs(2));
     assert_eq!(observed["data"]["unchanged"], true);
-    assert_eq!(observed["data"]["controlRevision"], initial.control_revision);
-    assert_ne!(observed["data"]["activityRevision"], initial.activity_revision);
+    assert_eq!(
+        observed["data"]["controlRevision"],
+        initial.control_revision
+    );
+    assert_ne!(
+        observed["data"]["activityRevision"],
+        initial.activity_revision
+    );
     assert_eq!(observed["data"]["progress"]["toolCategory"], "test");
 }
 
@@ -540,11 +591,19 @@ async fn activity_mode_wakes_without_changing_control_revision() {
 async fn activity_mode_without_known_revision_also_wakes_on_control_change() {
     let (dir, _store, service) = pending().await;
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
-    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e'", []).unwrap();
-    let waiter = service.checked_operation(json!({"action":"observe","executionId":"e","wakeOn":"activity","waitMs":2500}), None);
+    db.execute(
+        "UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e'",
+        [],
+    )
+    .unwrap();
+    let waiter = service.checked_operation(
+        json!({"action":"observe","executionId":"e","wakeOn":"activity","waitMs":2500}),
+        None,
+    );
     let transition = async {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        db.execute("UPDATE executions SET status='finalizing' WHERE id='e'", []).unwrap();
+        db.execute("UPDATE executions SET status='finalizing' WHERE id='e'", [])
+            .unwrap();
     };
     let started = Instant::now();
     let (observed, ()) = tokio::join!(waiter, transition);
@@ -563,24 +622,54 @@ async fn many_activity_updates_do_not_restart_control_deadline() {
     let updates = async {
         tokio::time::sleep(Duration::from_millis(50)).await;
         for i in 0..100 {
-            store.execution_activity("e".into(), "ROOT".into(), "TURN".into(), ActivityPhase::Tool, Some(ToolCategory::Command), now() + i).await.unwrap();
+            store
+                .execution_activity(
+                    "e".into(),
+                    "ROOT".into(),
+                    "TURN".into(),
+                    ActivityPhase::Tool,
+                    Some(ToolCategory::Command),
+                    now() + i,
+                )
+                .await
+                .unwrap();
         }
     };
     let (observed, ()) = tokio::join!(waiter, updates);
     assert!(started.elapsed() >= Duration::from_millis(2200));
     assert!(started.elapsed() < Duration::from_secs(5));
     assert_eq!(observed["data"]["unchanged"], true);
-    assert_eq!(observed["data"]["controlRevision"], initial.control_revision);
-    assert_ne!(observed["data"]["activityRevision"], initial.activity_revision);
+    assert_eq!(
+        observed["data"]["controlRevision"],
+        initial.control_revision
+    );
+    assert_ne!(
+        observed["data"]["activityRevision"],
+        initial.activity_revision
+    );
     assert_eq!(observed["data"]["progress"]["toolCategory"], "command");
-    assert_eq!(observed["data"]["progress"]["lastActivityAt"], json!(store.execution("e".into()).await.unwrap().unwrap().last_activity_at));
+    assert_eq!(
+        observed["data"]["progress"]["lastActivityAt"],
+        json!(
+            store
+                .execution("e".into())
+                .await
+                .unwrap()
+                .unwrap()
+                .last_activity_at
+        )
+    );
 }
 
 #[tokio::test]
 async fn completed_control_change_wakes_with_latest_activity_and_result() {
     let (dir, _store, service) = pending().await;
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
-    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e'", []).unwrap();
+    db.execute(
+        "UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e'",
+        [],
+    )
+    .unwrap();
     let initial = service.observe("e".into(), false).await.unwrap();
     let waiter = service.checked_operation(json!({"action":"observe","executionId":"e","knownControlRevision":initial.control_revision,"waitMs":2500}), None);
     let transition = async {
@@ -592,9 +681,18 @@ async fn completed_control_change_wakes_with_latest_activity_and_result() {
     assert!(started.elapsed() < Duration::from_secs(2));
     assert_eq!(observed["data"]["status"], "completed");
     assert_eq!(observed["data"]["resultAvailable"], true);
-    assert_ne!(observed["data"]["controlRevision"], initial.control_revision);
-    assert_ne!(observed["data"]["activityRevision"], initial.activity_revision);
-    assert_eq!(observed["data"]["revision"], observed["data"]["controlRevision"]);
+    assert_ne!(
+        observed["data"]["controlRevision"],
+        initial.control_revision
+    );
+    assert_ne!(
+        observed["data"]["activityRevision"],
+        initial.activity_revision
+    );
+    assert_eq!(
+        observed["data"]["revision"],
+        observed["data"]["controlRevision"]
+    );
     assert_eq!(observed["data"]["progress"]["activityPhase"], "provider");
 }
 
@@ -602,18 +700,29 @@ async fn completed_control_change_wakes_with_latest_activity_and_result() {
 async fn uncertain_dispatch_convergence_wakes_control_observe() {
     let (dir, _store, service) = pending().await;
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
-    db.execute("UPDATE executions SET dispatch_state='uncertain' WHERE id='e'", []).unwrap();
+    db.execute(
+        "UPDATE executions SET dispatch_state='uncertain' WHERE id='e'",
+        [],
+    )
+    .unwrap();
     let initial = service.observe("e".into(), false).await.unwrap();
     assert!(initial.control.provider_invoked.is_none());
     let waiter = service.checked_operation(json!({"action":"observe","executionId":"e","knownControlRevision":initial.control_revision,"waitMs":2500}), None);
     let transition = async {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        db.execute("UPDATE executions SET dispatch_state='dispatched' WHERE id='e'", []).unwrap();
+        db.execute(
+            "UPDATE executions SET dispatch_state='dispatched' WHERE id='e'",
+            [],
+        )
+        .unwrap();
     };
     let started = Instant::now();
     let (observed, ()) = tokio::join!(waiter, transition);
     assert!(started.elapsed() < Duration::from_secs(2));
-    assert_ne!(observed["data"]["controlRevision"], initial.control_revision);
+    assert_ne!(
+        observed["data"]["controlRevision"],
+        initial.control_revision
+    );
     assert_eq!(observed["data"]["dispatchState"], "dispatched");
     assert_eq!(observed["control"]["providerInvoked"], true);
     assert_eq!(observed["control"]["dispatchCertainty"], "dispatched");
@@ -830,7 +939,10 @@ async fn dropping_observer_does_not_stop_owned_worker_or_create_another_turn() {
     );
     release.send(()).unwrap();
     let finished = final_row(&service, &id).await;
-    assert_ne!(finished.control_revision, reconnected["data"]["controlRevision"]);
+    assert_ne!(
+        finished.control_revision,
+        reconnected["data"]["controlRevision"]
+    );
     assert_eq!(finished.status, "completed");
     assert_eq!(finished.result_completeness, "complete");
     assert!(!finished.interrupt_requested);
@@ -866,7 +978,11 @@ async fn dropping_observer_does_not_stop_owned_worker_or_create_another_turn() {
 async fn diagnostic_revision_wakes_observe_and_list_agrees_across_lifecycle() {
     let (dir, store, service) = pending().await;
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
-    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e'", []).unwrap();
+    db.execute(
+        "UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e'",
+        [],
+    )
+    .unwrap();
     let initial = service.observe("e".into(), false).await.unwrap();
     let waiter = service.checked_operation(json!({"action":"observe","executionId":"e","knownRevision":initial.revision,"waitMs":2500}), None);
     let write = async {
@@ -879,20 +995,47 @@ async fn diagnostic_revision_wakes_observe_and_list_agrees_across_lifecycle() {
     assert_eq!(observed["data"]["unchanged"], false);
     assert_ne!(observed["data"]["revision"], initial.revision);
     assert_eq!(observed["data"]["errorCode"], "CODEX_TURN_ERROR");
-    assert_eq!(observed["data"]["errorMessage"], "sandboxError: Codex reported a turn diagnostic.");
+    assert_eq!(
+        observed["data"]["errorMessage"],
+        "sandboxError: Codex reported a turn diagnostic."
+    );
     let stored = store.execution("e".into()).await.unwrap().unwrap();
     assert_eq!(stored.error_code.as_deref(), Some("CODEX_TURN_ERROR"));
     assert!(stored.error_message.unwrap().contains("secret-token"));
-    for status in ["running", "reconciling", "unknown", "interrupted", "completed"] {
-        db.execute("UPDATE executions SET status=?1,provider_terminal_status=?2 WHERE id='e'",
-            rusqlite::params![status, (status == "completed").then_some("completed")]).unwrap();
-        let observe = service.checked_operation(json!({"action":"observe","executionId":"e","waitMs":0}), None).await;
-        let list = service.checked_operation(json!({"action":"list"}), None).await;
+    for status in [
+        "running",
+        "reconciling",
+        "unknown",
+        "interrupted",
+        "completed",
+    ] {
+        db.execute(
+            "UPDATE executions SET status=?1,provider_terminal_status=?2 WHERE id='e'",
+            rusqlite::params![status, (status == "completed").then_some("completed")],
+        )
+        .unwrap();
+        let observe = service
+            .checked_operation(
+                json!({"action":"observe","executionId":"e","waitMs":0}),
+                None,
+            )
+            .await;
+        let list = service
+            .checked_operation(json!({"action":"list"}), None)
+            .await;
         assert_eq!(observe["data"]["status"], status);
         assert_eq!(observe["data"]["errorCode"], "CODEX_TURN_ERROR");
-        assert_eq!(list["data"]["executions"][0]["errorCode"], observe["data"]["errorCode"], "{list}");
-        assert_eq!(list["data"]["executions"][0]["errorMessage"], observe["data"]["errorMessage"]);
-        if status == "completed" { assert_eq!(observe["data"]["providerTerminalStatus"], "completed"); }
+        assert_eq!(
+            list["data"]["executions"][0]["errorCode"], observe["data"]["errorCode"],
+            "{list}"
+        );
+        assert_eq!(
+            list["data"]["executions"][0]["errorMessage"],
+            observe["data"]["errorMessage"]
+        );
+        if status == "completed" {
+            assert_eq!(observe["data"]["providerTerminalStatus"], "completed");
+        }
     }
 }
 
@@ -900,12 +1043,24 @@ async fn diagnostic_revision_wakes_observe_and_list_agrees_across_lifecycle() {
 async fn diagnostic_projection_never_exposes_raw_provider_payload() {
     let (_dir, store, service) = pending().await;
     for (code, raw) in [
-        ("CODEX_PROVIDER_FAILURE", format!("CODEX_PROTOCOL_QUEUE_FULL: Authorization token credential {}", "secret".repeat(1000))),
-        ("CODEX_TURN_ERROR", json!({"error":{"message":"secret","codexErrorInfo":"secret"}}).to_string()),
+        (
+            "CODEX_PROVIDER_FAILURE",
+            format!(
+                "CODEX_PROTOCOL_QUEUE_FULL: Authorization token credential {}",
+                "secret".repeat(1000)
+            ),
+        ),
+        (
+            "CODEX_TURN_ERROR",
+            json!({"error":{"message":"secret","codexErrorInfo":"secret"}}).to_string(),
+        ),
         ("CODEX_PERMISSION_DENIED", "command".into()),
         ("secret", "raw stdout stderr secret".into()),
     ] {
-        store.execution_diagnostic("e".into(), code.into(), raw, 2).await.unwrap();
+        store
+            .execution_diagnostic("e".into(), code.into(), raw, 2)
+            .await
+            .unwrap();
         let view = service.observe("e".into(), false).await.unwrap();
         let message = view.error_message.unwrap();
         assert!(message.len() <= 256);

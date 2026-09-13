@@ -61,7 +61,8 @@ impl StateStore {
                 return Err("PENDING_RESUME_REJECTED".into());
             }
             owns_claim(tx, &id)?;
-            let attempted = super::runtime_attempts::runtime_attempt_exists(tx, &id).map_err(|e| e.to_string())?;
+            let attempted = super::runtime_attempts::runtime_attempt_exists(tx, &id)
+                .map_err(|e| e.to_string())?;
             if attempted {
                 return Err("PENDING_RESUME_REJECTED".into());
             }
@@ -172,7 +173,13 @@ impl StateStore {
     }
 
     /// Diagnostic only: never creates Provider terminal or release evidence.
-    pub(crate) async fn execution_diagnostic(&self, id: String, code: String, message: String, now: i64) -> Result<(), String> {
+    pub(crate) async fn execution_diagnostic(
+        &self,
+        id: String,
+        code: String,
+        message: String,
+        now: i64,
+    ) -> Result<(), String> {
         #[cfg(test)]
         if code == "CODEX_PERMISSION_DENIED"
             && self.take_observability_failure(ObservabilityFault::PermissionDiagnostic)
@@ -330,7 +337,8 @@ impl StateStore {
                     && row.dispatch == DispatchState::NotDispatched
                     && row.runtime.is_none()
                     && row.terminal.is_none()
-                    && !super::runtime_attempts::runtime_attempt_exists(tx, &id).map_err(|e| e.to_string())?
+                    && !super::runtime_attempts::runtime_attempt_exists(tx, &id)
+                        .map_err(|e| e.to_string())?
                 {
                     if owns_claim(tx, &id).is_ok() {
                         recovered.push(ClaimRecovery::PendingExplicitResume { execution_id: id });
@@ -581,8 +589,12 @@ fn transition_execution(
             if let Some(result) = &finalization.result
                 && let Some(name) = result.get("threadName")
             {
-                let thread_id = result.get("threadId").and_then(Value::as_str).ok_or("RESULT_THREAD_REQUIRED")?;
-                let name: Option<String> = serde_json::from_value(name.clone()).map_err(|e| e.to_string())?;
+                let thread_id = result
+                    .get("threadId")
+                    .and_then(Value::as_str)
+                    .ok_or("RESULT_THREAD_REQUIRED")?;
+                let name: Option<String> =
+                    serde_json::from_value(name.clone()).map_err(|e| e.to_string())?;
                 tx.execute("INSERT INTO thread_names(thread_id,name) VALUES (?1,?2) ON CONFLICT(thread_id) DO UPDATE SET name=excluded.name", params![thread_id,name]).map_err(|e|e.to_string())?;
             }
             tx.execute(

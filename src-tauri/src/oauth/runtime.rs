@@ -1,3 +1,4 @@
+use super::cimd::ClientMetadata;
 use crate::remote::RemotePublicContext;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
@@ -32,7 +33,7 @@ fn invalid(code: &'static str) -> OAuthError {
     OAuthError("invalid_request", code)
 }
 
-fn validate_redirect(text: &str) -> Result<()> {
+pub(super) fn validate_redirect(text: &str) -> Result<()> {
     let url = url::Url::parse(text).map_err(|_| invalid("OAUTH_REDIRECT_URI_INVALID"))?;
     let loopback = match url.host() {
         Some(url::Host::Domain("localhost")) => true,
@@ -58,6 +59,12 @@ struct Client {
     refresh_allowed: bool,
     expires: Instant,
 }
+#[derive(Clone)]
+struct ClientSnapshot {
+    name: String,
+    redirects: Vec<String>,
+    refresh_allowed: bool,
+}
 #[derive(Clone, Deserialize, PartialEq, Eq)]
 pub struct Authorization {
     pub client_id: String,
@@ -74,8 +81,34 @@ pub struct Authorization {
 fn default_scope() -> String {
     "serena:mcp".into()
 }
+fn validate_authorization_state(request: &Authorization) -> Result<()> {
+    if request.state.len() > 2048 || request.state.chars().any(char::is_control) {
+        return Err(invalid("OAUTH_STATE_INVALID"));
+    }
+    Ok(())
+}
+fn validate_authorization_pkce(request: &Authorization) -> Result<()> {
+    if request.code_challenge_method != "S256"
+        || URL_SAFE_NO_PAD
+            .decode(&request.code_challenge)
+            .map_or(true, |value| value.len() != 32)
+    {
+        return Err(invalid("OAUTH_PKCE_INVALID"));
+    }
+    Ok(())
+}
+fn client_id_hostname(client_id: &str) -> Option<String> {
+    let url = url::Url::parse(client_id).ok()?;
+    if url.scheme() == "https" {
+        url.host_str().map(str::to_owned)
+    } else {
+        None
+    }
+}
 struct Pending {
     request: Authorization,
+    client_name: String,
+    refresh_allowed: bool,
     confirmation: String,
     expires: Instant,
     // Redirect contains a one-use code only after local approval.
@@ -83,6 +116,7 @@ struct Pending {
 }
 struct Code {
     request: Authorization,
+    refresh_allowed: bool,
     expires: Instant,
 }
 struct Access {
@@ -97,6 +131,7 @@ struct Refresh {
 struct Grant {
     client: String,
     scope: String,
+    refresh_allowed: bool,
     expires: Instant,
 }
 
@@ -105,6 +140,7 @@ struct Grant {
 pub struct PendingView {
     pub id: String,
     pub client_name: String,
+    pub client_id_hostname: Option<String>,
     pub redirect_uri: String,
     pub confirmation_code: String,
     pub expires_in_seconds: u64,
@@ -159,17 +195,7 @@ impl Runtime {
             .retain(|_, a| a.expires > now && self.grants.contains_key(&a.family));
         self.refresh
             .retain(|_, r| r.expires > now && self.grants.contains_key(&r.family));
-        // Registration expiry must not invalidate an in-flight authorization or
-        // a live grant. Collect references after pruning their own lifetimes.
-        let referenced: HashSet<&str> = self
-            .pending
-            .values()
-            .map(|p| p.request.client_id.as_str())
-            .chain(self.codes.values().map(|c| c.request.client_id.as_str()))
-            .chain(self.grants.values().map(|g| g.client.as_str()))
-            .collect();
-        self.clients
-            .retain(|id, client| client.expires > now || referenced.contains(id.as_str()));
+        self.clients.retain(|_, client| client.expires > now);
     }
     pub fn register(&mut self, value: Value) -> Result<Value> {
         self.ensure_storage()?;
@@ -249,36 +275,66 @@ impl Runtime {
         self.persist()?;
         Ok(response)
     }
-    pub fn authorize(&mut self, mut request: Authorization) -> Result<PendingView> {
+    pub(crate) fn has_registered_client(&self, client_id: &str) -> bool {
+        self.clients.contains_key(client_id)
+    }
+    pub(crate) fn preflight_cimd_authorization(&self, request: &Authorization) -> Result<()> {
+        self.validate_authorization_resource(request)?;
+        validate_authorization_state(request)?;
+        validate_authorization_pkce(request)?;
+        validate_redirect(&request.redirect_uri)
+    }
+    pub fn authorize(&mut self, request: Authorization) -> Result<PendingView> {
         self.ensure_storage()?;
         self.prune();
         let client = self
             .clients
             .get(&request.client_id)
+            .map(|client| ClientSnapshot {
+                name: client.name.clone(),
+                redirects: client.redirects.clone(),
+                refresh_allowed: client.refresh_allowed,
+            })
             .ok_or(invalid("OAUTH_CLIENT_INVALID"))?;
+        self.authorize_resolved(request, client)
+    }
+    pub(crate) fn authorize_cimd(
+        &mut self,
+        request: Authorization,
+        metadata: ClientMetadata,
+    ) -> Result<PendingView> {
+        self.ensure_storage()?;
+        self.prune();
+        if metadata.client_id != request.client_id {
+            return Err(invalid("OAUTH_CLIENT_INVALID"));
+        }
+        self.authorize_resolved(
+            request,
+            ClientSnapshot {
+                name: metadata.client_name,
+                redirects: metadata.redirect_uris,
+                refresh_allowed: metadata.refresh_allowed,
+            },
+        )
+    }
+    fn authorize_resolved(
+        &mut self,
+        mut request: Authorization,
+        client: ClientSnapshot,
+    ) -> Result<PendingView> {
         if !client.redirects.contains(&request.redirect_uri) {
             return Err(invalid("OAUTH_REDIRECT_URI_INVALID"));
         }
-        if request.resource != self.context.mcp_resource {
-            return Err(invalid("OAUTH_RESOURCE_INVALID"));
-        }
+        self.validate_authorization_resource(&request)?;
         // Validate reflected fields before any error eligible for redirection.
-        if request.state.len() > 2048 || request.state.chars().any(char::is_control) {
-            return Err(invalid("OAUTH_STATE_INVALID"));
-        }
+        validate_authorization_state(&request)?;
         if request.response_type != "code" {
             return Err(OAuthError(
                 "unsupported_response_type",
                 "OAUTH_CLIENT_INVALID",
             ));
         }
-        if request.code_challenge_method != "S256"
-            || URL_SAFE_NO_PAD
-                .decode(&request.code_challenge)
-                .map_or(true, |v| v.len() != 32)
-        {
-            return Err(invalid("OAUTH_PKCE_INVALID"));
-        }
+        validate_authorization_pkce(&request)?;
         let scopes: HashSet<_> = request.scope.split_whitespace().collect();
         if !scopes.contains("serena:mcp")
             || (scopes.contains("offline_access") && !client.refresh_allowed)
@@ -295,14 +351,16 @@ impl Runtime {
         }
         .into();
         // Only active browser requests share a confirmation flow.
-        if let Some((id, pending)) = self
-            .pending
-            .iter()
-            .find(|(_, p)| p.outcome.is_none() && p.request == request)
-        {
+        if let Some((id, pending)) = self.pending.iter().find(|(_, p)| {
+            p.outcome.is_none()
+                && p.request == request
+                && p.client_name == client.name
+                && p.refresh_allowed == client.refresh_allowed
+        }) {
             return Ok(PendingView {
                 id: id.clone(),
                 client_name: client.name.clone(),
+                client_id_hostname: client_id_hostname(&pending.request.client_id),
                 redirect_uri: request.redirect_uri.clone(),
                 confirmation_code: pending.confirmation.clone(),
                 expires_in_seconds: pending
@@ -346,6 +404,7 @@ impl Runtime {
         let view = PendingView {
             id: id.clone(),
             client_name: client.name.clone(),
+            client_id_hostname: client_id_hostname(&request.client_id),
             redirect_uri: request.redirect_uri.clone(),
             confirmation_code: confirmation.clone(),
             expires_in_seconds: 120,
@@ -364,12 +423,20 @@ impl Runtime {
             id,
             Pending {
                 request,
+                client_name: client.name,
+                refresh_allowed: client.refresh_allowed,
                 confirmation,
                 expires: Instant::now() + AUTH_TTL,
                 outcome: None,
             },
         );
         Ok(view)
+    }
+    fn validate_authorization_resource(&self, request: &Authorization) -> Result<()> {
+        if request.resource != self.context.mcp_resource {
+            return Err(invalid("OAUTH_RESOURCE_INVALID"));
+        }
+        Ok(())
     }
     pub fn pending(&mut self) -> Vec<PendingView> {
         self.prune();
@@ -383,11 +450,12 @@ impl Runtime {
             .into_iter()
             .map(|(id, p)| PendingView {
                 id: id.clone(),
-                client_name: self.clients[&p.request.client_id].name.clone(),
+                client_name: p.client_name.clone(),
+                client_id_hostname: client_id_hostname(&p.request.client_id),
                 redirect_uri: p.request.redirect_uri.clone(),
                 confirmation_code: p.confirmation.clone(),
                 scope: p.request.scope.clone(),
-                refresh_allowed: self.clients[&p.request.client_id].refresh_allowed,
+                refresh_allowed: p.refresh_allowed,
                 wake_window: false,
                 created: false,
                 expires_in_seconds: p
@@ -415,6 +483,7 @@ impl Runtime {
                 hash(&code),
                 Code {
                     request: pending.request.clone(),
+                    refresh_allowed: pending.refresh_allowed,
                     expires: Instant::now() + AUTH_TTL,
                 },
             );
@@ -450,10 +519,6 @@ impl Runtime {
         if get("resource") != self.context.mcp_resource {
             return Err(invalid("OAUTH_RESOURCE_INVALID"));
         }
-        if get("grant_type") != "authorization_code" && !self.clients.contains_key(get("client_id"))
-        {
-            return Err(OAuthError("invalid_client", "OAUTH_CLIENT_INVALID"));
-        }
         match get("grant_type") {
             "authorization_code" => {
                 // Invalid client bindings consume once; temporary server capacity does not.
@@ -485,7 +550,7 @@ impl Runtime {
                     self.used_codes.insert(key, expires);
                     return Err(OAuthError("invalid_grant", "OAUTH_PKCE_INVALID"));
                 }
-                let refresh_allowed = self.clients[&code.request.client_id].refresh_allowed;
+                let refresh_allowed = code.refresh_allowed;
                 if self.access.len() >= MAX_CREDENTIALS
                     || (refresh_allowed && self.refresh.len() >= MAX_CREDENTIALS)
                 {
@@ -502,6 +567,7 @@ impl Runtime {
                     Grant {
                         client: code.request.client_id,
                         scope: code.request.scope,
+                        refresh_allowed: code.refresh_allowed,
                         expires: Instant::now() + GRANT_TTL,
                     },
                 );
@@ -556,7 +622,7 @@ impl Runtime {
         let grant = &self.grants[&family];
         // A freshly approved code or an existing refresh token proves consent.
         // Resource scope stays unchanged; offline_access is not an OAuth prerequisite.
-        let refresh = if self.clients[&grant.client].refresh_allowed {
+        let refresh = if grant.refresh_allowed {
             Some(format!("sd_rt_{}", random_id()?))
         } else {
             None

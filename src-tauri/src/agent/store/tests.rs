@@ -487,18 +487,31 @@ fn repository_wait_does_not_block_single_thread_async_executor() {
 
 #[test]
 fn v3_migration_adds_attempt_reservations_without_changing_legacy_rows() {
-    let mut c=Connection::open_in_memory().unwrap();
-    c.pragma_update(None,"foreign_keys",true).unwrap();
-    c.execute_batch(SCHEMA_V1).unwrap(); c.execute_batch(SCHEMA_V2).unwrap(); c.execute_batch(SCHEMA_V3).unwrap();
-    c.pragma_update(None,"user_version",3).unwrap();
-    insert(&mut c,"E1","A","W"); runtime(&c,"runtime-E1");
-    let before=execution_record(&c,"E1").unwrap().unwrap();
-    migrate(&mut c).unwrap(); migrate(&mut c).unwrap();
-    assert_eq!(execution_record(&c,"E1").unwrap().unwrap(),before);
-    assert!(runtime_attempts::runtime_attempt_exists(&c,"E1").unwrap());
+    let mut c = Connection::open_in_memory().unwrap();
+    c.pragma_update(None, "foreign_keys", true).unwrap();
+    c.execute_batch(SCHEMA_V1).unwrap();
+    c.execute_batch(SCHEMA_V2).unwrap();
+    c.execute_batch(SCHEMA_V3).unwrap();
+    c.pragma_update(None, "user_version", 3).unwrap();
+    insert(&mut c, "E1", "A", "W");
+    runtime(&c, "runtime-E1");
+    let before = execution_record(&c, "E1").unwrap().unwrap();
+    migrate(&mut c).unwrap();
+    migrate(&mut c).unwrap();
+    assert_eq!(execution_record(&c, "E1").unwrap().unwrap(), before);
+    assert!(runtime_attempts::runtime_attempt_exists(&c, "E1").unwrap());
     c.execute("INSERT INTO execution_runtime_attempts(execution_id,runtime_instance_id,created_at) VALUES ('E1','R123',1)",[]).unwrap();
-    assert!(runtime_attempts::runtime_attempt_exists(&c,"E1").unwrap());
-    assert!(c.execute("UPDATE execution_runtime_attempts SET runtime_instance_id='R2'",[]).is_err());
-    assert!(c.execute("DELETE FROM execution_runtime_attempts",[]).is_err());
+    assert!(runtime_attempts::runtime_attempt_exists(&c, "E1").unwrap());
+    assert!(
+        c.execute(
+            "UPDATE execution_runtime_attempts SET runtime_instance_id='R2'",
+            []
+        )
+        .is_err()
+    );
+    assert!(
+        c.execute("DELETE FROM execution_runtime_attempts", [])
+            .is_err()
+    );
     assert!(c.execute("INSERT INTO execution_runtime_attempts(execution_id,runtime_instance_id,created_at) VALUES ('missing','R2',1)",[]).is_err());
 }

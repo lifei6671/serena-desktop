@@ -240,14 +240,14 @@ fn expired_unused_registrations_release_client_capacity() {
 }
 
 #[test]
-fn expired_registration_is_retained_for_pending_authorization() {
+fn expired_registration_is_pruned_without_invalidating_pending_authorization() {
     let mut oauth = runtime();
     let request = request(&mut oauth);
     let id = request.client_id.clone();
     let pending = oauth.authorize(request).unwrap();
     oauth.clients.get_mut(&id).unwrap().expires = Instant::now() - Duration::from_secs(1);
     assert_eq!(oauth.pending()[0].id, pending.id);
-    assert!(oauth.clients.contains_key(&id));
+    assert!(!oauth.clients.contains_key(&id));
     assert!(oauth.codes.is_empty());
     assert!(oauth.grants.is_empty());
     oauth.pending.get_mut(&pending.id).unwrap().expires = Instant::now() - Duration::from_secs(1);
@@ -256,7 +256,7 @@ fn expired_registration_is_retained_for_pending_authorization() {
 }
 
 #[test]
-fn expired_registration_is_retained_for_unredeemed_code() {
+fn expired_registration_is_pruned_without_invalidating_unredeemed_code() {
     let mut oauth = runtime();
     let request = request(&mut oauth);
     let id = request.client_id.clone();
@@ -269,13 +269,13 @@ fn expired_registration_is_retained_for_unredeemed_code() {
     oauth.prune();
     assert!(oauth.pending.is_empty());
     assert!(oauth.grants.is_empty());
-    assert!(oauth.clients.contains_key(&id));
+    assert!(!oauth.clients.contains_key(&id));
     let token = oauth.token(&fields).unwrap();
     assert!(oauth.validate(token["access_token"].as_str().unwrap()));
 }
 
 #[test]
-fn expired_registration_is_retained_until_its_grant_expires() {
+fn expired_registration_is_pruned_without_invalidating_its_grant() {
     let mut oauth = runtime();
     let request = request(&mut oauth);
     let id = request.client_id.clone();
@@ -289,6 +289,7 @@ fn expired_registration_is_retained_until_its_grant_expires() {
     oauth.prune();
     assert!(oauth.pending.is_empty());
     assert!(oauth.codes.is_empty());
+    assert!(!oauth.clients.contains_key(&id));
     let refresh = HashMap::from([
         ("grant_type".into(), "refresh_token".into()),
         ("client_id".into(), id.clone()),
@@ -407,11 +408,12 @@ fn registration_controls_refresh_consent_and_survives_restart() {
         req.scope = "serena:mcp".into();
         let view = oauth.authorize(req.clone()).unwrap();
         assert_eq!(view.refresh_allowed, refresh_allowed);
-        assert_eq!(
-            oauth.authorize(req.clone()).unwrap().refresh_allowed,
-            refresh_allowed
-        );
+        assert!(view.client_id_hostname.is_none());
+        let duplicate = oauth.authorize(req.clone()).unwrap();
+        assert_eq!(duplicate.refresh_allowed, refresh_allowed);
+        assert!(duplicate.client_id_hostname.is_none());
         assert_eq!(oauth.pending()[0].refresh_allowed, refresh_allowed);
+        assert!(oauth.pending()[0].client_id_hostname.is_none());
         assert!(oauth.access.is_empty());
         assert!(oauth.refresh.is_empty(), "browser request is not approval");
         let fields = approved(&mut oauth, req.clone());
@@ -432,6 +434,115 @@ fn registration_controls_refresh_consent_and_survives_restart() {
             assert!(oauth.refresh.is_empty());
         }
     }
+}
+
+fn cimd_request(oauth: &Runtime, client_id: &str, redirect_uri: &str) -> Authorization {
+    Authorization {
+        client_id: client_id.into(),
+        redirect_uri: redirect_uri.into(),
+        resource: oauth.context.mcp_resource.clone(),
+        response_type: "code".into(),
+        code_challenge: hash(&"a".repeat(43)),
+        code_challenge_method: "S256".into(),
+        state: "cimd state".into(),
+        scope: "serena:mcp".into(),
+    }
+}
+
+fn cimd_metadata(client_id: &str, refresh_allowed: bool) -> crate::oauth::cimd::ClientMetadata {
+    crate::oauth::cimd::ClientMetadata {
+        client_id: client_id.into(),
+        client_name: "CIMD Fixture".into(),
+        redirect_uris: vec!["https://client.example/cimd-callback".into()],
+        refresh_allowed,
+    }
+}
+
+#[test]
+fn cimd_authorization_freezes_refresh_policy_without_a_dcr_client() {
+    for refresh_allowed in [false, true] {
+        let mut oauth = runtime();
+        let client_id = "https://client.example/cimd/metadata";
+        let request = cimd_request(&oauth, client_id, "https://client.example/cimd-callback");
+        let view = oauth
+            .authorize_cimd(request.clone(), cimd_metadata(client_id, refresh_allowed))
+            .unwrap();
+        assert_eq!(view.client_name, "CIMD Fixture");
+        assert_eq!(view.client_id_hostname.as_deref(), Some("client.example"));
+        assert_eq!(view.refresh_allowed, refresh_allowed);
+        assert_eq!(
+            oauth.pending()[0].client_id_hostname.as_deref(),
+            Some("client.example")
+        );
+        assert!(!oauth.has_registered_client(client_id));
+        oauth.decide(&view.id, true).unwrap();
+        let redirect = url::Url::parse(oauth.poll(&view.id)["redirect"].as_str().unwrap()).unwrap();
+        let code = redirect
+            .query_pairs()
+            .find(|(key, _)| key == "code")
+            .unwrap()
+            .1
+            .into_owned();
+        let fields = HashMap::from([
+            ("grant_type".into(), "authorization_code".into()),
+            ("client_id".into(), client_id.into()),
+            ("redirect_uri".into(), request.redirect_uri.clone()),
+            ("resource".into(), request.resource.clone()),
+            ("code_verifier".into(), "a".repeat(43)),
+            ("code".into(), code),
+        ]);
+        let tokens = oauth.token(&fields).unwrap();
+        assert_eq!(tokens.get("refresh_token").is_some(), refresh_allowed);
+        assert!(!oauth.has_registered_client(client_id));
+        if refresh_allowed {
+            assert!(oauth.token(&refresh_request(&fields, &tokens)).is_ok());
+        }
+    }
+}
+
+#[test]
+fn cimd_grant_round_trips_without_a_dcr_client() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("oauth.json");
+    let mut oauth = persisted_runtime(&path);
+    let client_id = "https://client.example/cimd/metadata";
+    let request = cimd_request(&oauth, client_id, "https://client.example/cimd-callback");
+    let view = oauth
+        .authorize_cimd(request.clone(), cimd_metadata(client_id, true))
+        .unwrap();
+    oauth.decide(&view.id, true).unwrap();
+    let redirect = url::Url::parse(oauth.poll(&view.id)["redirect"].as_str().unwrap()).unwrap();
+    let code = redirect
+        .query_pairs()
+        .find(|(key, _)| key == "code")
+        .unwrap()
+        .1
+        .into_owned();
+    let fields = HashMap::from([
+        ("grant_type".into(), "authorization_code".into()),
+        ("client_id".into(), client_id.into()),
+        ("redirect_uri".into(), request.redirect_uri),
+        ("resource".into(), request.resource),
+        ("code_verifier".into(), "a".repeat(43)),
+        ("code".into(), code),
+    ]);
+    let tokens = oauth.token(&fields).unwrap();
+    drop(oauth);
+    let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(saved["version"], 4);
+    assert_eq!(saved["clients"], json!({}));
+    assert_eq!(
+        saved["grants"]
+            .as_object()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()["refresh_allowed"],
+        true
+    );
+    let mut oauth = persisted_runtime(&path);
+    assert!(oauth.validate(tokens["access_token"].as_str().unwrap()));
+    assert!(oauth.token(&refresh_request(&fields, &tokens)).is_ok());
 }
 
 #[test]
@@ -485,7 +596,7 @@ fn basic_scope_refresh_after_restart_and_access_expiry_needs_no_new_approval() {
 
 #[test]
 fn legacy_basic_scope_grants_are_not_silently_upgraded_on_load() {
-    for version in [1, 2] {
+    for version in [1, 2, 3] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("oauth.json");
         let mut oauth = persisted_runtime(&path);
@@ -497,8 +608,13 @@ fn legacy_basic_scope_grants_are_not_silently_upgraded_on_load() {
         let mut saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         saved["version"] = json!(version);
         saved["refresh"] = json!({}); // Old basic-scope grants never issued refresh tokens.
-        for client in saved["clients"].as_object_mut().unwrap().values_mut() {
-            client.as_object_mut().unwrap().remove("refresh_allowed");
+        if version < 3 {
+            for client in saved["clients"].as_object_mut().unwrap().values_mut() {
+                client.as_object_mut().unwrap().remove("refresh_allowed");
+            }
+        }
+        for grant in saved["grants"].as_object_mut().unwrap().values_mut() {
+            grant.as_object_mut().unwrap().remove("refresh_allowed");
         }
         std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
         let mut oauth = persisted_runtime(&path);
@@ -507,7 +623,14 @@ fn legacy_basic_scope_grants_are_not_silently_upgraded_on_load() {
         assert!(oauth.token(&refresh_request(&fields, &tokens)).is_err());
         oauth.persist().unwrap();
         let migrated: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-        assert_eq!(migrated["grants"], saved["grants"]);
+        assert_eq!(migrated["version"], 4);
+        assert!(
+            migrated["grants"]
+                .as_object()
+                .unwrap()
+                .values()
+                .all(|grant| grant["refresh_allowed"] == true)
+        );
         assert_eq!(migrated["access"], saved["access"]);
         assert_eq!(migrated["refresh"], json!({}));
         // Existing registrations remain usable, but a NEW native approval is required.
@@ -517,7 +640,7 @@ fn legacy_basic_scope_grants_are_not_silently_upgraded_on_load() {
 }
 
 #[test]
-fn current_storage_requires_refresh_policy_and_rejects_unregistered_refresh() {
+fn version_four_grants_require_a_frozen_refresh_policy() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("oauth.json");
     let mut oauth = persisted_runtime(&path);
@@ -529,7 +652,9 @@ fn current_storage_requires_refresh_policy_and_rejects_unregistered_refresh() {
     let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     for policy in [Value::Null, json!(false), json!("true")] {
         let mut bad = saved.clone();
-        bad["clients"][&fields["client_id"]]["refresh_allowed"] = policy;
+        for grant in bad["grants"].as_object_mut().unwrap().values_mut() {
+            grant["refresh_allowed"] = policy.clone();
+        }
         std::fs::write(&path, serde_json::to_vec(&bad).unwrap()).unwrap();
         assert!(
             Runtime::open(
@@ -960,7 +1085,7 @@ fn version_one_refresh_expiry_migrates_without_extending_old_credentials() {
     );
     assert!(oauth.token(&refresh_request(&fields, &tokens)).is_ok());
     let migrated: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    assert_eq!(migrated["version"], 3);
+    assert_eq!(migrated["version"], 4);
     assert_eq!(
         migrated["refresh"][&key]["expires_at_ms"],
         saved["grants"]
@@ -982,6 +1107,7 @@ fn code_capacity_retry_preserves_valid_code_but_invalid_bindings_consume() {
             Grant {
                 client: request.client_id,
                 scope: request.scope,
+                refresh_allowed: true,
                 expires: Instant::now() + GRANT_TTL,
             },
         );

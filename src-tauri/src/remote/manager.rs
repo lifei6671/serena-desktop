@@ -49,9 +49,7 @@ impl NgrokConnectFailure {
     }
 
     #[allow(dead_code, reason = "used by managed ngrok worker in next unit")]
-    fn into_retained_tunnel(
-        self,
-    ) -> Option<Box<dyn super::ngrok_tunnel::NgrokTunnelHandle>> {
+    fn into_retained_tunnel(self) -> Option<Box<dyn super::ngrok_tunnel::NgrokTunnelHandle>> {
         self.retained_tunnel
     }
 }
@@ -143,8 +141,7 @@ pub struct Remote {
     probe_lock: tokio::sync::Mutex<()>,
     task: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub(super) pending_child: tokio::sync::Mutex<Option<super::process::ManagedChild>>,
-    pending_ngrok:
-        tokio::sync::Mutex<Option<Box<dyn super::ngrok_tunnel::NgrokTunnelHandle>>>,
+    pending_ngrok: tokio::sync::Mutex<Option<Box<dyn super::ngrok_tunnel::NgrokTunnelHandle>>>,
     broker: Mutex<std::sync::Weak<Broker>>,
     pub app: std::sync::OnceLock<tauri::AppHandle>,
 }
@@ -154,9 +151,16 @@ impl Default for Remote {
     }
 }
 impl Remote {
-    fn with_ngrok_connector(
-        ngrok_connector: Arc<dyn super::ngrok_tunnel::NgrokConnector>,
-    ) -> Self {
+    pub(crate) fn log_mcp(&self, level: &str, message: &str) {
+        if let Some(broker) = self.broker.lock().unwrap().upgrade() {
+            broker.log_level(level, message);
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn attach_broker_for_test(&self, broker: &Arc<Broker>) {
+        *self.broker.lock().unwrap() = Arc::downgrade(broker);
+    }
+    fn with_ngrok_connector(ngrok_connector: Arc<dyn super::ngrok_tunnel::NgrokConnector>) -> Self {
         Self {
             oauth_store: None,
             config_file: None,
@@ -557,10 +561,7 @@ impl Remote {
             Ok(Err(_)) | Err(_) => Err(()),
         }
     }
-    async fn retain_pending_ngrok(
-        &self,
-        tunnel: Box<dyn super::ngrok_tunnel::NgrokTunnelHandle>,
-    ) {
+    async fn retain_pending_ngrok(&self, tunnel: Box<dyn super::ngrok_tunnel::NgrokTunnelHandle>) {
         let mut pending = self.pending_ngrok.lock().await;
         debug_assert!(pending.is_none());
         *pending = Some(tunnel);
@@ -743,9 +744,7 @@ impl Remote {
         let remote = Arc::clone(self);
         let owner = Arc::clone(broker);
         *task = Some(tokio::spawn(async move {
-            remote
-                .run_managed_ngrok_worker(owner, plan, cancel)
-                .await;
+            remote.run_managed_ngrok_worker(owner, plan, cancel).await;
         }));
         Ok(())
     }
@@ -765,10 +764,7 @@ impl Remote {
         self.start_managed_ngrok_plan_locked(broker, plan).await
     }
     #[cfg(test)]
-    async fn start_managed_ngrok(
-        self: &Arc<Self>,
-        broker: Arc<Broker>,
-    ) -> Result<(), String> {
+    async fn start_managed_ngrok(self: &Arc<Self>, broker: Arc<Broker>) -> Result<(), String> {
         let _management = broker.management.lock().await;
         self.start_managed_ngrok_locked(&broker).await
     }

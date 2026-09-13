@@ -582,7 +582,11 @@ impl AgentProductService {
                     && !s.runtime_attempt_exists
                     && !self.store.product_worker_owned(&r.id);
                 let quarantined_pending = pending
-                    && self.manager.runtime_pool.check_workspace(&r.canonical_workspace_root).is_err();
+                    && self
+                        .manager
+                        .runtime_pool
+                        .check_workspace(&r.canonical_workspace_root)
+                        .is_err();
                 let actions = AvailableActions {
                     can_cancel: matches!(
                         r.status.as_str(),

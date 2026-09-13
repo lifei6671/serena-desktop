@@ -40,80 +40,126 @@ impl CodexProvider {
         if row.status == "cancelled" && row.dispatch_state == "not_dispatched" {
             return Ok(row);
         }
-        let mut lease = self.runtime_pool.lease(&self.store, &row.canonical_workspace_root).await?;
+        let mut lease = self
+            .runtime_pool
+            .lease(&self.store, &row.canonical_workspace_root)
+            .await?;
         if self.runtime_pool.stop.is_cancelled() {
             return Err("AGENT_SHUTTING_DOWN".to_string().into());
         }
         if lease.as_ref().is_some_and(|m| !m.client.reusable()) {
             let stale = lease.take().unwrap();
             let runtime_id = stale.client.runtime_id().to_owned();
-            stale.shutdown().await.map_err(|failure|
-                ExecutionFailure::Runtime(self.runtime_pool.retain_failure(&self.store, &row.canonical_workspace_root, &runtime_id, failure)))?;
+            stale.shutdown().await.map_err(|failure| {
+                ExecutionFailure::Runtime(self.runtime_pool.retain_failure(
+                    &self.store,
+                    &row.canonical_workspace_root,
+                    &runtime_id,
+                    failure,
+                ))
+            })?;
         }
         if lease.is_none() {
-        let runtime_id = crate::agent::task_manager::AgentTaskManager::id("runtime");
-        let managed = match self.connect(
-            id,
-            self.store.clone(),
-            self.owner.clone(),
-            runtime_id.clone(),
-            self.executable.clone(),
-            PathBuf::from(&row.canonical_workspace_root),
-        )
-        .await
-        {
-            Ok(managed) => managed,
-            Err(error) => {
-                let mut error = self.runtime_pool.retain_attempt_failure(&self.store, &row.canonical_workspace_root, &runtime_id, error).await;
-                if let Err(state) = self.failed(id).await {
-                    error
-                        .message
-                        .push_str(&format!("; reconciliation persistence: {state}"));
-                }
-                // connect has already converged its owner, or returns that owner
-                // in RuntimeFailure. An unbound attempt cannot be replayed.
-                let marked = async {
-                    if self.row(id).await?.status != "dispatch_pending" {
-                        crate::agent::task_manager::recovery::mark_unknown(&self.store, id).await?;
+            let runtime_id = crate::agent::task_manager::AgentTaskManager::id("runtime");
+            let managed = match self
+                .connect(
+                    id,
+                    self.store.clone(),
+                    self.owner.clone(),
+                    runtime_id.clone(),
+                    self.executable.clone(),
+                    PathBuf::from(&row.canonical_workspace_root),
+                )
+                .await
+            {
+                Ok(managed) => managed,
+                Err(error) => {
+                    let mut error = self
+                        .runtime_pool
+                        .retain_attempt_failure(
+                            &self.store,
+                            &row.canonical_workspace_root,
+                            &runtime_id,
+                            error,
+                        )
+                        .await;
+                    if let Err(state) = self.failed(id).await {
+                        error
+                            .message
+                            .push_str(&format!("; reconciliation persistence: {state}"));
                     }
-                    Ok::<(), String>(())
-                }.await;
-                if let Err(state) = marked {
-                    error.message.push_str(&format!("; mark unknown: {state}"));
+                    // connect has already converged its owner, or returns that owner
+                    // in RuntimeFailure. An unbound attempt cannot be replayed.
+                    let marked = async {
+                        if self.row(id).await?.status != "dispatch_pending" {
+                            crate::agent::task_manager::recovery::mark_unknown(&self.store, id)
+                                .await?;
+                        }
+                        Ok::<(), String>(())
+                    }
+                    .await;
+                    if let Err(state) = marked {
+                        error.message.push_str(&format!("; mark unknown: {state}"));
+                    }
+                    return Err(ExecutionFailure::Runtime(error));
                 }
-                return Err(ExecutionFailure::Runtime(error));
-            }
-        };
-        *lease = Some(managed);
+            };
+            *lease = Some(managed);
         }
         self.run_leased(id, &mut lease, acceptance).await
     }
-    async fn connect(&self, id: &str, store: StateStore, owner: String, runtime_id: String, executable: PathBuf, workspace: PathBuf)
-        -> Result<managed::ManagedClient, super::runtime::RuntimeFailure> {
+    async fn connect(
+        &self,
+        id: &str,
+        store: StateStore,
+        owner: String,
+        runtime_id: String,
+        executable: PathBuf,
+        workspace: PathBuf,
+    ) -> Result<managed::ManagedClient, super::runtime::RuntimeFailure> {
         #[cfg(test)]
         {
             let connect = self.runtime_pool.test_connect.lock().unwrap().clone();
             if let Some(connect) = connect {
-                store.reserve_runtime_attempt(id.into(), runtime_id.clone(), now()).await
-                    .map_err(|e| super::runtime::RuntimeError::new("CODEX_RUNTIME_STORE_FAILED",e))?;
+                store
+                    .reserve_runtime_attempt(id.into(), runtime_id.clone(), now())
+                    .await
+                    .map_err(|e| {
+                        super::runtime::RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", e)
+                    })?;
                 return connect(runtime_id, workspace).await;
             }
         }
-        managed::connect(store, owner, runtime_id, executable, workspace, Some(managed::RuntimeAttempt::Dispatch(id.into()))).await
+        managed::connect(
+            store,
+            owner,
+            runtime_id,
+            executable,
+            workspace,
+            Some(managed::RuntimeAttempt::Dispatch(id.into())),
+        )
+        .await
     }
     #[cfg(test)]
     async fn run_managed(
-        &self, id: &str, managed: managed::ManagedClient,
+        &self,
+        id: &str,
+        managed: managed::ManagedClient,
         acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<ExecutionRecord, ExecutionFailure> {
         let _worker = self.runtime_pool.enter().await?;
-        let mut lease = self.runtime_pool.lease(&self.store, &self.row(id).await?.canonical_workspace_root).await?;
+        let mut lease = self
+            .runtime_pool
+            .lease(&self.store, &self.row(id).await?.canonical_workspace_root)
+            .await?;
         assert!(lease.is_none());
         *lease = Some(managed);
         self.run_leased(id, &mut lease, acceptance).await
     }
     async fn run_leased(
-        &self, id: &str, lease: &mut Option<managed::ManagedClient>,
+        &self,
+        id: &str,
+        lease: &mut Option<managed::ManagedClient>,
         acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<ExecutionRecord, ExecutionFailure> {
         let client = &lease.as_ref().unwrap().client;
@@ -127,19 +173,31 @@ impl CodexProvider {
         };
         let row = self.row(id).await;
         if let Ok(row) = &row
-            && matches!(row.status.as_str(), "completed" | "failed" | "cancelled" | "interrupted")
+            && matches!(
+                row.status.as_str(),
+                "completed" | "failed" | "cancelled" | "interrupted"
+            )
             && row.release_evidence_kind.as_deref() == Some("same_runtime_cleanup")
             && row.release_evidence_state == "complete"
             && row.result_completeness == "complete"
-            && client.finish_execution(&self.store, row.thread_id.as_deref(), row.turn_id.as_deref()).await.is_ok()
+            && client
+                .finish_execution(
+                    &self.store,
+                    row.thread_id.as_deref(),
+                    row.turn_id.as_deref(),
+                )
+                .await
+                .is_ok()
             && !self.runtime_pool.stop.is_cancelled()
         {
             return result.map_err(ExecutionFailure::State);
         }
         let runtime_id = client.runtime_id().to_owned();
         let workspace = self.row(id).await?.canonical_workspace_root;
-        let termination = lease.take().unwrap().shutdown().await
-            .map_err(|failure| self.runtime_pool.retain_failure(&self.store, &workspace, &runtime_id, failure));
+        let termination = lease.take().unwrap().shutdown().await.map_err(|failure| {
+            self.runtime_pool
+                .retain_failure(&self.store, &workspace, &runtime_id, failure)
+        });
         self.finish_after_shutdown(id, result, termination).await
     }
     /// Only called after the ManagedClient monitor has returned ownership/evidence.
@@ -149,21 +207,44 @@ impl CodexProvider {
         result: Result<ExecutionRecord, String>,
         termination: Result<(), super::runtime::RuntimeFailure>,
     ) -> Result<ExecutionRecord, ExecutionFailure> {
-        use crate::agent::task_manager::recovery::{mark_unknown, reconcile_execution_after_runtime_end, RecoveryOutcome};
+        use crate::agent::task_manager::recovery::{
+            RecoveryOutcome, mark_unknown, reconcile_execution_after_runtime_end,
+        };
         if let Err(mut failure) = termination {
             if let Err(error) = mark_unknown(&self.store, id).await {
-                failure.message.push_str(&format!("; mark unknown: {error}"));
+                failure
+                    .message
+                    .push_str(&format!("; mark unknown: {error}"));
             }
             return Err(ExecutionFailure::Runtime(failure));
         }
         let row = self.row(id).await?;
-        if result.is_err() && !matches!(row.status.as_str(), "completed" | "failed" | "cancelled" | "interrupted") {
-            match reconcile_execution_after_runtime_end(&self.store, &self.executable, &self.owner, &self.runtime_pool, None, id).await {
-                Ok(RecoveryOutcome::RuntimeFailure { failure, .. }) => return Err(ExecutionFailure::Runtime(failure)),
-                Ok(_) => {},
+        if result.is_err()
+            && !matches!(
+                row.status.as_str(),
+                "completed" | "failed" | "cancelled" | "interrupted"
+            )
+        {
+            match reconcile_execution_after_runtime_end(
+                &self.store,
+                &self.executable,
+                &self.owner,
+                &self.runtime_pool,
+                None,
+                id,
+            )
+            .await
+            {
+                Ok(RecoveryOutcome::RuntimeFailure { failure, .. }) => {
+                    return Err(ExecutionFailure::Runtime(failure));
+                }
+                Ok(_) => {}
                 Err(error) => {
                     mark_unknown(&self.store, id).await?;
-                    return Err(ExecutionFailure::State(format!("{}; reconciliation: {error}", result.unwrap_err())));
+                    return Err(ExecutionFailure::State(format!(
+                        "{}; reconciliation: {error}",
+                        result.unwrap_err()
+                    )));
                 }
             }
         }
@@ -210,7 +291,9 @@ impl CodexProvider {
             .await?;
         }
         let row = self.row(id).await?;
-        if !matches!(row.status.as_str(), "reconciling" | "unknown") && row.provider_terminal_status.is_none() {
+        if !matches!(row.status.as_str(), "reconciling" | "unknown")
+            && row.provider_terminal_status.is_none()
+        {
             self.event(id, Transition::Reconcile).await?;
         }
         Ok(())
@@ -258,12 +341,25 @@ impl CodexProvider {
     ) -> Result<ExecutionRecord, String> {
         let outcome = async {
             let row = self.row(id).await?;
-            if row.status == "cancelled" && row.dispatch_state == "not_dispatched" { return Ok(row); }
-            client.prepare_execution(&self.store).await.map_err(|e| e.to_string())?;
+            if row.status == "cancelled" && row.dispatch_state == "not_dispatched" {
+                return Ok(row);
+            }
+            client
+                .prepare_execution(&self.store)
+                .await
+                .map_err(|e| e.to_string())?;
             self.run_active_client(id, client, acceptance).await
-        }.await;
+        }
+        .await;
         if let Err(error) = &outcome {
-            self.store.execution_diagnostic(id.into(), "CODEX_PROVIDER_FAILURE".into(), error.clone(), now()).await?;
+            self.store
+                .execution_diagnostic(
+                    id.into(),
+                    "CODEX_PROVIDER_FAILURE".into(),
+                    error.clone(),
+                    now(),
+                )
+                .await?;
             self.failed(id).await?;
         }
         outcome
@@ -294,15 +390,24 @@ impl CodexProvider {
             }
             return Err(error);
         }
-        client.enable_root_title(self.store.clone(), id).map_err(|e| e.to_string())?;
+        client
+            .enable_root_title(self.store.clone(), id)
+            .map_err(|e| e.to_string())?;
         let mode =
             serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?;
-        let warm = row.thread_id.as_deref().is_some_and(|id| client.loaded_thread(id).is_some());
+        let warm = row
+            .thread_id
+            .as_deref()
+            .is_some_and(|id| client.loaded_thread(id).is_some());
         let thread = if let Some(thread_id) = &row.thread_id {
-            let thread = if let Some(thread) = client.loaded_thread(thread_id) { thread } else { client
-                .thread_resume(thread_id)
-                .await
-                .map_err(|e| e.to_string())? };
+            let thread = if let Some(thread) = client.loaded_thread(thread_id) {
+                thread
+            } else {
+                client
+                    .thread_resume(thread_id)
+                    .await
+                    .map_err(|e| e.to_string())?
+            };
             if thread.history_mode != super::protocol::HistoryMode::Paginated {
                 return Err(
                     "CODEX_APP_SERVER_INCOMPATIBLE: continuation requires paginated history".into(),
@@ -316,7 +421,11 @@ impl CodexProvider {
                 .map_err(|e| e.to_string())?
         };
         self.bind(id, client, &thread.id, None).await?;
-        if !warm { self.store.save_thread_name(thread.id.clone(), thread.name.clone()).await?; }
+        if !warm {
+            self.store
+                .save_thread_name(thread.id.clone(), thread.name.clone())
+                .await?;
+        }
         // Product continue is accepted only after exact managed Thread validation.
         if let Some(receipt) = acceptance.take() {
             let _ = receipt.send(Ok(()));
@@ -514,7 +623,8 @@ impl CodexProvider {
         // to manufacture success. Dropping an unresolved request cancels Client.
         if !acknowledged {
             use std::future::Future;
-            let _ = std::future::poll_fn(|cx| std::task::Poll::Ready(request.as_mut().poll(cx))).await;
+            let _ =
+                std::future::poll_fn(|cx| std::task::Poll::Ready(request.as_mut().poll(cx))).await;
         }
         if row.status == "failed" {
             return Err("PROVIDER_TERMINAL_failed".into());

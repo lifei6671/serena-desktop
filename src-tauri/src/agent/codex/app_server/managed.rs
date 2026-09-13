@@ -202,11 +202,25 @@ pub struct ManagedClient {
 }
 impl ManagedClient {
     #[cfg(test)]
-    pub(crate) fn test_owned(client: Client, reconciliation: tokio::task::JoinHandle<std::result::Result<(), RuntimeFailure>>) -> Self {
-        Self { client, reconciliation, compatibility: CompatibilityEvidence {
-            identity: CompatibilityIdentity { version: VERSION.into(), binary_sha256: BINARY_SHA256.into(), protocol_schema_sha256: SCHEMA_SHA256.into() },
-            executable: PathBuf::from("fixture"), source_commit: SOURCE_COMMIT, wire_contract: WIRE_CONTRACT, _binary: tempfile::tempfile().unwrap(),
-        } }
+    pub(crate) fn test_owned(
+        client: Client,
+        reconciliation: tokio::task::JoinHandle<std::result::Result<(), RuntimeFailure>>,
+    ) -> Self {
+        Self {
+            client,
+            reconciliation,
+            compatibility: CompatibilityEvidence {
+                identity: CompatibilityIdentity {
+                    version: VERSION.into(),
+                    binary_sha256: BINARY_SHA256.into(),
+                    protocol_schema_sha256: SCHEMA_SHA256.into(),
+                },
+                executable: PathBuf::from("fixture"),
+                source_commit: SOURCE_COMMIT,
+                wire_contract: WIRE_CONTRACT,
+                _binary: tempfile::tempfile().unwrap(),
+            },
+        }
     }
 
     pub async fn shutdown(self) -> std::result::Result<(), RuntimeFailure> {
@@ -276,10 +290,19 @@ pub async fn connect(
     // persist its row or enter CreateProcess; never wait for Execution binding.
     let now = crate::agent::coordinator::now();
     match attempt {
-        Some(RuntimeAttempt::Dispatch(id)) => store.reserve_runtime_attempt(id, runtime_id.clone(), now).await,
-        Some(RuntimeAttempt::Recovery(id)) => store.reserve_recovery_attempt(id, runtime_id.clone(), now).await,
+        Some(RuntimeAttempt::Dispatch(id)) => {
+            store
+                .reserve_runtime_attempt(id, runtime_id.clone(), now)
+                .await
+        }
+        Some(RuntimeAttempt::Recovery(id)) => {
+            store
+                .reserve_recovery_attempt(id, runtime_id.clone(), now)
+                .await
+        }
         None => Ok(()), // Protocol-only integration tests have no Execution.
-    }.map_err(|e| RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", e))?;
+    }
+    .map_err(|e| RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", e))?;
     let runtime = handoff_creation(Runtime::create(
         store,
         owner,

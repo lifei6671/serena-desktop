@@ -360,7 +360,7 @@ test('remote copy confirms only after clipboard success and self-hosted probe sh
 
 test('native approval escapes client claims, focuses deny, and binds decisions to request id', async () => {
   const { RemoteApprovalDialog } = await import('./RemoteApprovalDialog.tsx');
-  const pending = { id: 'flow-1', clientName: '<script>untrusted</script>', redirectUri: 'https://client.example/callback', confirmationCode: '482731', expiresInSeconds: 100, scope: 'serena:mcp offline_access', refreshAllowed: true };
+  const pending = { id: 'flow-1', clientName: '<script>untrusted</script>', clientIdHostname: 'client.example', redirectUri: 'https://client.example/callback', confirmationCode: '482731', expiresInSeconds: 100, scope: 'serena:mcp offline_access', refreshAllowed: true };
   const controller = { state: { pending: [pending] }, busy: '测试连接', approvalBusy: false, approvalError: '', approve: (id, allow) => api.remoteApprove(id, allow) };
   const decisions = [];
   api.remoteApprove = async (id, allow) => { decisions.push([id, allow]); };
@@ -369,17 +369,20 @@ test('native approval escapes client claims, focuses deny, and binds decisions t
   assert.equal(document.activeElement.textContent, '拒绝');
   const dialog = document.querySelector('[role="dialog"]');
   assert.match(dialog.textContent, /482731/);
+  assert.match(dialog.textContent, /客户端身份域名/);
+  assert.match(dialog.textContent, /client\.example/);
   assert.equal(dialog.querySelector('script'), null);
   await act(async () => [...dialog.querySelectorAll('button')].find(b => b.textContent === '允许连接').click());
   assert.deepEqual(decisions, [['flow-1', true]]);
   assert.match(document.querySelector('[role="dialog"]').textContent, /客户端可自动刷新/);
-  controller.state = { pending: [{ ...pending, id: 'flow-2', expiresInSeconds: 0, scope: 'serena:mcp', refreshAllowed: false }] };
+  controller.state = { pending: [{ ...pending, id: 'flow-2', clientIdHostname: null, expiresInSeconds: 0, scope: 'serena:mcp', refreshAllowed: false }] };
   await act(async () => root.render(createElement(RemoteApprovalDialog, { controller })));
   assert.equal(document.activeElement.textContent, '拒绝');
   assert.ok([...document.querySelectorAll('[role="dialog"] button')].find(b => b.textContent === '允许连接').disabled);
   await act(async () => document.activeElement.click());
   assert.deepEqual(decisions, [['flow-1', true], ['flow-2', false]]);
   assert.match(document.querySelector('[role="dialog"]').textContent, /不签发刷新令牌/);
+  assert.doesNotMatch(document.querySelector('[role="dialog"]').textContent, /客户端身份域名/);
 });
 
 

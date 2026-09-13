@@ -90,13 +90,23 @@ fn actual_host_restart_converges_idle_orphan_and_cold_continuation() {
         assert_eq!(old.state, "unknown");
         assert_eq!(old.termination_evidence_state, "unknown");
         assert_eq!(store.execution(id.into()).await.unwrap().unwrap(), original);
-        assert!(s.manager.runtime_pool.lease(&store, &original.canonical_workspace_root).await.is_err());
+        assert!(
+            s.manager
+                .runtime_pool
+                .lease(&store, &original.canonical_workspace_root)
+                .await
+                .is_err()
+        );
         assert!(evidence.launches.lock().unwrap().is_empty());
         // Transport fixture only: supply the synthetic monitor's evidence; real
         // named Job recovery is covered in runtime/tests.
         let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
         db.execute("UPDATE runtime_instances SET state='terminated',termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',termination_evidence_at=99 WHERE id=?1",[runtime]).unwrap();
-        s.manager.runtime_pool.retry_workspace(&store, &original.canonical_workspace_root).await.unwrap();
+        s.manager
+            .runtime_pool
+            .retry_workspace(&store, &original.canonical_workspace_root)
+            .await
+            .unwrap();
         let next = submit(&s, continuation(id, "after-restart"), dir.path()).await;
         assert_eq!(next.thread_id, original.thread_id);
         assert_ne!(next.runtime_instance_id, original.runtime_instance_id);
@@ -268,7 +278,9 @@ fn service(store: StateStore, database: PathBuf, evidence: Arc<Evidence>) -> Age
                     .or_default() += 1;
                 if evidence.fail_shutdown.swap(false, Ordering::SeqCst) {
                     return Err(crate::agent::codex::runtime::RuntimeFailure {
-                        code: "CODEX_RUNTIME_TERMINATION_TIMEOUT", message: "fixture shutdown has no termination evidence".into(), runtime: None,
+                        code: "CODEX_RUNTIME_TERMINATION_TIMEOUT",
+                        message: "fixture shutdown has no termination evidence".into(),
+                        runtime: None,
                     });
                 }
                 // Fake Job boundary only; real Windows Job evidence has Runtime tests.
@@ -331,7 +343,8 @@ fn ownerless_created_attempt_blocks_shutdown_but_precreate_failure_does_not() {
             message: "monitor JoinError fixture".into(),
             runtime: None,
         };
-        pool.retain_attempt_failure(&store, "W", "absent", error()).await;
+        pool.retain_attempt_failure(&store, "W", "absent", error())
+            .await;
         pool.shutdown().await.unwrap();
         let pool = CodexRuntimePool::default();
         rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap().execute(
@@ -471,7 +484,8 @@ fn cancelled_turn_is_reusable_but_cleanup_uncertainty_is_not() {
             .manager
             .runtime_pool
             .lease(&s.store, &first.canonical_workspace_root)
-            .await.unwrap();
+            .await
+            .unwrap();
         assert!(lease.is_none());
         drop(lease);
         assert!(
@@ -952,7 +966,8 @@ fn idle_transport_failure_invalidates_without_replay_and_next_legal_continue_res
                 .manager
                 .runtime_pool
                 .lease(&s.store, &first.canonical_workspace_root)
-                .await.unwrap();
+                .await
+                .unwrap();
             lease.as_ref().unwrap().client.cancel();
         }
         assert_eq!(
@@ -1033,60 +1048,132 @@ fn pool_serializes_same_workspace_and_shutdown_waits_for_owned_worker() {
 #[test]
 fn termination_failure_quarantines_only_its_workspace_and_recovery_allows_cold_resume() {
     run(async {
-        let dir=tempfile::tempdir().unwrap(); let a=dir.path().join("A"); let b=dir.path().join("B");
-        std::fs::create_dir(&a).unwrap(); std::fs::create_dir(&b).unwrap();
-        let store=StateStore::open(dir.path().into()).await.unwrap(); let evidence=Arc::new(Evidence::default());
-        let s=service(store.clone(),dir.path().join("agent-state.db"),evidence.clone());
-        let first=submit(&s,start("A","a1"),&a).await;
-        let runtime=first.runtime_instance_id.as_ref().unwrap();
-        evidence.fail_shutdown.store(true,Ordering::SeqCst);
-        { let lease=s.manager.runtime_pool.lease(&store,&first.canonical_workspace_root).await.unwrap(); lease.as_ref().unwrap().client.cancel(); }
-        let blocked=s.checked_operation(continuation(&first.execution_id,"a2"),None).await;
-        assert_eq!(blocked["ok"],false,"{blocked}");
-        assert_eq!(evidence.launches.lock().unwrap().len(),1);
-        assert!(s.manager.runtime_pool.retains_runtime(&first.canonical_workspace_root,runtime));
-        let pending=store.product_read(None,Some("A".into()),None,10).await.unwrap().into_iter().find(|r|r.execution.id!=first.execution_id).unwrap().execution;
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("A");
+        let b = dir.path().join("B");
+        std::fs::create_dir(&a).unwrap();
+        std::fs::create_dir(&b).unwrap();
+        let store = StateStore::open(dir.path().into()).await.unwrap();
+        let evidence = Arc::new(Evidence::default());
+        let s = service(
+            store.clone(),
+            dir.path().join("agent-state.db"),
+            evidence.clone(),
+        );
+        let first = submit(&s, start("A", "a1"), &a).await;
+        let runtime = first.runtime_instance_id.as_ref().unwrap();
+        evidence.fail_shutdown.store(true, Ordering::SeqCst);
+        {
+            let lease = s
+                .manager
+                .runtime_pool
+                .lease(&store, &first.canonical_workspace_root)
+                .await
+                .unwrap();
+            lease.as_ref().unwrap().client.cancel();
+        }
+        let blocked = s
+            .checked_operation(continuation(&first.execution_id, "a2"), None)
+            .await;
+        assert_eq!(blocked["ok"], false, "{blocked}");
+        assert_eq!(evidence.launches.lock().unwrap().len(), 1);
+        assert!(
+            s.manager
+                .runtime_pool
+                .retains_runtime(&first.canonical_workspace_root, runtime)
+        );
+        let pending = store
+            .product_read(None, Some("A".into()), None, 10)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|r| r.execution.id != first.execution_id)
+            .unwrap()
+            .execution;
         assert!(pending.runtime_instance_id.is_none());
         assert_eq!(blocked["error"]["executionId"], pending.id);
         assert_eq!(blocked["control"]["requestAccepted"], true);
-        assert_eq!(blocked["control"]["nextAction"]["action"], "manual_resolution");
-        let retried=s.checked_operation(continuation(&first.execution_id,"a2"),None).await;
+        assert_eq!(
+            blocked["control"]["nextAction"]["action"],
+            "manual_resolution"
+        );
+        let retried = s
+            .checked_operation(continuation(&first.execution_id, "a2"), None)
+            .await;
         assert_eq!(retried["data"]["executionId"], pending.id);
-        assert_eq!(retried["control"]["nextAction"]["action"], "manual_resolution");
-        let view=s.observe(pending.id.clone(),false).await.unwrap();
+        assert_eq!(
+            retried["control"]["nextAction"]["action"],
+            "manual_resolution"
+        );
+        let view = s.observe(pending.id.clone(), false).await.unwrap();
         assert!(!view.available_actions.can_resume_pending);
         assert!(view.available_actions.can_cancel);
         assert_eq!(view.attention, "manual_resolution_required");
-        let resumed=s.checked_operation(json!({"action":"resume_pending","executionId":pending.id}),None).await;
-        assert_eq!(resumed["ok"],false);
+        let resumed = s
+            .checked_operation(
+                json!({"action":"resume_pending","executionId":pending.id}),
+                None,
+            )
+            .await;
+        assert_eq!(resumed["ok"], false);
         assert_eq!(resumed["error"]["code"], "AGENT_RUNTIME_QUARANTINED");
         assert_eq!(resumed["error"]["executionId"], pending.id);
         assert_eq!(resumed["control"]["requestAccepted"], true);
         assert_eq!(resumed["control"]["providerInvoked"], false);
         assert_eq!(resumed["control"]["dispatchCertainty"], "not_dispatched");
-        assert_eq!(resumed["control"]["nextAction"], json!({"action":"manual_resolution","executionId":pending.id}));
-        assert_eq!(store.execution(pending.id.clone()).await.unwrap().unwrap(), pending);
-        assert_eq!(store.product_read(None,Some("A".into()),None,10).await.unwrap().len(), 2);
-        let new_start=s.checked_operation(start("A-fresh","blocked"),w(&a,"W")).await;
-        assert_eq!(new_start["ok"],false);
-        assert_eq!(evidence.launches.lock().unwrap().len(),1);
-        let other=submit(&s,start("B","b1"),&b).await;
-        let other2=submit(&s,continuation(&other.execution_id,"b2"),&b).await;
-        assert_eq!(other.runtime_instance_id,other2.runtime_instance_id);
-        assert_eq!(evidence.launches.lock().unwrap().len(),2);
+        assert_eq!(
+            resumed["control"]["nextAction"],
+            json!({"action":"manual_resolution","executionId":pending.id})
+        );
+        assert_eq!(
+            store.execution(pending.id.clone()).await.unwrap().unwrap(),
+            pending
+        );
+        assert_eq!(
+            store
+                .product_read(None, Some("A".into()), None, 10)
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+        let new_start = s
+            .checked_operation(start("A-fresh", "blocked"), w(&a, "W"))
+            .await;
+        assert_eq!(new_start["ok"], false);
+        assert_eq!(evidence.launches.lock().unwrap().len(), 1);
+        let other = submit(&s, start("B", "b1"), &b).await;
+        let other2 = submit(&s, continuation(&other.execution_id, "b2"), &b).await;
+        assert_eq!(other.runtime_instance_id, other2.runtime_instance_id);
+        assert_eq!(evidence.launches.lock().unwrap().len(), 2);
         // The fake monitor's first termination lacked evidence. Even EOF/dropped
         // Client did not admit a replacement. Supply its successful retry evidence.
-        let db=rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+        let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
         db.execute("UPDATE runtime_instances SET state='terminated',termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',termination_evidence_at=20 WHERE id=?1",[runtime]).unwrap();
-        s.manager.runtime_pool.retry_workspace(&store,&first.canonical_workspace_root).await.unwrap();
-        s.manager.runtime_pool.check_workspace(&first.canonical_workspace_root).unwrap();
-        let receipt=s.checked_operation(json!({"action":"resume_pending","executionId":pending.id}),None).await;
-        assert_eq!(receipt["ok"],true,"{receipt}");
-        let final_view=final_row(&s,&pending.id).await;
-        assert_eq!(final_view.thread_id,first.thread_id);
-        assert_ne!(final_view.runtime_instance_id,first.runtime_instance_id);
-        assert_eq!(counts(&evidence,final_view.runtime_instance_id.as_ref().unwrap()),[1,0,1,1]);
-        assert_eq!(evidence.launches.lock().unwrap().len(),3);
+        s.manager
+            .runtime_pool
+            .retry_workspace(&store, &first.canonical_workspace_root)
+            .await
+            .unwrap();
+        s.manager
+            .runtime_pool
+            .check_workspace(&first.canonical_workspace_root)
+            .unwrap();
+        let receipt = s
+            .checked_operation(
+                json!({"action":"resume_pending","executionId":pending.id}),
+                None,
+            )
+            .await;
+        assert_eq!(receipt["ok"], true, "{receipt}");
+        let final_view = final_row(&s, &pending.id).await;
+        assert_eq!(final_view.thread_id, first.thread_id);
+        assert_ne!(final_view.runtime_instance_id, first.runtime_instance_id);
+        assert_eq!(
+            counts(&evidence, final_view.runtime_instance_id.as_ref().unwrap()),
+            [1, 0, 1, 1]
+        );
+        assert_eq!(evidence.launches.lock().unwrap().len(), 3);
         s.shutdown().await.unwrap();
     });
 }

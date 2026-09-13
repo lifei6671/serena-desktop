@@ -3,7 +3,13 @@ use super::*;
 use crate::agent::codex::runtime::{RuntimeError, TerminationEvidence};
 
 impl StateStore {
-    pub(in crate::agent) fn runtime_initialized(&self, id: &str, version: &str, schema: &str, now: i64) -> Result<(), RuntimeError> {
+    pub(in crate::agent) fn runtime_initialized(
+        &self,
+        id: &str,
+        version: &str,
+        schema: &str,
+        now: i64,
+    ) -> Result<(), RuntimeError> {
         self.runtime_write(|tx| tx.execute("UPDATE runtime_instances SET state='running',codex_version=?2,protocol_schema_sha256=?3,updated_at=?4 WHERE id=?1 AND state='starting' AND job_policy_verified_at IS NOT NULL", params![id,version,schema,now]))
     }
     fn runtime_write(
