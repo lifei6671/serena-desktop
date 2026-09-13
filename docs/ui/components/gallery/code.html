@@ -1,0 +1,825 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script><script id="tailwind-config">tailwind.config={"darkMode":"class","theme":{"extend":{"colors":{"background":"#f8f9ff","primary":"#006c49","on-surface":"#0b1c30","inverse-surface":"#213145","on-surface-variant":"#3c4a42","on-background":"#0b1c30","status-warning":"#F59E0B","border-strong":"#94A3B8","secondary-container":"#dae2fd","surface-bright":"#f8f9ff","primary-container":"#10b981","error":"#ba1a1a","on-secondary-fixed":"#131b2e","surface-container":"#e5eeff","surface-tint":"#006c49","tertiary-container":"#71a1ff","on-tertiary":"#ffffff","shell-text":"#CBD5E1","shell-border":"#1E293B","tertiary":"#005ac2","on-primary-container":"#00422b","surface-container-lowest":"#ffffff","surface-container-high":"#dce9ff","outline":"#6c7a71","primary-fixed":"#6ffbbe","secondary-fixed":"#dae2fd","on-secondary":"#ffffff","status-healthy":"#10B981","status-error":"#EF4444","on-tertiary-fixed":"#001a42","on-error":"#ffffff","on-tertiary-container":"#00367a","on-secondary-container":"#5c647a","on-primary-fixed":"#002113","surface-sidebar":"#F1F5F9","on-primary-fixed-variant":"#005236","inverse-on-surface":"#eaf1ff","surface-variant":"#d3e4fe","on-secondary-fixed-variant":"#3f465c","surface-dim":"#cbdbf5","tertiary-fixed":"#d8e2ff","status-running":"#3B82F6","shell-surface":"#0F172A","surface":"#f8f9ff","primary-fixed-dim":"#4edea3","secondary":"#565e74","surface-canvas":"#FFFFFF","surface-container-low":"#eff4ff","on-primary":"#ffffff","secondary-fixed-dim":"#bec6e0","border-subtle":"#E2E8F0","outline-variant":"#bbcabf","surface-subtle":"#F8FAFC","on-error-container":"#93000a","tertiary-fixed-dim":"#adc6ff","on-tertiary-fixed-variant":"#004395","surface-container-highest":"#d3e4fe","shell-dark":"#090D16","error-container":"#ffdad6","inverse-primary":"#4edea3"},"borderRadius":{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},"spacing":{"space-lg":"1.5rem","space-sm":"0.5rem","space-md":"1rem","margin":"1.5rem","space-xs":"0.25rem","space-xl":"2rem","gutter":"1rem"},"fontFamily":{"headline-sm":["Geist"],"tech-micro":["Cascadia Code","Consolas","Fira Code","Menlo","monospace"],"code-default":["Cascadia Code","Consolas","Fira Code","Menlo","monospace"],"nav-default":["Geist"],"status-label":["Geist"],"headline-md":["Geist"],"button-label":["Geist"],"nav-active":["Geist"],"code-badge":["Cascadia Code","Consolas","Fira Code","Menlo","monospace"],"body-lg":["Geist"],"headline-lg":["Geist"],"body-sm":["Geist"],"body-md":["Geist"]},"fontSize":{"headline-sm":["14px",{"lineHeight":"20px","letterSpacing":"-0.01em","fontWeight":"700"}],"tech-micro":["11px",{"lineHeight":"14px","letterSpacing":"0.02em","fontWeight":"400"}],"code-default":["12px",{"lineHeight":"18px","fontWeight":"400"}],"nav-default":["13px",{"lineHeight":"18px","fontWeight":"500"}],"status-label":["11px",{"lineHeight":"14px","fontWeight":"400"}],"headline-md":["18px",{"lineHeight":"24px","letterSpacing":"-0.015em","fontWeight":"600"}],"button-label":["12px",{"lineHeight":"16px","fontWeight":"600"}],"nav-active":["13px",{"lineHeight":"18px","fontWeight":"600"}],"code-badge":["11px",{"lineHeight":"14px","fontWeight":"500"}],"body-lg":["14px",{"lineHeight":"22px","fontWeight":"400"}],"headline-lg":["24px",{"lineHeight":"32px","letterSpacing":"-0.02em","fontWeight":"700"}],"body-sm":["12px",{"lineHeight":"16px","fontWeight":"400"}],"body-md":["13px",{"lineHeight":"18px","fontWeight":"400"}]}}}}</script></head><body class="bg-surface-canvas font-body-md text-on-surface antialiased select-none"><header class="fixed top-0 left-0 w-full h-9 bg-shell-dark border-b border-shell-border z-50 flex items-center justify-between px-3"><div class="flex items-center gap-2"><img alt="Profile" class="w-8 h-8 rounded-full object-cover" src="https://lh3.googleusercontent.com/aida/AEtjO1VJILz8-Vwy8H5teKJuDTNE3w7ts8uBIzc4xnYCzzvS2OIaLRUZlmhcflpAldrRwHDLNhJyBzogk7OF7016QS0gpEA06hJ4EMxXYdsj1rUpYqrEn_DZjNoCDMtOw_2D5BGZe34gc3seSyQqbpXjGkd2DNqZVD8ZKq_bw2T7sllpyABw3psuXj8VMvYDyc4lCvodHXbnaWL2cBvz3aCMcp7It24lywBgWKKKkDk0clS8s7kU1f9vOHq-FT6el5js0Z0ujFj2w-VAtQ"><span class="text-shell-text font-headline-sm text-headline-sm tracking-tight">Serena Desktop</span><span class="text-outline font-tech-micro text-tech-micro px-1 py-0.5 bg-shell-surface rounded">Agent 调度中心</span></div><div class="flex items-center gap-3"><div class="flex items-center gap-1.5 px-2 py-0.5 bg-shell-surface rounded text-status-healthy font-code-badge text-code-badge"><span class="w-1.5 h-1.5 rounded-full bg-status-healthy"></span><span class="">MCP Core: ACTIVE</span></div><div class="text-shell-text font-tech-micro text-tech-micro">Port <span class="font-code-badge text-code-badge text-status-healthy">9121</span></div><div class="flex items-center px-1.5 py-0.5 bg-shell-surface border border-shell-border rounded text-shell-text font-tech-micro text-tech-micro gap-1"><span class="">Ctrl</span><span class="">+</span><span class="">K</span></div></div><div class="flex items-center gap-4"><div class="text-outline font-tech-micro text-tech-micro">v1.6.0</div><div class="flex items-center text-shell-text"><button class="w-7 h-9 flex items-center justify-center hover:bg-shell-surface transition-colors"><span class="material-symbols-outlined text-[14px]">minimize</span></button><button class="w-7 h-9 flex items-center justify-center hover:bg-shell-surface transition-colors"><span class="material-symbols-outlined text-[14px]">crop_square</span></button><button class="w-7 h-9 flex items-center justify-center hover:bg-error hover:text-on-error transition-colors"><span class="material-symbols-outlined text-[14px]">close</span></button></div></div></header><aside class="fixed left-0 top-9 bottom-6 w-64 bg-surface-sidebar border-r border-border-subtle z-40 flex flex-col justify-between"><div class="flex flex-col flex-1 overflow-y-auto"><div class="h-12 px-3 flex items-center justify-between border-b border-border-subtle bg-surface-sidebar"><div class="flex items-center gap-2"><div class="w-5 h-5 rounded bg-shell-surface flex items-center justify-center"><span class="material-symbols-outlined text-primary-container text-[14px]">terminal</span></div><div class="flex flex-col"><span class="font-headline-sm text-headline-sm leading-none text-on-surface">Serena</span><span class="font-tech-micro text-tech-micro text-secondary leading-tight">Desktop Suite</span></div></div><span class="w-2 h-2 rounded-full bg-status-healthy"></span></div><div class="px-2 py-2"><div class="px-2 pb-1 text-secondary font-tech-micro text-tech-micro uppercase tracking-wider">Navigation</div><nav class="flex flex-col gap-1" data-active-classes="bg-shell-surface text-on-primary font-nav-active text-nav-active rounded"><a class="h-8 px-2 flex items-center justify-between rounded text-on-surface-variant font-nav-default text-nav-default hover:bg-surface-container hover:text-on-surface transition-colors" data-path="home" href="#"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px]">home</span><span class="">首页</span></div><span class="font-tech-micro text-tech-micro text-secondary">~</span></a><a class="h-8 px-2 flex items-center justify-between rounded text-on-surface-variant font-nav-default text-nav-default hover:bg-surface-container hover:text-on-surface transition-colors" data-path="service-status" href="#"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px]">monitoring</span><span class="">服务状态</span></div><span class="w-1.5 h-1.5 rounded-full bg-status-healthy"></span></a><a class="h-8 px-2 flex items-center justify-between rounded text-on-surface-variant font-nav-default text-nav-default hover:bg-surface-container hover:text-on-surface transition-colors" data-path="agent-orchestration" href="#"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px]">smart_toy</span><span class="">Agent 编排</span></div><span class="px-1 rounded bg-secondary-container text-on-secondary-container font-tech-micro text-tech-micro">4</span></a><a class="h-8 px-2 flex items-center justify-between rounded text-on-surface-variant font-nav-default text-nav-default hover:bg-surface-container hover:text-on-surface transition-colors" data-path="log-terminal" href="#"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px]">code</span><span class="">日志终端</span></div><span class="font-code-badge text-code-badge text-status-running">LIVE</span></a><a class="h-8 px-2 flex items-center justify-between rounded text-on-surface-variant font-nav-default text-nav-default hover:bg-surface-container hover:text-on-surface transition-colors" data-path="remote-access" href="#"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px]">lan</span><span class="">远程访问</span></div><span class="material-symbols-outlined text-[14px] text-outline">lock</span></a><a aria-current="page" class="h-8 px-2 flex items-center justify-between rounded bg-shell-surface text-on-primary font-nav-active text-nav-active" data-path="ui-components" href="#"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px] text-primary-fixed-dim">dashboard_customize</span><span class="">UI Components</span></div></a><a class="h-8 px-2 flex items-center justify-between rounded text-on-surface-variant font-nav-default text-nav-default hover:bg-surface-container hover:text-on-surface transition-colors" data-path="settings" href="#"><div class="flex items-center gap-2"><span class="material-symbols-outlined text-[16px]">settings</span><span class="">设置</span></div></a></nav></div><div class="px-2 pt-2 border-t border-border-subtle flex-1"><div class="px-2 pb-1 flex items-center justify-between"><span class="text-secondary font-tech-micro text-tech-micro uppercase tracking-wider">工作区项目</span><span class="material-symbols-outlined text-[14px] text-outline cursor-pointer hover:text-on-surface">add</span></div><div class="flex flex-col gap-0.5"><div class="flex flex-col"><div class="h-7 px-2 flex items-center gap-1.5 rounded bg-surface-container-high text-on-surface font-nav-default text-nav-default"><span class="material-symbols-outlined text-[14px] text-primary">folder_open</span><span class="truncate font-code-badge text-code-badge font-semibold">serena-desktop</span></div><div class="ml-4 pl-2 border-l border-border-strong flex flex-col py-1 gap-1"><div class="flex items-center gap-1 text-on-surface-variant font-tech-micro text-tech-micro hover:text-on-surface cursor-pointer"><span class="text-outline">0913</span><span class="px-1 rounded bg-secondary-container text-on-secondary-container">修复</span><span class="truncate">Windows COM ...</span></div><div class="flex items-center gap-1 text-on-surface-variant font-tech-micro text-tech-micro hover:text-on-surface cursor-pointer"><span class="text-outline">0913</span><span class="px-1 rounded bg-surface-variant text-tertiary">探索</span><span class="truncate">OAuth ...</span></div><div class="flex items-center gap-1 text-on-surface-variant font-tech-micro text-tech-micro hover:text-on-surface cursor-pointer"><span class="text-outline">0913</span><span class="px-1 rounded bg-secondary-container text-on-secondary-container">修复</span><span class="truncate">CIMD SSRF ...</span></div></div></div><div class="h-6 px-2 flex items-center gap-1.5 text-on-surface-variant font-code-badge text-code-badge hover:text-on-surface cursor-pointer"><span class="material-symbols-outlined text-[14px] text-outline">folder</span><span class="truncate">veyra</span></div><div class="h-6 px-2 flex items-center gap-1.5 text-on-surface-variant font-code-badge text-code-badge hover:text-on-surface cursor-pointer"><span class="material-symbols-outlined text-[14px] text-outline">folder</span><span class="truncate">guard-wall</span></div><div class="h-6 px-2 flex items-center gap-1.5 text-on-surface-variant font-code-badge text-code-badge hover:text-on-surface cursor-pointer"><span class="material-symbols-outlined text-[14px] text-outline">folder</span><span class="truncate">xtunnel</span></div></div></div></div><div class="p-2 border-t border-border-subtle bg-surface-subtle"></div></aside><div class="pl-64 flex flex-col min-h-screen"><main class="w-full pt-9 pb-6 bg-surface-canvas flex-1"><div class="flex flex-col w-full">
+<div class="max-w-[1152px] w-full mx-auto py-6 px-8 flex flex-col gap-6">
+<!-- 1. Page Header -->
+<header class="flex flex-col gap-3 pb-4 border-b border-border-subtle">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<h1 class="font-headline-lg text-headline-lg text-on-surface">Serena UI Components</h1>
+<div class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-tech-micro text-tech-micro">
+<span class="w-1.5 h-1.5 rounded-full bg-status-healthy"></span>
+<span class="">Canonical Design System v1.0</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<button class="h-7 px-2.5 rounded bg-surface-canvas border border-border-subtle hover:bg-surface-subtle hover:border-border-strong text-on-surface font-button-label text-button-label flex items-center gap-1.5 transition-colors shadow-xs" id="btn-export-tokens">
+<span class="material-symbols-outlined text-[14px] text-secondary">file_download</span>
+<span class="">导出 Tokens (JSON)</span>
+</button>
+<button class="h-7 px-2.5 rounded bg-shell-surface hover:bg-slate-800 text-on-primary font-button-label text-button-label flex items-center gap-1.5 transition-colors shadow-xs">
+<span class="material-symbols-outlined text-[14px] text-primary-container">menu_book</span>
+<span class="">规范文档</span>
+</button>
+</div>
+</div>
+<!-- Design Reference Only Prominent Callout Badge -->
+<div class="flex items-center gap-2 px-3 py-1.5 rounded bg-amber-50/80 border border-amber-300/80 text-amber-900 shadow-xs">
+<span class="material-symbols-outlined text-[16px] text-status-warning shrink-0">bookmark</span>
+<div class="flex items-center gap-2 flex-wrap">
+<span class="font-code-badge text-code-badge font-bold uppercase tracking-wider text-amber-950">DESIGN REFERENCE ONLY</span>
+<span class="text-amber-400">·</span>
+<span class="font-body-sm text-body-sm font-medium text-amber-900">设计母版与规范基准（非生产业务菜单）</span>
+<span class="text-amber-400">·</span>
+<span class="font-tech-micro text-tech-micro text-amber-800">所有业务页面严格复用此处定义的规范、状态机、令牌与组件母版</span>
+</div>
+</div>
+<p class="font-body-md text-body-md text-secondary">Serena Desktop 设计系统验证页与组件母版。所有业务模块严格复用此处定义的规范、状态机与组件。</p>
+</header>
+<!-- 2. Buttons Section -->
+<section class="p-4 rounded-lg bg-surface-canvas border border-border-subtle flex flex-col gap-4">
+<div class="flex items-center justify-between border-b border-border-subtle pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">smart_button</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">01 / Buttons · 按钮体系</span>
+</div>
+<span class="font-tech-micro text-tech-micro text-secondary">HEIGHT: 30px / 34px · RADIUS: 4px · FONT: 12px 600</span>
+</div>
+<div class="grid grid-cols-4 gap-4">
+<!-- Primary -->
+<div class="flex flex-col gap-2 p-3 rounded bg-surface-subtle border border-border-subtle">
+<div class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Primary (Slate-900)</div>
+<button class="h-[30px] px-3 rounded bg-shell-surface hover:bg-slate-800 active:scale-[0.98] text-on-primary font-button-label text-button-label flex items-center justify-center gap-1.5 transition-all shadow-xs">
+<span class="material-symbols-outlined text-[14px]">play_arrow</span>
+<span class="">开始任务</span>
+</button>
+<button class="h-[30px] px-3 rounded bg-slate-800 text-on-primary font-button-label text-button-label flex items-center justify-center gap-1.5">
+<span class="">应用配置</span>
+<span class="font-tech-micro text-tech-micro px-1 rounded bg-slate-700 text-slate-300">Hover</span>
+</button>
+<button class="h-[30px] px-3 rounded bg-shell-surface active:scale-[0.97] ring-2 ring-slate-900/20 text-on-primary font-button-label text-button-label flex items-center justify-center gap-1.5">
+<span class="">应用配置 (Active)</span>
+</button>
+<button class="h-[30px] px-3 rounded bg-slate-200 text-slate-400 font-button-label text-button-label flex items-center justify-center gap-1.5 cursor-not-allowed" disabled="">
+<span class="">已禁用 (Disabled)</span>
+</button>
+<button class="h-[30px] px-3 rounded bg-shell-surface text-on-primary font-button-label text-button-label flex items-center justify-center gap-1.5 opacity-90 cursor-wait">
+<svg class="animate-spin w-3 h-3 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" fill="currentColor"></path></svg>
+<span class="">加载中...</span>
+</button>
+</div>
+<!-- Secondary -->
+<div class="flex flex-col gap-2 p-3 rounded bg-surface-subtle border border-border-subtle">
+<div class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Secondary (Surface Canvas)</div>
+<button class="h-[30px] px-3 rounded bg-surface-canvas border border-border-subtle hover:bg-surface-subtle hover:border-border-strong active:scale-[0.98] text-on-surface font-button-label text-button-label flex items-center justify-center gap-1.5 transition-all shadow-xs">
+<span class="">取消</span>
+</button>
+<button class="h-[30px] px-3 rounded bg-surface-subtle border border-border-strong text-on-surface font-button-label text-button-label flex items-center justify-center gap-1.5 shadow-xs">
+<span class="material-symbols-outlined text-[14px]">folder_managed</span>
+<span class="">管理工作区</span>
+</button>
+<button class="h-[30px] px-3 rounded bg-surface-container border border-slate-400 ring-2 ring-slate-900/10 text-on-surface font-button-label text-button-label flex items-center justify-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">refresh</span>
+<span class="">重新连接 (Active)</span>
+</button>
+<button class="h-[30px] px-3 rounded bg-surface-subtle border border-border-subtle text-slate-400 font-button-label text-button-label flex items-center justify-center gap-1.5 cursor-not-allowed" disabled="">
+<span class="">次要禁用</span>
+</button>
+<button class="h-[30px] px-3 rounded bg-surface-canvas border border-border-subtle text-secondary font-button-label text-button-label flex items-center justify-center gap-1.5 cursor-wait">
+<svg class="animate-spin w-3 h-3 text-secondary" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" fill="currentColor"></path></svg>
+<span class="">同步中</span>
+</button>
+</div>
+<!-- Ghost -->
+<div class="flex flex-col gap-2 p-3 rounded bg-surface-subtle border border-border-subtle">
+<div class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Ghost / Utility</div>
+<button class="h-[30px] px-2.5 rounded bg-transparent hover:bg-slate-200/60 active:bg-slate-200 text-on-surface-variant font-button-label text-button-label flex items-center justify-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[14px]">visibility</span>
+<span class="">查看详情</span>
+</button>
+<button class="h-[30px] px-2.5 rounded bg-slate-200/60 text-on-surface font-button-label text-button-label flex items-center justify-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">terminal</span>
+<span class="">打开日志 (Hover)</span>
+</button>
+<button class="h-[30px] px-2.5 rounded bg-transparent hover:bg-slate-200/60 text-tertiary font-button-label text-button-label flex items-center justify-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[14px]">content_copy</span>
+<span class="">复制公网地址</span>
+</button>
+<button class="h-[30px] px-2.5 rounded bg-transparent text-slate-300 font-button-label text-button-label flex items-center justify-center gap-1.5 cursor-not-allowed" disabled="">
+<span class="material-symbols-outlined text-[14px]">block</span>
+<span class="">不可操作</span>
+</button>
+<div class="h-[30px] flex items-center justify-center font-tech-micro text-tech-micro text-secondary">
+<span class="">零边框紧凑交互</span>
+</div>
+</div>
+<!-- Destructive -->
+<div class="flex flex-col gap-2 p-3 rounded bg-surface-subtle border border-border-subtle">
+<div class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Destructive</div>
+<button class="h-[30px] px-3 rounded bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white font-button-label text-button-label flex items-center justify-center gap-1.5 transition-colors shadow-xs">
+<span class="material-symbols-outlined text-[14px]">delete</span>
+<span class="">删除工作区</span>
+</button>
+<button class="h-[30px] px-3 rounded bg-red-50 hover:bg-red-100 border border-red-200 text-status-error font-button-label text-button-label flex items-center justify-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[14px]">stop_circle</span>
+<span class="">停止服务 (Outline)</span>
+</button>
+<button class="h-[30px] px-3 rounded bg-transparent hover:bg-red-50 text-status-error font-button-label text-button-label flex items-center justify-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[14px]">power_settings_new</span>
+<span class="">强制杀进程</span>
+</button>
+<button class="h-[30px] px-3 rounded bg-red-100/50 text-red-300 font-button-label text-button-label flex items-center justify-center gap-1.5 cursor-not-allowed" disabled="">
+<span class="">终止不可用</span>
+</button>
+<div class="h-[30px] flex items-center justify-center font-tech-micro text-tech-micro text-status-error">
+<span class="">高危边界限制</span>
+</div>
+</div>
+</div>
+</section>
+<!-- 3. Form Controls Section -->
+<section class="p-4 rounded-lg bg-surface-canvas border border-border-subtle flex flex-col gap-4">
+<div class="flex items-center justify-between border-b border-border-subtle pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">edit_note</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">02 / Form Controls · 开发者表单与微交互控件</span>
+</div>
+<span class="font-tech-micro text-tech-micro text-secondary">COMPACT SPEC: HEIGHT 28px-32px · FONT: Cascadia Code, Consolas, Fira Code, Menlo, monospace</span>
+</div>
+<div class="grid grid-cols-3 gap-4">
+<!-- Text & Port Input -->
+<div class="flex flex-col gap-3 p-3 rounded bg-surface-subtle border border-border-subtle">
+<div class="flex flex-col gap-1">
+<label class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold flex items-center justify-between">
+<span class="">Server Host / IP</span>
+<span class="text-primary font-code-badge text-code-badge">IPv4</span>
+</label>
+<input class="h-8 px-2.5 rounded bg-surface-canvas border border-border-subtle focus:border-border-strong focus:ring-2 focus:ring-slate-900/10 outline-none font-code-default text-code-default text-on-surface transition-all" type="text" value="127.0.0.1">
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold flex items-center justify-between">
+<span class="">MCP Protocol Port</span>
+<span class="text-status-healthy font-code-badge text-code-badge">AVAIL</span>
+</label>
+<div class="flex items-center">
+<input class="h-8 px-2.5 w-full rounded bg-surface-canvas border border-border-subtle focus:border-border-strong focus:ring-2 focus:ring-slate-900/10 outline-none font-code-default text-code-default text-on-surface transition-all" type="number" value="9121">
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Search Filter</label>
+<div class="relative flex items-center">
+<span class="material-symbols-outlined text-[14px] text-outline absolute left-2.5">search</span>
+<input class="h-8 pl-8 pr-12 w-full rounded bg-surface-canvas border border-border-subtle focus:border-border-strong focus:ring-2 focus:ring-slate-900/10 outline-none font-body-sm text-body-sm text-on-surface transition-all" placeholder="搜索 Agent、工具或协议参数..." type="text">
+<span class="absolute right-2 px-1 py-0.5 rounded bg-surface-subtle border border-border-subtle font-tech-micro text-tech-micro text-secondary">Ctrl+F</span>
+</div>
+</div>
+</div>
+<!-- Path Input & Select Dropdown -->
+<div class="flex flex-col gap-3 p-3 rounded bg-surface-subtle border border-border-subtle">
+<div class="flex flex-col gap-1">
+<label class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Workspace Path</label>
+<div class="flex items-center gap-1.5">
+<input class="h-8 px-2.5 flex-1 rounded bg-surface-canvas border border-border-subtle font-code-default text-code-default text-on-surface truncate cursor-text" readonly="" type="text" value="E:\Projects\runtime\serena-desktop">
+<button class="h-8 px-2.5 rounded bg-surface-canvas border border-border-subtle hover:bg-slate-100 text-on-surface font-button-label text-button-label shrink-0 transition-colors">浏览</button>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Runtime Environment</label>
+<div class="relative">
+<select class="h-8 px-2.5 pr-8 w-full rounded bg-surface-canvas border border-border-subtle focus:border-border-strong outline-none font-code-default text-code-default text-on-surface appearance-none cursor-pointer">
+<option selected="">Node.js v20.12.0 LTS (Default)</option>
+<option>Python 3.11.8 (Conda venv)</option>
+<option>Bun v1.0.28 (Fast-IPC)</option>
+<option>Deno v1.41.0</option>
+</select>
+<span class="material-symbols-outlined text-[16px] text-secondary absolute right-2 top-2 pointer-events-none">expand_more</span>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Input Validation State</label>
+<div class="relative">
+<input class="h-8 px-2.5 w-full rounded bg-surface-canvas border border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500/10 outline-none font-code-default text-code-default text-status-error" type="text" value="invalid-tunnel-url@@">
+<span class="material-symbols-outlined text-[14px] text-status-error absolute right-2.5 top-2">error</span>
+</div>
+<span class="font-tech-micro text-tech-micro text-status-error">URL 协议格式异常，必须以 https:// 开头</span>
+</div>
+</div>
+<!-- Toggles, Checkboxes & Radios -->
+<div class="flex flex-col gap-3 p-3 rounded bg-surface-subtle border border-border-subtle justify-between">
+<div class="flex flex-col gap-2">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Toggles &amp; Switches</span>
+<!-- Switch Checked -->
+<label class="flex items-center justify-between cursor-pointer group">
+<span class="font-body-sm text-body-sm text-on-surface">开启 MCP 远程安全隧道</span>
+<div class="w-9 h-5 bg-shell-surface rounded-full p-0.5 transition-colors relative">
+<div class="w-4 h-4 bg-white rounded-full transition-transform translate-x-4"></div>
+</div>
+</label>
+<!-- Switch Unchecked -->
+<label class="flex items-center justify-between cursor-pointer group">
+<span class="font-body-sm text-body-sm text-secondary">调试网络拦截代理</span>
+<div class="w-9 h-5 bg-slate-300 rounded-full p-0.5 transition-colors relative">
+<div class="w-4 h-4 bg-white rounded-full transition-transform translate-x-0"></div>
+</div>
+</label>
+</div>
+<div class="flex flex-col gap-1.5 border-t border-border-subtle pt-2">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Checkboxes</span>
+<label class="flex items-center gap-2 cursor-pointer select-none">
+<input checked="" class="w-3.5 h-3.5 rounded border-border-strong text-primary accent-slate-900 focus:ring-0 cursor-pointer" type="checkbox">
+<span class="font-body-sm text-body-sm text-on-surface">开机自动启动 Serena 守护进程</span>
+</label>
+<label class="flex items-center gap-2 cursor-pointer select-none">
+<input class="w-3.5 h-3.5 rounded border-border-strong text-primary accent-slate-900 focus:ring-0 cursor-pointer" type="checkbox">
+<span class="font-body-sm text-body-sm text-secondary">启用详细调试日志 (Verbose STDOUT)</span>
+</label>
+</div>
+<div class="flex flex-col gap-1.5 border-t border-border-subtle pt-2">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Radio Selection</span>
+<div class="flex items-center gap-4">
+<label class="flex items-center gap-1.5 cursor-pointer select-none">
+<input checked="" class="w-3.5 h-3.5 accent-slate-900" name="orchestration-mode" type="radio">
+<span class="font-body-sm text-body-sm text-on-surface font-medium">单工作区模式</span>
+</label>
+<label class="flex items-center gap-1.5 cursor-pointer select-none">
+<input class="w-3.5 h-3.5 accent-slate-900" name="orchestration-mode" type="radio">
+<span class="font-body-sm text-body-sm text-secondary">联合编排</span>
+</label>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 4. Status System & Badges -->
+<section class="p-4 rounded-lg bg-surface-canvas border border-border-subtle flex flex-col gap-4">
+<div class="flex items-center justify-between border-b border-border-subtle pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">traffic</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">03 / Status System &amp; Badges · 状态机与工程徽标</span>
+</div>
+<span class="font-tech-micro text-tech-micro text-secondary">STRICT SEMANTIC PALETTE · ZERO ARBITRARY COLORS</span>
+</div>
+<div class="grid grid-cols-3 gap-4">
+<!-- Runtime & Task States -->
+<div class="flex flex-col gap-2.5 p-3 rounded bg-surface-subtle border border-border-subtle">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">服务运行状态 (Runtime)</span>
+<div class="flex flex-wrap items-center gap-2">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-status-label text-status-label">
+<span class="w-1.5 h-1.5 rounded-full bg-status-healthy"></span>
+              运行中 (Running)
+            </span>
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-status-label text-status-label">
+<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+              已停止 (Stopped)
+            </span>
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-status-label text-status-label">
+<span class="w-1.5 h-1.5 rounded-full bg-status-running animate-pulse"></span>
+              启动中 (Starting)
+            </span>
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 font-status-label text-status-label">
+<span class="w-1.5 h-1.5 rounded-full bg-status-error"></span>
+              失败 (Failed)
+            </span>
+</div>
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold mt-1">Agent 任务状态 (Task Queue)</span>
+<div class="flex flex-wrap items-center gap-1.5">
+<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 font-code-badge text-code-badge">排队中</span>
+<span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 font-code-badge text-code-badge flex items-center gap-1">
+<svg class="animate-spin w-2.5 h-2.5 text-blue-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor"></path></svg>
+              运行中
+            </span>
+<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-code-badge text-code-badge">已完成</span>
+<span class="px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 font-code-badge text-code-badge">失败</span>
+<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-400 border border-slate-200 font-code-badge text-code-badge">已取消</span>
+</div>
+</div>
+<!-- Connection States -->
+<div class="flex flex-col gap-2.5 p-3 rounded bg-surface-subtle border border-border-subtle">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">远程与 MCP 连接 (Connection)</span>
+<div class="flex flex-col gap-1.5">
+<div class="flex items-center justify-between px-2 py-1 rounded bg-surface-canvas border border-border-subtle">
+<span class="font-body-sm text-body-sm text-on-surface">本地客户端</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-tech-micro text-tech-micro">
+<span class="w-1.5 h-1.5 rounded-full bg-status-healthy"></span>
+                已连接
+              </span>
+</div>
+<div class="flex items-center justify-between px-2 py-1 rounded bg-surface-canvas border border-border-subtle">
+<span class="font-body-sm text-body-sm text-on-surface">远程 SSE 管道</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-tech-micro text-tech-micro">
+<span class="w-1.5 h-1.5 rounded-full bg-status-running animate-ping"></span>
+                连接握手中...
+              </span>
+</div>
+<div class="flex items-center justify-between px-2 py-1 rounded bg-surface-canvas border border-border-subtle">
+<span class="font-body-sm text-body-sm text-secondary">xtunnel 备用链路</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-tech-micro text-tech-micro">
+<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                未连接
+              </span>
+</div>
+<div class="flex items-center justify-between px-2 py-1 rounded bg-surface-canvas border border-border-subtle">
+<span class="font-body-sm text-body-sm text-on-surface">Claude Desktop Bridge</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-tech-micro text-tech-micro">
+<span class="w-1.5 h-1.5 rounded-full bg-status-error"></span>
+                连接拒绝 (REFUSED)
+              </span>
+</div>
+</div>
+</div>
+<!-- Technical Badges Collection -->
+<div class="flex flex-col gap-2.5 p-3 rounded bg-surface-subtle border border-border-subtle">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">通用元数据徽标 (Badge Matrix)</span>
+<div class="flex flex-wrap gap-1.5">
+<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 font-code-badge text-code-badge">ACTIVE</span>
+<span class="px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 font-code-badge text-code-badge">RUNNING</span>
+<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 font-code-badge text-code-badge">COMPLETED</span>
+<span class="px-1.5 py-0.5 rounded bg-red-50 text-red-800 border border-red-200 font-code-badge text-code-badge">FAILED</span>
+<span class="px-1.5 py-0.5 rounded bg-secondary-container text-on-secondary-fixed font-code-badge text-code-badge flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">account_tree</span>
+              git:main
+            </span>
+<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-code-badge text-code-badge">clean</span>
+<span class="px-1.5 py-0.5 rounded bg-shell-surface text-slate-200 font-code-badge text-code-badge">v1.6.0</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-canvas border border-border-strong text-on-surface font-code-badge text-code-badge">Port 9121</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-tertiary font-code-badge text-code-badge">TLS 1.3</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-subtle border border-border-subtle text-slate-500 font-code-badge text-code-badge">PID 14208</span>
+</div>
+<div class="mt-auto p-2 rounded bg-surface-canvas border border-border-subtle flex items-center justify-between">
+<span class="font-tech-micro text-tech-micro text-secondary">JSON 协议版本:</span>
+<span class="font-code-badge text-code-badge text-on-surface font-semibold">2024-11-05</span>
+</div>
+</div>
+</div>
+</section>
+<!-- 5. Cards Showcase -->
+<section class="p-4 rounded-lg bg-surface-canvas border border-border-subtle flex flex-col gap-4">
+<div class="flex items-center justify-between border-b border-border-subtle pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">view_quilt</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">04 / Cards Showcase · 标准容器形态</span>
+</div>
+<span class="font-tech-micro text-tech-micro text-secondary">BORDER: 1px #E2E8F0 · NO SKEUOMORPHISM</span>
+</div>
+<div class="grid grid-cols-4 gap-4">
+<!-- 1. Standard Card -->
+<div class="p-3.5 rounded-lg bg-surface-canvas border border-border-subtle hover:border-border-strong flex flex-col justify-between transition-colors">
+<div class="flex flex-col gap-1.5">
+<div class="flex items-center justify-between">
+<span class="font-headline-sm text-headline-sm text-on-surface">标准容器</span>
+<span class="material-symbols-outlined text-[16px] text-secondary">deployed_code</span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">标准技术容器，承载通用业务组件与离散配置项，支持快速插拔。</p>
+</div>
+<div class="pt-3 mt-3 border-t border-border-subtle flex items-center justify-between font-tech-micro text-tech-micro text-secondary">
+<span class="">DEFAULT</span>
+<span class="">RADIUS 8px</span>
+</div>
+</div>
+<!-- 2. Context Card -->
+<div class="p-3.5 rounded-lg bg-surface-subtle border border-border-subtle flex flex-col justify-between">
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">当前工作区</span>
+<span class="material-symbols-outlined text-[16px] text-primary">folder_open</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold truncate">serena-desktop</span>
+<span class="font-tech-micro text-tech-micro text-secondary truncate">E:\Projects\serena-desktop</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="px-1.5 py-0.5 rounded bg-secondary-container text-on-secondary-fixed font-code-badge text-code-badge flex items-center gap-1">
+<span class="material-symbols-outlined text-[10px]">alt_route</span>
+                git:main
+              </span>
+<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-code-badge text-code-badge">clean</span>
+</div>
+</div>
+<div class="pt-2.5 mt-2 border-t border-border-subtle flex items-center justify-between">
+<span class="font-tech-micro text-tech-micro text-secondary">已同步 18 个工具</span>
+<button class="text-tertiary font-button-label text-button-label hover:underline">切换</button>
+</div>
+</div>
+<!-- 3. Status Card (MCP Core) -->
+<div class="p-3.5 rounded-lg bg-surface-canvas border border-blue-200 relative overflow-hidden flex flex-col justify-between shadow-xs">
+<div class="absolute top-0 left-0 right-0 h-0.5 bg-status-running"></div>
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold">MCP Core</span>
+<span class="w-1.5 h-1.5 rounded-full bg-status-healthy"></span>
+</div>
+<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 font-tech-micro text-tech-micro font-medium">运行中</span>
+</div>
+<div class="grid grid-cols-2 gap-1.5 pt-1 font-tech-micro text-tech-micro">
+<div class="text-secondary">Port: <span class="text-on-surface font-semibold font-code-badge text-code-badge">9121</span></div>
+<div class="text-secondary">PID: <span class="text-on-surface font-semibold font-code-badge text-code-badge">14208</span></div>
+<div class="text-secondary col-span-2">Uptime: <span class="text-on-surface font-semibold font-code-badge text-code-badge">04:31:17</span></div>
+</div>
+</div>
+<div class="pt-2.5 mt-2 border-t border-border-subtle flex items-center justify-between">
+<span class="font-tech-micro text-tech-micro text-status-healthy flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">sync</span>
+              IPC 轮询正常
+            </span>
+<button class="h-6 px-2 rounded bg-surface-subtle hover:bg-slate-200 border border-border-subtle font-button-label text-button-label text-on-surface">重启</button>
+</div>
+</div>
+<!-- 4. Interactive Card (ngrok) -->
+<div class="p-3.5 rounded-lg bg-surface-canvas border border-border-subtle hover:border-slate-400 hover:shadow-xs flex flex-col justify-between cursor-pointer transition-all group">
+<div class="flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-tertiary">language</span>
+<span class="font-headline-sm text-headline-sm text-on-surface group-hover:text-tertiary transition-colors">ngrok 隧道</span>
+</div>
+<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-tech-micro text-tech-micro">已连接</span>
+</div>
+<div class="p-1.5 rounded bg-surface-subtle border border-border-subtle flex items-center justify-between">
+<span class="font-code-badge text-code-badge text-secondary truncate">https://agent-7f12.ngrok.app</span>
+<span class="material-symbols-outlined text-[14px] text-outline hover:text-on-surface ml-1 shrink-0">content_copy</span>
+</div>
+</div>
+<div class="pt-2 mt-2 border-t border-border-subtle flex items-center justify-between font-tech-micro text-tech-micro text-secondary">
+<span class="">Latency: 28ms</span>
+<span class="text-primary flex items-center">配置详情 <span class="material-symbols-outlined text-[12px]">chevron_right</span></span>
+</div>
+</div>
+</div>
+</section>
+<!-- 6. Navigation Components & Flat Tabs -->
+<section class="p-4 rounded-lg bg-surface-canvas border border-border-subtle flex flex-col gap-4">
+<div class="flex items-center justify-between border-b border-border-subtle pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">tab</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">05 / Navigation Components &amp; Flat Tabs · 导航与选项卡</span>
+</div>
+<span class="font-tech-micro text-tech-micro text-secondary">NO GRADIENTS · DETERMINISTIC INDICATORS</span>
+</div>
+<!-- Flat Tabs -->
+<div class="flex flex-col gap-1.5">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Flat Tabs (工作区配置分栏)</span>
+<div class="flex items-center border-b border-border-subtle">
+<button class="h-8 px-3 text-secondary hover:text-on-surface font-nav-default text-nav-default border-b-2 border-transparent transition-colors">常规</button>
+<button class="h-8 px-3 text-on-surface font-nav-active text-nav-active border-b-2 border-slate-900 -mb-[1px] flex items-center gap-1.5">
+<span class="">MCP 服务</span>
+<span class="px-1 rounded bg-slate-100 text-slate-600 font-tech-micro text-tech-micro">3</span>
+</button>
+<button class="h-8 px-3 text-secondary hover:text-on-surface font-nav-default text-nav-default border-b-2 border-transparent transition-colors">网络与隧道</button>
+<button class="h-8 px-3 text-secondary hover:text-on-surface font-nav-default text-nav-default border-b-2 border-transparent transition-colors">Agent 编排</button>
+<button class="h-8 px-3 text-secondary hover:text-on-surface font-nav-default text-nav-default border-b-2 border-transparent transition-colors">高级内核参数</button>
+</div>
+</div>
+<!-- Nav Items Showcase -->
+<div class="grid grid-cols-4 gap-4 pt-1">
+<div class="flex flex-col gap-1.5 p-3 rounded bg-surface-subtle border border-border-subtle">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Active Item</span>
+<div class="h-8 px-2.5 rounded bg-shell-surface text-on-primary font-nav-active text-nav-active flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary-fixed-dim">dashboard_customize</span>
+<span class="">UI Components</span>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-status-healthy"></span>
+</div>
+</div>
+<div class="flex flex-col gap-1.5 p-3 rounded bg-surface-subtle border border-border-subtle">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Default Item</span>
+<div class="h-8 px-2.5 rounded bg-surface-canvas border border-border-subtle text-on-surface-variant font-nav-default text-nav-default flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-secondary">smart_toy</span>
+<span class="">Agent 编排</span>
+</div>
+<span class="px-1 rounded bg-secondary-container text-on-secondary-container font-tech-micro text-tech-micro">4</span>
+</div>
+</div>
+<div class="flex flex-col gap-1.5 p-3 rounded bg-surface-subtle border border-border-subtle">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Hovered Item</span>
+<div class="h-8 px-2.5 rounded bg-surface-container text-on-surface font-nav-default text-nav-default flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-on-surface">code</span>
+<span class="">日志终端</span>
+</div>
+<span class="font-code-badge text-code-badge text-status-running">LIVE</span>
+</div>
+</div>
+<div class="flex flex-col gap-1.5 p-3 rounded bg-surface-subtle border border-border-subtle">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase font-semibold">Workspace Tree Item</span>
+<div class="flex flex-col gap-1">
+<div class="h-7 px-2 flex items-center gap-1.5 rounded bg-surface-container-high text-on-surface font-code-badge text-code-badge font-semibold">
+<span class="material-symbols-outlined text-[14px] text-primary">folder_open</span>
+<span class="truncate">serena-desktop</span>
+</div>
+<div class="ml-3 pl-2 border-l border-border-strong flex items-center justify-between text-on-surface-variant font-tech-micro text-tech-micro">
+<span class="truncate">0913 CIMD SSRF...</span>
+<span class="text-status-healthy">OK</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 7. Compact Technical Table -->
+<section class="p-4 rounded-lg bg-surface-canvas border border-border-subtle flex flex-col gap-3">
+<div class="flex items-center justify-between border-b border-border-subtle pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">table_chart</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">06 / Technical Process Table · 进程与服务列表</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="font-tech-micro text-tech-micro text-secondary">3 ACTIVE PROCESSES</span>
+<button class="h-6 px-2 rounded bg-surface-subtle border border-border-subtle hover:bg-slate-100 font-button-label text-button-label text-on-surface">刷新列表</button>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-border-subtle bg-surface-subtle font-tech-micro text-tech-micro text-secondary">
+<th class="py-2 px-3 font-semibold uppercase">Service</th>
+<th class="py-2 px-3 font-semibold uppercase">Status</th>
+<th class="py-2 px-3 font-semibold uppercase font-mono">Port</th>
+<th class="py-2 px-3 font-semibold uppercase font-mono">PID</th>
+<th class="py-2 px-3 font-semibold uppercase font-mono">Uptime</th>
+<th class="py-2 px-3 font-semibold uppercase text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-border-subtle font-code-default text-code-default">
+<tr class="hover:bg-surface-subtle transition-colors">
+<td class="py-2.5 px-3">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-status-healthy"></span>
+<span class="font-semibold text-on-surface">Serena MCP Core</span>
+<span class="font-tech-micro text-tech-micro px-1 rounded bg-slate-100 text-slate-600">v1.6.0</span>
+</div>
+</td>
+<td class="py-2.5 px-3">
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-tech-micro text-tech-micro">
+<span class="w-1.5 h-1.5 rounded-full bg-status-healthy"></span>
+                  运行中
+                </span>
+</td>
+<td class="py-2.5 px-3 font-code-badge text-code-badge text-on-surface font-semibold">9121</td>
+<td class="py-2.5 px-3 font-code-badge text-code-badge text-secondary">14208</td>
+<td class="py-2.5 px-3 font-code-badge text-code-badge text-on-surface">04:31:17</td>
+<td class="py-2.5 px-3 text-right">
+<div class="inline-flex items-center gap-1">
+<button class="h-6 px-2 rounded bg-surface-canvas border border-border-subtle hover:bg-slate-100 text-on-surface font-button-label text-button-label">重启</button>
+<button class="h-6 px-2 rounded bg-surface-canvas border border-border-subtle hover:bg-slate-100 text-on-surface font-button-label text-button-label">日志</button>
+</div>
+</td>
+</tr>
+<tr class="hover:bg-surface-subtle transition-colors">
+<td class="py-2.5 px-3">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-status-healthy"></span>
+<span class="font-semibold text-on-surface">CodeGraph AST Engine</span>
+<span class="font-tech-micro text-tech-micro px-1 rounded bg-slate-100 text-slate-600">Tree-sitter</span>
+</div>
+</td>
+<td class="py-2.5 px-3">
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-tech-micro text-tech-micro">
+<span class="w-1.5 h-1.5 rounded-full bg-status-healthy"></span>
+                  运行中
+                </span>
+</td>
+<td class="py-2.5 px-3 font-code-badge text-code-badge text-on-surface font-semibold">9130</td>
+<td class="py-2.5 px-3 font-code-badge text-code-badge text-secondary">14682</td>
+<td class="py-2.5 px-3 font-code-badge text-code-badge text-on-surface">01:42:03</td>
+<td class="py-2.5 px-3 text-right">
+<div class="inline-flex items-center gap-1">
+<button class="h-6 px-2 rounded bg-surface-canvas border border-border-subtle hover:bg-slate-100 text-on-surface font-button-label text-button-label">重启</button>
+<button class="h-6 px-2 rounded bg-surface-canvas border border-border-subtle hover:bg-slate-100 text-on-surface font-button-label text-button-label">日志</button>
+</div>
+</td>
+</tr>
+<tr class="hover:bg-surface-subtle transition-colors">
+<td class="py-2.5 px-3">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-blue-500"></span>
+<span class="font-semibold text-on-surface">ngrok Secure Gateway</span>
+<span class="font-tech-micro text-tech-micro px-1 rounded bg-blue-50 text-blue-700">Tunnel</span>
+</div>
+</td>
+<td class="py-2.5 px-3">
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-tech-micro text-tech-micro">
+<span class="w-1.5 h-1.5 rounded-full bg-status-healthy"></span>
+                  已连接
+                </span>
+</td>
+<td class="py-2.5 px-3 font-code-badge text-code-badge text-slate-400">—</td>
+<td class="py-2.5 px-3 font-code-badge text-code-badge text-secondary">15120</td>
+<td class="py-2.5 px-3 font-code-badge text-code-badge text-on-surface">00:58:21</td>
+<td class="py-2.5 px-3 text-right">
+<div class="inline-flex items-center gap-1">
+<button class="h-6 px-2 rounded bg-surface-canvas border border-border-subtle hover:bg-red-50 hover:text-red-700 text-on-surface font-button-label text-button-label">断开</button>
+<button class="h-6 px-2 rounded bg-surface-canvas border border-border-subtle hover:bg-slate-100 text-on-surface font-button-label text-button-label">配置</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- 8. Operational Dialog & Toasts -->
+<section class="p-4 rounded-lg bg-surface-canvas border border-border-subtle flex flex-col gap-4">
+<div class="flex items-center justify-between border-b border-border-subtle pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">notifications_active</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">07 / Operational Dialog &amp; Toasts · 对话框与通知提示</span>
+</div>
+<span class="font-tech-micro text-tech-micro text-secondary">FLOATING ELEVATION · PRECISE FEEDBACK</span>
+</div>
+<div class="grid grid-cols-2 gap-6 items-start">
+<!-- Dialog Mockup -->
+<div class="p-4 rounded-lg bg-surface-canvas border border-slate-300 shadow-sm flex flex-col gap-3">
+<div class="flex items-start gap-3">
+<div class="w-7 h-7 rounded bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[18px] text-status-warning">warning</span>
+</div>
+<div class="flex flex-col gap-1">
+<h4 class="font-headline-md text-headline-md text-on-surface leading-snug">重启 MCP Core?</h4>
+<p class="font-body-sm text-body-sm text-secondary leading-relaxed">重启 MCP Core 将暂时断开活跃 MCP 客户端连接，并中断正在执行的自主子任务。</p>
+</div>
+</div>
+<div class="p-2 rounded bg-surface-subtle border border-border-subtle font-tech-micro text-tech-micro text-slate-600 flex items-center justify-between">
+<span class="">受影响端口: <strong class="text-on-surface font-semibold font-code-badge text-code-badge">9121</strong></span>
+<span class="">活跃连接: <strong class="text-on-surface font-semibold font-code-badge text-code-badge">2 个 Client</strong></span>
+</div>
+<div class="flex items-center justify-end gap-2 pt-2 border-t border-border-subtle">
+<button class="h-7 px-3 rounded bg-surface-canvas border border-border-subtle hover:bg-slate-100 text-on-surface font-button-label text-button-label transition-colors">取消</button>
+<button class="h-7 px-3 rounded bg-shell-surface hover:bg-slate-800 text-white font-button-label text-button-label transition-colors shadow-xs">重启 MCP Core</button>
+</div>
+</div>
+<!-- Toasts Collection -->
+<div class="flex flex-col gap-2.5">
+<!-- Toast Success -->
+<div class="p-2.5 rounded-lg bg-surface-canvas border border-emerald-300 shadow-xs flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-[18px] text-status-healthy">check_circle</span>
+<div class="flex flex-col">
+<span class="font-button-label text-button-label text-on-surface font-semibold">MCP Core 启动成功</span>
+<span class="font-tech-micro text-tech-micro text-secondary">已监听 127.0.0.1:9121 (PID 14208)</span>
+</div>
+</div>
+<button class="text-slate-400 hover:text-on-surface"><span class="material-symbols-outlined text-[14px]">close</span></button>
+</div>
+<!-- Toast Info -->
+<div class="p-2.5 rounded-lg bg-surface-canvas border border-blue-200 shadow-xs flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-[18px] text-status-running">info</span>
+<div class="flex flex-col">
+<span class="font-button-label text-button-label text-on-surface font-semibold">工作区切换成功</span>
+<span class="font-tech-micro text-tech-micro text-secondary">已重新解析 18 个可用 MCP 声明工具</span>
+</div>
+</div>
+<button class="text-slate-400 hover:text-on-surface"><span class="material-symbols-outlined text-[14px]">close</span></button>
+</div>
+<!-- Toast Error -->
+<div class="p-2.5 rounded-lg bg-surface-canvas border border-red-300 shadow-xs flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-[18px] text-status-error">error</span>
+<div class="flex flex-col">
+<span class="font-button-label text-button-label text-status-error font-semibold">端口 9121 已被占用</span>
+<span class="font-tech-micro text-tech-micro text-secondary">冲突进程: PID 19842 (node.exe)</span>
+</div>
+</div>
+<button class="text-slate-400 hover:text-on-surface"><span class="material-symbols-outlined text-[14px]">close</span></button>
+</div>
+</div>
+</div>
+</section>
+<!-- 9. Empty State & Actionable Error State -->
+<section class="p-4 rounded-lg bg-surface-canvas border border-border-subtle flex flex-col gap-4">
+<div class="flex items-center justify-between border-b border-border-subtle pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">inbox</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">08 / Empty State &amp; Actionable Error · 异常与空状态</span>
+</div>
+<span class="font-tech-micro text-tech-micro text-secondary">ACTIONABLE GUIDANCE · ZERO VAGUE TEXT</span>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<!-- Empty State -->
+<div class="p-6 rounded-lg bg-surface-subtle border border-dashed border-border-strong flex flex-col items-center justify-center text-center gap-2">
+<div class="w-10 h-10 rounded-full bg-slate-200/80 flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined text-[20px]">smart_toy</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline-sm text-headline-sm text-on-surface">尚无 Agent 任务</span>
+<span class="font-body-sm text-body-sm text-secondary">创建任务后，多 Agent 联合执行与调用记录会实时显示在这里。</span>
+</div>
+<button class="mt-2 h-7 px-3 rounded bg-shell-surface hover:bg-slate-800 text-white font-button-label text-button-label flex items-center gap-1.5 transition-colors shadow-xs">
+<span class="material-symbols-outlined text-[14px]">add</span>
+<span class="">创建首个任务</span>
+</button>
+</div>
+<!-- Actionable Error State -->
+<div class="p-5 rounded-lg bg-red-50/50 border border-red-200 flex flex-col justify-between gap-3">
+<div class="flex items-start gap-3">
+<div class="w-7 h-7 rounded bg-red-100 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[18px] text-status-error">running_with_errors</span>
+</div>
+<div class="flex flex-col gap-0.5">
+<span class="font-headline-sm text-headline-sm text-status-error">MCP Core 启动失败</span>
+<span class="font-body-sm text-body-sm text-on-surface">系统默认端口 9121 已被其他外部服务实例抢占。</span>
+<div class="mt-1 font-tech-micro text-tech-micro text-slate-600">
+<span class="">占用进程: <strong class="font-mono text-on-surface">PID 19842 · node.exe</strong></span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-2 pt-2 border-t border-red-200/70">
+<button class="h-7 px-2.5 rounded bg-surface-canvas border border-red-200 hover:bg-red-50 text-status-error font-button-label text-button-label transition-colors">
+              更改端口为 9122
+            </button>
+<button class="h-7 px-2.5 rounded bg-red-600 hover:bg-red-700 text-white font-button-label text-button-label flex items-center gap-1 transition-colors shadow-xs">
+<span class="material-symbols-outlined text-[14px]">refresh</span>
+<span class="">终止冲突并重试</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- 10. Technical Metadata Panel -->
+<section class="p-4 rounded-lg bg-surface-canvas border border-border-subtle flex flex-col gap-3">
+<div class="flex items-center justify-between border-b border-border-subtle pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">data_object</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">09 / Technical Metadata Panel · 精确工程元数据流</span>
+</div>
+<span class="font-tech-micro text-tech-micro text-secondary">MONOSPACE KEY-VALUE GRID · COPYABLE TOKENS</span>
+</div>
+<div class="p-3 rounded bg-surface-subtle border border-border-subtle">
+<div class="grid grid-cols-4 gap-3 font-code-default text-code-default">
+<div class="flex flex-col">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase">Active Port</span>
+<span class="font-semibold text-on-surface">9121 <span class="text-status-healthy font-normal">(TCP)</span></span>
+</div>
+<div class="flex flex-col">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase">Process PID</span>
+<span class="font-semibold text-on-surface">14208</span>
+</div>
+<div class="flex flex-col">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase">Daemon Runtime</span>
+<span class="font-semibold text-on-surface">04:31:17</span>
+</div>
+<div class="flex flex-col">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase">Protocol Version</span>
+<span class="font-semibold text-on-surface">v1.6.0-stable</span>
+</div>
+<div class="flex flex-col">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase">Git Branch</span>
+<span class="font-semibold text-on-surface">main <span class="text-primary font-normal">(8aef12d)</span></span>
+</div>
+<div class="flex flex-col col-span-2">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase">Workspace Directory</span>
+<span class="font-semibold text-on-surface truncate">E:\Projects\runtime\serena-desktop</span>
+</div>
+<div class="flex flex-col">
+<span class="font-tech-micro text-tech-micro text-secondary uppercase">Remote Endpoint</span>
+<span class="font-semibold text-tertiary truncate">https://agent-7f12.ngrok.app</span>
+</div>
+</div>
+</div>
+</section>
+</div>
+</div>
+<script>
+  // Dynamic sync of active navigation item in desktop sidebar
+  document.addEventListener('DOMContentLoaded', () => {
+    const navLinks = document.querySelectorAll('aside nav a');
+    navLinks.forEach(link => {
+      if (link.getAttribute('data-path') === 'ui-components') {
+        link.className = 'h-8 px-2 flex items-center justify-between rounded bg-shell-surface text-on-primary font-nav-active text-nav-active';
+        const icon = link.querySelector('.material-symbols-outlined');
+        if (icon) icon.className = 'material-symbols-outlined text-[16px] text-primary-fixed-dim';
+      } else {
+        link.className = 'h-8 px-2 flex items-center justify-between rounded text-on-surface-variant font-nav-default text-nav-default hover:bg-surface-container hover:text-on-surface transition-colors';
+      }
+    });
+
+    const exportBtn = document.getElementById('btn-export-tokens');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => {
+        const tokens = {
+          name: "Serena Canonical Design System",
+          version: "1.0",
+          colors: {
+            surfaceCanvas: "#FFFFFF",
+            shellDark: "#090D16",
+            statusHealthy: "#10B981",
+            statusRunning: "#3B82F6",
+            statusError: "#EF4444",
+            borderSubtle: "#E2E8F0"
+          },
+          typography: "Geist + Cascadia Code, Consolas, Fira Code, Menlo, monospace"
+        };
+        const blob = new Blob([JSON.stringify(tokens, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'serena-tokens.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    }
+  });
+</script></main></div><footer class="fixed bottom-0 left-0 w-full h-6 bg-surface-sidebar border-t border-border-subtle z-50 flex items-center justify-between px-3 font-tech-micro text-tech-micro text-secondary"><div class="flex items-center gap-3"><div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-status-healthy inline-block"></span><span class="text-on-surface font-semibold">Serena: 运行中</span></div><span class="text-outline-variant">|</span><div class="">内部端口: <span class="font-code-badge text-code-badge text-on-surface font-semibold">9121</span></div></div><div class="flex items-center gap-3 font-code-badge text-code-badge"><div class="flex items-center gap-1"><span class="">PID:</span><span class="text-on-surface font-semibold">14208</span></div><span class="text-outline-variant">|</span><div class="flex items-center gap-1"><span class="">CPU:</span><span class="text-on-surface font-semibold">1.8%</span></div><span class="text-outline-variant">|</span><div class="flex items-center gap-1"><span class="">RAM:</span><span class="text-on-surface font-semibold">72 MB</span></div></div></footer>
+
+</body></html>

@@ -1,0 +1,467 @@
+<!DOCTYPE html><html class="h-full" lang="zh-CN" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Serena Desktop - 首页</title>
+<!-- Tailwind CSS v3 with forms and container-queries plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<style data-purpose="typography">
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+    .font-mono-code {
+      font-family: "Cascadia Code", "Consolas", "Courier New", monospace;
+    }
+  </style>
+<style data-purpose="custom-scrollbar">
+    /* Custom thin scrollbar for desktop app feel */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="h-full bg-slate-50 text-slate-800 flex flex-col overflow-hidden text-sm">
+<!-- BEGIN: NativeTitleBar -->
+<header class="h-9 bg-[#090D16] border-b border-slate-800 flex items-center justify-between px-3 shrink-0 select-none text-xs z-50">
+<!-- Title bar left: App branding & identity -->
+<div class="flex items-center space-x-2.5">
+<img alt="Serena Logo" class="w-4 h-4 rounded-sm object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB4U-SAyAkVdlGBlzEJSfKK2bIROBCY1de-RfjLow7xzWGqOc7_WoNqlnHemiXhR1FlBFI6wovwQgE3tcadWDtmOG3o7d1-443qCcHUvMEaj7s4guRzhgZTV_COEYfEQYDDV5lo92QGtC5L7n-vRj9Ws8vJU71S44kXrTSTSRKfRWKO-Tp3MUaXh_C-lRdcWYEPlt13DyMtq5jN0f5Ki_BRCEwnq-7Pf5O3G2Uj6modkhGm9BwfwoMISlV2N60m_lhY8Q">
+<span class="font-semibold text-slate-200 tracking-wide text-xs">Serena Desktop</span>
+<span class="text-slate-600">|</span>
+<span class="text-slate-400 text-[11px] hidden sm:inline">桌面开发工具 / 运行时控制</span>
+</div>
+<!-- Title bar center: Core runtime status indicators -->
+<div class="flex items-center space-x-3 text-[11px]">
+<div class="flex items-center space-x-1.5 bg-slate-900/90 border border-slate-700/60 px-2 py-0.5 rounded text-emerald-400">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+<span class="font-medium tracking-tight">MCP CORE: ACTIVE</span>
+</div>
+<div class="hidden md:flex items-center space-x-1.5 text-slate-400 font-mono-code text-[11px]">
+<span class="text-slate-500">Port</span>
+<span class="text-slate-300">9121</span>
+</div>
+<div class="hidden lg:inline-flex items-center px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700/50 text-[10px] text-slate-400 font-mono-code">
+        Ctrl + K
+      </div>
+</div>
+<!-- Title bar right: Version tag and mock native window controls -->
+<div class="flex items-center space-x-4">
+<span class="text-[11px] text-slate-400 font-mono-code">v1.6.0</span>
+<div class="flex items-center space-x-2 text-slate-400">
+<!-- Minimize icon -->
+<button aria-label="Minimize" class="w-5 h-5 flex items-center justify-center hover:bg-slate-800 rounded transition-colors text-slate-300" type="button">
+<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M20 12H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+<!-- Maximize icon -->
+<button aria-label="Maximize" class="w-5 h-5 flex items-center justify-center hover:bg-slate-800 rounded transition-colors text-slate-300" type="button">
+<svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect height="16" rx="1" stroke-width="2" width="16" x="4" y="4"></rect></svg>
+</button>
+<!-- Close icon -->
+<button aria-label="Close" class="w-5 h-5 flex items-center justify-center hover:bg-red-600 hover:text-white rounded transition-colors text-slate-300" type="button">
+<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+</div>
+</div>
+</header>
+<!-- END: NativeTitleBar -->
+<div class="flex-1 flex overflow-hidden">
+<!-- BEGIN: LeftSidebar -->
+<aside class="w-64 bg-slate-100 border-r border-slate-200 flex flex-col shrink-0 select-none overflow-y-auto" data-purpose="canonical-sidebar">
+<!-- App Header Profile in Sidebar -->
+<div class="p-3.5 border-b border-slate-200/80 flex items-center space-x-3 bg-white/40">
+<img alt="Serena icon" class="w-7 h-7 rounded-md shadow-xs" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBXz0cmxJAW1tdMnIZCWBz5FXJyuSTo8sHRTRic7iJraXtNCaGqgAZYan6suzokXnwbEzRmx6-YkDBF_fpomeX29BVBF5R0DrYmUNonUDgab4FQOVTWVJiLN9bgGSWelGZ4LQHS4xmYXpCgzWBUe96OJIQLy2DgxxPjE1I2CL_qZagTSyQ50nn7C7VxqiYxcb5i22OGlDamVjfm0cmY3d3kGChajNH0qf6uAoVCb9sxFCWvTLKmu07AS9UuRYDdSyx3ww">
+<div class="flex-1 min-w-0">
+<div class="flex items-center space-x-1.5">
+<span class="font-semibold text-slate-900 text-sm leading-tight">Serena</span>
+<span class="w-2 h-2 rounded-full bg-emerald-500 inline-block" title="Online"></span>
+</div>
+<p class="text-[11px] text-slate-500 leading-tight">Desktop Suite</p>
+</div>
+</div>
+<!-- Navigation Links -->
+<div class="px-2.5 py-3">
+<div class="text-[11px] font-semibold text-slate-400 tracking-wider px-2 mb-1.5">NAVIGATION</div>
+<nav class="space-y-0.5">
+<!-- Active Home Item -->
+<a class="bg-slate-900 text-white font-medium rounded-md px-2.5 py-1.5 flex items-center justify-between shadow-xs" href="#">
+<div class="flex items-center space-x-2.5">
+<svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span class="text-xs">首页</span>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+</a>
+<!-- Service Status Link -->
+<a class="text-slate-600 hover:bg-slate-200/60 hover:text-slate-900 rounded-md px-2.5 py-1.5 flex items-center justify-between text-xs transition-colors" href="#">
+<div class="flex items-center space-x-2.5">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span class="">服务状态</span>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+</a>
+<!-- Agent Orchestration Link -->
+<a class="text-slate-600 hover:bg-slate-200/60 hover:text-slate-900 rounded-md px-2.5 py-1.5 flex items-center justify-between text-xs transition-colors" href="#">
+<div class="flex items-center space-x-2.5">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span class="">Agent</span>
+</div>
+
+</a>
+<!-- Log Terminal Link -->
+<a class="text-slate-600 hover:bg-slate-200/60 hover:text-slate-900 rounded-md px-2.5 py-1.5 flex items-center justify-between text-xs transition-colors" href="#">
+<div class="flex items-center space-x-2.5">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span class="">日志终端</span>
+</div>
+
+</a>
+<!-- Remote Access Link -->
+<a class="text-slate-600 hover:bg-slate-200/60 hover:text-slate-900 rounded-md px-2.5 py-1.5 flex items-center justify-between text-xs transition-colors" href="#">
+<div class="flex items-center space-x-2.5">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span class="">远程访问</span>
+</div>
+</a>
+<!-- Settings Link -->
+<a class="text-slate-600 hover:bg-slate-200/60 hover:text-slate-900 rounded-md px-2.5 py-1.5 flex items-center justify-between text-xs transition-colors" href="#">
+<div class="flex items-center space-x-2.5">
+<svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+<path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span class="">设置</span>
+</div>
+</a>
+</nav>
+</div>
+<!-- Workspace Projects Section -->
+<div class="px-2.5 py-3 border-t border-slate-200/70 flex-1">
+<div class="flex items-center justify-between px-2 mb-2">
+<span class="text-[11px] font-semibold text-slate-400 tracking-wider">工作区项目</span>
+<button class="text-slate-400 hover:text-slate-700 p-0.5 rounded transition-colors" title="新建工作区" type="button">
+<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+</div>
+<!-- Active workspace tree item -->
+<div class="space-y-1">
+<div class="bg-blue-50/70 border border-blue-200/70 rounded-md p-2">
+<div class="flex items-center space-x-2 text-slate-900 font-medium text-xs">
+<svg class="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span class="truncate">serena-desktop</span>
+</div>
+<!-- Sub-items/Commit Info -->
+<div class="ml-5 mt-1.5 space-y-1 text-[11px] text-slate-500 font-mono-code">
+<div class="truncate text-slate-600 hover:text-slate-800 cursor-pointer">0913 | 修复 Windows COM ...</div>
+<div class="truncate text-slate-400 hover:text-slate-700 cursor-pointer">0913 | 探索 OAuth ...</div>
+</div>
+</div>
+<!-- Other workspaces -->
+<div class="px-2 py-1.5 flex items-center space-x-2 text-xs text-slate-600 hover:bg-slate-200/50 rounded-md cursor-pointer transition-colors">
+<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span class="truncate">veyra</span>
+</div>
+<div class="px-2 py-1.5 flex items-center space-x-2 text-xs text-slate-600 hover:bg-slate-200/50 rounded-md cursor-pointer transition-colors">
+<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span class="truncate">guard-wall</span>
+</div>
+<div class="px-2 py-1.5 flex items-center space-x-2 text-xs text-slate-600 hover:bg-slate-200/50 rounded-md cursor-pointer transition-colors">
+<svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+<span class="truncate">xtunnel</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- END: LeftSidebar -->
+<!-- BEGIN: MainWorkspace -->
+<main class="flex-1 bg-white overflow-y-auto" data-purpose="workspace-main-content">
+<div class="max-w-[1152px] mx-auto px-8 py-7"><!-- BEGIN: PageHeader -->
+<section class="pb-4 border-b border-slate-200" data-purpose="page-header">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-bold text-slate-900 tracking-tight">开始使用</h1>
+      <p class="text-slate-500 text-[13px] mt-1">选择一个项目，连接本地代码能力。</p>
+    </div>
+    <button class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-md shadow-2xs transition-colors" type="button">
+      <svg class="w-3.5 h-3.5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+      </svg>
+      <span class="">同步项目</span>
+    </button>
+  </div>
+</section>
+<!-- END: PageHeader -->
+
+<!-- BEGIN: CurrentWorkspace -->
+<section class="mt-6" data-purpose="current-workspace-section">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-sm font-bold text-slate-900">当前工作区</h2>
+  </div>
+  <div class="border border-slate-200 rounded-lg p-4 bg-white hover:border-slate-300 transition-colors">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-8 h-8 rounded bg-blue-50/70 border border-blue-200/70 flex items-center justify-center shrink-0">
+          <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="text-base font-bold text-slate-900 tracking-tight">serena-desktop</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>已激活
+            </span>
+          </div>
+          <div class="font-mono-code text-xs text-slate-500 mt-1 select-all break-all">
+            E:\wx_lifeilin\github.com\lifei6671\serena-desktop
+          </div>
+        </div>
+      </div>
+      <button class="px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-medium rounded-md shadow-2xs transition-colors shrink-0" type="button">
+        切换项目
+      </button>
+    </div>
+  </div>
+
+  <details class="group mt-3" data-purpose="workspace-help-accordion"><summary class="list-none inline-flex items-center space-x-1 text-xs text-slate-500 hover:text-slate-800 font-medium cursor-pointer transition-colors">
+      <span class="">如何初始化并同步项目</span>
+      <svg class="w-3.5 h-3.5 text-slate-400 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+      </svg>
+    </summary>
+    <div class="mt-2.5 p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 leading-relaxed">
+      <p class="text-[13px] text-slate-700 leading-relaxed">在已有 Git 仓库的根目录打开 PowerShell，执行以下命令，为当前仓库创建 Serena 项目配置并建立索引。完成后点击“同步项目”。</p>
+      
+      <!-- Code card 1 -->
+      <div class="bg-white border border-slate-200 rounded-md p-3 flex items-center justify-between mt-2.5">
+        <code class="font-mono-code text-[13px] text-slate-800 select-all">serena project create --index</code>
+        <button class="px-2.5 py-1 text-xs text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900 rounded transition-colors font-medium" onclick="navigator.clipboard?.writeText('serena project create --index')" type="button">复制</button>
+      </div>
+
+      <!-- Sub-accordion 1: 找不到 serena 命令时 -->
+      <details class="group/cmd mt-3">
+        <summary class="list-none inline-flex items-center space-x-1 text-xs text-slate-500 hover:text-slate-800 font-medium cursor-pointer transition-colors">
+          <span class="">找不到 serena 命令时</span>
+          <svg class="w-3.5 h-3.5 text-slate-400 group-open/cmd:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+          </svg>
+        </summary>
+        <div class="mt-2">
+          <p class="text-[13px] text-slate-700 leading-relaxed">仍要在仓库根目录执行以下命令，使用 Desktop 检测到的 Serena 和同步配置目录。</p>
+          <div class="bg-white border border-slate-200 rounded-md p-3 flex items-start justify-between mt-2.5">
+            <div class="font-mono-code text-[12px] text-slate-800 leading-relaxed select-all">
+              <div class="">$env:SERENA_HOME = 'C:\Users\lifei\.serena'</div>
+              <div class="">&amp; 'C:\Users\lifei\AppData\Roaming\io.github.lifei6671.serena-desktop\runtime\bin\serena.exe' project create --index</div>
+            </div>
+            <button class="px-2.5 py-1 text-xs text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900 rounded transition-colors font-medium shrink-0 ml-3" onclick="navigator.clipboard?.writeText(&quot;$env:SERENA_HOME = 'C:\\Users\\lifei\\.serena'\n&amp; 'C:\\Users\\lifei\\AppData\\Roaming\\io.github.lifei6671.serena-desktop\\runtime\\bin\\serena.exe' project create --index&quot;)" type="button">复制</button>
+          </div>
+          <p class="text-[13px] text-slate-700 leading-relaxed mt-3">如果仓库已有 .serena/project.yml，请改用以下命令：</p>
+          <div class="bg-white border border-slate-200 rounded-md p-3 flex items-center justify-between mt-2.5">
+            <code class="font-mono-code text-[13px] text-slate-800 select-all">serena project index</code>
+            <button class="px-2.5 py-1 text-xs text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900 rounded transition-colors font-medium" onclick="navigator.clipboard?.writeText('serena project index')" type="button">复制</button>
+          </div>
+          <p class="text-[13px] text-slate-500 leading-relaxed mt-3">大项目可在终端查看进度；等待命令执行完成后再同步。</p>
+        </div>
+      </details>
+
+      <!-- Sub-accordion 2: 同步来源 -->
+      <details class="group/src mt-3">
+        <summary class="list-none inline-flex items-center space-x-1 text-xs text-slate-500 hover:text-slate-800 font-medium cursor-pointer transition-colors">
+          <span class="">同步来源</span>
+          <svg class="w-3.5 h-3.5 text-slate-400 group-open/src:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+          </svg>
+        </summary>
+        <div class="mt-2">
+          <p class="text-[13px] text-slate-700 leading-relaxed">读取 Serena 的项目登记表及项目配置，不扫描磁盘。启动时自动同步，也可手动刷新；同步不切换当前工作区。</p>
+          <div class="font-mono-code text-[12px] text-slate-600 space-y-1 mt-2.5 select-all">
+            <div class="">C:\Users\lifei\.serena\serena_config.yml</div>
+            <div class="">C:\Users\lifei\AppData\Roaming\io.github.lifei6671.serena-desktop\runtime\serena-home\serena_config.yml</div>
+          </div>
+        </div>
+      </details>
+    </div></details>
+</section>
+<!-- END: CurrentWorkspace -->
+
+<div class="border-b border-slate-200 my-6"></div>
+
+<!-- BEGIN: ServiceStatus -->
+<section data-purpose="service-status-section" class="">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-sm font-bold text-slate-900">服务状态</h2>
+    <a class="text-xs text-slate-500 hover:text-slate-800 font-medium inline-flex items-center space-x-0.5 transition-colors" href="#">
+      <span class="">查看状态</span>
+      <span class="">→</span>
+    </a>
+  </div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+    <!-- Serena Core -->
+    <div class="border border-slate-200 rounded-lg p-3.5 bg-white hover:border-slate-300 transition-colors flex flex-col justify-between">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-bold text-slate-900">Serena</span>
+        <span class="inline-flex items-center px-1.5 py-0.5 text-[11px] rounded font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1"></span>运行中
+        </span>
+      </div>
+      <div class="font-mono-code text-xs text-slate-500">Serena 1.7.0</div>
+    </div>
+    <!-- Git -->
+    <div class="border border-slate-200 rounded-lg p-3.5 bg-white hover:border-slate-300 transition-colors flex flex-col justify-between">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-bold text-slate-900">Git</span>
+        <span class="inline-flex items-center px-1.5 py-0.5 text-[11px] rounded font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1"></span>可用
+        </span>
+      </div>
+      <div class="font-mono-code text-xs text-slate-500 truncate" title="2.55.0.windows.2">2.55.0.windows.2</div>
+    </div>
+    <!-- CodeGraph -->
+    <div class="border border-slate-200 rounded-lg p-3.5 bg-white hover:border-slate-300 transition-colors flex flex-col justify-between">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-bold text-slate-900">CodeGraph</span>
+        <span class="inline-flex items-center px-1.5 py-0.5 text-[11px] rounded font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1"></span>就绪
+        </span>
+      </div>
+      <div class="font-mono-code text-xs text-slate-500">CodeGraph 1.6.0</div>
+    </div>
+    <!-- MCP 入口 -->
+    <div class="border border-slate-200 rounded-lg p-3.5 bg-white hover:border-slate-300 transition-colors flex flex-col justify-between">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-bold text-slate-900 truncate">MCP 连接入口</span>
+        <span class="inline-flex items-center px-1.5 py-0.5 text-[11px] rounded font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/80 shrink-0 ml-1">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1"></span>监听中
+        </span>
+      </div>
+      <div class="font-mono-code text-xs text-slate-500">:9120</div>
+    </div>
+  </div>
+</section>
+<!-- END: ServiceStatus -->
+
+<div class="border-b border-slate-200 my-6"></div>
+
+<!-- BEGIN: ConnectionConfig -->
+<section data-purpose="connection-config-section" class="">
+  <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center space-x-2.5">
+      <h2 class="text-sm font-bold text-slate-900">连接配置</h2>
+      
+    </div>
+  </div>
+
+  <!-- Primary Endpoint Box -->
+  <div class="border border-slate-200 rounded-lg p-4 bg-white mb-4">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-xs font-semibold text-slate-900">本机 MCP 地址</div>
+      <span class="text-[11px] text-slate-400 font-mono-code">Port: 9120</span>
+    </div>
+    <div class="flex items-center justify-between bg-slate-50 border border-slate-200/80 rounded-md px-3.5 py-2.5">
+      <span class="font-mono-code text-sm text-slate-800 font-medium select-all">http://127.0.0.1:9120/mcp</span>
+      <button class="px-3 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-medium rounded shadow-2xs transition-colors shrink-0" onclick="navigator.clipboard?.writeText('http://127.0.0.1:9120/mcp')" type="button">
+        复制
+      </button>
+    </div>
+  </div>
+
+  <!-- LAN Endpoints Container -->
+  <div class="border border-slate-200 rounded-lg bg-white overflow-hidden" data-purpose="lan-address-card">
+    <div class="px-4 py-3 bg-slate-50/50 border-b border-slate-200 text-xs">
+      <div class="text-slate-700 font-medium">提供局域网使用</div>
+      <p class="text-slate-500 mt-0.5 leading-relaxed">已允许局域网连接。请选择与另一台电脑同网段的地址；切换网络后请重新启用连接入口。</p>
+    </div>
+    <div class="divide-y divide-slate-100" data-purpose="lan-address-list">
+      <!-- Row 1 -->
+      <div class="px-4 py-2.5 flex items-center justify-between hover:bg-slate-50/70 transition-colors">
+        <span class="font-mono-code text-xs text-slate-700 select-all">http://10.20.0.1:9120/mcp</span>
+        <button class="h-7 px-2.5 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 rounded bg-white hover:bg-slate-50 font-medium shadow-2xs transition-colors shrink-0" onclick="navigator.clipboard?.writeText('http://10.20.0.1:9120/mcp')" type="button">
+          复制局域网地址
+        </button>
+      </div>
+      <!-- Row 2 -->
+      <div class="px-4 py-2.5 flex items-center justify-between hover:bg-slate-50/70 transition-colors">
+        <span class="font-mono-code text-xs text-slate-700 select-all">http://172.28.80.1:9120/mcp</span>
+        <button class="h-7 px-2.5 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 rounded bg-white hover:bg-slate-50 font-medium shadow-2xs transition-colors shrink-0" onclick="navigator.clipboard?.writeText('http://172.28.80.1:9120/mcp')" type="button">
+          复制局域网地址
+        </button>
+      </div>
+      <!-- Row 3 -->
+      <div class="px-4 py-2.5 flex items-center justify-between hover:bg-slate-50/70 transition-colors">
+        <span class="font-mono-code text-xs text-slate-700 select-all">http://192.168.31.58:9120/mcp</span>
+        <button class="h-7 px-2.5 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 rounded bg-white hover:bg-slate-50 font-medium shadow-2xs transition-colors shrink-0" onclick="navigator.clipboard?.writeText('http://192.168.31.58:9120/mcp')" type="button">
+          复制局域网地址
+        </button>
+      </div>
+      <!-- Row 4 -->
+      <div class="px-4 py-2.5 flex items-center justify-between hover:bg-slate-50/70 transition-colors">
+        <span class="font-mono-code text-xs text-slate-700 select-all">http://192.168.160.1:9120/mcp</span>
+        <button class="h-7 px-2.5 text-xs text-slate-600 hover:text-slate-900 border border-slate-200 rounded bg-white hover:bg-slate-50 font-medium shadow-2xs transition-colors shrink-0" onclick="navigator.clipboard?.writeText('http://192.168.160.1:9120/mcp')" type="button">
+          复制局域网地址
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+<!-- END: ConnectionConfig --></div>
+</main>
+<!-- END: MainWorkspace -->
+</div>
+<!-- BEGIN: BottomStatusBar -->
+<footer class="h-6 bg-slate-100 border-t border-slate-200 text-[11px] text-slate-500 flex items-center justify-between px-3 shrink-0 select-none z-50">
+<!-- Status left -->
+<div class="flex items-center space-x-2">
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+<span class="text-slate-700 font-medium">Serena: 运行中</span>
+<span class="text-slate-300">|</span>
+<span class="">内部端口: <span class="font-mono-code text-slate-600">9121</span></span>
+<span class="text-slate-300">|</span>
+<span class="">MCP 监听: <span class="font-mono-code text-slate-600">9120</span></span>
+</div>
+<!-- Status right: System telemetry metrics -->
+<div class="flex items-center space-x-3 font-mono-code text-[10px] text-slate-500">
+<span class="">PID: 14208</span>
+<span class="text-slate-300">|</span>
+<span class="">CPU: 1.8%</span>
+<span class="text-slate-300">|</span>
+<span class="">RAM: 72 MB</span>
+</div>
+</footer>
+<!-- END: BottomStatusBar -->
+
+
+
+
+
+
+
+
+</body></html>

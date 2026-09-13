@@ -1,0 +1,294 @@
+<!DOCTYPE html><html lang="zh-CN" style=""><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{width:6px;height:6px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px;}::-webkit-scrollbar-thumb:hover{background:#94a3b8;}</style><script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{"colors":{"on-secondary-fixed":"#131b2e","shell-border":"#1E293B","border-subtle":"#E2E8F0","surface-container-low":"#eff4ff","secondary-fixed":"#dae2fd","on-surface":"#0b1c30","secondary":"#565e74","on-tertiary-fixed-variant":"#004395","on-secondary-container":"#5c647a","shell-dark":"#090D16","outline-variant":"#bbcabf","shell-surface":"#0F172A","on-secondary":"#ffffff","primary-fixed":"#6ffbbe","secondary-container":"#dae2fd","surface-container-highest":"#d3e4fe","status-healthy":"#10B981","on-primary-fixed":"#002113","status-running":"#3B82F6","on-error-container":"#93000a","surface-container-high":"#dce9ff","inverse-surface":"#213145","on-tertiary-container":"#00367a","on-background":"#0b1c30","tertiary-container":"#71a1ff","status-warning":"#F59E0B","background":"#f8f9ff","on-tertiary":"#ffffff","inverse-primary":"#4edea3","surface-variant":"#d3e4fe","shell-text":"#CBD5E1","tertiary-fixed":"#d8e2ff","on-secondary-fixed-variant":"#3f465c","surface-tint":"#006c49","surface-dim":"#cbdbf5","tertiary":"#005ac2","error":"#ba1a1a","surface-container":"#e5eeff","surface-container-lowest":"#ffffff","secondary-fixed-dim":"#bec6e0","on-primary":"#ffffff","error-container":"#ffdad6","surface-sidebar":"#F1F5F9","primary-fixed-dim":"#4edea3","on-primary-container":"#00422b","outline":"#6c7a71","surface":"#f8f9ff","inverse-on-surface":"#eaf1ff","status-error":"#EF4444","surface-canvas":"#FFFFFF","surface-bright":"#f8f9ff","on-primary-fixed-variant":"#005236","on-tertiary-fixed":"#001a42","on-surface-variant":"#3c4a42","tertiary-fixed-dim":"#adc6ff","border-strong":"#94A3B8","on-error":"#ffffff","surface-subtle":"#F8FAFC","primary-container":"#10b981","primary":"#006c49"},"borderRadius":{"DEFAULT":"0.125rem","lg":"0.25rem","xl":"0.5rem","full":"0.75rem"},"spacing":{"margin":"1.5rem","gutter":"1rem","space-md":"1rem","space-lg":"1.5rem","space-xs":"0.25rem","space-xl":"2rem","space-sm":"0.5rem"},"fontFamily":{"body-lg":["Geist"],"headline-lg":["Geist"],"headline-md":["Geist"],"body-md":["Geist"],"headline-sm":["Geist"],"nav-active":["Geist"],"code-badge":["JetBrains Mono","Cascadia Code","Consolas"],"tech-micro":["JetBrains Mono","Cascadia Code","Consolas"],"button-label":["Geist"],"nav-default":["Geist"],"code-default":["JetBrains Mono","Cascadia Code","Consolas"],"body-sm":["Geist"],"status-label":["Geist"]},"fontSize":{"body-lg":["14px",{"lineHeight":"22px","fontWeight":"400"}],"headline-lg":["24px",{"lineHeight":"32px","letterSpacing":"-0.02em","fontWeight":"700"}],"headline-md":["18px",{"lineHeight":"24px","letterSpacing":"-0.015em","fontWeight":"600"}],"body-md":["13px",{"lineHeight":"18px","fontWeight":"400"}],"headline-sm":["14px",{"lineHeight":"20px","letterSpacing":"-0.01em","fontWeight":"700"}],"nav-active":["13px",{"lineHeight":"18px","fontWeight":"600"}],"code-badge":["11px",{"lineHeight":"14px","fontWeight":"500"}],"tech-micro":["10px",{"lineHeight":"12px","letterSpacing":"0.02em","fontWeight":"400"}],"button-label":["12px",{"lineHeight":"16px","fontWeight":"600"}],"nav-default":["13px",{"lineHeight":"18px","fontWeight":"500"}],"code-default":["12px",{"lineHeight":"18px","fontWeight":"400"}],"body-sm":["12px",{"lineHeight":"16px","fontWeight":"400"}],"status-label":["11px",{"lineHeight":"14px","fontWeight":"400"}]}}}};</script></head>
+<body class="bg-surface-canvas font-body-md text-on-surface select-none antialiased">
+<!-- Top Native Window Title Bar (36px, #090D16, border slate-800) -->
+<header class="fixed top-0 left-0 right-0 h-[36px] bg-shell-dark z-50 flex items-center justify-between px-3 border-b border-shell-border text-shell-text select-none">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1.5">
+<div class="w-3 h-3 rounded-full bg-status-error opacity-80 hover:opacity-100 cursor-pointer transition-opacity"></div>
+<div class="w-3 h-3 rounded-full bg-status-warning opacity-80 hover:opacity-100 cursor-pointer transition-opacity"></div>
+<div class="w-3 h-3 rounded-full bg-status-healthy opacity-80 hover:opacity-100 cursor-pointer transition-opacity"></div>
+</div>
+<div class="h-3 w-[1px] bg-shell-border"></div>
+<span class="font-headline-sm text-[13px] text-on-secondary font-medium tracking-tight">Serena Desktop — Agent 任务</span>
+<span class="font-code-badge text-code-badge px-1.5 py-0.5 rounded bg-shell-surface text-status-healthy flex items-center gap-1 border border-shell-border">
+<span class="w-1.5 h-1.5 rounded-full bg-status-healthy animate-pulse"></span>MCP CORE: ACTIVE
+</span>
+</div>
+<div class="flex items-center gap-4 text-shell-text font-tech-micro text-tech-micro">
+<span class="font-code-default text-code-default text-shell-text">Port: 9121</span>
+<div class="flex items-center gap-1 px-2 py-0.5 rounded bg-shell-surface border border-shell-border font-code-badge text-code-badge text-shell-text">
+<span class="text-[10px]">Ctrl + K</span>
+</div>
+<span class="font-tech-micro text-tech-micro text-secondary font-mono">v1.6.0</span>
+<div class="w-5 h-5 rounded-full overflow-hidden border border-shell-border">
+<img alt="App Logo" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBQE3icgrK0IwncRrMgLAIeeFQ0LTDAu0bZkuwJPoANGfBhmw0ioTrKaH8woWwbRM8Wz6EJ7eWzyY2s3_U5a35qvRr2X2L7Gy1t93G1yQymgPnZw7EUE9UZrvrnKothoUdDruj1CRse-pussySb-OL6MmBadTvooxSyvwkg53WrC57cjdUiwO_kdRjbqSupM4y4Fl0TB0s59T-EUIgTZTVD0mxliH_M9hDNCznjCiKEA0-JvMLje4EaQFmj57jSWmcaPQ">
+</div>
+</div>
+</header>
+<!-- Left Sidebar (256px, #F1F5F9) -->
+<aside class="fixed left-0 top-[36px] bottom-[24px] w-64 bg-surface-sidebar z-40 flex flex-col border-r border-border-subtle select-none">
+<div class="h-12 px-3 flex items-center justify-between border-b border-border-subtle bg-surface-sidebar">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded flex items-center justify-center overflow-hidden">
+<img alt="Serena Desktop Suite" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBkkDOe50dQrwAwq6OghpgVRSwTkQ4Gt1ZIYBKb6ZNYkyCQRonkmZFAsn62qvxM81BvB-S2qHXZvFiafORs7jTJdJbyXoZJPLHdqzRB5NCUqvBh5BKLXJTBEld8b50RtMCBQZ0SQ4h5hdp6uFz_wTSVrAW2RUlCGHLJrq54lCzbpbBcipgP3afAeuszFj-7k9QwaHstnGRlDMUWfm2m5lmhdGasVDmKJvyCGQITTcnQTA4HiTqLd_Hh5mP0Xhvq74dpEA">
+</div>
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold tracking-tight">Serena Desktop Suite</span>
+</div>
+<span class="material-symbols-outlined text-secondary text-[16px] cursor-pointer hover:text-on-surface">unfold_more</span>
+</div>
+<div class="flex-1 overflow-y-auto py-2 px-2 space-y-4">
+<nav class="space-y-1">
+<a class="flex items-center justify-between h-8 px-2.5 rounded-lg text-secondary font-nav-default text-nav-default hover:bg-border-subtle hover:text-on-surface transition-colors" data-path="overview" href="#">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-[18px]">home</span>
+<span class="">首页</span>
+</div>
+</a>
+<a class="flex items-center justify-between h-8 px-2.5 rounded-lg text-secondary font-nav-default text-nav-default hover:bg-border-subtle hover:text-on-surface transition-colors" data-path="service-status" href="#">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-[18px]">dns</span>
+<span class="">服务状态</span>
+</div>
+<span class="w-2 h-2 rounded-full bg-status-healthy"></span>
+</a>
+<!-- Agent 任务 (ACTIVE) -->
+<a aria-current="page" class="flex items-center justify-between h-8 px-2.5 rounded-lg transition-colors bg-shell-surface text-white font-nav-active" data-path="agent-tasks" href="#">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-[18px] text-emerald-400">task_alt</span>
+<span class="text-[13px] font-semibold">Agent</span>
+</div>
+
+</a>
+<a class="flex items-center justify-between h-8 px-2.5 rounded-lg text-secondary font-nav-default text-nav-default hover:bg-border-subtle hover:text-on-surface transition-colors" data-path="log-terminal" href="#">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+<span class="">日志终端</span>
+</div>
+
+</a>
+<a class="flex items-center justify-between h-8 px-2.5 rounded-lg text-secondary font-nav-default text-nav-default hover:bg-border-subtle hover:text-on-surface transition-colors" data-path="remote-access" href="#">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-[18px]">cloud_sync</span>
+<span class="">远程访问</span>
+</div>
+</a>
+<a class="flex items-center justify-between h-8 px-2.5 rounded-lg text-secondary font-nav-default text-nav-default hover:bg-border-subtle hover:text-on-surface transition-colors" data-path="settings" href="#">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+<span class="">设置</span>
+</div>
+</a>
+</nav>
+<!-- Workspace tree -->
+<div>
+<div class="px-2.5 pb-1 flex items-center justify-between text-secondary font-tech-micro text-tech-micro uppercase tracking-wider">
+<span class="">工作区项目</span>
+
+</div>
+<div class="space-y-0.5">
+<a class="flex items-center justify-between h-7 px-2.5 rounded text-on-surface font-body-sm text-body-sm bg-surface-subtle font-medium border border-border-subtle" data-path="workspace-serena-desktop" href="#">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-primary">folder_open</span>
+<span class="font-code-default text-code-default">serena-desktop</span>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-status-healthy"></span>
+</a>
+<a class="flex items-center justify-between h-7 px-2.5 rounded text-secondary font-body-sm text-body-sm hover:bg-border-subtle hover:text-on-surface transition-colors" data-path="workspace-veyra" href="#">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">folder</span>
+<span class="font-code-default text-code-default">veyra</span>
+</div>
+</a>
+<a class="flex items-center justify-between h-7 px-2.5 rounded text-secondary font-body-sm text-body-sm hover:bg-border-subtle hover:text-on-surface transition-colors" data-path="workspace-guard-wall" href="#">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">folder</span>
+<span class="font-code-default text-code-default">guard-wall</span>
+</div>
+</a>
+<a class="flex items-center justify-between h-7 px-2.5 rounded text-secondary font-body-sm text-body-sm hover:bg-border-subtle hover:text-on-surface transition-colors" data-path="workspace-xtunnel" href="#">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">folder</span>
+<span class="font-code-default text-code-default">xtunnel</span>
+</div>
+</a>
+</div>
+</div>
+</div>
+
+</aside>
+<!-- Main Workbench Body: Single-column centered workbench -->
+<div class="pl-64 min-h-screen flex flex-col bg-surface-canvas">
+<div class="h-[36px]"></div>
+<main class="flex-1 flex flex-col">
+<!-- Page Header -->
+<div class="px-8 py-4 border-b border-border-subtle bg-surface-canvas flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0">
+<div class="space-y-1">
+<div class="flex items-center gap-2.5">
+<h1 class="font-headline-lg text-[22px] font-bold text-slate-900 tracking-tight">Agent 任务</h1>
+<span class="font-code-badge text-code-badge px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-mono">
+Codex Local Runner
+</span>
+</div>
+<p class="text-slate-500 font-body-sm text-body-sm">
+在当前工作区中创建、查看和管理本地 Agent 执行任务。
+</p>
+</div>
+<div class="flex items-center gap-2 shrink-0">
+
+
+</div>
+</div>
+<!-- Current Workspace Context Bar -->
+<div class="px-8 py-2 border-b border-border-subtle bg-surface-subtle flex flex-wrap items-center justify-between gap-2 text-secondary font-body-sm text-body-sm shrink-0">
+<div class="flex items-center gap-2.5 flex-wrap">
+<span class="flex items-center gap-1.5 text-on-surface font-medium">
+<span class="material-symbols-outlined text-[16px] text-primary">folder</span>
+<span class="">当前工作区:</span>
+<span class="font-code-default text-code-default bg-white px-1.5 py-0.5 rounded border border-border-subtle font-semibold text-slate-800">serena-desktop</span>
+</span>
+<span class="text-border-strong">·</span>
+<span class="flex items-center gap-1 font-tech-micro text-tech-micro text-secondary">
+<span class="material-symbols-outlined text-[13px]">commit</span>
+<span class="">git branch: <span class="font-mono text-on-surface font-semibold">main</span> · clean</span>
+</span>
+<span class="text-border-strong hidden sm:inline">·</span>
+<span class="font-code-default text-code-default text-slate-500 hidden md:inline truncate max-w-lg font-mono">
+E:\wx_lifeilin\github.com\lifei6671\serena-desktop
+</span>
+</div>
+<button class="text-secondary hover:text-on-surface font-button-label text-button-label flex items-center gap-1 transition-colors" type="button">
+<span class="material-symbols-outlined text-[14px]">tune</span>
+<span class="">管理工作区</span>
+</button>
+</div>
+<!-- Center Workbench Content Container (max-w-6xl / ~1152px) -->
+<div class="flex-1 w-full max-w-[1152px] mx-auto px-6 py-6 space-y-7">
+<!-- 1. Task Composer (新任务) -->
+<section class="space-y-2.5">
+<div class="flex items-center justify-between">
+<h2 class="font-headline-sm text-[15px] font-bold text-slate-900 tracking-tight flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px] text-slate-700">edit_note</span>
+<span class="">新任务</span>
+</h2>
+
+</div>
+<div class="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden focus-within:border-slate-400 transition-colors">
+<div class="p-3.5">
+<textarea class="w-full resize-none border-0 p-0 text-slate-800 placeholder:text-slate-400 font-body-md text-body-md focus:ring-0 focus:outline-none min-h-[92px]" placeholder="描述希望 Agent 在当前工作区完成的任务……例如：检查 src/oauth/cimd.rs 的地址验证逻辑，修复发现的问题并运行相关测试。" rows="3"></textarea>
+</div>
+<div class="bg-slate-50 border-t border-slate-200 px-4 py-2.5 flex items-center justify-between gap-3">
+<div class="flex items-center gap-2 text-slate-500 font-tech-micro text-tech-micro">
+<span class="flex items-center gap-1 font-mono text-slate-700 font-medium">
+<span class="material-symbols-outlined text-[14px] text-slate-500">smart_toy</span>
+Codex
+</span>
+<span class="text-slate-300">·</span>
+<span class="">当前工作区 (<span class="font-mono text-slate-700">serena-desktop</span>)</span>
+<span class="text-slate-300">·</span>
+<span class="text-slate-400 font-mono">Local Runner Active</span>
+</div>
+<button class="inline-flex items-center gap-1.5 h-8 px-4 rounded-md bg-slate-900 text-white hover:bg-slate-800 transition-colors font-button-label text-button-label shadow-xs shrink-0" type="button">
+<span class="material-symbols-outlined text-[15px] text-emerald-400">play_arrow</span>
+<span class="">开始新任务</span>
+</button>
+</div>
+</div>
+</section>
+<!-- 2. Recent Tasks (最近任务) -->
+<section class="space-y-3.5">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<h2 class="font-headline-sm text-[15px] font-bold text-slate-900 tracking-tight flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[18px] text-slate-700">format_list_bulleted</span>
+<span class="">最近任务</span>
+</h2>
+<span class="font-code-badge text-code-badge px-2 py-0.2 rounded-full bg-slate-100 text-slate-700 border border-slate-200 font-mono font-medium">5</span>
+</div>
+</div>
+<!-- Filter Toolbar -->
+<div class="p-2 rounded-lg bg-surface-subtle border border-border-subtle flex flex-wrap items-center justify-between gap-2 text-body-sm">
+<div class="flex items-center gap-2 flex-wrap">
+<!-- Filter by workspace -->
+<div class="relative">
+<select class="h-8 pl-2.5 pr-7 py-0 rounded bg-white border border-border-subtle text-slate-700 font-body-sm text-[12px] focus:outline-none focus:border-slate-400 cursor-pointer appearance-none">
+<option selected="">全部工作区</option>
+<option>serena-desktop</option>
+<option>veyra</option>
+<option>guard-wall</option>
+<option>xtunnel</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 top-2 text-[15px] text-secondary pointer-events-none">arrow_drop_down</span>
+</div>
+<!-- Filter by status -->
+<div class="relative">
+<select class="h-8 pl-2.5 pr-7 py-0 rounded bg-white border border-border-subtle text-slate-700 font-body-sm text-[12px] focus:outline-none focus:border-slate-400 cursor-pointer appearance-none">
+<option selected="">全部状态</option>
+<option>执行中</option>
+<option>已完成</option>
+<option>失败</option>
+<option>需要关注</option>
+<option>已取消</option>
+</select>
+<span class="material-symbols-outlined absolute right-1.5 top-2 text-[15px] text-secondary pointer-events-none">arrow_drop_down</span>
+</div>
+<!-- Search input -->
+
+</div>
+<button class="h-8 w-8 rounded bg-white border border-border-subtle text-secondary hover:text-on-surface hover:bg-surface-subtle flex items-center justify-center transition-colors shrink-0" title="刷新任务列表" type="button">
+<span class="material-symbols-outlined text-[16px]">refresh</span>
+</button>
+</div>
+<!-- Task List Rows -->
+<div class="space-y-2.5">
+<!-- Task 1: RUNNING TASK -->
+<div class="p-3.5 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition-all shadow-2xs"><div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3"><div class="space-y-1.5 min-w-0"><div class="flex items-center gap-2 flex-wrap"><span class="w-2 h-2 rounded-full bg-status-running animate-pulse"></span><h3 class="font-headline-sm text-[14px] font-bold text-slate-900 font-mono tracking-tight">0913 | 修复 | Windows COM 依赖对齐</h3></div><div class="flex items-center gap-2 text-tech-micro text-tech-micro text-secondary font-mono flex-wrap"><span class="text-slate-600">serena-desktop</span><span class="text-slate-300">·</span><span class="">2026-09-13 10:59</span><span class="text-slate-300">·</span><span class="text-blue-700 font-medium">已运行 2分15秒</span></div></div><div class="flex flex-col items-end gap-2 shrink-0 self-end lg:self-center"><span class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>运行中</span><div class="flex items-center gap-3"><button class="inline-flex items-center gap-0.5 text-xs text-slate-600 hover:text-slate-900 hover:underline p-0 bg-transparent border-0 font-medium cursor-pointer" type="button"><span class="material-symbols-outlined text-[14px]">open_in_new</span>详情</button><button class="inline-flex items-center gap-0.5 text-xs text-slate-400 hover:text-red-600 hover:underline p-0 bg-transparent border-0 font-medium cursor-pointer" title="删除任务" type="button"><span class="material-symbols-outlined text-[14px]">delete</span>删除</button></div></div></div></div>
+<!-- Task 2: ATTENTION / RESUME TASK -->
+
+<!-- Task 3: COMPLETED TASK 1 -->
+<div class="p-3.5 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition-all shadow-2xs"><div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3"><div class="space-y-1.5 min-w-0"><div class="flex items-center gap-2 flex-wrap"><span class="material-symbols-outlined text-[16px] text-status-healthy font-bold">check_circle</span><h3 class="font-headline-sm text-[14px] font-semibold text-slate-800 font-mono tracking-tight">0913 | 探索 | OAuth 未提交变更审查</h3></div><div class="flex items-center gap-2 text-tech-micro text-tech-micro text-secondary font-mono flex-wrap"><span class="text-slate-600">serena-desktop</span><span class="text-slate-300">·</span><span class="">2026-09-13 10:49</span><span class="text-slate-300">·</span><span class="">耗时 4分04秒</span></div><p class="text-slate-600 font-body-sm text-[12px] leading-relaxed">完成 OAuth CIMD 校验逻辑复审，生成审查报告。</p></div><div class="flex flex-col items-end gap-2 shrink-0 self-end lg:self-center"><span class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>已完成</span><div class="flex items-center gap-3"><button class="inline-flex items-center gap-0.5 text-xs text-slate-600 hover:text-slate-900 hover:underline p-0 bg-transparent border-0 font-medium cursor-pointer" type="button"><span class="material-symbols-outlined text-[14px]">open_in_new</span>详情</button><button class="inline-flex items-center gap-0.5 text-xs text-slate-400 hover:text-red-600 hover:underline p-0 bg-transparent border-0 font-medium cursor-pointer" title="删除任务" type="button"><span class="material-symbols-outlined text-[14px]">delete</span>删除</button></div></div></div></div>
+<!-- Task 4: COMPLETED TASK 2 -->
+<div class="p-3.5 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition-all shadow-2xs"><div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3"><div class="space-y-1.5 min-w-0"><div class="flex items-center gap-2 flex-wrap"><span class="material-symbols-outlined text-[16px] text-status-healthy font-bold">check_circle</span><h3 class="font-headline-sm text-[14px] font-semibold text-slate-800 font-mono tracking-tight">0912 | 修复 | CodeGraph runtime reconnect</h3></div><div class="flex items-center gap-2 text-tech-micro text-tech-micro text-secondary font-mono flex-wrap"><span class="text-slate-600">serena-desktop</span><span class="text-slate-300">·</span><span class="">2026-09-12 17:30</span><span class="text-slate-300">·</span><span class="">耗时 7分12秒</span></div><p class="text-slate-600 font-body-sm text-[12px] leading-relaxed">完成 reconnect 错误处理修复并补充相关测试。</p></div><div class="flex flex-col items-end gap-2 shrink-0 self-end lg:self-center"><span class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>失败</span><div class="flex items-center gap-3"><button class="inline-flex items-center gap-0.5 text-xs text-slate-600 hover:text-slate-900 hover:underline p-0 bg-transparent border-0 font-medium cursor-pointer" type="button"><span class="material-symbols-outlined text-[14px]">open_in_new</span>详情</button><button class="inline-flex items-center gap-0.5 text-xs text-slate-400 hover:text-red-600 hover:underline p-0 bg-transparent border-0 font-medium cursor-pointer" title="删除任务" type="button"><span class="material-symbols-outlined text-[14px]">delete</span>删除</button></div></div></div></div>
+<!-- Task 5: FAILED TASK -->
+<div class="p-3.5 rounded-lg border border-red-200 bg-red-50/20 hover:border-red-300 transition-all shadow-2xs"><div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3"><div class="space-y-1.5 min-w-0"><div class="flex items-center gap-2 flex-wrap"><span class="material-symbols-outlined text-[16px] text-status-error font-bold">cancel</span><h3 class="font-headline-sm text-[14px] font-semibold text-slate-800 font-mono tracking-tight">0912 | 分析 | 跨平台文件路径规整</h3></div><div class="flex items-center flex-wrap pt-0.5"><span class="font-mono text-tech-micro text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded font-medium">CODEX_RPC_TIMEOUT</span><span class="font-body-sm text-[12px] text-slate-600 ml-1.5">App Server 请求超时。</span></div></div><div class="flex flex-col items-end gap-2 shrink-0 self-end lg:self-center"><span class="inline-flex items-center gap-1.5 text-xs font-medium text-slate-700"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>失败</span><div class="flex items-center gap-3"><button class="inline-flex items-center gap-0.5 text-xs text-slate-600 hover:text-slate-900 hover:underline p-0 bg-transparent border-0 font-medium cursor-pointer" type="button"><span class="material-symbols-outlined text-[14px]">open_in_new</span>详情</button><button class="inline-flex items-center gap-0.5 text-xs text-slate-400 hover:text-red-600 hover:underline p-0 bg-transparent border-0 font-medium cursor-pointer" title="删除任务" type="button"><span class="material-symbols-outlined text-[14px]">delete</span>删除</button></div></div></div></div>
+</div>
+<!-- Pagination / Load More -->
+<div class="pt-2 flex justify-center">
+<button class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-surface-subtle border border-border-subtle text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors font-button-label text-button-label text-[13px]" type="button">
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+<span class="">展开更多历史任务</span>
+</button>
+</div>
+</section>
+</div>
+</main>
+<div class="h-[24px]"></div>
+</div>
+<!-- Bottom Status Bar (24px, slate-100, border-t slate-200) -->
+<footer class="fixed bottom-0 left-0 right-0 h-[24px] bg-surface-sidebar border-t border-border-subtle z-50 flex items-center justify-between px-3 text-secondary font-status-label text-status-label select-none">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-1.5 text-on-surface font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-status-healthy"></span>
+<span class="">Serena: 运行中</span>
+</div>
+<span class="text-border-strong">|</span>
+<span class="font-code-badge text-code-badge">内部端口: 9121</span>
+<span class="text-border-strong">|</span>
+<span class="font-code-badge text-code-badge">PID: 14208</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="font-code-badge text-code-badge">CPU: 1.8%</span>
+<span class="text-border-strong">|</span>
+<span class="font-code-badge text-code-badge">RAM: 72 MB</span>
+<div class="flex items-center gap-1 ml-2">
+<span class="material-symbols-outlined text-[13px] text-status-healthy">wifi</span>
+<span class="">12ms</span>
+</div>
+</div>
+</footer>
+
+
+
+
+</body></html>
