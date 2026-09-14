@@ -106,14 +106,24 @@ async fn probe_connection_and_timeout_errors_are_sanitized() {
 }
 
 #[test]
-fn wrapped_network_causes_only_yield_fixed_categories() {
-    for (message, category) in [
-        ("dns error: failed to lookup PRIVATE_HOST", "dns"),
-        ("invalid peer certificate: PRIVATE_DETAIL", "tls"),
-        ("proxy authentication failed PRIVATE_PASSWORD", "proxy"),
+fn wrapped_network_causes_only_yield_fixed_categories_and_safe_tls_details() {
+    for (message, category, detail) in [
+        ("dns error: failed to lookup PRIVATE_HOST", "dns", None),
+        ("invalid peer certificate: UnknownIssuer PRIVATE_DETAIL", "tls", Some("unknown_issuer")),
+        ("invalid peer certificate: NotValidForName PRIVATE_HOST", "tls", Some("hostname")),
+        ("certificate revocation failed PRIVATE_DETAIL", "tls", Some("revocation")),
+        ("TLS handshake unexpected EOF PRIVATE_DETAIL", "tls", Some("eof")),
+        ("AcquireCredentialsHandle failed: SEC_E_NO_CREDENTIALS PRIVATE_DETAIL", "tls", Some("credential")),
+        ("proxy authentication failed PRIVATE_PASSWORD", "proxy", None),
     ] {
         let error = std::io::Error::other(message);
         assert_eq!(network_category(&error), Some(category));
+        if let Some(detail) = detail {
+            let evidence = ProbeStage::new("oauth_metadata", "fixture.example")
+                .fail_with_detail("tls", None, Some(tls_subtype(&error)));
+            assert!(evidence.contains(&format!("category=tls detail={detail}")), "{evidence}");
+            assert!(!evidence.contains("PRIVATE_"), "{evidence}");
+        }
     }
     assert_eq!(
         network_category(&std::io::Error::other("unknown private detail")),

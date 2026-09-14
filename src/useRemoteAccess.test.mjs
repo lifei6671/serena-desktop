@@ -145,3 +145,62 @@ test('stale refresh cannot overwrite a newer snapshot or post-mutation state', a
   assert.equal(controller.state.publicContext, null);
   assert.match(controller.error, /probe failed/);
 });
+
+test('Quick Tunnel root notifications silence historical errors and de-duplicate command failures', async () => {
+  const { toast } = await import('sonner');
+  const originalError = toast.error;
+  const notices = [];
+  toast.error = message => notices.push(message);
+  let current = snapshot({ status: 'error', active: false, publicContext: null, lastError: 'HISTORICAL_FAILURE' });
+  api.remoteState = async () => structuredClone(current);
+  api.remoteStart = async () => { throw new Error('REMOTE_ACCESS_ALREADY_RUNNING'); };
+  try {
+    await mount();
+    assert.deepEqual(notices, []);
+    let started;
+    await act(async () => { started = await controller.startQuickTunnel(); });
+    assert.equal(started, false);
+    assert.deepEqual(notices, ['快捷隧道启动失败，请检查状态后重试。']);
+    await act(async () => globalThis.__remoteAuthorization({}));
+    assert.equal(notices.length, 1);
+  } finally {
+    toast.error = originalError;
+  }
+});
+
+test('Quick Tunnel attempts end at ready or stopped before later errors', async () => {
+  const { toast } = await import('sonner');
+  const originalError = toast.error;
+  const notices = [];
+  toast.error = message => notices.push(message);
+  let current = snapshot({ mode: 'mcp_only', status: 'stopped', active: false, publicContext: null, lastError: null });
+  api.remoteState = async () => structuredClone(current);
+  api.remoteStart = async () => { current = snapshot({ status: 'starting', publicContext: null, lastError: null }); };
+  try {
+    await mount();
+    await act(async () => { assert.equal(await controller.startQuickTunnel(), true); });
+    current = snapshot({ status: 'verifying', publicContext: null, lastError: null });
+    await act(async () => globalThis.__remoteAuthorization({}));
+    current = snapshot({ status: 'ready', lastError: null });
+    await act(async () => globalThis.__remoteAuthorization({}));
+    current = snapshot({ status: 'error', active: false, publicContext: null, lastError: 'MANUAL_PROBE_FAILURE' });
+    await act(async () => globalThis.__remoteAuthorization({}));
+    assert.deepEqual(notices, []);
+
+    await act(async () => { assert.equal(await controller.startQuickTunnel(), true); });
+    current = snapshot({ status: 'stopped', active: false, publicContext: null, lastError: null });
+    await act(async () => globalThis.__remoteAuthorization({}));
+    current = snapshot({ status: 'error', active: false, publicContext: null, lastError: 'HISTORICAL_FAILURE' });
+    await act(async () => globalThis.__remoteAuthorization({}));
+    assert.deepEqual(notices, []);
+
+    await act(async () => { assert.equal(await controller.startQuickTunnel(), true); });
+    current = snapshot({ mode: 'mcp_only', status: 'stopped', active: false, publicContext: null, lastError: 'QUICK_TUNNEL_CLEANUP_FAILURE' });
+    await act(async () => globalThis.__remoteAuthorization({}));
+    assert.deepEqual(notices, ['快捷隧道启动失败，请重新启动。']);
+    await act(async () => globalThis.__remoteAuthorization({}));
+    assert.equal(notices.length, 1);
+  } finally {
+    toast.error = originalError;
+  }
+});

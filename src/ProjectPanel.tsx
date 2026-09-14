@@ -22,10 +22,10 @@ import {
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
-import { ChevronDownIcon } from "lucide-react";
+import { Check, ChevronDownIcon, Folder, RefreshCw } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import type { AppState } from "./types";
 import type { useBroker } from "./useBroker";
@@ -34,6 +34,10 @@ function displayProjectPath(path: string): string {
   if (path.startsWith("\\\\?\\UNC\\")) return "\\\\" + path.slice(8);
   return path.replace(/^\\\\\?\\(?=[A-Za-z]:\\)/, "");
 }
+
+const SYNC_MIN_PENDING_MS = 600;
+const COPY_MIN_PENDING_MS = 500;
+const SUCCESS_FEEDBACK_MS = 1500;
 
 function CopyCommand({
   text,
@@ -94,9 +98,17 @@ export function ProjectPanel({
 }) {
   const { broker, busy, perform } = controller;
   const [selected, setSelected] = useState("");
-  const [copyingEndpoint, setCopyingEndpoint] = useState(false);
+  const [copyingAddresses, setCopyingAddresses] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [copiedAddresses, setCopiedAddresses] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [cancelling, setCancelling] = useState(false);
   const syncing = busy === "同步项目中";
+  const [syncFeedback, setSyncFeedback] = useState<"idle" | "pending" | "success">("idle");
+  const feedbackTimers = useRef(new Set<ReturnType<typeof window.setTimeout>>());
+  const mounted = useRef(true);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState<boolean | undefined>(undefined);
   const project = broker?.projects.find((p) => p.id === selected);
@@ -161,6 +173,30 @@ export function ProjectPanel({
   const endpoint = broker?.running
     ? `http://127.0.0.1:${broker.port}/mcp`
     : null;
+  useEffect(() => {
+    const timers = feedbackTimers.current;
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      timers.forEach((timer) => window.clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+  const waitForFeedback = (duration: number) =>
+    new Promise<void>((resolve) => {
+      const timer = window.setTimeout(() => {
+        feedbackTimers.current.delete(timer);
+        resolve();
+      }, duration);
+      feedbackTimers.current.add(timer);
+    });
+  const resetAfterSuccess = (reset: () => void) => {
+    const timer = window.setTimeout(() => {
+      feedbackTimers.current.delete(timer);
+      if (mounted.current) reset();
+    }, SUCCESS_FEEDBACK_MS);
+    feedbackTimers.current.add(timer);
+  };
   const cancelOperation = async () => {
     setCancelling(true);
     try {
@@ -173,14 +209,42 @@ export function ProjectPanel({
     }
   };
   const copyEndpoint = async (address: string) => {
-    setCopyingEndpoint(true);
+    const startedAt = Date.now();
+    setCopyingAddresses((current) => new Set(current).add(address));
     try {
       await navigator.clipboard.writeText(address);
+      await waitForFeedback(
+        Math.max(0, COPY_MIN_PENDING_MS - (Date.now() - startedAt)),
+      );
+      if (!mounted.current) return;
+      setCopyingAddresses((current) => {
+        const next = new Set(current);
+        next.delete(address);
+        return next;
+      });
+      setCopiedAddresses((current) => new Set(current).add(address));
       onCopied();
+      resetAfterSuccess(() => {
+        setCopiedAddresses((current) => {
+          const next = new Set(current);
+          next.delete(address);
+          return next;
+        });
+      });
     } catch {
+      await waitForFeedback(
+        Math.max(0, COPY_MIN_PENDING_MS - (Date.now() - startedAt)),
+      );
+      if (!mounted.current) return;
       toast.error("复制失败，请手动选择地址复制。");
     } finally {
-      setCopyingEndpoint(false);
+      if (mounted.current) {
+        setCopyingAddresses((current) => {
+          const next = new Set(current);
+          next.delete(address);
+          return next;
+        });
+      }
     }
   };
   const openSelector = () => {
@@ -193,11 +257,38 @@ export function ProjectPanel({
     executable && registryHome
       ? `$env:SERENA_HOME = ${quote(registryHome)}\n& ${quote(executable)} project create --index`
       : null;
-  const sync = () =>
-    perform("同步项目中", async () => {
-      const count = await api.syncProjects();
-      toast.success(`已同步 ${count} 个项目`);
+  const sync = async () => {
+    if (syncFeedback !== "idle" || syncing) return;
+    const startedAt = Date.now();
+    let syncedCount: number | null = null;
+    setSyncFeedback("pending");
+    await perform("同步项目中", async () => {
+      try {
+        syncedCount = await api.syncProjects();
+      } catch (reason) {
+        await waitForFeedback(
+          Math.max(0, SYNC_MIN_PENDING_MS - (Date.now() - startedAt)),
+        );
+        throw reason;
+      }
+      await waitForFeedback(
+        Math.max(0, SYNC_MIN_PENDING_MS - (Date.now() - startedAt)),
+      );
+      toast.success(`已同步 ${syncedCount} 个项目`);
     });
+    if (!mounted.current) return;
+    if (syncedCount === null) {
+      setSyncFeedback("idle");
+      return;
+    }
+    setSyncFeedback("success");
+    resetAfterSuccess(() => setSyncFeedback("idle"));
+  };
+  const syncVisualState = syncFeedback === "success"
+    ? "success"
+    : syncing || syncFeedback === "pending"
+      ? "pending"
+      : "idle";
   return (
     <Dialog open={selectorOpen} onOpenChange={setSelectorOpen}>
       <div className="project-panel">
@@ -207,32 +298,53 @@ export function ProjectPanel({
             <p>选择一个项目，连接本地代码能力。</p>
           </div>
           <Button
-            variant="outline"
-            disabled={pending || !broker}
-            aria-busy={syncing}
+            className="sync-project-button"
+            disabled={pending || !broker || syncVisualState !== "idle"}
+            aria-busy={syncVisualState === "pending"}
             onClick={() => void sync()}
           >
-            {syncing && <Spinner data-icon="inline-start" aria-hidden="true" />}
-            {syncing ? "同步中…" : "同步项目"}
+            {syncVisualState === "pending" ? (
+              <Spinner data-icon="inline-start" aria-hidden="true" />
+            ) : syncVisualState === "success" ? (
+              <Check data-icon="inline-start" aria-hidden="true" />
+            ) : (
+              <RefreshCw data-icon="inline-start" aria-hidden="true" />
+            )}
+            {syncVisualState === "pending"
+              ? "同步中…"
+              : syncVisualState === "success"
+                ? "已同步"
+                : "同步项目"}
           </Button>
         </div>
         <section className="home-section" aria-labelledby="workspace-title">
           <h2 id="workspace-title">当前工作区</h2>
           <div className="workspace-summary">
             <div className="workspace-identity">
-              <div className="workspace-name">
-                <strong>
-                  {active?.name ??
-                    (broker ? "尚未激活项目" : "正在读取工作区…")}
-                </strong>
-                {active && <Badge variant="secondary">已激活</Badge>}
-              </div>
               {active ? (
-                <code className="project-path">
-                  {displayProjectPath(active.root)}
-                </code>
+                <div className="workspace-active-identity">
+                  <span className="workspace-folder-icon" aria-hidden="true">
+                    <Folder />
+                  </span>
+                  <div className="workspace-active-details">
+                    <div className="workspace-name">
+                      <strong>{active.name}</strong>
+                      <Badge className="workspace-active-badge" variant="secondary">
+                        已激活
+                      </Badge>
+                    </div>
+                    <code className="project-path">
+                      {displayProjectPath(active.root)}
+                    </code>
+                  </div>
+                </div>
               ) : (
-                <p>选择一个项目开始使用 Serena。</p>
+                <>
+                  <div className="workspace-name">
+                    <strong>{broker ? "尚未激活项目" : "正在读取工作区…"}</strong>
+                  </div>
+                  <p>选择一个项目开始使用 Serena。</p>
+                </>
               )}
             </div>
             <DialogTrigger asChild>
@@ -273,7 +385,7 @@ export function ProjectPanel({
             </div>
           )}
         </section>
-        <section className="home-section" aria-labelledby="project-sync-title">
+        <section className="home-section project-help" aria-labelledby="project-sync-title">
           <Collapsible
             open={helpOpen ?? broker?.projects.length === 0}
             onOpenChange={setHelpOpen}
@@ -435,42 +547,75 @@ export function ProjectPanel({
           className="home-section connection"
           aria-labelledby="connection-title"
         >
-          <h2 id="connection-title">连接配置</h2>
-          <Button variant="outline" onClick={onRemote}>连接 ChatGPT</Button>
-          <p className="field-label">本机 MCP 地址</p>
+          <div className="section-heading">
+            <h2 id="connection-title">连接配置</h2>
+            <Button variant="outline" onClick={onRemote}>连接 ChatGPT</Button>
+          </div>
           {endpoint ? (
             <>
-              <div className="endpoint-copy">
-                <code>{endpoint}</code>
-                <Button
-                  variant="outline"
-                  disabled={copyingEndpoint}
-                  aria-busy={copyingEndpoint}
-                  onClick={() => void copyEndpoint(endpoint)}
-                >
-                  {copyingEndpoint && (
-                    <Spinner data-icon="inline-start" aria-hidden="true" />
-                  )}
-                  复制
-                </Button>
-              </div>
-              <p className="helper">供 Cloudflare MCP upstream 使用。</p>
-              <p className="helper">
-                {broker?.listenAddress === "0.0.0.0"
-                  ? "已允许局域网连接。请选择与另一台电脑同网段的地址；切换网络后请重新启用连接入口。"
-                  : "当前仅允许本机连接；可在设置中开启局域网访问。"}
-              </p>
-              {broker?.lanEndpoints.map((address) => (
-                <div className="endpoint-copy" key={address}>
-                  <code>{address}</code>
-                  <Button variant="outline" disabled={copyingEndpoint} onClick={() => void copyEndpoint(address)}>
-                    复制局域网地址
+              <div className="connection-endpoint-card">
+                <div className="connection-endpoint-heading">
+                  <p className="field-label">本机 MCP 地址</p>
+                  <span>Port: {broker?.port}</span>
+                </div>
+                <div className="endpoint-copy endpoint-copy-primary">
+                  <code>{endpoint}</code>
+                  <Button
+                    variant="outline"
+                    disabled={copyingAddresses.has(endpoint) || copiedAddresses.has(endpoint)}
+                    aria-busy={copyingAddresses.has(endpoint)}
+                    onClick={() => void copyEndpoint(endpoint)}
+                  >
+                    {copyingAddresses.has(endpoint) && (
+                      <Spinner data-icon="inline-start" aria-hidden="true" />
+                    )}
+                    {copiedAddresses.has(endpoint) && (
+                      <Check data-icon="inline-start" aria-hidden="true" />
+                    )}
+                    {copyingAddresses.has(endpoint)
+                      ? "复制中…"
+                      : copiedAddresses.has(endpoint)
+                        ? "已复制"
+                        : "复制"}
                   </Button>
                 </div>
-              ))}
-              {broker?.listenAddress === "0.0.0.0" && broker.lanEndpoints.length === 0 && (
-                <p className="helper">未发现可用的 IPv4 网卡地址，请连接网络后重新启用入口。</p>
-              )}
+              </div>
+              <div className="lan-endpoints-card">
+                <div className="lan-endpoints-heading">
+                  <strong>{broker?.listenAddress === "0.0.0.0" ? "提供局域网使用" : "局域网访问"}</strong>
+                  <p>
+                    {broker?.listenAddress === "0.0.0.0"
+                      ? "已允许局域网连接。请选择与另一台电脑同网段的地址；切换网络后请重新启用连接入口。"
+                      : "当前仅允许本机连接；可在设置中开启局域网访问。"}
+                  </p>
+                </div>
+                {broker?.lanEndpoints.map((address) => {
+                  const copying = copyingAddresses.has(address);
+                  const copied = copiedAddresses.has(address);
+                  return (
+                    <div className="lan-endpoint-row" key={address}>
+                      <code>{address}</code>
+                      <Button
+                        variant="outline"
+                        disabled={copying || copied}
+                        aria-busy={copying}
+                        onClick={() => void copyEndpoint(address)}
+                      >
+                        {copying && <Spinner data-icon="inline-start" aria-hidden="true" />}
+                        {copied && <Check data-icon="inline-start" aria-hidden="true" />}
+                        {copying
+                          ? "复制中…"
+                          : copied
+                            ? "已复制"
+                            : "复制局域网地址"}
+                      </Button>
+                    </div>
+                  );
+                })}
+                {broker?.listenAddress === "0.0.0.0" && broker.lanEndpoints.length === 0 && (
+                  <p className="lan-endpoints-empty">未发现可用的 IPv4 网卡地址，请连接网络后重新启用入口。</p>
+                )}
+              </div>
             </>
           ) : (
             <div className="connection-stopped">

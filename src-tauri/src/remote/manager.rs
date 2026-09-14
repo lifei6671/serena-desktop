@@ -1085,6 +1085,12 @@ impl Remote {
         Ok(())
     }
     pub async fn probe(&self) -> Result<(), String> {
+        self.probe_inner(true).await
+    }
+    pub(super) async fn probe_startup(&self) -> Result<(), String> {
+        self.probe_inner(false).await
+    }
+    async fn probe_inner(&self, publish: bool) -> Result<(), String> {
         let _probe_lock = self.probe_lock.lock().await;
         let (context, credential) = {
             let mut inner = self.inner.lock().unwrap();
@@ -1101,8 +1107,10 @@ impl Remote {
             match prepared {
                 Ok(value) => value,
                 Err(error) => {
-                    inner.status = Status::Error;
-                    inner.error = Some(error.clone());
+                    if publish {
+                        inner.status = Status::Error;
+                        inner.error = Some(error.clone());
+                    }
                     return Err(error);
                 }
             }
@@ -1139,12 +1147,14 @@ impl Remote {
         {
             return Err("REMOTE_ACCESS_NOT_RUNNING".into());
         }
-        inner.status = if result.is_ok() {
-            Status::Ready
-        } else {
-            Status::Error
-        };
-        inner.error = result.as_ref().err().cloned();
+        if publish {
+            inner.status = if result.is_ok() {
+                Status::Ready
+            } else {
+                Status::Error
+            };
+            inner.error = result.as_ref().err().cloned();
+        }
         result
     }
 }

@@ -3,7 +3,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { api } from "../../api";
 import type { AppState } from "../../types";
 import type { AppController } from "../../app/useAppController";
-import { useId } from "react";
+import { Check, Copy, PlayCircle, StopCircle, Terminal } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Field, FieldGroup, FieldContent, FieldLabel, FieldDescription } from "@/components/ui/field";
@@ -22,7 +24,7 @@ function SettingSwitch({
 }) {
   const id = useId();
   return (
-    <Field orientation="horizontal" data-disabled={disabled}>
+    <Field className="settings-switch" orientation="horizontal" data-disabled={disabled}>
       <FieldContent>
         <FieldLabel htmlFor={id}>{label}</FieldLabel>
         <FieldDescription id={`${id}-description`}>{hint}</FieldDescription>
@@ -39,6 +41,31 @@ function SettingSwitch({
 }
 
 export default function SettingsPage({ state, draft, setDraft, busy, brokerPort, setBrokerPort, brokerAllowLan, setBrokerAllowLan, pickerActive, choosingExecutable, brokerController, updatingBroker, saveFields, saveToggle, setAutostart, chooseSerenaExecutable }: { state: AppState } & Pick<AppController, "draft" | "setDraft" | "busy" | "brokerPort" | "setBrokerPort" | "brokerAllowLan" | "setBrokerAllowLan" | "pickerActive" | "choosingExecutable" | "brokerController" | "updatingBroker" | "saveFields" | "saveToggle" | "setAutostart" | "chooseSerenaExecutable">) {
+  const [copiedDetectedPath, setCopiedDetectedPath] = useState(false);
+  const copyResetTimer = useRef<number | null>(null);
+  const detectedPath = state.installation?.path ?? null;
+  const brokerRunning = !!brokerController.broker?.running;
+
+  useEffect(() => () => {
+    if (copyResetTimer.current !== null) window.clearTimeout(copyResetTimer.current);
+  }, []);
+
+  const copyDetectedPath = async () => {
+    if (!detectedPath || copiedDetectedPath) return;
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("剪贴板不可用");
+      await navigator.clipboard.writeText(detectedPath);
+      setCopiedDetectedPath(true);
+      if (copyResetTimer.current !== null) window.clearTimeout(copyResetTimer.current);
+      copyResetTimer.current = window.setTimeout(() => {
+        copyResetTimer.current = null;
+        setCopiedDetectedPath(false);
+      }, 1500);
+    } catch (error) {
+      toast.error(`复制当前检测路径失败：${String(error)}`);
+    }
+  };
+
   return (
           <section className="settings-page">
             <div className="page-heading">
@@ -46,6 +73,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                 <h1>设置</h1>
                 <p>开关与文件选择即时生效；输入项在离开时自动保存。</p>
               </div>
+              <span className="settings-autosave-status"><i aria-hidden="true" />自动持久化就绪</span>
             </div>
 
             <div className="settings-section">
@@ -148,6 +176,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                     />
                     <Button
                       type="button"
+                      className="settings-executable-picker"
                       variant="outline"
                       data-executable-picker="true"
                       aria-busy={choosingExecutable}
@@ -161,10 +190,10 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                           );
                       }}
                     >
-                      {choosingExecutable && (
-                        <Spinner data-icon="inline-start" aria-hidden="true" />
-                      )}
-                      选择…
+                      <span className="settings-button-icon" data-slot="settings-executable-picker-icon">
+                        {choosingExecutable && <Spinner aria-hidden="true" />}
+                      </span>
+                      <span>选择…</span>
                     </Button>
                   </div>
                   <FieldDescription>
@@ -173,8 +202,25 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                   </FieldDescription>
                 </Field>
                 <div className="detected-path">
-                  <span>当前检测</span>
-                  <code>{state.installation?.path ?? "未发现"}</code>
+                  <span className="detected-path-label">当前检测</span>
+                  <div className="detected-path-value">
+                    <Terminal aria-hidden="true" />
+                    <code>{detectedPath ?? "未发现"}</code>
+                    {detectedPath && (
+                      <button
+                        type="button"
+                        className="detected-path-copy"
+                        data-copied={copiedDetectedPath}
+                        aria-label={copiedDetectedPath ? "当前检测路径已复制" : "复制当前检测路径"}
+                        onClick={copyDetectedPath}
+                      >
+                        <span className="settings-button-icon" aria-hidden="true">
+                          {copiedDetectedPath ? <Check /> : <Copy />}
+                        </span>
+                        <span>{copiedDetectedPath ? "已复制" : "复制"}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </FieldGroup>
             </div>
@@ -188,7 +234,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                 </div>
               </header>
               <FieldGroup className="settings-body field-stack">
-                <Field className="max-w-md">
+                <Field className="settings-port-field">
                   <FieldLabel htmlFor="serena-port">内部服务端口</FieldLabel>
                   <Input
                     disabled={busy !== null}
@@ -258,7 +304,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                 </div>
               </header>
               <FieldGroup className="settings-body field-stack">
-                <Field className="max-w-md">
+                <Field className="settings-port-field">
                   <FieldLabel htmlFor="broker-port">连接入口端口</FieldLabel>
                   <Input
                     type="number"
@@ -268,7 +314,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                     value={brokerPort}
                     disabled={
                       !!brokerController.busy ||
-                      brokerController.broker?.running
+                      brokerRunning
                     }
                     onChange={(e) => setBrokerPort(Number(e.target.value))}
                   />
@@ -288,6 +334,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                 />
                 <div>
                   <Button
+                    className="settings-broker-action"
                     variant="outline"
                     disabled={
                       busy !== null ||
@@ -303,23 +350,20 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                             brokerPort,
                             brokerAllowLan,
                           ),
-                        brokerController.broker?.running
+                        brokerRunning
                           ? "MCP 连接入口已停止"
                           : "MCP 连接入口已启用",
                       )
                     }
                     aria-busy={updatingBroker}
+                    data-running={brokerRunning}
                   >
-                    {updatingBroker ? (
-                      <>
-                        <Spinner data-icon="inline-start" aria-hidden="true" />
-                        处理中…
-                      </>
-                    ) : brokerController.broker?.running ? (
-                      "停止连接入口"
-                    ) : (
-                      "启用连接入口"
-                    )}
+                    <span className="settings-button-icon" data-slot="settings-broker-action-icon">
+                      {updatingBroker ? <Spinner aria-hidden="true" /> : brokerRunning ? <StopCircle aria-hidden="true" /> : <PlayCircle aria-hidden="true" />}
+                    </span>
+                    <span data-slot="settings-broker-action-label">
+                      {updatingBroker ? "处理中…" : brokerRunning ? "停止连接入口" : "启用连接入口"}
+                    </span>
                   </Button>
                 </div>
               </FieldGroup>

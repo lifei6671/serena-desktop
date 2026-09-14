@@ -2686,6 +2686,71 @@ async fn injected_probe_hook_completes_without_network() {
     assert!(snapshot.last_error.is_none());
 }
 
+#[tokio::test]
+async fn startup_probe_failure_keeps_quick_tunnel_verifying() {
+    let directory = tempfile::tempdir().unwrap();
+    let remote = Remote::from_config_with_ngrok_connector(
+        &RemoteAccessConfig::default(),
+        directory.path().join("oauth-state.json"),
+        directory.path().join("config.json"),
+        Arc::new(UnusedNgrokConnector {
+            calls: Arc::new(AtomicUsize::new(0)),
+        }),
+    );
+    remote.set_probe_hook(Arc::new(|| Box::pin(async { Err("STARTUP_PROBE_FAILED".into()) })));
+    {
+        let mut inner = remote.inner.lock().unwrap();
+        inner.mode = RemoteAccessMode::QuickTunnel;
+        inner.policy = McpAuthPolicy::EmbeddedOAuth;
+        inner.oauth = Some(Runtime::new(
+            RemotePublicContext::new("https://fixture.example").unwrap(),
+        ));
+        inner.cancel = Some(CancellationToken::new());
+        inner.status = Status::Verifying;
+    }
+
+    assert_eq!(
+        remote.probe_startup().await.unwrap_err(),
+        "STARTUP_PROBE_FAILED"
+    );
+
+    let snapshot = remote.snapshot();
+    assert!(snapshot.status == Status::Verifying);
+    assert!(snapshot.last_error.is_none());
+    assert!(snapshot.active);
+}
+
+#[tokio::test]
+async fn public_probe_failure_publishes_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let remote = Remote::from_config_with_ngrok_connector(
+        &RemoteAccessConfig::default(),
+        directory.path().join("oauth-state.json"),
+        directory.path().join("config.json"),
+        Arc::new(UnusedNgrokConnector {
+            calls: Arc::new(AtomicUsize::new(0)),
+        }),
+    );
+    remote.set_probe_hook(Arc::new(|| Box::pin(async { Err("PUBLIC_PROBE_FAILED".into()) })));
+    {
+        let mut inner = remote.inner.lock().unwrap();
+        inner.mode = RemoteAccessMode::SelfHostedOAuth;
+        inner.policy = McpAuthPolicy::EmbeddedOAuth;
+        inner.oauth = Some(Runtime::new(
+            RemotePublicContext::new("https://fixture.example").unwrap(),
+        ));
+        inner.cancel = Some(CancellationToken::new());
+        inner.status = Status::Verifying;
+    }
+
+    assert_eq!(remote.probe().await.unwrap_err(), "PUBLIC_PROBE_FAILED");
+
+    let snapshot = remote.snapshot();
+    assert!(snapshot.status == Status::Error);
+    assert_eq!(snapshot.last_error.as_deref(), Some("PUBLIC_PROBE_FAILED"));
+    assert!(snapshot.active);
+}
+
 #[test]
 fn persisted_custom_https_restores_embedded_oauth_runtime() {
     let directory = tempfile::tempdir().unwrap();

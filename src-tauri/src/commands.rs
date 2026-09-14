@@ -250,6 +250,7 @@ pub fn open_external_url(target: &str) -> Result<(), String> {
     let url = match target {
         "docs" => "https://oraios.github.io/serena/02-usage/010_installation.html",
         "github" => "https://github.com/oraios/serena",
+        "serena-desktop" => "https://github.com/lifei6671/serena-desktop",
         "codegraph" => "https://github.com/colbymchenry/codegraph",
         "git" => "https://git-scm.com/downloads",
         "uv" => "https://docs.astral.sh/uv/getting-started/installation/",

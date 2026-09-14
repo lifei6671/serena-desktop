@@ -414,17 +414,17 @@ test('status caches pending, successful and failed Codex probes until explicit r
   try {
     root = createRoot(document.getElementById('root'));
     await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
-    await click('状态'); assert.equal(probes, 1);
-    await click('首页'); await click('状态'); assert.equal(probes, 1);
+    await click('服务状态'); assert.equal(probes, 1);
+    await click('首页'); await click('服务状态'); assert.equal(probes, 1);
     await act(async () => resolveProbe('codex-cli detected'));
-    await click('首页'); await click('状态'); assert.equal(probes, 1);
+    await click('首页'); await click('服务状态'); assert.equal(probes, 1);
     assert.match(document.body.textContent, /codex-cli detected/);
     await click('Serena GitHub ↗'); await click('CodeGraph GitHub ↗');
     assert.deepEqual(links, ['github', 'codegraph']);
     api.codexVersion = async () => { probes++; throw new Error('probe unavailable'); };
     await click('重新检测'); assert.equal(probes, 2);
     assert.match(document.body.textContent, /probe unavailable/);
-    await click('首页'); await click('状态'); assert.equal(probes, 2);
+    await click('首页'); await click('服务状态'); assert.equal(probes, 2);
     api.codexVersion = async () => { probes++; return 'codex-cli refreshed'; };
     await click('重新检测'); assert.equal(probes, 3);
     assert.match(document.body.textContent, /codex-cli refreshed/);
@@ -486,19 +486,27 @@ test('project navigation groups tasks and opens a non-modal right content pane',
   assert.equal(calls.some(c=>['start','continue','cancel','resume_pending'].includes(c.action)),false);
 });
 
-test('sidebar selection follows page visibility while retaining the open task', async () => {
+test('task detail view controls sidebar selection and returns to the Agent list', async () => {
   const host = navigationHost(); const project = workspace('A');
-  const props = { workspace: project, workspaces: [project], sidebarContainer: host };
+  let shownTask = 0; let shownAgent = 0;
+  const props = { workspace: project, workspaces: [project], sidebarContainer: host, onShowTask: () => shownTask++, onShowAgent: () => shownAgent++, detailView: true };
   await mount([row({ canonicalWorkspaceRoot: project.root })], undefined, props);
   await act(async () => host.querySelector('.project-task-link').click());
+  assert.equal(shownTask, 1);
   assert.equal(host.querySelector('.project-task').dataset.selected, 'true');
-  const render = async active => act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { ...props, active }))));
+  const render = async detailView => act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { ...props, detailView }))));
   await render(false);
   assert.equal(host.querySelector('.project-task').dataset.selected, 'false');
   assert.equal(host.querySelector('[aria-current="page"]'), null);
+  assert.equal(document.querySelector('.agent-detail'), null);
+  assert.equal(document.querySelector('.agent-history').closest('[hidden]'), null);
   await render(true);
   assert.equal(host.querySelector('.project-task').dataset.selected, 'true');
   assert.match(document.querySelector('.agent-detail').textContent, /原始任务/);
+  await click('全部任务');
+  assert.equal(shownAgent, 1);
+  assert.equal(document.querySelector('.agent-detail'), null);
+  assert.equal(host.querySelector('.project-task').dataset.selected, 'false');
 });
 
 test('sidebar dates use local calendar boundaries instead of elapsed 24 hours', async () => {
@@ -642,6 +650,10 @@ test('sidebar task markers distinguish processing, errors and inactive tasks', a
   })), undefined, { workspaces: [project], sidebarContainer: host });
   const items = [...host.querySelectorAll('.project-task-link')];
   assert.equal(items.length, 5);
+  const styles = readFileSync('src/styles.css', 'utf8');
+  assert.match(styles, /\.sidebar > nav\[aria-label="主导航"\] button/);
+  assert.doesNotMatch(styles, /\.sidebar nav button/);
+  assert.match(styles, /\.sidebar \.project-task-navigation \.project-task-link \{[^}]*padding: 6px 10px 6px 36px[^}]*color: #334155/);
   assert.equal(items[0].querySelector('svg[aria-label="执行中"]').classList.contains('animate-spin'), true);
   for (const index of [1, 2]) {
     assert.ok(items[index].querySelector('svg.tone-red'));

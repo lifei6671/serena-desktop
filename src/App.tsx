@@ -24,7 +24,7 @@ const statusCopy: Record<ServerStatus, { label: string; detail: string }> = {
 };
 
 function App() {
-  const [tab, setTab] = useState<"console" | "serena" | "settings" | "logs" | "agent" | "remote">("console");
+  const [tab, setTab] = useState<"console" | "serena" | "settings" | "logs" | "agent" | "task" | "remote">("console");
   const remote = useRemoteAccess();
   const [projectNavigation, setProjectNavigation] = useState<HTMLDivElement | null>(null);
   const controller = useAppController(tab === "serena");
@@ -59,10 +59,9 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <img className="brand-mark" src={appLogo} alt="" />
-          <span>
-            Serena<small>Desktop</small>
-          </span>
+          <span>Serena<small>Desktop</small></span>
         </div>
+        <p className="sidebar-section-label">NAVIGATION</p>
         <nav aria-label="主导航">
           <Button
             variant={tab === "console" ? "secondary" : "ghost"}
@@ -78,8 +77,25 @@ function App() {
             aria-current={tab === "serena" ? "page" : undefined}
             onClick={() => setTab("serena")}
           >
-            <Activity aria-hidden="true" />状态
+            <Activity aria-hidden="true" />服务状态
           </Button>
+          <Button
+            variant={tab === "agent" ? "secondary" : "ghost"}
+            className="justify-start"
+            aria-current={tab === "agent" ? "page" : undefined}
+            onClick={() => setTab("agent")}
+          >
+            <Bot aria-hidden="true" />Agent 编排
+          </Button>
+          <Button
+            variant={tab === "logs" ? "secondary" : "ghost"}
+            className="justify-start"
+            aria-current={tab === "logs" ? "page" : undefined}
+            onClick={() => setTab("logs")}
+          >
+            <ScrollText aria-hidden="true" />日志终端
+          </Button>
+          <Button className="justify-start" aria-current={tab === "remote" ? "page" : undefined} variant={tab === "remote" ? "secondary" : "ghost"} onClick={() => setTab("remote")}><Globe aria-hidden="true" />远程访问</Button>
           <Button
             variant={tab === "settings" ? "secondary" : "ghost"}
             className="justify-start"
@@ -88,16 +104,6 @@ function App() {
           >
             <Settings aria-hidden="true" />设置
           </Button>
-          <Button
-            variant={tab === "logs" ? "secondary" : "ghost"}
-            className="justify-start"
-            aria-current={tab === "logs" ? "page" : undefined}
-            onClick={() => setTab("logs")}
-          >
-            <ScrollText aria-hidden="true" />日志
-          </Button>
-          <Button className="justify-start" aria-current={tab === "agent" ? "page" : undefined} variant={tab === "agent" ? "secondary" : "ghost"} onClick={() => setTab("agent")}><Bot aria-hidden="true" />Agent</Button>
-          <Button className="justify-start" aria-current={tab === "remote" ? "page" : undefined} variant={tab === "remote" ? "secondary" : "ghost"} onClick={() => setTab("remote")}><Globe aria-hidden="true" />远程访问</Button>
         </nav>
         <div className="project-navigation-slot" ref={setProjectNavigation} />
       </aside>
@@ -121,7 +127,7 @@ function App() {
           <RemoteAccessPage controller={remote} port={state.config.broker.port} allowLan={state.config.broker.allowLan} onSettings={() => setTab("settings")} />
         ) : tab === "serena" ? (
           <StatusPage {...controller} state={state} />
-        ) : tab === "agent" ? (
+        ) : tab === "agent" || tab === "task" ? (
           null
         ) : tab === "logs" ? (
           <McpLogs />
@@ -129,7 +135,7 @@ function App() {
           <SettingsPage {...controller} state={state} />
         )}
         </Suspense>
-        <div hidden={tab !== "agent"}><AgentPanel active={tab === "agent"} sidebarContainer={projectNavigation} onShowTask={() => setTab("agent")} workspace={brokerController.broker?.activeWorkspace ?? null} workspaces={brokerController.broker?.projects ?? state.config.workspaces} onSelectWorkspace={() => setTab("console")} /></div>
+        <div hidden={tab !== "agent" && tab !== "task"}><AgentPanel detailView={tab === "task"} sidebarContainer={projectNavigation} onShowTask={() => setTab("task")} onShowAgent={() => setTab("agent")} workspace={brokerController.broker?.activeWorkspace ?? null} workspaces={brokerController.broker?.projects ?? state.config.workspaces} onSelectWorkspace={() => setTab("console")} /></div>
         <RemoteApprovalDialog controller={remote} />
       </main>
 
@@ -138,9 +144,7 @@ function App() {
           <i />
           Serena：{isRunning || isInstalled ? status.label : installationLabel}
         </span>
-        {tab !== "console" && (
-          <span className="mono">Serena 内部端口：{state.activePort}</span>
-        )}
+        <span className="mono">Serena 内部端口：{state.activePort}</span>
       </footer>
     </div>
   );

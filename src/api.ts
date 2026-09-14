@@ -37,6 +37,6 @@ export const api = {
     invoke<AppState>("set_autostart", { enabled }),
   openDashboard: () => invoke<void>("open_dashboard"),
   openLogs: () => invoke<void>("open_log_directory"),
-  openExternal: (target: "docs" | "github" | "codegraph" | "git" | "uv") =>
+  openExternal: (target: "docs" | "github" | "serena-desktop" | "codegraph" | "git" | "uv") =>
     invoke<void>("open_external_url", { target }),
 };

@@ -13,7 +13,7 @@ import { executionStatus, executionTime, executionDuration, executionWorkspace, 
 const ExecutionDetails = lazy(() => import("./ExecutionDetails").then(module => ({ default: module.ExecutionDetails })));
 import type { AgentAction, ExecutionView, Workspace } from "./types";
 
-export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, sidebarContainer, onShowTask, active = true }: { active?: boolean; sidebarContainer?: HTMLElement | null; onShowTask?: () => void; workspace: Workspace | null; workspaces?: Workspace[]; onSelectWorkspace?: () => void }) {
+export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, sidebarContainer, onShowTask, onShowAgent, detailView = true }: { detailView?: boolean; sidebarContainer?: HTMLElement | null; onShowTask?: () => void; onShowAgent?: () => void; workspace: Workspace | null; workspaces?: Workspace[]; onSelectWorkspace?: () => void }) {
   const [prompt, setPrompt] = useState("");
   const [rows, setRows] = useState<ExecutionView[]>([]);
   const visibleRows = useRef<ExecutionView[]>([]);
@@ -153,6 +153,7 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
   }, [prompt]);
 
   const openDetails = useCallback(async (id: string, initial?: ExecutionView) => {
+    onShowTask?.();
     const request = ++detailRequest.current;
     detailWaiting.current = true;
     epoch.current++;
@@ -167,15 +168,15 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
     } catch (e) {
       if (mounted.current && request === detailRequest.current) { setDetailError(String(e)); toast.error(`详情加载失败：${String(e)}`); }
     } finally { if (request === detailRequest.current) { detailWaiting.current = false; if (mounted.current) setDetailLoading(false); } }
-  }, []);
+  }, [onShowTask]);
 
   const detailId = detail?.executionId;
   const detailRevision = detail?.revision;
   const resultAvailable = detail?.resultAvailable;
   const resultMissing = detail?.finalResult === undefined;
   useEffect(() => {
-    if (detailId && resultAvailable && resultMissing && !detailWaiting.current) void openDetails(detailId);
-  }, [detailId, detailRevision, resultAvailable, resultMissing, openDetails]);
+    if (detailView && detailId && resultAvailable && resultMissing && !detailWaiting.current) void openDetails(detailId);
+  }, [detailId, detailRevision, resultAvailable, resultMissing, detailView, openDetails]);
 
   async function operate(action: AgentAction): Promise<boolean> {
     if (agentRequests.inFlight || (agentRequests.pending && action !== agentRequests.pending)) return false;
@@ -221,7 +222,7 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
   const disabled = busy || !!retry;
   const listed = rows.filter(row => !hiddenIds.includes(row.executionId));
   const visible = listed.filter(row => filter === "all" || (filter === "attention" ? row.attention !== "none" || row.status === "failed" : filter === "completed" ? row.status === "completed" : ["dispatch_pending", "running", "cancel_requested", "cancelling", "finalizing", "reconciling"].includes(row.status)));
-  function closeDetails() { detailRequest.current++; detailWaiting.current = false; setDetail(null); setDetailLoading(false); requestAnimationFrame(() => opener.current?.focus()); }
+  function closeDetails() { detailRequest.current++; detailWaiting.current = false; setDetail(null); setDetailLoading(false); onShowAgent?.(); requestAnimationFrame(() => opener.current?.focus()); }
 
   const feedback = (retry || operationError) && <div role="alert" className="agent-notice">
       <strong>{retry ? "请求结果未确认" : "操作未完成"}</strong>
@@ -231,7 +232,7 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
     </div>;
 
   return <>
-    {sidebarContainer && createPortal(<ProjectTaskNavigation workspaces={workspaces} hiddenIds={hiddenIds} selectedId={active ? detail?.executionId : undefined} onDelete={requestDelete} onSelect={(row, trigger) => { opener.current = trigger; onShowTask?.(); void openDetails(row.executionId, row); }} />, sidebarContainer)}
+    {sidebarContainer && createPortal(<ProjectTaskNavigation workspaces={workspaces} hiddenIds={hiddenIds} selectedId={detailView ? detail?.executionId : undefined} onDelete={requestDelete} onSelect={(row, trigger) => { opener.current = trigger; void openDetails(row.executionId, row); }} />, sidebarContainer)}
     <Dialog open={deleteRequest !== null} onOpenChange={open => { if (!open) setDeleteRequest(null); }}>
       <DialogContent showCloseButton={false} onCloseAutoFocus={event => { event.preventDefault(); if (deleteTrigger.current?.isConnected) deleteTrigger.current.focus(); }}>
         <DialogHeader><DialogTitle>从列表删除正在处理的任务？</DialogTitle>
@@ -249,7 +250,7 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
       </DialogContent>
     </Dialog>
     <section className="settings-page agent-page">
-    <div hidden={!!detail}>
+    <div hidden={detailView && !!detail}>
     <div className="page-heading"><div><h1>Agent</h1><p>在当前工作区中创建和管理 Codex Agent 任务</p></div><span className="agent-local-label">本地 Codex 工作台</span></div>
     <div className="agent-context"><Folder aria-hidden="true" /><div><span className="agent-eyebrow">当前工作区</span><strong>{workspace?.name ?? "未选择可用工作区"}</strong>{workspace && <span className="agent-path">{workspace.root}</span>}</div>{onSelectWorkspace && <Button variant="ghost" onClick={onSelectWorkspace}>{workspace ? "管理工作区" : "选择工作区"}</Button>}</div>
     <form className="agent-composer" onSubmit={event => { event.preventDefault(); if (!disabled && workspace && prompt.trim()) void operate(agentRequests.fresh(prompt, workspace.id)); }}>
@@ -287,6 +288,6 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
       {nextCursor && <Button variant="ghost" disabled={loadingMore || refreshing || busy} onClick={() => void loadMore()}>{loadingMore ? "正在加载…" : moreError ? "重试加载更多" : "展开更多（5条）"}</Button>}
     </section>
     </div>
-    {detail && <Suspense fallback={<p role="status">正在加载任务详情…</p>}><ExecutionDetails row={detail} workspaceName={executionWorkspace(detail, [...workspaces, ...(workspace ? [workspace] : [])])} feedback={feedback} busy={busy} loading={detailLoading} error={detailError} disabled={disabled} onBack={closeDetails} onReload={() => void openDetails(detail.executionId, detail)} onOperate={operate} /></Suspense>}
+    {detail && detailView && <Suspense fallback={<p role="status">正在加载任务详情…</p>}><ExecutionDetails row={detail} workspaceName={executionWorkspace(detail, [...workspaces, ...(workspace ? [workspace] : [])])} feedback={feedback} busy={busy} loading={detailLoading} error={detailError} disabled={disabled} onBack={closeDetails} onReload={() => void openDetails(detail.executionId, detail)} onOperate={operate} /></Suspense>}
   </section></>;
 }

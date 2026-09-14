@@ -239,9 +239,18 @@ impl<'a> ProbeStage<'a> {
         }
     }
     fn fail(&self, category: &str, status: Option<u16>) -> String {
+        self.fail_with_detail(category, status, None)
+    }
+    fn fail_with_detail(
+        &self,
+        category: &str,
+        status: Option<u16>,
+        detail: Option<&str>,
+    ) -> String {
         format!(
-            "REMOTE_PUBLIC_PROBE_FAILED: stage={} category={category} host={} elapsed_ms={} status={}",
+            "REMOTE_PUBLIC_PROBE_FAILED: stage={} category={category}{} host={} elapsed_ms={} status={}",
             self.name,
+            detail.map_or_else(String::new, |detail| format!(" detail={detail}")),
             self.host,
             self.started.elapsed().as_millis(),
             status.map_or_else(|| "none".into(), |s| s.to_string())
@@ -259,7 +268,11 @@ impl<'a> ProbeStage<'a> {
                     "network"
                 })
         };
-        self.fail(category, error.status().map(|s| s.as_u16()))
+        let status = error.status().map(|s| s.as_u16());
+        if category == "tls" {
+            return self.fail_with_detail(category, status, Some(tls_subtype(error)));
+        }
+        self.fail(category, status)
     }
     async fn status(
         &self,
@@ -324,12 +337,50 @@ fn network_category(error: &(dyn std::error::Error + 'static)) -> Option<&'stati
         }
         if text.contains("dns") || text.contains("lookup") || text.contains("name resolution") {
             category = Some("dns");
-        } else if text.contains("tls") || text.contains("certificate") || text.contains("ssl") {
+        } else if text.contains("tls")
+            || text.contains("certificate")
+            || text.contains("ssl")
+            || text.contains("acquirecredential")
+            || text.contains("sec_e_no_credentials")
+        {
             category = Some("tls");
         }
         source = error.source();
     }
     category
+}
+
+fn tls_subtype(error: &(dyn std::error::Error + 'static)) -> &'static str {
+    let mut source = Some(error);
+    while let Some(error) = source {
+        let text = error.to_string().to_ascii_lowercase();
+        if text.contains("unknownissuer") || text.contains("unknown issuer") {
+            return "unknown_issuer";
+        }
+        if text.contains("notvalidforname")
+            || text.contains("not valid for name")
+            || text.contains("hostname")
+        {
+            return "hostname";
+        }
+        if text.contains("revocation") {
+            return "revocation";
+        }
+        if text.contains("sec_e_no_credentials")
+            || text.contains("acquirecredential")
+            || text.contains("no credentials")
+        {
+            return "credential";
+        }
+        if text.contains("unexpected eof") || text.contains("eof") || text.contains("close_notify") {
+            return "eof";
+        }
+        if text.contains("handshake") || text.contains("tls") || text.contains("ssl") {
+            return "handshake";
+        }
+        source = error.source();
+    }
+    "other"
 }
 
 pub(super) async fn probe(context: &RemotePublicContext, credential: &str) -> Result<(), String> {
@@ -525,7 +576,7 @@ pub(super) async fn run(
             let mut last_error = None;
             tokio::time::timeout(Duration::from_secs(45), async {
                 loop {
-                    match remote.probe().await {
+                    match remote.probe_startup().await {
                         Ok(()) => break,
                         Err(error) => last_error = Some(error),
                     }
