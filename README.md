@@ -117,10 +117,12 @@ serena project index
 | 连接方式 | 适用场景 |
 |---|---|
 | 快捷隧道 | 使用临时公网地址连接，适合开始体验；重新开启后地址可能变化 |
-| 自建接入 | 使用自有 HTTPS 入口，或配置 ngrok 接入 |
+| 自建接入 | 使用自有 HTTPS 入口，适合有内网穿透能力的用户，或配置 ngrok 接入 |
 | 仅 MCP | 已有负责认证和转发的 MCP 网关，或供本机客户端使用 |
 
 使用快捷隧道或自建接入时，Serena Desktop 提供内置 OAuth，并在本机弹窗中由你确认客户端授权。使用“仅 MCP”时，认证由你的外部网关配置决定。
+
+![远程访问：快捷隧道、自建接入与仅 MCP 网关配置](docs/static/home-5.png)
 
 按页面提示开启连接并完成连接测试，复制完整的公网 MCP 地址，例如 `https://mcp.example.com/mcp`。下面采用 ChatGPT 的“服务器 URL”方式，因此需要 ChatGPT 可访问的 HTTPS 地址，不能直接填写 `127.0.0.1` 或局域网 IP。
 
@@ -179,7 +181,6 @@ serena project index
 
 想了解实现或参与贡献，可以从以下文档开始：
 
-- [V0.3 技术方案](docs/technical-design-v0.3.md)
 - [远程访问与授权](docs/remote-access-ui.md)
 - [ChatGPT 与本地 Agent 的任务编排](docs/core-work-orchestration.md)
 - [Codex Agent Runtime](docs/codex-agent-runtime.md)
