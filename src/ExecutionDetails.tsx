@@ -1,91 +1,163 @@
 import { MarkdownContent } from "@/components/MarkdownContent";
-import { TooltipHint } from "@/components/TooltipHint";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Copy, Check } from "lucide-react";
-import { executionTime, executionDuration, executionStatus, resultText } from "./agentPresentation";
+import { Check, Copy, Play, ShieldAlert } from "lucide-react";
+import { executionDuration, executionStatus, resultText, taskTitle } from "./agentPresentation";
 import { agentRequests } from "./agentRequests";
 import type { AgentAction, ExecutionView } from "./types";
 
-export function ExecutionDetails({ row, workspaceName, loading, error, disabled, feedback, busy, onBack, onReload, onOperate }: {
+type CopyTarget = "prompt" | "result" | "technical";
+type CopyState = "idle" | "copying" | "copied";
+
+function CopyFeedback({ state, label }: { state: CopyState; label: string }) {
+  return <>
+    <span className="agent-copy-icon-slot" aria-hidden="true">
+      <Copy className="agent-copy-icon-copy" />
+      <Check className="agent-copy-icon-check" />
+    </span>
+    <span className="agent-copy-label">{state === "copying" ? "复制中…" : state === "copied" ? "已复制" : label}</span>
+  </>;
+}
+
+function timeWithSeconds(value: number) {
+  const date = new Date(value);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function activityLabel(row: ExecutionView) {
+  const progress = row.progress;
+  const categories: Record<string, string> = {
+    build: "构建", test: "测试", command: "命令", read: "读取", edit: "编辑", tool: "工具调用",
+  };
+  const category = categories[progress?.toolCategory ?? ""];
+  if (category) return category;
+  if (progress?.activityPhase === "tool") return "工具执行";
+  if (progress?.activityPhase === "provider") return "Agent 处理";
+  return ({
+    pending: "等待执行", dispatching: "正在派发", running: "执行中", finalizing: "正在整理结果", reconciling: "正在恢复执行状态", terminal: "已结束",
+  } as Record<string, string>)[progress?.phase ?? ""] ?? "暂无活动数据";
+}
+
+function recentActivity(row: ExecutionView, now = Date.now()) {
+  const progress = row.progress;
+  const age = progress?.activityAgeMs ?? (progress?.lastActivityAt === null || progress?.lastActivityAt === undefined ? null : Math.max(0, now - progress.lastActivityAt));
+  if (age === null) return "暂无活动数据";
+  if (age < 5_000) return "刚刚";
+  const seconds = Math.floor(age / 1_000);
+  if (seconds < 60) return `${seconds}秒前`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}小时前`;
+  return progress.lastActivityAt === null || progress.lastActivityAt === undefined ? "暂无活动数据" : timeWithSeconds(progress.lastActivityAt);
+}
+
+function technicalValue(value: string | number | null | undefined) {
+  return value === null || value === undefined || value === "" ? "—" : String(value);
+}
+
+export function ExecutionDetails({ row, workspaceName, loading, error, disabled, feedback, busy, onReload, onOperate }: {
   feedback: ReactNode; busy: boolean;
   row: ExecutionView; workspaceName: string; loading: boolean; error: string; disabled: boolean;
-  onBack: () => void; onReload: () => void; onOperate: (action: AgentAction) => Promise<boolean>;
+  onReload: () => void; onOperate: (action: AgentAction) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState({ executionId: row.executionId, text: "" });
   const continuation = draft.executionId === row.executionId ? draft.text : "";
-  const [copying, setCopying] = useState(false);
-  const [copiedExecution, setCopiedExecution] = useState<string | null>(null);
-  const copied = copiedExecution === row.executionId;
+  const [copying, setCopying] = useState<CopyTarget | null>(null);
+  const [copied, setCopied] = useState<CopyTarget | null>(null);
   useEffect(() => {
-    if (copiedExecution === null) return;
-    const timer = window.setTimeout(() => setCopiedExecution(null), 1600);
+    if (copied === null) return;
+    const timer = window.setTimeout(() => setCopied(null), 1600);
     return () => window.clearTimeout(timer);
-  }, [copiedExecution]);
+  }, [copied]);
   const state = executionStatus(row);
+  const running = state.label === "执行中";
   const result = resultText(row.finalResult);
-  async function copy() {
-    setCopying(true);
-    try { await navigator.clipboard.writeText(JSON.stringify(row, null, 2)); setCopiedExecution(row.executionId); toast.success("技术详情已复制"); }
-    catch (e) { toast.error(`复制失败：${String(e)}`); }
-    finally { setCopying(false); }
+  const duration = executionDuration(row);
+  const isActiveExecution = row.status === "running" || (row.status === "dispatch_pending" && (row.progress?.phase === "dispatching" || row.progress?.phase === "running"));
+  const runningDuration = isActiveExecution ? `已运行 ${duration}` : `耗时 ${duration}`;
+  const durationLabel = isActiveExecution ? "已运行" : "总耗时";
+  const showResult = row.resultAvailable || row.status === "completed";
+  const technicalFields: Array<[string, string | number | null | undefined]> = [
+    ["Execution ID", row.executionId], ["Agent ID", row.agentId], ["Workspace ID", row.workspaceId], ["Dispatch State", row.dispatchState],
+    ["Thread ID", row.threadId], ["Thread Name", row.threadName], ["Turn ID", row.turnId], ["Provider Terminal Status", row.providerTerminalStatus],
+    ["Result Completeness", row.resultCompleteness], ["Control Revision", row.controlRevision], ["Activity Revision", row.activityRevision], ["Next Action", row.nextAction?.action],
+  ];
+  async function copy(target: CopyTarget, text: string, successMessage: string) {
+    setCopied(null);
+    setCopying(target);
+    try { await navigator.clipboard.writeText(text); setCopied(target); toast.success(successMessage); }
+    catch (copyError) { toast.error(`复制失败：${String(copyError)}`); }
+    finally { setCopying(null); }
   }
+  const copyState = (target: CopyTarget): CopyState => copied === target ? "copied" : copying === target ? "copying" : "idle";
+  const continuationForm = <div className="agent-continuation-card">
+    <div className="agent-continuation-heading"><div><h2>继续任务</h2><p>在当前任务的原工作区和对话上下文中开始下一次执行。</p></div></div>
+    <form onSubmit={event => { event.preventDefault(); if (!disabled && !loading && !error && continuation.trim()) void onOperate(agentRequests.continuation(row.executionId, continuation)).then(ok => { if (ok) setDraft({ executionId: row.executionId, text: "" }); }); }}>
+      <label className="sr-only" htmlFor="agent-continuation">后续任务内容</label>
+      <textarea id="agent-continuation" className="agent-input" value={continuation} disabled={disabled} onChange={event => setDraft({ executionId: row.executionId, text: event.target.value })} placeholder="在当前任务上下文中开始新的后续 Execution…" />
+      <footer className="agent-continuation-footer"><span>Codex · 当前工作区 ({workspaceName}) · 继承当前上下文</span><Button className="agent-detail-primary" disabled={disabled || loading || !!error || !continuation.trim()} type="submit"><Play aria-hidden="true" />继续任务</Button></footer>
+    </form>
+  </div>;
+
   return <section className="agent-detail" aria-label="任务详情">
-        <header className="agent-detail-heading">
-          <nav className="agent-detail-breadcrumb" aria-label="任务页面导航">
-            <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft />全部任务</Button>
-            <span aria-hidden="true">/</span><span>{workspaceName}</span>
-          </nav>
-          <div className="agent-detail-title"><h1>任务详情</h1><span className={`agent-status tone-${state.tone}`}><i />{state.label}</span></div>
-          <p>{state.description}</p>
-        </header>
-        <div className="agent-detail-body" aria-busy={loading}>
-          {feedback}
-          {busy && <p role="status">正在处理请求…</p>}
-          {loading && <p role="status">正在更新详情…</p>}
-          {error && <div role="alert" className="agent-notice"><p>{error}</p><Button variant="outline" disabled={loading} onClick={onReload}>重新加载详情</Button></div>}
-          <section><h3>任务</h3><MarkdownContent>{row.prompt}</MarkdownContent></section>
-          <section><h3>状态</h3><span className={`agent-status tone-${state.tone}`}><i />{state.label}</span>
-            <p className="agent-muted">{state.description}</p>
-            <dl className="agent-facts">
-              <dt>工作区</dt><dd>{workspaceName}</dd>
-              <dt>执行目录</dt><dd>{row.canonicalWorkspaceRoot}</dd>
-              <dt>总耗时</dt><dd>{executionDuration(row)}</dd>
-              <dt>创建时间</dt><dd>{executionTime(row.createdAt)}</dd>
-              <dt>更新时间</dt><dd>{executionTime(row.updatedAt)}</dd>
-              {row.completedAt !== null && <><dt>结束时间</dt><dd>{executionTime(row.completedAt)}</dd></>}
-            </dl>
-          </section>
-          {(row.resultAvailable || row.status === "completed") && <section><h3>结果</h3>
-            <MarkdownContent className="agent-result">{result || (row.resultAvailable && row.finalResult === undefined ? (loading ? "正在读取最终结果…" : "结果正文尚未读取，请刷新详情重试。") : "未提供可读的最终文本，可在技术详情中查看已有结果。")}</MarkdownContent>
-          </section>}
-          {(row.attention !== "none" || ["failed", "reconciling", "interrupted"].includes(row.status) || row.interruptTimedOut) && <section><h3>恢复 / 错误信息</h3>
-            <p>{state.description}</p>
-            {row.attention === "pending_explicit_resume" && <p>恢复将继续此任务的原始输入和执行目录。请确认该目录当前仍适合执行。</p>}
-            {row.attention === "manual_resolution_required" && <p>本页面无法确认或解除该执行的安全约束。保留当前记录，交由人工诊断处理。</p>}
-            {row.interruptTimedOut && <p>取消请求确认超时；这不代表任务已经停止。</p>}
-          </section>}
-          <div className="agent-row-actions">
-            {row.availableActions.canResumePending && <Button variant="outline" disabled={disabled || loading || !!error} onClick={() => void onOperate({ action: "resume_pending", executionId: row.executionId })}>恢复任务</Button>}
-            {row.availableActions.canCancel && <Button variant="outline" disabled={disabled || loading || !!error} onClick={() => void onOperate({ action: "cancel", executionId: row.executionId })}>取消任务</Button>}
+    <header className="agent-detail-header">
+      <div>
+        <div className="agent-detail-title"><h1>{taskTitle(row)}</h1><span className={`agent-status tone-${state.tone}`}><i className={running ? "agent-task-pulse" : undefined} aria-hidden="true" />{state.label}</span></div>
+        <p className="agent-detail-meta"><span>工作区: <code>{workspaceName}</code></span><span aria-hidden="true">·</span><span>创建于 {timeWithSeconds(row.createdAt)}</span><span aria-hidden="true">·</span><span>{runningDuration}</span><span aria-hidden="true">·</span><span>引擎: <strong>Codex Local Runner</strong></span></p>
+      </div>
+      <div className="agent-detail-actions">
+        {row.availableActions.canResumePending && <Button variant="outline" disabled={disabled || loading || !!error} onClick={() => void onOperate({ action: "resume_pending", executionId: row.executionId })}>恢复任务</Button>}
+        {row.availableActions.canCancel && <Button className="agent-cancel-action" variant="outline" disabled={disabled || loading || !!error} onClick={() => void onOperate({ action: "cancel", executionId: row.executionId })}>取消任务</Button>}
+      </div>
+    </header>
+    <div className="agent-detail-body" aria-busy={loading}>
+      {feedback}
+      {busy && <p role="status" className="agent-detail-notice">正在处理请求…</p>}
+      {loading && <p role="status" className="agent-detail-notice">正在更新详情…</p>}
+      {error && <div role="alert" className="agent-notice"><p>{error}</p><Button variant="outline" disabled={loading} onClick={onReload}>重新加载详情</Button></div>}
+      <section className="agent-detail-section agent-task-content">
+        <header><h2>任务内容</h2><Button className="agent-copy-text" variant="ghost" size="sm" disabled={copying !== null} data-copy-state={copyState("prompt")} onClick={() => void copy("prompt", row.prompt, "任务内容已复制")}><CopyFeedback state={copyState("prompt")} label="复制内容" /></Button></header>
+        <div className="agent-task-prompt"><MarkdownContent className="agent-prose">{row.prompt}</MarkdownContent></div>
+      </section>
+      <section className="agent-detail-section">
+        <h2>执行信息</h2>
+        <div className="agent-detail-info-card">
+          <div className="agent-detail-live-grid">
+            <div><span>执行状态</span><strong className={`agent-status tone-${state.tone}`}><i className={running ? "agent-task-pulse" : undefined} aria-hidden="true" />{state.label}</strong></div>
+            <div><span>当前活动</span><strong>{activityLabel(row)}</strong></div>
+            <div><span>最近活动</span><strong>{recentActivity(row)}</strong></div>
+            <div><span>{durationLabel}</span><code>{duration}</code></div>
           </div>
-          {row.availableActions.canContinue && <section><h3>继续对话</h3><p className="agent-muted">在此任务的原工作区和对话中开始下一次执行。</p>
-            <form onSubmit={event => { event.preventDefault(); if (!disabled && !loading && !error && continuation.trim()) void onOperate(agentRequests.continuation(row.executionId, continuation)).then(ok => { if (ok) setDraft({ executionId: row.executionId, text: "" }); }); }}>
-              <label className="sr-only" htmlFor="agent-continuation">后续任务内容</label>
-              <textarea id="agent-continuation" className="agent-input" value={continuation} disabled={disabled} onChange={e => setDraft({ executionId: row.executionId, text: e.target.value })} placeholder="描述接下来希望 Agent 完成的任务……" />
-              <div className="agent-composer-footer"><Button variant="outline" disabled={disabled || loading || !!error || !continuation.trim()} type="submit">继续对话</Button></div>
-            </form>
-          </section>}
-          <details className="agent-technical"><summary>技术详情</summary>
-            <p className="agent-muted">完整 IPC 输出，包含 Execution ID、原始状态和结果。</p>
-            <div className="agent-json">
-              <TooltipHint content={copied ? "已复制" : "复制技术详情"}><span className="agent-json-copy-trigger" tabIndex={copying || copied ? 0 : undefined}><Button className="agent-json-copy" variant="outline" size="icon" disabled={copying || copied} aria-label={copying ? "正在复制…" : copied ? "技术详情已复制" : "复制技术详情"} data-copied={copied} onClick={() => void copy()}>
-                <Copy className="agent-copy-icon" /><Check className="agent-copy-check" />
-              </Button></span></TooltipHint>
-              <pre tabIndex={0} aria-label="原始执行数据">{JSON.stringify(row, null, 2)}</pre>
+          <div className="agent-detail-facts-grid">
+            <div className="agent-detail-location"><span>执行位置</span><div><strong>{workspaceName}</strong><code>{row.canonicalWorkspaceRoot}</code></div></div>
+            <div className="agent-detail-time-grid">
+              <div><span>创建时间</span><code>{timeWithSeconds(row.createdAt)}</code></div><div><span>更新时间</span><code>{timeWithSeconds(row.updatedAt)}</code></div>
+              {row.completedAt !== null && <div><span>结束时间</span><code>{timeWithSeconds(row.completedAt)}</code></div>}
             </div>
-          </details>
+          </div>
         </div>
+      </section>
+      {(row.attention !== "none" || ["failed", "reconciling", "interrupted"].includes(row.status) || row.interruptTimedOut || row.errorCode || row.errorMessage) && <section className="agent-detail-section agent-recovery-section">
+        <h2><ShieldAlert aria-hidden="true" />恢复 / 错误信息</h2><div className="agent-detail-warning"><p>{state.description}</p>
+          {row.attention === "pending_explicit_resume" && <p>恢复将继续此任务的原始输入和执行目录。请确认该目录当前仍适合执行。</p>}
+          {row.attention === "manual_resolution_required" && <p>本页面无法确认或解除该执行的安全约束。保留当前记录，交由人工诊断处理。</p>}
+          {row.interruptTimedOut && <p>取消请求确认超时；这不代表任务已经停止。</p>}
+          {(row.errorCode || row.errorMessage) && <p className="agent-real-error">{row.errorCode && <code>{row.errorCode}</code>}{row.errorMessage && <span>{row.errorMessage}</span>}</p>}
+        </div>
+      </section>}
+      {showResult && <section className="agent-detail-section agent-result-section">
+        <header><div><h2>执行结果</h2><span className={`agent-status tone-${state.tone}`}>{row.status === "completed" ? `已完成 · 耗时 ${duration}` : `${state.label} · ${runningDuration}`}</span></div><Button className="agent-copy-text" variant="ghost" size="sm" disabled={!result || copying !== null} data-copy-state={copyState("result")} onClick={() => void copy("result", result, "执行结果已复制")}><CopyFeedback state={copyState("result")} label="复制结果" /></Button></header>
+        <div className="agent-result-card"><MarkdownContent className="agent-result">{result || (row.resultAvailable && row.finalResult === undefined ? (loading ? "正在读取最终结果…" : "结果正文尚未读取，请刷新详情重试。") : "未提供可读的最终文本，可在技术信息中查看已有结果。")}</MarkdownContent></div>
+      </section>}
+      {row.availableActions.canContinue && <section className="agent-detail-section agent-continuation-section">{continuationForm}</section>}
+      <section className="agent-detail-section agent-technical-section"><details className="agent-technical"><summary><span>技术信息</span><span onClick={event => { event.preventDefault(); event.stopPropagation(); }}><Button className="agent-technical-copy" variant="outline" size="sm" disabled={copying !== null} data-copy-state={copyState("technical")} onClick={() => void copy("technical", JSON.stringify(row, null, 2), "技术信息已复制")}><CopyFeedback state={copyState("technical")} label="复制技术信息" /></Button></span></summary>
+        <div className="agent-technical-content"><div className="agent-technical-grid">{technicalFields.map(([label, value]) => <div key={label}><span>{label}</span><code>{technicalValue(value)}</code></div>)}</div>
+          <details className="agent-raw-json"><summary>展开原始 Execution 数据 (JSON)</summary><div className="agent-json"><pre tabIndex={0} aria-label="原始执行数据">{JSON.stringify(row, null, 2)}</pre></div></details>
+        </div>
+      </details></section>
+    </div>
   </section>;
 }

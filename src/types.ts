@@ -27,6 +27,7 @@ export interface RemoteState {
   authorizedClients: number;
   pending: RemoteApproval[];
   active: boolean;
+  startedAt: number | null;
   ngrokAuthConfigured: boolean;
 }
 
@@ -84,6 +85,7 @@ export interface Workspace {
 }
 export interface BrokerState {
   running: boolean;
+  startedAt: number | null;
   port: number;
   listenAddress: string;
   lanEndpoints: string[];

@@ -3,7 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { ProjectTaskNavigation } from "./ProjectTaskNavigation";
 import { toast } from "sonner";
-import { Folder, Plus, RefreshCw, LoaderCircle, Trash2, FileText } from "lucide-react";
+import { ChevronDown, Folder, RefreshCw, LoaderCircle, Trash2, FileText, CheckCircle2, CircleAlert, CircleX, Clock3, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
@@ -12,6 +12,16 @@ import { agentRequests } from "./agentRequests";
 import { executionStatus, executionTime, executionDuration, executionWorkspace, resultText, taskSummary, taskTitle } from "./agentPresentation";
 const ExecutionDetails = lazy(() => import("./ExecutionDetails").then(module => ({ default: module.ExecutionDetails })));
 import type { AgentAction, ExecutionView, Workspace } from "./types";
+
+const activeExecutionStatuses = new Set(["dispatch_pending", "running", "cancel_requested", "cancelling", "finalizing", "reconciling"]);
+
+function StatusIcon({ tone }: { tone: string }) {
+  if (tone === "green") return <CheckCircle2 aria-hidden="true" />;
+  if (tone === "red") return <CircleX aria-hidden="true" />;
+  if (tone === "amber") return <CircleAlert aria-hidden="true" />;
+  if (tone === "blue") return <span className="agent-task-pulse" aria-hidden="true" />;
+  return <Clock3 aria-hidden="true" />;
+}
 
 export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, sidebarContainer, onShowTask, onShowAgent, detailView = true }: { detailView?: boolean; sidebarContainer?: HTMLElement | null; onShowTask?: () => void; onShowAgent?: () => void; workspace: Workspace | null; workspaces?: Workspace[]; onSelectWorkspace?: () => void }) {
   const [prompt, setPrompt] = useState("");
@@ -149,7 +159,7 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
     return () => { mounted.current = false; clearInterval(timer); };
   }, [refresh]);
   useEffect(() => {
-    if (input.current) { input.current.style.height = "auto"; input.current.style.height = `${Math.min(260, Math.max(112, input.current.scrollHeight))}px`; }
+    if (input.current) { input.current.style.height = "auto"; input.current.style.height = `${Math.min(260, Math.max(92, input.current.scrollHeight))}px`; }
   }, [prompt]);
 
   const openDetails = useCallback(async (id: string, initial?: ExecutionView) => {
@@ -221,7 +231,12 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
 
   const disabled = busy || !!retry;
   const listed = rows.filter(row => !hiddenIds.includes(row.executionId));
-  const visible = listed.filter(row => filter === "all" || (filter === "attention" ? row.attention !== "none" || row.status === "failed" : filter === "completed" ? row.status === "completed" : ["dispatch_pending", "running", "cancel_requested", "cancelling", "finalizing", "reconciling"].includes(row.status)));
+  const visible = listed.filter(row => filter === "all"
+    || filter === "active" && activeExecutionStatuses.has(row.status)
+    || filter === "attention" && (row.attention !== "none" || row.status === "failed")
+    || filter === "completed" && row.status === "completed"
+    || filter === "failed" && (row.status === "failed" || row.status === "unknown" || row.attention === "manual_resolution_required")
+    || filter === "cancelled" && (row.status === "cancelled" || row.status === "interrupted"));
   function closeDetails() { detailRequest.current++; detailWaiting.current = false; setDetail(null); setDetailLoading(false); onShowAgent?.(); requestAnimationFrame(() => opener.current?.focus()); }
 
   const feedback = (retry || operationError) && <div role="alert" className="agent-notice">
@@ -249,45 +264,48 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
         </DialogFooter>
       </DialogContent>
     </Dialog>
-    <section className="settings-page agent-page">
+    <section className={`settings-page agent-page${detailView && detail ? " agent-detail-view" : " agent-list-view"}`}>
     <div hidden={detailView && !!detail}>
-    <div className="page-heading"><div><h1>Agent</h1><p>在当前工作区中创建和管理 Codex Agent 任务</p></div><span className="agent-local-label">本地 Codex 工作台</span></div>
-    <div className="agent-context"><Folder aria-hidden="true" /><div><span className="agent-eyebrow">当前工作区</span><strong>{workspace?.name ?? "未选择可用工作区"}</strong>{workspace && <span className="agent-path">{workspace.root}</span>}</div>{onSelectWorkspace && <Button variant="ghost" onClick={onSelectWorkspace}>{workspace ? "管理工作区" : "选择工作区"}</Button>}</div>
-    <form className="agent-composer" onSubmit={event => { event.preventDefault(); if (!disabled && workspace && prompt.trim()) void operate(agentRequests.fresh(prompt, workspace.id)); }}>
-      <label htmlFor="agent-prompt">新任务</label>
-      <textarea ref={input} id="agent-prompt" className="agent-input" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="描述希望 Agent 在当前工作区完成的任务……" />
-      <div className="agent-composer-footer"><span className="agent-muted">Codex · 工作区执行</span><Button className="agent-primary" type="submit" disabled={disabled || !workspace || !prompt.trim()}>{busy ? <LoaderCircle className="animate-spin" /> : <Plus />}{busy ? "正在处理…" : "开始新任务"}</Button></div>
-    </form>
+    <div className="page-heading agent-list-page-heading"><div><div><h1>Agent 任务</h1><span>Codex Local Runner</span></div><p>在当前工作区中创建、查看和管理本地 Agent 执行任务。</p></div></div>
+    <div className="agent-workspace-bar"><div><Folder aria-hidden="true" /><span>当前工作区:</span><strong>{workspace?.name ?? "未选择可用工作区"}</strong>{workspace && <code>{workspace.root}</code>}</div>{onSelectWorkspace && <Button variant="ghost" onClick={onSelectWorkspace}>{workspace ? "管理工作区" : "选择工作区"}</Button>}</div>
+    <section className="agent-composer-section" aria-labelledby="agent-composer-heading">
+      <h2 id="agent-composer-heading"><FileText aria-hidden="true" />新任务</h2>
+      <form className="agent-composer agent-composer-card" onSubmit={event => { event.preventDefault(); if (!disabled && workspace && prompt.trim()) void operate(agentRequests.fresh(prompt, workspace.id)); }}>
+        <div className="agent-composer-input"><textarea ref={input} id="agent-prompt" className="agent-input" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="描述希望 Agent 在当前工作区完成的任务……例如：检查 src/oauth/cimd.rs 的地址验证逻辑，修复发现的问题并运行相关测试。" /></div>
+        <footer className="agent-composer-footer"><span>{workspace ? <>Codex · 当前工作区 (<strong>{workspace.name}</strong>) · Local Runner Active</> : "请先选择工作区后再开始任务"}</span><Button className="agent-primary" type="submit" disabled={disabled || !workspace || !prompt.trim()}>{busy ? <LoaderCircle className="animate-spin" /> : <Play />}{busy ? "正在处理…" : "开始新任务"}</Button></footer>
+      </form>
+    </section>
     {!detail && feedback}
     <section className="agent-history" aria-label="最近任务">
-      <header className="agent-list-heading"><h2>最近任务 <span>{loaded ? listed.length : ""}</span></h2><div className="agent-row-actions">
+      <header className="agent-list-heading"><h2><FileText aria-hidden="true" />最近任务 <span>{loaded ? listed.length : ""}</span></h2></header>
+      <div className="agent-filter-toolbar"><div>
         <Select value={workspaceFilter} disabled={busy || !!retry} onValueChange={value => { if (agentRequests.inFlight) return; moreFailed.current = false; epoch.current++; pageCount.current = 1; setRows([]); setNextCursor(null); setLoaded(false); setListError(""); setMoreError(""); setWorkspaceFilter(value); }}><SelectTrigger size="sm" aria-label="筛选工作区"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部工作区</SelectItem>{[...workspaceChoices].map(([root, name]) => <SelectItem key={root} value={root}>{name}</SelectItem>)}</SelectContent></Select>
-        <Select value={filter} onValueChange={setFilter}><SelectTrigger size="sm" aria-label="筛选任务"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem><SelectItem value="active">进行中</SelectItem><SelectItem value="attention">需要关注</SelectItem><SelectItem value="completed">已完成</SelectItem></SelectContent></Select>
-        <Button variant="ghost" disabled={refreshing || busy} onClick={() => void refresh(true)}><RefreshCw className={refreshing ? "animate-spin" : ""} />{refreshing ? "刷新中…" : "刷新"}</Button>
-      </div></header>
+        <Select value={filter} onValueChange={setFilter}><SelectTrigger size="sm" aria-label="筛选任务"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem><SelectItem value="active">进行中</SelectItem><SelectItem value="attention">需要关注</SelectItem><SelectItem value="completed">已完成</SelectItem><SelectItem value="failed">失败</SelectItem><SelectItem value="cancelled">已取消</SelectItem></SelectContent></Select>
+      </div><Button className="agent-refresh-button" variant="ghost" disabled={refreshing || busy} onClick={() => void refresh(true)} aria-label="刷新任务列表" aria-busy={refreshing} data-state={refreshing ? "loading" : "idle"} title="刷新任务列表"><RefreshCw className="agent-refresh-icon" aria-hidden="true" /></Button></div>
       {listError && <p className="agent-list-error" role="alert">{listError}{loaded ? "。以下保留上次读取的记录。" : "。请点击刷新重试。"}</p>}
       {!loaded && !listError && <div className="agent-empty" role="status">正在加载任务…</div>}
       {loaded && !visible.length && <div className="agent-empty"><strong>{listed.length ? "没有符合筛选条件的任务" : "暂无 Agent 任务"}</strong><p>{listed.length ? "切换筛选条件查看其他任务。" : "在上方输入任务，Agent 会在当前工作区中执行。"}</p></div>}
       <div className="agent-list">{visible.map(row => {
         const status = executionStatus(row);
         const title = taskTitle(row);
-        return <article className="agent-row" key={row.executionId}>
-          <span className={`agent-marker tone-${status.tone}`} aria-hidden="true" />
-          <div className="agent-row-main"><div className="agent-row-title"><TooltipHint content={title}><h3 tabIndex={0}>{title}</h3></TooltipHint><span className={`agent-status tone-${status.tone}`}><i />{status.label}</span></div>
-            <div className="agent-meta"><TooltipHint content={row.canonicalWorkspaceRoot}><span tabIndex={0}>{executionWorkspace(row, [...workspaces, ...(workspace ? [workspace] : [])])}</span></TooltipHint><span>·</span><TooltipHint content={executionTime(row.createdAt)}><time tabIndex={0} dateTime={new Date(row.createdAt).toISOString()}>{executionTime(row.createdAt)}</time></TooltipHint><span>·</span><span>耗时 {executionDuration(row)}</span></div>
-            <div className="agent-row-bottom"><p>{row.status === "completed" ? taskSummary(resultText(row.finalResult)) || status.description : status.description}</p><div className="agent-row-actions">
+        const duration = `${row.status === "running" || row.progress?.phase === "dispatching" ? "已运行" : "耗时"} ${executionDuration(row)}`;
+        const error = [row.errorCode, row.errorMessage].filter((value): value is string => !!value).join(" · ");
+        return <article className={`agent-task-card tone-${status.tone}`} key={row.executionId}>
+          <div className="agent-task-main"><div className="agent-task-title"><StatusIcon tone={status.tone} /><TooltipHint content={title}><h3 tabIndex={0}>{title}</h3></TooltipHint></div>
+            <div className="agent-meta"><TooltipHint content={row.canonicalWorkspaceRoot}><span tabIndex={0}>{executionWorkspace(row, [...workspaces, ...(workspace ? [workspace] : [])])}</span></TooltipHint><span>·</span><TooltipHint content={executionTime(row.createdAt)}><time tabIndex={0} dateTime={new Date(row.createdAt).toISOString()}>{executionTime(row.createdAt)}</time></TooltipHint><span>·</span><span>{duration}</span></div>
+            {error ? <p className="agent-task-error">{row.errorCode && <code>{row.errorCode}</code>}{row.errorMessage && <span>{row.errorMessage}</span>}</p> : <p className="agent-task-summary">{row.status === "completed" ? taskSummary(resultText(row.finalResult)) || status.description : status.description}</p>}
+          </div><div className="agent-task-side"><span className={`agent-status tone-${status.tone}`}><StatusIcon tone={status.tone} />{status.label}</span><div className="agent-row-actions agent-task-actions">
               {row.availableActions.canResumePending && <Button variant="outline" size="sm" disabled={disabled || !!listError} onClick={() => void operate({ action: "resume_pending", executionId: row.executionId })}>恢复任务</Button>}
               {row.availableActions.canCancel && <Button variant="ghost" size="sm" disabled={disabled || !!listError} onClick={() => void operate({ action: "cancel", executionId: row.executionId })}>取消任务</Button>}
               <Button variant="ghost" size="sm" onClick={e => { opener.current = e.currentTarget; void openDetails(row.executionId, row); }}><FileText aria-hidden="true" />详情</Button>
               <TooltipHint content="仅从本机列表删除，不取消任务或删除执行记录"><Button className="agent-delete-action" variant="ghost" size="sm" onClick={() => requestDelete(row)}><Trash2 aria-hidden="true" />删除</Button></TooltipHint>
             </div></div>
-          </div>
         </article>;
       })}</div>
       {moreError && <p role="alert" className="agent-list-error">{moreError}</p>}
-      {nextCursor && <Button variant="ghost" disabled={loadingMore || refreshing || busy} onClick={() => void loadMore()}>{loadingMore ? "正在加载…" : moreError ? "重试加载更多" : "展开更多（5条）"}</Button>}
+      {(nextCursor || loadingMore) && <div className="agent-load-more"><Button className="agent-load-more-button" variant="outline" disabled={loadingMore || refreshing || busy} aria-busy={loadingMore} data-state={loadingMore ? "loading" : moreError ? "retry" : "idle"} onClick={() => void loadMore()}><span className="agent-load-more-icon-slot" aria-hidden="true"><ChevronDown className="agent-load-more-icon-idle" /><LoaderCircle className="agent-load-more-icon-loading" /><RefreshCw className="agent-load-more-icon-retry" /></span><span className="agent-load-more-label">{loadingMore ? "正在加载…" : moreError ? "重试加载更多" : "展开更多（5条）"}</span></Button></div>}
     </section>
     </div>
-    {detail && detailView && <Suspense fallback={<p role="status">正在加载任务详情…</p>}><ExecutionDetails row={detail} workspaceName={executionWorkspace(detail, [...workspaces, ...(workspace ? [workspace] : [])])} feedback={feedback} busy={busy} loading={detailLoading} error={detailError} disabled={disabled} onBack={closeDetails} onReload={() => void openDetails(detail.executionId, detail)} onOperate={operate} /></Suspense>}
+    {detail && detailView && <Suspense fallback={<p role="status">正在加载任务详情…</p>}><ExecutionDetails row={detail} workspaceName={executionWorkspace(detail, [...workspaces, ...(workspace ? [workspace] : [])])} feedback={feedback} busy={busy} loading={detailLoading} error={detailError} disabled={disabled} onReload={() => void openDetails(detail.executionId, detail)} onOperate={operate} /></Suspense>}
   </section></>;
 }

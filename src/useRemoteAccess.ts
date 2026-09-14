@@ -148,6 +148,6 @@ export function useRemoteAccess() {
       if (live.current) setApprovalBusy(false);
     }
   }
-  return { state, error: readError || error, busy, operate, startQuickTunnel, quickTunnelCommandPending: quickTunnelCommandPendingState, quickTunnelHandledError, approvalBusy, approvalError, approve };
+  return { state, error: readError || error, busy, operate, refresh, startQuickTunnel, quickTunnelCommandPending: quickTunnelCommandPendingState, quickTunnelHandledError, approvalBusy, approvalError, approve };
 }
 export type RemoteController = ReturnType<typeof useRemoteAccess>;

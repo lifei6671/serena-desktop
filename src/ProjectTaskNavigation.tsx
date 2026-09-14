@@ -1,7 +1,7 @@
 import { TooltipHint } from "@/components/TooltipHint";
 import { useEffect, useId, useRef, useState } from "react";
 import { HoverCard } from "radix-ui";
-import { CalendarDays, ChevronDown, CircleAlert, Folder, LoaderCircle, Monitor, Trash2 } from "lucide-react";
+import { CalendarDays, ChevronDown, CircleAlert, Folder, LoaderCircle, Monitor, RefreshCw, Trash2 } from "lucide-react";
 import { api } from "./api";
 import { executionStatus, executionTime, taskTitle } from "./agentPresentation";
 import type { ExecutionView, Workspace } from "./types";
@@ -68,6 +68,8 @@ function ProjectTasks({ workspace, hiddenIds, selectedId, onSelect, onDelete }: 
   const [cursor, setCursor] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
+  const [moreError, setMoreError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const pages = useRef(1);
   const waiting = useRef(false);
@@ -81,6 +83,7 @@ function ProjectTasks({ workspace, hiddenIds, selectedId, onSelect, onDelete }: 
     async function refresh() {
       if (waiting.current) return;
       waiting.current = true;
+      setRefreshing(true);
       try {
         const next: ExecutionView[] = [];
         let after: string | null = null;
@@ -94,7 +97,7 @@ function ProjectTasks({ workspace, hiddenIds, selectedId, onSelect, onDelete }: 
         setRows(next); setCursor(after); setLoaded(true); setError("");
       } catch {
         if (!disposed) setError("任务加载失败");
-      } finally { if (generation.current === version) waiting.current = false; }
+      } finally { if (generation.current === version) { waiting.current = false; setRefreshing(false); } }
     }
     void refresh();
     const timer = window.setInterval(() => void refresh(), 3000);
@@ -104,13 +107,13 @@ function ProjectTasks({ workspace, hiddenIds, selectedId, onSelect, onDelete }: 
   async function more() {
     if (!cursor || waiting.current) return;
     const version = generation.current;
-    waiting.current = true; setLoadingMore(true);
+    waiting.current = true; setLoadingMore(true); setMoreError("");
     try {
       const result = await api.agentHistory(cursor, workspace.root);
       if (version !== generation.current) return;
       setRows(old => [...old, ...result.executions.filter(row => !old.some(existing => existing.executionId === row.executionId))]);
-      pages.current++; setCursor(result.nextCursor); setError("");
-    } catch { if (version === generation.current) setError("加载更多失败，请重试"); }
+      pages.current++; setCursor(result.nextCursor); setMoreError("");
+    } catch { if (version === generation.current) setMoreError("加载更多失败，请重试"); }
     finally { if (version === generation.current) { waiting.current = false; setLoadingMore(false); } }
   }
 
@@ -121,10 +124,21 @@ function ProjectTasks({ workspace, hiddenIds, selectedId, onSelect, onDelete }: 
     </button></TooltipHint>
     {expanded && <div id={listId}>
       {error && <p className="project-task-message" role="status">{error}</p>}
+      {moreError && <p className="project-task-message" role="status">{moreError}</p>}
       {!loaded && !error && <p className="project-task-message">正在加载…</p>}
       {loaded && !visible.length && <p className="project-task-message">暂无任务</p>}
       <ul>{visible.map(row => <TaskItem key={row.executionId} row={row} workspace={workspace} selected={selectedId === row.executionId} onSelect={onSelect} onDelete={onDelete} />)}</ul>
-      {cursor && <button className="project-task-more" disabled={loadingMore} onClick={() => void more()}>{loadingMore ? "正在加载…" : "查看更多"}</button>}
+      {cursor && <button className="project-task-more" disabled={loadingMore || refreshing} aria-busy={loadingMore}
+        data-state={loadingMore ? "loading" : moreError ? "retry" : "idle"} onClick={() => void more()}>
+        <span className="project-task-more-icon-slot" aria-hidden="true">
+          <ChevronDown className="project-task-more-icon-idle" />
+          <LoaderCircle className="project-task-more-icon-loading" />
+          <RefreshCw className="project-task-more-icon-retry" />
+        </span>
+        <span key={loadingMore ? "loading" : moreError ? "retry" : "idle"} className="project-task-more-label">
+          {loadingMore ? "正在加载…" : moreError ? "重试" : "查看更多"}
+        </span>
+      </button>}
     </div>}
   </section>;
 }

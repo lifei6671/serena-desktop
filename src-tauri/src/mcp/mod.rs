@@ -34,6 +34,7 @@ pub struct Active {
 pub struct Listener {
     address: std::net::SocketAddr,
     lan_endpoints: Vec<String>,
+    started_at: i64,
     cancel: CancellationToken,
     handle: tokio::task::JoinHandle<()>,
 }
@@ -58,6 +59,7 @@ pub struct Broker {
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
     pub running: bool,
+    pub started_at: Option<i64>,
     pub port: u16,
     pub listen_address: String,
     pub lan_endpoints: Vec<String>,
@@ -157,6 +159,10 @@ impl Broker {
         });
         Snapshot {
             running: listener.as_ref().is_some_and(|l| !l.handle.is_finished()),
+            started_at: listener
+                .as_ref()
+                .filter(|l| !l.handle.is_finished())
+                .map(|l| l.started_at),
             port: listener
                 .as_ref()
                 .map(|l| l.address.port())
@@ -1020,13 +1026,23 @@ mod integration_tests {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let dir = tempfile::tempdir().unwrap();
         let broker = fixture(dir.path(), None);
+        let mut previous_started_at = None;
         for allow_lan in [false, true, false] {
             let mut config = broker.config();
             config.broker.allow_lan = allow_lan;
             broker.supervisor.replace_config(config).unwrap();
+            let requested_at = chrono::Utc::now().timestamp_millis();
             broker.start().await.unwrap();
             let state = broker.snapshot().await;
             assert!(state.running);
+            let started_at = state.started_at.expect("running listener has a start time");
+            assert!(started_at >= requested_at);
+            assert!(previous_started_at.is_none_or(|previous| started_at >= previous));
+            assert_eq!(
+                serde_json::to_value(&state).unwrap()["startedAt"],
+                started_at
+            );
+            previous_started_at = Some(started_at);
             assert_eq!(
                 state.listen_address,
                 if allow_lan { "0.0.0.0" } else { "127.0.0.1" }
@@ -1064,7 +1080,9 @@ mod integration_tests {
             assert!(result.structured_content.unwrap()["activeWorkspace"].is_null());
             drop(client);
             broker.stop().await.unwrap();
-            assert!(!broker.snapshot().await.running);
+            let stopped = broker.snapshot().await;
+            assert!(!stopped.running);
+            assert!(stopped.started_at.is_none());
         }
     }
 

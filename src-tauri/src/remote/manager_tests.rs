@@ -38,6 +38,7 @@ async fn self_hosted_probe_retry_stop_and_restart_preserve_auth_boundary() {
         mcp_resource: format!("{origin}/mcp"),
         instance_id: "first".into(),
     };
+    let first_requested_at = chrono::Utc::now().timestamp_millis();
     start_local(&broker, context.clone()).await;
     tokio::time::timeout(Duration::from_secs(5), async {
         while broker.remote.snapshot().status != Status::Ready {
@@ -50,6 +51,7 @@ async fn self_hosted_probe_retry_stop_and_restart_preserve_auth_boundary() {
         broker.remote.snapshot().mode,
         RemoteAccessMode::SelfHostedOAuth
     );
+    assert!(broker.remote.snapshot().started_at.unwrap() >= first_requested_at);
     assert!(
         broker
             .remote
@@ -62,7 +64,9 @@ async fn self_hosted_probe_retry_stop_and_restart_preserve_auth_boundary() {
     broker.remote.stop().await.unwrap();
     broker.remote.stop().await.unwrap();
     assert!(!broker.remote.active());
-    assert!(broker.remote.snapshot().public_context.is_none());
+    let stopped = broker.remote.snapshot();
+    assert!(stopped.public_context.is_none());
+    assert!(stopped.started_at.is_none());
     assert_eq!(broker.remote.policy(), McpAuthPolicy::EmbeddedOAuth);
     assert!(
         broker
@@ -88,6 +92,7 @@ async fn self_hosted_probe_retry_stop_and_restart_preserve_auth_boundary() {
         public_origin: format!("{origin}/missing"),
         ..context
     };
+    let restart_requested_at = chrono::Utc::now().timestamp_millis();
     start_local(&broker, failed).await;
     tokio::time::timeout(Duration::from_secs(5), async {
         while broker.remote.snapshot().status != Status::Error {
@@ -96,11 +101,14 @@ async fn self_hosted_probe_retry_stop_and_restart_preserve_auth_boundary() {
     })
     .await
     .unwrap();
-    assert!(broker.remote.active());
-    assert!(broker.remote.snapshot().public_context.is_none());
+    let failed = broker.remote.snapshot();
+    assert!(failed.active);
+    assert!(failed.public_context.is_none());
+    assert!(failed.started_at.unwrap() >= restart_requested_at);
     assert!(broker.remote.probe().await.is_err());
     assert_eq!(broker.remote.policy(), McpAuthPolicy::EmbeddedOAuth);
     broker.stop().await.unwrap();
+    assert!(broker.remote.snapshot().started_at.is_none());
 }
 
 #[test]
@@ -1151,6 +1159,7 @@ async fn stop_retries_retained_ngrok_until_close_confirmed() {
     {
         let mut inner = remote.inner.lock().unwrap();
         inner.cancel = Some(CancellationToken::new());
+        inner.started_at = Some(42);
         inner.policy = McpAuthPolicy::EmbeddedOAuth;
         inner.status = Status::Error;
         inner.error = Some("NGROK_TUNNEL_STOP_FAILED".to_owned());
@@ -1168,6 +1177,7 @@ async fn stop_retries_retained_ngrok_until_close_confirmed() {
     assert!(remote.pending_ngrok.lock().await.is_some());
     let first_snapshot = remote.snapshot();
     assert!(first_snapshot.active);
+    assert_eq!(first_snapshot.started_at, Some(42));
     assert!(first_snapshot.public_context.is_none());
     assert!(first_snapshot.status == Status::Stopping);
 
@@ -1177,6 +1187,7 @@ async fn stop_retries_retained_ngrok_until_close_confirmed() {
     assert!(remote.pending_ngrok.lock().await.is_none());
     let second_snapshot = remote.snapshot();
     assert!(!second_snapshot.active);
+    assert!(second_snapshot.started_at.is_none());
     assert!(second_snapshot.status == Status::Stopped);
     assert!(second_snapshot.last_error.is_none());
     assert_eq!(wait_calls.load(Ordering::SeqCst), 0);
@@ -1317,6 +1328,7 @@ async fn managed_ngrok_worker_reaches_ready_and_stop_closes_once() {
         "https://managed.example"
     );
     assert!(snapshot.active);
+    assert!(snapshot.started_at.is_some());
     assert!(broker.remote.policy() == McpAuthPolicy::EmbeddedOAuth);
     assert_eq!(connect_calls.load(Ordering::SeqCst), 1);
     assert_eq!(probe_calls.load(Ordering::SeqCst), 1);
@@ -1334,6 +1346,7 @@ async fn managed_ngrok_worker_reaches_ready_and_stop_closes_once() {
     assert!(broker.remote.pending_ngrok.lock().await.is_none());
     let stopped = broker.remote.snapshot();
     assert!(!stopped.active);
+    assert!(stopped.started_at.is_none());
     assert!(stopped.status == Status::Stopped);
     assert!(stopped.public_context.is_none());
     assert!(broker.remote.inner.lock().unwrap().oauth.is_none());
@@ -1453,6 +1466,7 @@ async fn missing_ngrok_token_does_not_block_enabled_local_broker_startup() {
 async fn managed_ngrok_terminal_hides_context_before_pending_close_and_retains_failure() {
     let (_directory, broker, terminal, wait_calls, close_calls) =
         started_signaled_managed_ngrok_worker(LifecycleClose::PendingOnce).await;
+    let started_at = broker.remote.snapshot().started_at.unwrap();
 
     terminal.send(()).unwrap();
     wait_for_counter(close_calls.as_ref(), 1).await;
@@ -1465,6 +1479,7 @@ async fn managed_ngrok_terminal_hides_context_before_pending_close_and_retains_f
     );
     assert!(disconnecting.public_context.is_none());
     assert!(disconnecting.active);
+    assert_eq!(disconnecting.started_at, Some(started_at));
     assert!(broker.remote.inner.lock().unwrap().oauth.is_none());
 
     tokio::time::advance(Duration::from_secs(12)).await;
@@ -1475,12 +1490,14 @@ async fn managed_ngrok_terminal_hides_context_before_pending_close_and_retains_f
         Some("NGROK_TUNNEL_STOP_FAILED")
     );
     assert!(failed.active);
+    assert_eq!(failed.started_at, Some(started_at));
     assert!(broker.remote.pending_ngrok.lock().await.is_some());
     assert_eq!(wait_calls.load(Ordering::SeqCst), 1);
 
     broker.remote.stop().await.unwrap();
     let stopped = broker.remote.snapshot();
     assert!(stopped.status == Status::Stopped);
+    assert!(stopped.started_at.is_none());
     assert!(stopped.last_error.is_none());
     assert!(broker.remote.pending_ngrok.lock().await.is_none());
     assert_eq!(close_calls.load(Ordering::SeqCst), 2);
@@ -3082,18 +3099,24 @@ async fn stopping_retained_child_revokes_context_and_reaps_before_passthrough() 
     {
         let mut inner = remote.inner.lock().unwrap();
         inner.cancel = Some(CancellationToken::new());
+        inner.started_at = Some(42);
         inner.policy = McpAuthPolicy::EmbeddedOAuth;
         inner.status = Status::Error;
         inner.oauth = Some(Runtime::new(
             RemotePublicContext::new("https://old.trycloudflare.com").unwrap(),
         ));
     }
+    let failed = remote.snapshot();
+    assert!(failed.active);
+    assert!(failed.status == Status::Error);
+    assert_eq!(failed.started_at, Some(42));
     remote.cancel();
     assert!(remote.inner.lock().unwrap().oauth.is_none());
     assert_eq!(remote.policy(), McpAuthPolicy::EmbeddedOAuth);
     remote.stop().await.unwrap();
     assert!(remote.pending_child.lock().await.is_none());
     assert!(!remote.active());
+    assert!(remote.snapshot().started_at.is_none());
     assert_eq!(remote.policy(), McpAuthPolicy::EmbeddedOAuth);
     remote.stop().await.unwrap();
 }

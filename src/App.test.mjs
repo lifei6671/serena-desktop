@@ -75,6 +75,49 @@ test('lazy pages preserve settings draft and keep project navigation mounted', a
   assert.match(navigation.textContent, /Persistent project/);
 });
 
+test('MCP Only App controls use the broker controller to start and stop the local listener', async () => {
+  const originals = { ...api };
+  const config = { agentEnabled: false, broker: { enabled: true, port: 9342, allowLan: true }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
+  const snapshot = { config, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
+  let brokerRunning = true;
+  let resolveSetBroker;
+  const setBrokerCalls = [];
+  const remoteStartCalls = [];
+  const remoteStopCalls = [];
+  api.getState = async () => structuredClone(snapshot);
+  api.broker = async () => ({ running: brokerRunning, port: 9342, listenAddress: '0.0.0.0', lanEndpoints: [], projects: [], projectSources: [], syncWarnings: [], activeWorkspace: null, codegraph: null, operation: null, lastError: null });
+  api.agentHistory = async () => ({ executions: [], nextCursor: null });
+  api.codexVersion = async () => 'test-version';
+  api.remoteState = async () => ({ mode: 'mcp_only', status: 'stopped', active: false, config: { mode: 'mcp_only', selfHosted: { provider: 'custom_https', publicOrigin: null }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } }, publicContext: null, lastError: null, authorizedClients: 0, pending: [] });
+  api.remoteStart = async (...args) => remoteStartCalls.push(args);
+  api.remoteStop = async () => remoteStopCalls.push(true);
+  api.setBroker = (enabled, port, allowLan) => new Promise(resolve => {
+    setBrokerCalls.push([enabled, port, allowLan]);
+    resolveSetBroker = () => { brokerRunning = enabled; resolve(); };
+  });
+  try {
+    root = createRoot(document.getElementById('root'));
+    await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
+    await act(async () => [...document.querySelectorAll('nav[aria-label="主导航"] button')].find(item => item.textContent === '远程访问').click());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
+    const button = text => [...document.querySelectorAll('button')].find(item => item.textContent === text);
+    assert.ok(button('停止接入'));
+    assert.match(document.querySelector('.remote-runtime-summary').textContent, /监听范围:\s*局域网（0\.0\.0\.0）/);
+    await act(async () => button('停止接入').click());
+    assert.deepEqual(setBrokerCalls, [[false, 9342, true]]);
+    assert.equal(button('正在停止…').disabled, true);
+    assert.deepEqual(remoteStartCalls, []);
+    assert.deepEqual(remoteStopCalls, []);
+    await act(async () => { resolveSetBroker(); await new Promise(resolve => setTimeout(resolve, 10)); });
+    assert.ok(button('启动接入'));
+    await act(async () => button('启动接入').click());
+    assert.deepEqual(setBrokerCalls, [[false, 9342, true], [true, 9342, true]]);
+    await act(async () => { resolveSetBroker(); await new Promise(resolve => setTimeout(resolve, 10)); });
+  } finally {
+    Object.assign(api, originals);
+  }
+});
+
 test('Settings keeps its compact contract, truthful detection copy, and broker controls', async () => {
   const originals = { ...api };
   const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
@@ -383,7 +426,7 @@ test('task detail clears the Agent main-navigation selection until returning to 
   assert.ok(taskLink);
   await act(async () => taskLink.click());
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
-  const agentNavigation = [...document.querySelectorAll('nav[aria-label="主导航"] button')].find(button => button.textContent === 'Agent 编排');
+  const agentNavigation = [...document.querySelectorAll('nav[aria-label="主导航"] button')].find(button => button.textContent === 'Agent');
   assert.ok(document.querySelector('.agent-detail'));
   assert.equal(agentNavigation.getAttribute('aria-current'), null);
   assert.equal(document.querySelector('.project-task-link').getAttribute('aria-current'), 'page');
@@ -395,7 +438,8 @@ test('task detail clears the Agent main-navigation selection until returning to 
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
   assert.ok(document.querySelector('.agent-detail'));
   assert.equal(agentNavigation.getAttribute('aria-current'), null);
-  await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '全部任务').click());
+  assert.equal([...document.querySelectorAll('button')].find(button => button.textContent === '返回 Agent 任务'), undefined);
+  await act(async () => agentNavigation.click());
   assert.equal(document.querySelector('.agent-detail'), null);
   assert.equal(agentNavigation.getAttribute('aria-current'), 'page');
   assert.equal(document.querySelector('.project-task-link').getAttribute('aria-current'), null);
@@ -413,7 +457,8 @@ test('homepage keeps the real service and endpoint data in its compact shell', a
   root = createRoot(document.getElementById('root'));
   await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
   assert.equal(document.querySelector('.app-titlebar'), null);
-  assert.deepEqual([...document.querySelectorAll('nav[aria-label="主导航"] button')].map(button => button.textContent), ['首页', '服务状态', 'Agent 编排', '日志终端', '远程访问', '设置']);
+  assert.deepEqual([...document.querySelectorAll('nav[aria-label="主导航"] button')].map(button => button.textContent), ['首页', '服务状态', 'Agent', '日志终端', '远程访问', '设置']);
+  assert.doesNotMatch(document.querySelector('nav[aria-label="主导航"]').textContent, /Agent 编排/);
   assert.equal(document.querySelector('nav[aria-label="主导航"] [aria-current="page"]').textContent, '首页');
   assert.match(document.querySelector('.workspace-summary').textContent, /serena-desktop/);
   assert.equal(document.querySelectorAll('.service-list > .service-row').length, 4);
@@ -476,14 +521,15 @@ test('homepage keeps the real service and endpoint data in its compact shell', a
   }
 });
 
-test('remote access keeps viewed/runtime modes separate and renders an honest Quick Tunnel console', async () => {
+test('remote access keeps viewed/runtime modes separate without diagnostics or connection tests', async () => {
   const { default: RemoteAccessPage } = await import('./RemoteAccessPage.tsx');
   const state = { mode: 'mcp_only', status: 'stopped', publicContext: null, lastError: null, authorizedClients: 0, pending: [], active: false };
   const calls = [];
+  const mcpRunningChanges = [];
   api.remoteStart = async mode => { calls.push(mode); };
   const controller = { state, busy: '', error: '', operate: async (_label, action) => { await action(); return true; }, startQuickTunnel: async () => { await api.remoteStart('quick_tunnel'); return true; } };
   root = createRoot(document.getElementById('root'));
-  const render = async () => act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, onSettings() {} })));
+  const render = async () => act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, mcpRunning: true, mcpStartedAt: Date.now(), mcpBusy: false, onSetMcpRunning: enabled => mcpRunningChanges.push(enabled), onSettings() {} })));
   await render();
   assert.equal(document.querySelectorAll('input[name="remote-mode"]').length, 3);
   assert.equal(document.querySelectorAll('.remote-mode').length, 3);
@@ -491,32 +537,48 @@ test('remote access keeps viewed/runtime modes separate and renders an honest Qu
   assert.equal(document.querySelector('.remote-current-mode'), null);
   assert.ok(document.querySelector('.remote-runtime-summary'));
   assert.ok(document.querySelector('.remote-summary-main'));
-  assert.ok(document.querySelector('#remote-diagnostics'));
-  assert.equal(document.querySelectorAll('.remote-diagnostic-item').length, 3);
-  assert.match(document.querySelector('#remote-diagnostics').textContent, /本地服务诊断.*本地 Endpoint.*公网 OAuth 诊断.*不适用/);
-  assert.doesNotMatch(document.querySelector('#remote-diagnostics').textContent, /OAuth Metadata|DNS|MCP Initialize/);
-  assert.doesNotMatch(document.querySelector('.remote-summary-metrics').textContent, /连接持续时间|延迟|\d+\s*(ms|秒|分钟|小时)/);
+  assert.equal(document.querySelector('.remote-summary-product'), null);
+  assert.equal(document.querySelector('.remote-summary-lifecycle').textContent, '本地模式');
+  assert.equal(document.querySelector('#remote-diagnostics'), null);
+  assert.equal(document.querySelectorAll('.remote-diagnostic-item').length, 0);
+  assert.match(document.querySelector('.remote-summary-uptime').textContent, /运行时长:00:00:00/);
   assert.equal(document.querySelector('.remote-quick-card'), null);
   assert.equal(document.querySelector('.remote-status'), null);
-  assert.equal(document.querySelector('.remote-page-actions').closest('.page-heading') !== null, true);
+  assert.equal(document.querySelector('.remote-page-actions'), null);
   assert.equal(document.querySelector('.remote-summary-metrics > div').dataset.ready, 'false');
   const button = text => [...document.querySelectorAll('button')].find(b => b.textContent === text);
-  assert.ok(button('网络诊断报告'));
+  assert.equal(button('网络诊断报告'), undefined);
   assert.equal(button('重新检测全部'), undefined);
+  assert.equal(button('测试连接'), undefined);
+  assert.equal(button('测试公网连接'), undefined);
   const selectedModeName = () => document.querySelector('.remote-mode[data-selected="true"] strong').textContent;
   const modeLabel = value => document.querySelector(`input[name="remote-mode"][value="${value}"]`).closest('.remote-mode');
   assert.ok(document.querySelector('input[value="mcp_only"]').checked);
   assert.equal(selectedModeName(), '仅 MCP');
-  assert.match(modeLabel('mcp_only').textContent, /当前配置/);
-  assert.ok(button('管理 MCP 服务'));
-  assert.equal(button('已应用').disabled, true);
+  assert.match(modeLabel('mcp_only').textContent, /当前运行/);
+  assert.ok(document.querySelector('.mcp-only-card'));
+  assert.doesNotMatch(document.querySelector('.mcp-only-card-header').textContent, /当前运行|已停止|状态读取中/);
+  assert.ok(button('复制 Endpoint'));
+  assert.equal(button('已应用'), undefined);
+  assert.ok(button('停止接入').querySelector('svg.lucide-square'));
+  await act(async () => button('停止接入').click());
+  assert.deepEqual(mcpRunningChanges, [false]);
+  assert.deepEqual(calls, []);
+  assert.equal(document.querySelector('.mcp-only-settings'), null);
+  assert.deepEqual([...document.querySelector('.mcp-only-card').children].map(element => element.tagName), ['HEADER', 'SECTION', 'FIELDSET', 'SECTION', 'FOOTER']);
+  assert.match(document.querySelector('.mcp-only-local-target').textContent, /Local Target.*固定路由.*127\.0\.0\.1:9120/);
+  assert.equal(document.querySelector('.mcp-only-local-target-title').tagName, 'SPAN');
+  assert.ok(document.querySelector('.mcp-only-local-target svg.lucide-monitor'));
+  assert.ok(document.querySelector('.mcp-only-local-target-route'));
+  assert.doesNotMatch(document.querySelector('.mcp-only-card').textContent, /端口开放正常|2\s*\/\s*2|24 个工具|连接持续时间/);
   assert.equal(document.querySelectorAll('.mcp-only-protection-choice')[0].dataset.selected, 'true');
   assert.equal(document.querySelectorAll('.mcp-only-protection-choice')[1].dataset.selected, 'false');
   assert.equal(button('应用此方式'), undefined);
   await act(async () => document.querySelector('input[value="quick_tunnel"]').click());
   assert.equal(selectedModeName(), '快捷隧道');
-  assert.match(document.querySelector('.remote-runtime-summary').textContent, /仅 MCP.*127\.0\.0\.1.*PUBLIC ENDPOINT.*尚未就绪/);
-  assert.match(modeLabel('mcp_only').textContent, /当前配置/);
+  assert.equal(button('重新检测全部'), undefined);
+  assert.match(document.querySelector('.remote-runtime-summary').textContent, /仅 MCP.*本地模式.*本地 Endpoint.*http:\/\/127\.0\.0\.1:9120\/mcp.*外部网关 \/ 无内置 OAuth.*本机（127\.0\.0\.1）/);
+  assert.match(modeLabel('mcp_only').textContent, /当前运行/);
   assert.ok(document.querySelector('.remote-quick-card'));
   assert.match(document.querySelector('.remote-quick-card').textContent, /Cloudflare Quick Tunnel 运行状态.*内核自动代理.*临时公网 Endpoint.*运行机制与生命周期说明/);
   assert.doesNotMatch(document.querySelector('.remote-quick-card').textContent, /LIFECYCLE NOTE|当前运行：仅 MCP/);
@@ -534,9 +596,9 @@ test('remote access keeps viewed/runtime modes separate and renders an honest Qu
   await act(async () => document.querySelector('input[value="self_hosted_oauth"]').click());
   assert.ok(document.getElementById("self-origin"));
   assert.match(document.body.textContent, /\.well-known/);
-  assert.equal(button('切换到自有 HTTPS').disabled, true);
+  assert.equal(button('切换到自有 HTTPS').disabled, false);
   await act(async () => document.querySelector('input[value="mcp_only"]').click());
-  assert.match(document.body.textContent, /不验证外部网关的认证配置/);
+  assert.match(document.body.textContent, /不启用 SerenaDesktop OAuth，且不验证其真实性/);
   await act(async () => document.querySelectorAll('input[name="mcp-security"]')[1].click());
   assert.equal(document.querySelectorAll('.mcp-only-protection-choice')[0].dataset.selected, 'false');
   assert.equal(document.querySelectorAll('.mcp-only-protection-choice')[1].dataset.selected, 'true');
@@ -550,7 +612,7 @@ test('remote access keeps viewed/runtime modes separate and renders an honest Qu
   assert.match(document.querySelector('.remote-runtime-summary').textContent, /https:\/\/old\.trycloudflare\.com\/mcp/);
   assert.equal(document.querySelector('fieldset').disabled, false);
   assert.equal(selectedModeName(), '快捷隧道');
-  assert.match(document.querySelector('.remote-runtime-summary').textContent, /快捷隧道（当前生效）.*公网状态:.*已验证/);
+  assert.match(document.querySelector('.remote-runtime-summary').textContent, /快捷隧道（当前生效）.*公网 Endpoint.*公网状态:.*已验证/);
   assert.match(modeLabel('quick_tunnel').textContent, /当前运行/);
   assert.match(document.querySelector('.remote-quick-card').textContent, /已授权客户端：0/);
   assert.ok(button('复制地址'));
@@ -577,7 +639,7 @@ test('remote access keeps viewed/runtime modes separate and renders an honest Qu
   assert.equal(selectedModeName(), '快捷隧道');
   assert.equal(button('复制地址').disabled, true);
   assert.ok(button('重新启动快捷隧道'));
-  await act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: true, onSettings() {} })));
+  await act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: true, mcpRunning: true, mcpBusy: false, onSetMcpRunning: enabled => mcpRunningChanges.push(enabled), onSettings() {} })));
   assert.equal(button('重新启动快捷隧道').disabled, false);
   assert.equal(document.querySelectorAll('.remote-quick-lifecycle').length, 1);
   assert.match(document.querySelector('.remote-quick-lifecycle').textContent, /局域网客户端仍需要 OAuth 授权/);
@@ -593,6 +655,82 @@ test('remote access keeps viewed/runtime modes separate and renders an honest Qu
   controller.state = { ...state, mode: 'self_hosted_oauth', status: 'stopped', active: false, publicContext: null };
   await render();
   assert.ok(button('切换到快捷隧道'));
+});
+
+test('remote runtime summary uses backend start times across ticks, remounts, failures, stops, and restarts', async () => {
+  const { default: RemoteAccessPage } = await import('./RemoteAccessPage.tsx');
+  const originalNow = Date.now;
+  const originalSetInterval = window.setInterval;
+  const originalClearInterval = window.clearInterval;
+  let now = 2_000_000_000_000;
+  let timer = null;
+  let timerId = 0;
+  Date.now = () => now;
+  window.setInterval = (callback, delay) => {
+    assert.equal(delay, 1000);
+    timer = callback;
+    return ++timerId;
+  };
+  window.clearInterval = () => { timer = null; };
+  let mcpRunning = true;
+  let mcpStartedAt = now - ((25 * 3600 + 2 * 60 + 3) * 1000);
+  let state = {
+    mode: 'mcp_only', status: 'stopped', active: false, startedAt: null, publicContext: null, lastError: null, authorizedClients: 0, pending: [],
+    config: { mode: 'mcp_only', selfHosted: { provider: 'custom_https', publicOrigin: null }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } },
+  };
+  const controller = { get state() { return state; }, busy: '', error: '', operate: async (_label, action) => { await action(); return true; } };
+  const render = async () => act(async () => root.render(createElement(RemoteAccessPage, {
+    controller, port: 9120, allowLan: false, mcpRunning, mcpStartedAt, mcpBusy: false, onSetMcpRunning() {}, onSettings() {},
+  })));
+  try {
+    root = createRoot(document.getElementById('root'));
+    await render();
+    assert.match(document.querySelector('.remote-summary-endpoint').textContent, /本地 Endpoint/);
+    assert.match(document.querySelector('.remote-summary-uptime').textContent, /25:02:03/);
+    await act(async () => document.querySelector('input[value="quick_tunnel"]').click());
+    assert.match(document.querySelector('.remote-summary-endpoint').textContent, /本地 Endpoint/);
+    now += 1000;
+    await act(async () => timer());
+    assert.match(document.querySelector('.remote-summary-uptime').textContent, /25:02:04/);
+
+    await act(async () => root.unmount());
+    root = createRoot(document.getElementById('root'));
+    await render();
+    assert.match(document.querySelector('.remote-summary-uptime').textContent, /25:02:04/);
+
+    mcpRunning = false;
+    mcpStartedAt = null;
+    await render();
+    assert.match(document.querySelector('.remote-summary-uptime').textContent, /00:00:00/);
+    now += 10_000;
+    mcpRunning = true;
+    mcpStartedAt = now;
+    await render();
+    assert.match(document.querySelector('.remote-summary-uptime').textContent, /00:00:00/);
+
+    state = {
+      ...state,
+      mode: 'quick_tunnel', status: 'ready', active: true,
+      startedAt: now - ((49 * 3600 + 4 * 60 + 5) * 1000),
+      publicContext: { publicOrigin: 'https://runtime.example', mcpResource: 'https://runtime.example/mcp', instanceId: 'runtime' },
+    };
+    await render();
+    await act(async () => document.querySelector('input[value="mcp_only"]').click());
+    assert.match(document.querySelector('.remote-summary-endpoint').textContent, /公网 Endpoint/);
+    assert.match(document.querySelector('.remote-summary-uptime').textContent, /49:04:05/);
+    state = { ...state, status: 'error' };
+    await render();
+    assert.match(document.querySelector('.remote-summary-uptime').textContent, /49:04:05/);
+    state = { ...state, active: false, startedAt: null };
+    await render();
+    assert.match(document.querySelector('.remote-summary-uptime').textContent, /00:00:00/);
+  } finally {
+    if (root) await act(async () => root.unmount());
+    root = null;
+    Date.now = originalNow;
+    window.setInterval = originalSetInterval;
+    window.clearInterval = originalClearInterval;
+  }
 });
 
 test('Quick Tunnel terminal transitions restore the matching action and badge', async () => {
@@ -762,54 +900,6 @@ test('Quick Tunnel command rejection shows only its dedicated toast in the mount
   }
 });
 
-test('Quick Tunnel probe exposes its real busy transition until either outcome settles', async () => {
-  const { default: RemoteAccessPage } = await import('./RemoteAccessPage.tsx');
-  const { useState } = await import('react');
-  const { toast } = await import('sonner');
-  const originalError = toast.error;
-  const errors = [];
-  toast.error = message => errors.push(message);
-  let pending = Promise.withResolvers();
-  api.remoteProbe = () => pending.promise;
-  function ProbeHarness() {
-    const [busy, setBusy] = useState('');
-    const [error, setError] = useState('');
-    const state = { mode: 'quick_tunnel', status: 'ready', active: true, pending: [], publicContext: { mcpResource: 'https://ready.example/mcp' } };
-    const controller = { state, busy, error, operate: async (label, action) => {
-      setBusy(label);
-      try { await action(); return true; }
-      catch (failure) { setError(String(failure)); return false; }
-      finally { setBusy(''); }
-    } };
-    return createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, onSettings() {} });
-  }
-  const quickButton = () => [...document.querySelector('.remote-quick-footer').querySelectorAll('button')].find(item => /测试连接|正在测试/.test(item.textContent));
-  const allBusyButtons = () => [...document.querySelectorAll('button')].filter(item => item.textContent === '正在测试…');
-  try {
-    root = createRoot(document.getElementById('root'));
-    await act(async () => root.render(createElement(ProbeHarness)));
-    await act(async () => { quickButton().click(); await Promise.resolve(); });
-    assert.equal(quickButton().textContent, '正在测试…');
-    assert.equal(quickButton().disabled, true);
-    assert.ok(quickButton().querySelector('svg.lucide-refresh-cw.animate-spin'));
-    assert.equal(allBusyButtons().length, 3);
-    assert.ok(allBusyButtons().every(item => item.disabled && item.querySelector('svg.lucide-refresh-cw.animate-spin')));
-    await act(async () => { pending.resolve(); await Promise.resolve(); });
-    assert.equal(quickButton().textContent, '测试连接');
-    assert.equal(quickButton().disabled, false);
-
-    pending = Promise.withResolvers();
-    await act(async () => { quickButton().click(); await Promise.resolve(); });
-    assert.equal(quickButton().textContent, '正在测试…');
-    await act(async () => { pending.reject(new Error('probe failed')); await Promise.resolve(); });
-    assert.equal(quickButton().textContent, '测试连接');
-    assert.equal(quickButton().disabled, false);
-    assert.deepEqual(errors, ['连接测试失败，请查看远程状态中的错误详情']);
-  } finally {
-    toast.error = originalError;
-  }
-});
-
 test('remote ordinary UI inherits Alibaba PuHuiTi while endpoint data remains monospace', () => {
   const css = readFileSync('src/styles.css', 'utf8');
   assert.match(css, /--font-sans:\s*"Alibaba PuHuiTi"/);
@@ -820,8 +910,6 @@ test('remote ordinary UI inherits Alibaba PuHuiTi while endpoint data remains mo
     '.remote-quick-status',
     '.remote-quick-fact-heading small',
     '.remote-quick-facts strong',
-    '.remote-diagnostic-item > div > span',
-    '.remote-diagnostic-item > span',
   ]) {
     const rule = css.slice(css.indexOf(selector), css.indexOf('}', css.indexOf(selector)) + 1);
     assert.doesNotMatch(rule, /Consolas|font-family|font:\s*\d/);
@@ -831,34 +919,80 @@ test('remote ordinary UI inherits Alibaba PuHuiTi while endpoint data remains mo
     const rule = rules.find(candidate => candidate.includes('font:'));
     assert.match(rule, /Consolas/);
   }
+  assert.match(css, /\.mcp-only-local-target-title \{[^}]*font-size: 11px;[^}]*font-weight: 400;/);
+  assert.doesNotMatch(css.slice(css.indexOf('.mcp-only-local-target-title'), css.indexOf('}', css.indexOf('.mcp-only-local-target-title')) + 1), /border|background|padding/);
+  assert.match(css, /\.mcp-only-local-target \.remote-address input \{ font-size: 12px; \}/);
 });
 
-test('self hosted entry submits origin and hides resources from other modes', async () => {
+test('self hosted entry submits origin and hides resources from other modes', async t => {
   const { default: RemoteAccessPage } = await import('./RemoteAccessPage.tsx');
+  const { toast } = await import('sonner');
   const calls = [];
+  const notices = [];
+  const originalToastError = toast.error;
+  toast.error = message => notices.push(message);
+  t.after(() => { toast.error = originalToastError; });
   api.remoteStart = async (...args) => calls.push(args);
   const controller = { state: { mode: 'mcp_only', status: 'stopped', active: false }, busy: '', error: '', operate: async (_label, action) => { await action(); return true; }, startQuickTunnel: async () => { await api.remoteStart('quick_tunnel'); return true; } };
   root = createRoot(document.getElementById('root'));
   const render = async () => act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, onSettings() {} })));
   await render();
   await act(async () => document.querySelector('input[value="self_hosted_oauth"]').click());
+  const customCard = document.querySelector('.custom-https-config-card');
+  assert.ok(customCard);
+  assert.deepEqual([...customCard.children].map(item => item.tagName), ['HEADER', 'DIV', 'SECTION', 'SECTION', 'DIV', 'FOOTER']);
+  const customProviderFieldset = customCard.querySelector('fieldset.self-hosted-providers');
+  const [customLegend, customProviderLabel, customProviderOptions] = [...customProviderFieldset.children];
+  assert.equal(customLegend.tagName, 'LEGEND');
+  assert.ok(customLegend.classList.contains('sr-only'));
+  assert.equal(customProviderLabel.tagName, 'SPAN');
+  assert.ok(customProviderLabel.classList.contains('self-hosted-provider-label'));
+  assert.equal(customProviderOptions.tagName, 'DIV');
+  assert.ok(customProviderOptions.classList.contains('self-hosted-provider-options'));
+  assert.match(customCard.querySelector('.custom-https-auth').textContent, /认证方式.*强制保护.*系统内置.*SerenaDesktop OAuth 2\.0.*内置启用/);
+  assert.match(customCard.querySelector('.custom-https-local-target').textContent, /Local Target.*Serena Core 内部端口.*固定路由.*9120/);
+  assert.match(customCard.querySelector('.custom-https-proxy-contract').textContent, /127\.0\.0\.1:9120.*\/mcp.*\/\.well-known\/\*.*\/oauth\/\*/);
+  assert.match(customCard.querySelector('.custom-https-oauth-notice').textContent, /OAuth 2\.0/);
+  assert.doesNotMatch(customCard.textContent, /5\/5|6\/6|PID|连接持续时间/);
   const input = document.getElementById('self-origin');
-  assert.equal([...document.querySelectorAll('button')].find(b => b.textContent === '切换到自有 HTTPS').disabled, true);
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'https://self.example.com');
+  assert.equal(input.disabled, false);
+  const customStart = () => [...document.querySelectorAll('button')].find(b => b.textContent === '切换到自有 HTTPS');
+  assert.equal(customStart().disabled, false);
+  await act(async () => customStart().click());
+  assert.deepEqual(calls, []);
+  assert.equal(document.activeElement, input);
+  assert.equal(notices.at(-1), '请先填写公网 HTTPS 地址');
+  const setOrigin = async value => act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, value);
     input.dispatchEvent(new window.Event('input', { bubbles: true }));
   });
-  await act(async () => [...document.querySelectorAll('button')].find(b => b.textContent === '切换到自有 HTTPS').click());
+  await setOrigin('http://self.example.com');
+  await act(async () => customStart().click());
+  assert.deepEqual(calls, []);
+  assert.equal(document.activeElement, input);
+  assert.equal(notices.at(-1), '请输入有效的 HTTPS Origin');
+  await setOrigin('https://self.example.com/mcp');
+  await act(async () => customStart().click());
+  assert.deepEqual(calls, []);
+  assert.equal(notices.at(-1), '请输入有效的 HTTPS Origin');
+  await setOrigin('https://self.example.com/');
+  await act(async () => {
+    customStart().click();
+  });
   assert.deepEqual(calls, [['self_hosted_oauth', 'https://self.example.com']]);
   controller.state = { mode: 'self_hosted_oauth', status: 'ready', active: true, config: { mode: 'self_hosted_oauth', selfHosted: { provider: 'custom_https', publicOrigin: 'https://self.example.com' }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } }, publicContext: { publicOrigin: 'https://self.example.com', mcpResource: 'https://self.example.com/mcp' } };
   await render();
   assert.equal(document.getElementById('self-origin').disabled, true);
-  assert.equal(document.getElementById('self-mcp-url').value, 'https://self.example.com/mcp');
-  assert.ok([...document.querySelectorAll('button')].find(b => b.textContent === '复制地址'));
+  assert.equal(document.getElementById('self-origin').value, 'https://self.example.com');
+  assert.equal(document.getElementById('self-mcp-url'), null);
+  assert.match(document.querySelector('.remote-runtime-summary').textContent, /https:\/\/self\.example\.com\/mcp/);
+  assert.ok(document.querySelector('.custom-https-origin .remote-copy'));
+  assert.equal([...document.querySelectorAll('button')].find(b => b.textContent === '测试公网连接'), undefined);
   assert.ok([...document.querySelectorAll('button')].find(b => b.textContent === '停止远程访问'));
   await act(async () => document.querySelector('input[name="self-hosted-provider"][value="ngrok"]').click());
   assert.equal(document.getElementById('self-origin'), null);
   assert.equal(document.getElementById('self-mcp-url'), null);
+  assert.equal(document.querySelector('.custom-https-config-card'), null);
   assert.ok(document.getElementById('ngrok-auth-token'));
   assert.equal(document.getElementById('ngrok-auth-token').disabled, false);
   assert.equal(document.querySelector('.self-hosted-current'), null);
@@ -875,7 +1009,7 @@ test('self hosted entry submits origin and hides resources from other modes', as
   controller.state = { ...controller.state, status: 'error', publicContext: null };
   await render();
   assert.equal(document.getElementById('self-mcp-url'), null);
-  assert.ok([...document.querySelectorAll('button')].some(b => b.textContent === '测试连接'));
+  assert.equal([...document.querySelectorAll('button')].some(b => b.textContent === '测试公网连接'), false);
   controller.state = { ...controller.state, status: 'stopped', active: false };
   await render();
   assert.match(document.querySelector('input[name="self-hosted-provider"][value="custom_https"]').closest('.self-hosted-provider-choice').textContent, /当前配置/);
@@ -885,12 +1019,17 @@ test('self hosted entry submits origin and hides resources from other modes', as
   assert.doesNotMatch(document.body.textContent, /请先停止|应用「仅 MCP」/);
 });
 
-test('managed ngrok self-hosted flow keeps token private and uses dedicated commands', async () => {
+test('managed ngrok self-hosted flow keeps token private and uses dedicated commands', async t => {
   const { default: RemoteAccessPage } = await import('./RemoteAccessPage.tsx');
   const calls = [];
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  const copiedValues = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => copiedValues.push(value) } });
+  t.after(() => { if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard); else delete navigator.clipboard; });
   api.remoteSaveNgrokAuth = async token => calls.push(['save', token]);
   api.remoteStartNgrok = async () => calls.push(['start']);
   api.remoteStop = async () => calls.push(['stop']);
+  api.remoteStart = async (...args) => calls.push(['remoteStart', ...args]);
   const stopped = {
     mode: 'mcp_only', status: 'stopped', active: false, ngrokAuthConfigured: false,
     config: { mode: 'mcp_only', selfHosted: { provider: 'custom_https', publicOrigin: null }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } },
@@ -898,7 +1037,7 @@ test('managed ngrok self-hosted flow keeps token private and uses dedicated comm
   };
   const controller = { state: stopped, busy: '', error: '', operate: async (_label, action) => { await action(); return true; } };
   root = createRoot(document.getElementById('root'));
-  const render = async () => act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, onSettings() {} })));
+  const render = async () => act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, mcpRunning: false, mcpBusy: false, onSetMcpRunning() {}, onSettings() {} })));
   const button = text => [...document.querySelectorAll('button')].find(item => item.textContent === text);
   await render();
   await act(async () => document.querySelector('input[value="self_hosted_oauth"]').click());
@@ -995,19 +1134,27 @@ test('managed ngrok self-hosted flow keeps token private and uses dedicated comm
   assert.ok(ngrokResult);
   assert.equal(ngrokResult.contains(document.querySelector('.self-hosted-credentials')), false);
   assert.equal(document.querySelector('.ngrok-config-card').contains(ngrokResult), false);
-  assert.equal(document.getElementById('ngrok-mcp-url').value, 'https://managed.example/mcp');
+  assert.deepEqual([...document.querySelector('.ngrok-config-card').children].map(item => item.tagName), ['HEADER', 'DIV', 'DIV']);
+  assert.equal(document.getElementById('ngrok-mcp-url'), null);
+  assert.equal(document.querySelector('.ngrok-config-endpoint'), null);
+  assert.equal(document.querySelector('.ngrok-config-footer'), null);
   assert.match(document.querySelector('.remote-runtime-summary').textContent, /自建接入 · ngrok（当前生效）/);
-  assert.match(document.querySelector('.ngrok-config-endpoint').textContent, /Public Endpoint.*已分配/);
   assert.match(document.querySelector('.ngrok-oauth-notice').textContent, /OAuth 2.0/);
-  assert.doesNotMatch(document.querySelector('.remote-diagnostics').textContent, /5\/5|6\/6|正常|TLS 1.3/);
+  assert.equal(document.querySelector('.remote-diagnostics'), null);
   assert.equal(document.getElementById('ngrok-auth-token').disabled, false);
   assert.match(document.querySelector('input[name="self-hosted-provider"][value="ngrok"]').closest('.self-hosted-provider-choice').textContent, /当前运行/);
-  assert.ok(ngrokResult.contains(button('停止远程访问')));
-  assert.ok(ngrokResult.contains(button('测试连接')));
-  assert.equal(document.querySelector('.ngrok-config-card').contains(button('测试连接')), false);
-  assert.ok(document.querySelector('.ngrok-config-endpoint .remote-copy'));
-  assert.ok(button('测试连接').querySelector('svg.lucide-refresh-cw'));
-  assert.ok(button('停止远程访问').querySelector('svg.lucide-square'));
+  assert.match(ngrokResult.textContent, /已连接 \(Connected\).*https:\/\/managed\.example\/mcp/);
+  assert.ok(ngrokResult.contains(button('复制 Endpoint')));
+  assert.ok(ngrokResult.contains(button('复制客户端配置')));
+  assert.equal(ngrokResult.contains(button('测试连接')), false);
+  assert.ok(ngrokResult.contains(button('重新连接')));
+  assert.ok(ngrokResult.contains(button('停止隧道')));
+  assert.match(ngrokResult.querySelector('.ngrok-connected-metadata').textContent, /OAuth 2\.0 已启用 · 强制校验.*127\.0\.0\.1:9120.*已授权客户端.*1/);
+  assert.doesNotMatch(ngrokResult.textContent, /PID|运行时长|连接持续时间|TLS 1\.3|28ms|5\/5|6\/6/);
+  assert.ok(button('停止隧道').querySelector('svg.lucide-square'));
+  await act(async () => button('复制客户端配置').click());
+  assert.equal(copiedValues.at(-1), JSON.stringify({ url: 'https://managed.example/mcp' }, null, 2));
+  assert.doesNotMatch(copiedValues.at(-1), /Bearer|token|secret/i);
   const liveReplacement = 'live-replacement-ngrok-token-must-stay-private';
   await act(async () => {
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(tokenInput, liveReplacement);
@@ -1016,18 +1163,23 @@ test('managed ngrok self-hosted flow keeps token private and uses dedicated comm
   assert.doesNotMatch(document.body.textContent, new RegExp(liveReplacement));
   await act(async () => button('更新 Token').click());
   assert.deepEqual(calls.at(-1), ['save', liveReplacement]);
-  await act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: true, onSettings() {} })));
+  calls.length = 0;
+  await act(async () => button('重新连接').click());
+  assert.deepEqual(calls, [['stop'], ['start']]);
+  assert.equal(calls.some(call => call[0] === 'remoteStart'), false);
+  await act(async () => button('停止隧道').click());
+  assert.deepEqual(calls, [['stop'], ['start'], ['stop']]);
+  await act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: true, mcpRunning: false, mcpBusy: false, onSetMcpRunning() {}, onSettings() {} })));
   assert.match(document.querySelector('.ngrok-oauth-notice').textContent, /局域网客户端仍需要 OAuth 授权/);
 });
 
-test('remote copy confirms only after clipboard success and self-hosted probe uses toast outcomes', async () => {
+test('remote copy confirms only after clipboard success', async () => {
   const { default: RemoteAccessPage } = await import('./RemoteAccessPage.tsx');
   const { toast } = await import('sonner');
-  const originalSuccess = toast.success, originalError = toast.error;
+  const originalError = toast.error;
   const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
   const notices = [];
-  toast.success = message => notices.push(['success', message]);
-  toast.error = message => notices.push(['error', message]);
+  toast.error = message => notices.push(message);
   let finishCopy;
   const resource = 'https://copy.trycloudflare.com/mcp';
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async value => {
@@ -1048,26 +1200,10 @@ test('remote copy confirms only after clipboard success and self-hosted probe us
     assert.equal(button('复制地址').disabled, false);
     navigator.clipboard.writeText = async () => { throw new Error('clipboard denied'); };
     await act(async () => button('复制地址').click());
-    assert.match(notices.at(-1)[1], /复制失败/);
+    assert.match(notices.at(-1), /复制失败/);
     assert.equal(button('已复制'), undefined);
-    await act(async () => document.querySelector('input[value="self_hosted_oauth"]').click());
-    controller.state = { mode: 'self_hosted_oauth', status: 'ready', active: true, pending: [], config: { mode: 'self_hosted_oauth', selfHosted: { provider: 'custom_https', publicOrigin: 'https://self.example.com' }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } }, publicContext: { publicOrigin: 'https://self.example.com', mcpResource: 'https://self.example.com/mcp' } };
-    await act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, onSettings() {} })));
-    api.remoteProbe = async () => {};
-    await act(async () => button('测试连接').click());
-    assert.equal(notices.at(-1)[0], 'success');
-    assert.equal(document.querySelector('.remote-probe-feedback'), null);
-    api.remoteProbe = async () => { throw new Error('HTTPS connect failed'); };
-    await act(async () => button('测试连接').click());
-    assert.equal(notices.at(-1)[0], 'error');
-    assert.match(notices.at(-1)[1], /连接测试失败/);
-    assert.match(controller.error, /HTTPS connect failed/);
-    assert.equal(document.querySelector('.remote-probe-feedback'), null);
-    assert.equal(document.querySelector('.remote-error'), null);
-    assert.equal(button('测试连接').dataset.variant, 'default');
-    assert.equal(button('停止远程访问').dataset.variant, 'destructive');
   } finally {
-    toast.success = originalSuccess; toast.error = originalError;
+    toast.error = originalError;
     if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard); else delete navigator.clipboard;
   }
 });
@@ -1106,18 +1242,21 @@ test('MCP Only requires risk acceptance and submits the selected declaration', a
   api.remoteStart = async (...args) => calls.push(args);
   const controller = { state: { mode: 'quick_tunnel', status: 'stopped', active: false, config: { mode: 'quick_tunnel', selfHosted: { provider: 'custom_https', publicOrigin: 'https://saved.example' }, mcpOnly: { securityDeclaration: 'external_auth' } } }, busy: '', error: '', operate: async (_label, action) => { await action(); return true; } };
   root = createRoot(document.getElementById('root'));
-  await act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, onSettings() {} })));
+  await act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, mcpRunning: true, mcpBusy: false, onSetMcpRunning() {}, onSettings() {} })));
   await act(async () => document.querySelector('input[value="self_hosted_oauth"]').click());
   assert.equal(document.getElementById('self-origin').value, 'https://saved.example');
   await act(async () => document.querySelector('input[value="mcp_only"]').click());
   const apply = () => [...document.querySelectorAll('button')].find(b => b.textContent === '切换为仅 MCP');
-  assert.match(document.querySelector('.remote-detail').textContent, /不验证外部网关的认证配置，也不启用 SerenaDesktop OAuth/);
-  assert.match(document.querySelector('.remote-notice').textContent, /切换为仅 MCP 会移除 SerenaDesktop OAuth 保护/);
+  assert.match(document.querySelector('.remote-detail').textContent, /不启用 SerenaDesktop OAuth，且不验证其真实性/);
+  assert.match(document.querySelector('.mcp-only-footer').textContent, /应用后将切换为仅 MCP（纯本地）/);
+  assert.ok(document.querySelector('.mcp-only-gateway-origin'));
+  assert.equal([...document.querySelectorAll('button')].find(b => b.textContent === '切换接入方式'), undefined);
   await act(async () => apply().click());
   assert.deepEqual(calls, [['mcp_only', undefined, 'external_auth', false]]);
-  assert.match(document.querySelector('.remote-detail').textContent, /不表示认证已验证/);
+  assert.match(document.querySelector('.remote-detail').textContent, /不代表 Serena Desktop 已验证外部认证/);
   assert.doesNotMatch(document.querySelector('.remote-detail').textContent, /OAuth 已启用/);
   await act(async () => document.querySelectorAll('input[name="mcp-security"]')[1].click());
+  assert.equal(document.querySelector('.mcp-only-gateway-origin'), null);
   assert.equal(apply().disabled, true);
   await act(async () => apply().click());
   assert.equal(calls.length, 1);
@@ -1135,25 +1274,93 @@ test('MCP Only restores and submits its own public Origin without OAuth', async 
   api.remoteStart = async (...args) => calls.push(args);
   const controller = { state: { mode: 'mcp_only', status: 'stopped', active: false, config: { mode: 'mcp_only', selfHosted: { provider: 'custom_https', publicOrigin: 'https://oauth.example' }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: 'https://gateway.example:8443' } } }, busy: '', error: '', operate: async (_label, action) => { await action(); return true; } };
   root = createRoot(document.getElementById('root'));
-  await act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, onSettings() {} })));
+  await act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, mcpRunning: true, mcpBusy: false, onSetMcpRunning() {}, onSettings() {} })));
   const input = document.getElementById('mcp-only-origin');
   assert.equal(input.value, 'https://gateway.example:8443');
-  assert.match(document.querySelector('.remote-detail').textContent, /https:\/\/gateway.example:8443\/mcp/);
+  assert.equal(input.value, 'https://gateway.example:8443');
   assert.match(document.querySelector('.remote-detail').textContent, /不启用 SerenaDesktop OAuth/);
-  assert.match(document.querySelector('.mcp-local-service').textContent, /http:\/\/127\.0\.0\.1:9120\/mcp/);
-  assert.ok([...document.querySelectorAll('button')].find(b => b.textContent === '管理 MCP 服务'));
-  const applied = [...document.querySelectorAll('button')].find(b => b.textContent === '已应用');
-  assert.equal(applied.disabled, true);
-  assert.equal(applied.dataset.applied, 'true');
-  assert.doesNotMatch(document.querySelector('.mcp-only-footer').textContent, /当前设置已应用/);
+  assert.equal(document.querySelector('.mcp-only-local-target input').value, 'http://127.0.0.1:9120/mcp');
+  assert.match(document.querySelector('.remote-runtime-summary').textContent, /本地 Endpoint.*http:\/\/127\.0\.0\.1:9120\/mcp/);
+  assert.equal([...document.querySelectorAll('button')].find(b => b.textContent === '已应用'), undefined);
+  assert.match(document.querySelector('.mcp-only-footer').textContent, /当前配置已与运行时一致 · 正在监听/);
+  assert.ok([...document.querySelectorAll('button')].find(b => b.textContent === '停止接入'));
   await act(async () => {
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'https://new.example');
     input.dispatchEvent(new window.Event('input', { bubbles: true }));
   });
   const apply = [...document.querySelectorAll('button')].find(b => b.textContent === '保存设置');
+  assert.equal([...document.querySelectorAll('button')].find(b => b.textContent === '切换接入方式'), undefined);
   assert.equal(apply.dataset.applied, undefined);
   assert.match(document.querySelector('.mcp-only-footer').textContent, /更改将在保存后生效/);
   assert.equal(apply.disabled, false);
   await act(async () => apply.click());
   assert.deepEqual(calls, [['mcp_only', 'https://new.example', 'external_auth', false]]);
+});
+
+test('MCP Only listener controls use the broker running state', async () => {
+  const { default: RemoteAccessPage } = await import('./RemoteAccessPage.tsx');
+  const mcpChanges = [];
+  const remoteStarts = [];
+  const remoteStops = [];
+  let mcpRunning = true;
+  let state = { mode: 'mcp_only', status: 'stopped', active: false, config: { mode: 'mcp_only', selfHosted: { provider: 'custom_https', publicOrigin: null }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: 'https://gateway.example' } }, publicContext: null, lastError: null, pending: [] };
+  const controller = { get state() { return state; }, busy: '', error: '', refresh: async () => {}, operate: async (_label, action) => { await action(); return true; } };
+  const originalStart = api.remoteStart;
+  const originalStop = api.remoteStop;
+  api.remoteStart = async (...args) => remoteStarts.push(args);
+  api.remoteStop = async () => remoteStops.push(true);
+  root = createRoot(document.getElementById('root'));
+  const render = async () => act(async () => root.render(createElement(RemoteAccessPage, { controller, port: 9120, allowLan: false, mcpRunning, mcpBusy: false, onSetMcpRunning: enabled => mcpChanges.push(enabled), onSettings() {} })));
+  const button = text => [...document.querySelectorAll('button')].find(item => item.textContent === text);
+  try {
+    await render();
+    await act(async () => document.querySelector('input[value="quick_tunnel"]').click());
+    await act(async () => document.querySelector('input[value="mcp_only"]').click());
+    const mode = document.querySelector('input[value="mcp_only"]').closest('.remote-mode');
+    assert.equal(mode.querySelector('.remote-mode-runtime').dataset.state, 'ready');
+    assert.match(mode.textContent, /当前运行/);
+    assert.doesNotMatch(document.querySelector('.mcp-only-card-header').textContent, /当前运行|已停止|状态读取中/);
+    assert.match(document.querySelector('.mcp-only-footer').textContent, /当前配置已与运行时一致 · 正在监听/);
+    assert.ok(button('停止接入'));
+    assert.equal(button('切换接入方式'), undefined);
+    await act(async () => button('停止接入').click());
+    assert.deepEqual(mcpChanges, [false]);
+    assert.deepEqual(remoteStarts, []);
+    assert.deepEqual(remoteStops, []);
+
+    mcpRunning = false;
+    await render();
+    assert.notEqual(mode.querySelector('.remote-mode-runtime').dataset.state, 'ready');
+    assert.match(mode.textContent, /已停止/);
+    assert.doesNotMatch(document.querySelector('.mcp-only-card-header').textContent, /当前运行|已停止|状态读取中/);
+    assert.match(document.querySelector('.mcp-only-footer').textContent, /当前配置已保存 · 本地接入已停止/);
+    assert.ok(button('启动接入'));
+    await act(async () => button('启动接入').click());
+    assert.deepEqual(mcpChanges, [false, true]);
+
+    mcpRunning = null;
+    await render();
+    assert.match(mode.textContent, /状态读取中/);
+    assert.equal(button('状态读取中').disabled, true);
+
+    state = { ...state, mode: 'quick_tunnel', status: 'stopped', active: false };
+    await render();
+    assert.ok(button('切换为仅 MCP'));
+    assert.equal(button('启动接入'), undefined);
+
+    state = { ...state, mode: 'mcp_only', status: 'stopped', active: false };
+    mcpRunning = false;
+    await render();
+    const input = document.getElementById('mcp-only-origin');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'https://changed.example');
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+    assert.ok(button('保存设置'));
+    assert.equal(button('启动接入'), undefined);
+    assert.equal(button('停止接入'), undefined);
+  } finally {
+    api.remoteStart = originalStart;
+    api.remoteStop = originalStop;
+  }
 });

@@ -118,6 +118,7 @@ pub struct Snapshot {
     pub authorized_clients: usize,
     pub pending: Vec<PendingView>,
     pub active: bool,
+    pub started_at: Option<i64>,
 }
 pub(crate) struct Inner {
     pub mode: RemoteAccessMode,
@@ -127,6 +128,7 @@ pub(crate) struct Inner {
     pub oauth: Option<Runtime>,
     pub error: Option<String>,
     pub cancel: Option<CancellationToken>,
+    pub started_at: Option<i64>,
     pub ngrok_auth_configured: bool,
 }
 pub struct Remote {
@@ -175,6 +177,7 @@ impl Remote {
                 oauth: None,
                 error: None,
                 cancel: None,
+                started_at: None,
                 ngrok_auth_configured: false,
             }),
             task: tokio::sync::Mutex::new(None),
@@ -374,6 +377,7 @@ impl Remote {
                 inner.oauth.take(),
                 inner.status,
                 inner.error.take(),
+                inner.started_at,
             );
             inner.policy = McpAuthPolicy::EmbeddedOAuth;
             inner.mode = plan.config.mode;
@@ -381,6 +385,7 @@ impl Remote {
             inner.oauth = None;
             inner.status = Status::Starting;
             inner.error = None;
+            inner.started_at = None;
             previous_runtime
         };
 
@@ -404,7 +409,13 @@ impl Remote {
                 inner.error = Some(diagnostic.clone());
                 return Err(diagnostic);
             }
-            (inner.policy, inner.oauth, inner.status, inner.error) = previous_runtime;
+            (
+                inner.policy,
+                inner.oauth,
+                inner.status,
+                inner.error,
+                inner.started_at,
+            ) = previous_runtime;
             inner.mode = previous.remote_access.mode;
             inner.config = previous.remote_access;
             return Err(error);
@@ -602,6 +613,7 @@ impl Remote {
                     inner.oauth = None;
                     if !cancelled {
                         inner.cancel = None;
+                        inner.started_at = None;
                         inner.status = Status::Error;
                         inner.error = Some(code);
                     }
@@ -656,6 +668,7 @@ impl Remote {
                         inner.status = Status::Stopping;
                     } else {
                         inner.cancel = None;
+                        inner.started_at = None;
                         inner.status = Status::Error;
                         inner.error = Some(code);
                     }
@@ -706,6 +719,7 @@ impl Remote {
                 inner.status = Status::Stopping;
             } else {
                 inner.cancel = None;
+                inner.started_at = None;
             }
             cancelled
         };
@@ -740,6 +754,7 @@ impl Remote {
         {
             let mut inner = self.inner.lock().unwrap();
             inner.cancel = Some(cancel.clone());
+            inner.started_at = Some(chrono::Utc::now().timestamp_millis());
         }
         let remote = Arc::clone(self);
         let owner = Arc::clone(broker);
@@ -796,6 +811,7 @@ impl Remote {
             pending,
             last_error: inner.error.clone(),
             active: inner.cancel.is_some(),
+            started_at: inner.cancel.as_ref().and(inner.started_at),
         }
     }
     pub fn status(&self, status: Status) {
@@ -898,6 +914,7 @@ impl Remote {
                 inner.oauth.take(),
                 inner.status,
                 inner.error.take(),
+                inner.started_at,
             );
             inner.policy = McpAuthPolicy::EmbeddedOAuth;
             inner.mode = config.remote_access.mode;
@@ -908,6 +925,7 @@ impl Remote {
             } else {
                 Status::Starting
             };
+            inner.started_at = None;
             previous_runtime
         };
         if let Err(error) = Self::persist_config(broker, config.remote_access).await {
@@ -932,7 +950,13 @@ impl Remote {
                 inner.error = Some(diagnostic.clone());
                 return Err(diagnostic);
             }
-            (inner.policy, inner.oauth, inner.status, inner.error) = previous_runtime;
+            (
+                inner.policy,
+                inner.oauth,
+                inner.status,
+                inner.error,
+                inner.started_at,
+            ) = previous_runtime;
             inner.mode = previous.remote_access.mode;
             inner.config = previous.remote_access;
             return Err(error);
@@ -942,6 +966,7 @@ impl Remote {
         {
             let mut inner = self.inner.lock().unwrap();
             inner.cancel = Some(cancel.clone());
+            inner.started_at = Some(chrono::Utc::now().timestamp_millis());
         }
         let remote = self.clone();
         let owner = broker.clone();
@@ -965,6 +990,7 @@ impl Remote {
                 let mut inner = remote.inner.lock().unwrap();
                 inner.oauth = None;
                 inner.cancel = None;
+                inner.started_at = None;
                 inner.status = Status::Stopped;
                 inner.error = None;
                 return;
@@ -981,6 +1007,7 @@ impl Remote {
                     .is_err_and(|e| e == "QUICK_TUNNEL_STOP_FAILED");
                 if !cleanup_failed {
                     inner.cancel = None;
+                    inner.started_at = None;
                     // Configured OAuth modes remain fail-closed until explicit MCP-only.
                 }
                 match result {
@@ -1073,6 +1100,7 @@ impl Remote {
             let mut inner = self.inner.lock().unwrap();
             inner.oauth = None;
             inner.cancel = None;
+            inner.started_at = None;
             inner.status = Status::Stopped;
             inner.error = None;
         }

@@ -69,6 +69,7 @@ async function mount(rows, handler, props = {}) {
 }
 function button(text, within = document) { return [...within.querySelectorAll('button')].find(b => b.textContent === text); }
 async function click(text, within) { const b = button(text, within); assert.ok(b, text); assert.equal(b.disabled, false, text); await act(async () => b.click()); }
+async function refreshTasks() { const b = document.querySelector('button[aria-label="刷新任务列表"]'); assert.ok(b, '刷新任务列表'); assert.equal(b.disabled, false, '刷新任务列表'); await act(async () => b.click()); }
 async function input(value, selector = '#agent-prompt') {
   await act(async () => {
     const field = document.querySelector(selector);
@@ -108,6 +109,87 @@ test('all raw statuses remain presentation-only, no invented capability', async 
   assert.match(document.body.textContent, /等待执行/); assert.match(document.body.textContent, /正在恢复执行状态/); assert.match(document.body.textContent, /需要处理/);
 });
 
+test('Agent list uses the local-runner card layout and filters only real status fields', async () => {
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  await mount([
+    row({ executionId: 'run', status: 'running', attention: 'none' }),
+    row({ executionId: 'done', status: 'completed', attention: 'none', completedAt: 2000 }),
+    row({ executionId: 'failed', status: 'failed', attention: 'none', errorCode: 'AGENT_TIMEOUT', errorMessage: '实际后端超时' }),
+    row({ executionId: 'unknown', status: 'unknown', attention: 'none' }),
+    row({ executionId: 'cancelled', status: 'cancelled', attention: 'none' }),
+    row({ executionId: 'interrupted', status: 'interrupted', attention: 'none' }),
+  ]);
+  await click('展开更多（5条）');
+  assert.match(document.querySelector('.agent-list-page-heading').textContent, /Agent 任务.*Codex Local Runner.*在当前工作区中创建、查看和管理本地 Agent 执行任务/);
+  assert.match(document.querySelector('.agent-workspace-bar').textContent, /当前工作区:.*A.*E:\\A/);
+  const composer = document.querySelector('.agent-composer-card');
+  assert.ok(composer.querySelector('#agent-prompt'));
+  assert.equal(composer.querySelector('.agent-composer-footer').parentElement, composer);
+  assert.ok(document.querySelector('.agent-filter-toolbar'));
+  const refresh = document.querySelector('button[aria-label="刷新任务列表"]');
+  assert.ok(refresh); assert.equal(refresh.textContent, '');
+  assert.equal(document.querySelectorAll('.agent-task-card').length, 6);
+  assert.ok(document.querySelector('.agent-task-card .agent-task-title'));
+  assert.ok(button('详情')); assert.ok(button('删除'));
+  const styles = readFileSync('src/styles.css', 'utf8');
+  assert.match(styles, /\.agent-task-actions \.agent-delete-action \{ color: var\(--signal-red\); \}/);
+  assert.doesNotMatch(styles, /\.agent-task-actions \.agent-delete-action \{ color: #94a3b8; \}/);
+  const selectStatus = async label => {
+    await act(async () => document.querySelector('[aria-label="筛选任务"]').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    const option = [...document.querySelectorAll('[role="option"]')].find(node => node.textContent === label);
+    assert.ok(option, label);
+    await act(async () => option.click());
+  };
+  await selectStatus('失败');
+  assert.equal(document.querySelectorAll('.agent-task-card').length, 2);
+  assert.match(document.querySelector('.agent-task-error').textContent, /AGENT_TIMEOUT.*实际后端超时/);
+  assert.doesNotMatch(document.body.textContent, /CODEX_RPC_TIMEOUT/);
+  await selectStatus('已取消');
+  assert.equal(document.querySelectorAll('.agent-task-card').length, 2);
+  assert.match(document.body.textContent, /已取消.*已中断/);
+});
+
+test('refresh button keeps its element and reports the real pending state', async () => {
+  await mount([row()]);
+  const pending = Promise.withResolvers();
+  api.agentHistory = () => pending.promise;
+  const refresh = document.querySelector('button[aria-label="刷新任务列表"]');
+  const icon = refresh.querySelector('.agent-refresh-icon');
+  assert.equal(refresh.getAttribute('aria-busy'), 'false');
+  assert.equal(refresh.dataset.state, 'idle');
+  await act(async () => refresh.click());
+  assert.equal(document.querySelector('button[aria-label="刷新任务列表"]'), refresh);
+  assert.equal(refresh.querySelector('.agent-refresh-icon'), icon);
+  assert.equal(refresh.getAttribute('aria-busy'), 'true');
+  assert.equal(refresh.dataset.state, 'loading');
+  assert.equal(refresh.disabled, true);
+  await act(async () => pending.resolve({ executions: [row()], nextCursor: null }));
+  assert.equal(document.querySelector('button[aria-label="刷新任务列表"]'), refresh);
+  assert.equal(refresh.getAttribute('aria-busy'), 'false');
+  assert.equal(refresh.dataset.state, 'idle');
+});
+
+test('load-more button keeps stable idle, loading, and retry icon states', async () => {
+  await mount(Array.from({ length: 6 }, (_, index) => row({ executionId: `E${index}` })));
+  const pending = Promise.withResolvers();
+  api.agentHistory = () => pending.promise;
+  const loadMore = button('展开更多（5条）');
+  assert.equal(loadMore.getAttribute('aria-busy'), 'false');
+  assert.equal(loadMore.dataset.state, 'idle');
+  assert.ok(loadMore.querySelector('.agent-load-more-icon-idle'));
+  await act(async () => loadMore.click());
+  assert.equal(document.querySelector('.agent-load-more-button'), loadMore);
+  assert.equal(loadMore.getAttribute('aria-busy'), 'true');
+  assert.equal(loadMore.dataset.state, 'loading');
+  assert.ok(loadMore.querySelector('.agent-load-more-icon-loading'));
+  await act(async () => pending.reject(new Error('page unavailable')));
+  const retry = button('重试加载更多');
+  assert.equal(retry, loadMore);
+  assert.equal(retry.getAttribute('aria-busy'), 'false');
+  assert.equal(retry.dataset.state, 'retry');
+  assert.ok(retry.querySelector('.agent-load-more-icon-retry'));
+});
+
 test('completed final answer is compact; detail pane exposes original prompt and technical output', async () => {
   await mount([row({ status: 'completed', attention: 'none', finalResult: { finalResult: [{ type:'agentMessage', phase:'commentary', text:'internal progress' }, { type:'agentMessage', phase:'final_answer', text:'DONE' }], huge: 'x'.repeat(10000) } })]);
   assert.ok(!document.querySelector('article').textContent.includes('DONE'));
@@ -119,22 +201,39 @@ test('completed final answer is compact; detail pane exposes original prompt and
   assert.ok(document.querySelector('.agent-technical pre').textContent.length > 10000);
 });
 
-test('JSON icon copies the snapshot and provides success feedback', async () => {
-  const execution = row();
-  let copiedText;
+test('all detail copy buttons transition only after clipboard success and recover after failure', async () => {
+  const execution = row({ status: 'completed', attention: 'none', finalResult: { finalResult: [{ type: 'agentMessage', phase: 'final_answer', text: '真实结果' }] } });
+  const writes = [];
   const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
-  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copiedText = text; } } });
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: text => new Promise((resolve, reject) => writes.push({ text, resolve, reject })) } });
   try {
     await mount([execution]);
     await click('详情');
-    const copyButton = document.querySelector('.agent-json button[aria-label="复制技术详情"]');
-    assert.ok(copyButton);
-    assert.equal(copyButton.textContent, '');
-    await act(async () => copyButton.click());
-    assert.deepEqual(JSON.parse(copiedText), execution);
-    assert.equal(copyButton.dataset.copied, 'true');
-    assert.equal(copyButton.getAttribute('aria-label'), '技术详情已复制');
-    assert.equal(copyButton.disabled, true);
+    const cases = [
+      [document.querySelector('.agent-task-content .agent-copy-text'), execution.prompt],
+      [document.querySelector('.agent-result-section .agent-copy-text'), '真实结果'],
+      [document.querySelector('.agent-technical-copy'), JSON.stringify(execution, null, 2)],
+    ];
+    for (const [copyButton, expected] of cases) {
+      assert.ok(copyButton);
+      assert.equal(copyButton.dataset.copyState, 'idle');
+      assert.equal(copyButton.querySelectorAll('.agent-copy-icon-slot svg').length, 2);
+      await act(async () => copyButton.click());
+      assert.equal(copyButton.dataset.copyState, 'copying');
+      assert.match(copyButton.textContent, /复制中/);
+      assert.equal(writes.at(-1).text, expected);
+      await act(async () => writes.at(-1).resolve());
+      assert.equal(copyButton.dataset.copyState, 'copied');
+      assert.equal(copyButton.textContent, '已复制');
+      assert.equal(copyButton.disabled, false);
+    }
+    const failedButton = document.querySelector('.agent-task-content .agent-copy-text');
+    await act(async () => failedButton.click());
+    assert.equal(failedButton.dataset.copyState, 'copying');
+    await act(async () => writes.at(-1).reject(new Error('clipboard denied')));
+    assert.equal(failedButton.dataset.copyState, 'idle');
+    assert.equal(failedButton.textContent, '复制内容');
+    assert.ok(notifications.some(([kind, message]) => kind === 'error' && /clipboard denied/.test(message)));
   } finally {
     if (original) Object.defineProperty(navigator, 'clipboard', original);
     else delete navigator.clipboard;
@@ -171,6 +270,7 @@ test('a new revision never retains stale result when fetching its body fails', a
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)); });
   assert.ok(!document.querySelector('[aria-label="任务详情"]').textContent.includes('OLD RESULT'));
   assert.match(document.querySelector('[aria-label="任务详情"]').textContent, /result read failed/);
+  assert.equal(button('复制结果').disabled, true, 'placeholder results must not be copied');
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)); });
   assert.equal(calls.filter(c => c.action === 'observe').length, 2, 'no retry loop');
 });
@@ -180,7 +280,7 @@ test('delete hides only the local list entry across refresh and remount', async 
   await click('删除');
   assert.equal(document.querySelectorAll('article').length, 0);
   assert.match(document.body.textContent, /暂无 Agent 任务/);
-  await click('刷新');
+  await refreshTasks();
   assert.equal(document.querySelectorAll('article').length, 0);
   assert.ok(calls.every(request => request.action === 'list'));
   await act(async () => root.unmount()); root = null;
@@ -193,9 +293,9 @@ test('continue uses independent detail pane input and original source across Wor
   await input('top-level new task');
   await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('B') }))));
   await click('详情');
-  assert.equal(button('继续对话').disabled, true);
+  assert.equal(button('继续任务').disabled, true);
   await input('continuation only', '#agent-continuation');
-  await click('继续对话');
+  await click('继续任务');
   const request = calls.find(c => c.action === 'continue');
   assert.equal(request.prompt, 'continuation only'); assert.equal(request.executionId, 'old-E1');
   assert.equal('workspaceId' in request, false); assert.equal('canonicalWorkspaceRoot' in request, false);
@@ -250,7 +350,7 @@ test('read failures show feedback and do not offer operation replay', async () =
 
 test('continuation ambiguity stays in the detail pane and retries its frozen independent input', async () => {
   const calls = await mount([row({status:'completed',attention:'none',availableActions:{canContinue:true,canCancel:false,canResumePending:false}})], request => request.action === 'continue' ? Promise.reject(new Error('transport')) : undefined);
-  await click('详情'); await input('frozen continuation', '#agent-continuation'); await click('继续对话');
+  await click('详情'); await input('frozen continuation', '#agent-continuation'); await click('继续任务');
   const detailPane = document.querySelector('[aria-label="任务详情"]');
   assert.ok(button('重试原请求', detailPane));
   await click('重试原请求', detailPane);
@@ -265,21 +365,19 @@ test('late list response cannot overwrite a newly accepted operation', async () 
     if (request.action === 'list' && ++lists === 2) return new Promise(resolve => {finishList = resolve;});
     if (request.action === 'start') return {ok:true,data:row({prompt:'newly accepted',executionId:'new'})};
   });
-  await click('刷新'); await input('newly accepted'); await click('开始新任务');
+  await refreshTasks(); await input('newly accepted'); await click('开始新任务');
   await act(async () => finishList({ok:true,data:{executions:[]}}));
   assert.match(document.querySelector('article').textContent, /newly accepted/);
 });
 
-test('task page returns to all tasks and restores its exact list entry', async () => {
-  await mount([row()]); const trigger = button('详情');
+test('task page has no in-page return control', async () => {
+  await mount([row()]);
   await click('详情');
+  assert.equal(document.querySelector('.agent-page').classList.contains('agent-list-view'), false);
+  assert.equal(document.querySelector('.agent-page').classList.contains('agent-detail-view'), true);
   assert.equal(document.querySelector('[aria-label="关闭任务详情"]'), null);
-  assert.ok(document.querySelector('nav[aria-label="任务页面导航"]'));
-  await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '全部任务').click());
-  await act(async () => new Promise(resolve => requestAnimationFrame(resolve)));
-  assert.equal(document.querySelector('[aria-label="任务详情"]'), null);
-  assert.ok(document.activeElement === trigger, "return navigation restores focus to its task entry");
-  await click('详情');
+  assert.equal(document.querySelector('nav[aria-label="任务页面导航"]'), null);
+  assert.equal(button('返回 Agent 任务'), undefined);
   assert.equal(document.querySelector('[aria-label="任务详情"]')?.getAttribute('aria-label'), '任务详情');
 });
 
@@ -290,7 +388,7 @@ test('history shows five then appends five, and preserves expanded rows on refre
   assert.match(document.querySelector('.agent-meta').textContent, /A·2026-09-09 22:14·耗时 2分18秒/);
   await click('展开更多（5条）');
   assert.equal(document.querySelectorAll('article').length, 10);
-  await click('刷新');
+  await refreshTasks();
   assert.equal(document.querySelectorAll('article').length, 10);
   await click('展开更多（5条）');
   assert.equal(document.querySelectorAll('article').length, 11);
@@ -298,6 +396,11 @@ test('history shows five then appends five, and preserves expanded rows on refre
 });
 
 test('history failure preserves exact cursor while running state polling continues', async () => {
+  const originalSetInterval = globalThis.setInterval;
+  let poll;
+  globalThis.setInterval = callback => { poll = callback; return originalSetInterval(() => {}, 60_000); };
+  const pollNow = () => act(async () => { poll(); for (let index = 0; index < 12; index++) await Promise.resolve(); });
+  try {
   const history = Array.from({length:12},(_,n)=>row({executionId:'E'+n,status:'running',attention:'none'}));
   await mount(history, request => {
     if (request.action === 'start') {
@@ -317,19 +420,23 @@ test('history failure preserves exact cursor while running state polling continu
   await click('展开更多（5条）');
   assert.equal(document.querySelectorAll('article').length,10);
   history[0].status = 'completed';
-  await act(async () => new Promise(resolve=>setTimeout(resolve,1700)));
+  assert.ok(poll);
+  await pollNow();
   assert.ok(document.querySelector('article').textContent.includes('已完成'));
   assert.equal(document.querySelectorAll('article').length,10);
   assert.equal(cursors.filter(c=>c==='E9').length,1);
   await input('new task while page failed'); await click('开始新任务');
   assert.equal(document.querySelectorAll('article').length,11);
   history.find(row=>row.executionId==='E9').status='completed';
-  await act(async () => new Promise(resolve=>setTimeout(resolve,1700)));
+  await pollNow();
   assert.ok([...document.querySelectorAll('article')].at(-1).textContent.includes('已完成'));
   api.agentHistory = async (cursor, root) => { cursors.push(cursor); return original(cursor,root); };
   await click('重试加载更多');
   assert.equal(cursors.at(-1),'E9');
   assert.equal(document.querySelectorAll('article').length,13);
+  } finally {
+    globalThis.setInterval = originalSetInterval;
+  }
 });
 
 test('workspace filter resets pagination and only reads that frozen workspace', async () => {
@@ -366,13 +473,113 @@ test('workspace display name stays consistent between history and details', asyn
   await mount([row({canonicalWorkspaceRoot:'E:\\named-folder'})],undefined,{workspaces:[{id:'project-4',name:'实际工作区名',root:'E:\\named-folder'}]});
   assert.match(document.querySelector('.agent-meta').textContent,/实际工作区名/);
   await click('详情');
-  const term = [...document.querySelectorAll('dt')].find(node=>node.textContent==='工作区');
-  assert.equal(term.nextElementSibling.textContent,'实际工作区名');
+  const location = document.querySelector('.agent-detail-location');
+  assert.match(location.textContent,/执行位置.*实际工作区名.*E:\\named-folder/);
+  assert.equal(location.querySelector('strong').textContent, '实际工作区名');
+  assert.equal(location.querySelector('code').textContent, 'E:\\named-folder');
+});
+
+test('running detail shares blue pulse and keeps execution location left aligned', async () => {
+  await mount([row({canonicalWorkspaceRoot:'E:\\named-folder', status:'running', attention:'none', progress:{phase:'running'}})], undefined, {workspaces:[{id:'project-4',name:'实际工作区名',root:'E:\\named-folder'}]});
+  await click('详情');
+  for (const selector of ['.agent-detail-title .agent-status', '.agent-detail-live-grid .agent-status']) {
+    const status = document.querySelector(selector);
+    assert.equal(status.textContent, '执行中');
+    assert.ok(status.classList.contains('tone-blue'));
+    assert.ok(status.querySelector('i.agent-task-pulse[aria-hidden="true"]'));
+  }
+  const location = document.querySelector('.agent-detail-location');
+  assert.equal(location.querySelector('strong').textContent, '实际工作区名');
+  assert.equal(location.querySelector('code').textContent, 'E:\\named-folder');
+  const styles = readFileSync('src/styles.css', 'utf8');
+  assert.match(styles, /\.agent-detail-live-grid \.agent-status\.tone-blue \{ color: var\(--agent-blue\); \}/);
+  assert.match(styles, /\.agent-detail-location \{[^}]*justify-content: flex-start;/);
+  assert.match(styles, /\.agent-detail-location > div \{[^}]*justify-content: flex-start;/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\s*\.agent-page[^}]*\.agent-task-pulse \{ animation: none; \}/);
+});
+
+test('Agent detail presents only real execution fields and gates header actions by capability', async () => {
+  const execution = row({
+    threadName: '真实线程标题', status: 'running', attention: 'none', dispatchState: 'dispatched', threadId: 'thread-1', turnId: 'turn-1',
+    providerTerminalStatus: 'running', resultCompleteness: 'partial', controlRevision: 'control-2', activityRevision: 'activity-3', nextAction: { action: 'observe', waitMs: 1000 },
+    errorCode: 'AGENT_REAL_ERROR', errorMessage: '后端实际错误', createdAt: 1_000, updatedAt: 2_000,
+    progress: { phase: 'running', activityPhase: 'tool', toolCategory: 'test', lastActivityAt: null, activityAgeMs: null, silenceLevel: null },
+    availableActions: { canCancel: true, canContinue: false, canResumePending: true },
+  });
+  let copiedText = '';
+  const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copiedText = text; } } });
+  try {
+    const calls = await mount([execution]); await click('详情');
+    const page = document.querySelector('.agent-page');
+    assert.ok(page.classList.contains('agent-detail-view')); assert.equal(page.classList.contains('agent-list-view'), false);
+    assert.match(document.querySelector('.agent-detail-header').textContent, /真实线程标题.*执行中.*Codex Local Runner/);
+    assert.match(document.querySelector('.agent-detail-info-card').textContent, /当前活动测试.*最近活动暂无活动数据.*执行位置.*E:\\frozen-A/);
+    assert.match(document.querySelector('.agent-recovery-section').textContent, /AGENT_REAL_ERROR.*后端实际错误/);
+    assert.doesNotMatch(document.querySelector('.agent-detail').textContent, /PID|CPU|RAM|Git branch/);
+    await click('复制内容'); assert.equal(copiedText, execution.prompt);
+    await click('恢复任务'); await click('取消任务');
+    assert.deepEqual(calls.filter(call => call.action === 'resume_pending' || call.action === 'cancel'), [
+      { action: 'resume_pending', executionId: execution.executionId }, { action: 'cancel', executionId: execution.executionId },
+    ]);
+    const technical = document.querySelector('.agent-technical'); assert.equal(technical.open, false);
+    await act(async () => technical.querySelector('summary').click()); assert.equal(technical.open, true);
+    assert.equal(technical.querySelector('.agent-raw-json').open, false);
+    assert.match(technical.textContent, /Execution ID.*old-E1.*Thread ID.*thread-1.*Control Revision.*control-2.*Next Action.*observe/);
+    await click('复制技术信息'); assert.deepEqual(JSON.parse(copiedText), execution);
+  } finally { if (original) Object.defineProperty(navigator, 'clipboard', original); else delete navigator.clipboard; }
+});
+
+test('Agent detail copies only a real result and continues with the original execution ID', async () => {
+  const execution = row({ status: 'completed', attention: 'none', finalResult: { finalResult: [{ type: 'agentMessage', phase: 'final_answer', text: '真实结果' }] }, availableActions: { canCancel: false, canContinue: true, canResumePending: false } });
+  let copiedText = '';
+  const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copiedText = text; } } });
+  try {
+    const calls = await mount([execution]); await click('详情');
+    const resultSection = document.querySelector('.agent-result-section');
+    const continuationSection = document.querySelector('.agent-continuation-section');
+    assert.match(resultSection.textContent, /已完成 · 耗时/);
+    assert.equal(resultSection.nextElementSibling, continuationSection);
+    assert.equal(resultSection.parentElement, continuationSection.parentElement);
+    assert.equal(resultSection.querySelector('.agent-continuation-card'), null);
+    assert.ok(continuationSection.querySelector('.agent-continuation-card'));
+    await click('复制结果'); assert.equal(copiedText, '真实结果');
+    await input('继续真实任务', '#agent-continuation'); await click('继续任务');
+    const continuation = calls.find(call => call.action === 'continue');
+    assert.equal(continuation.executionId, 'old-E1'); assert.equal(continuation.prompt, '继续真实任务');
+    assert.equal('workspaceId' in continuation, false); assert.equal('canonicalWorkspaceRoot' in continuation, false);
+  } finally { if (original) Object.defineProperty(navigator, 'clipboard', original); else delete navigator.clipboard; }
+});
+
+test('continuation remains an independent section when no result is available', async () => {
+  await mount([row({ status: 'running', attention: 'none', resultAvailable: false, finalResult: null, availableActions: { canCancel: false, canContinue: true, canResumePending: false } })]);
+  await click('详情');
+  assert.equal(document.querySelector('.agent-result-section'), null);
+  const continuationSection = document.querySelector('.agent-continuation-section');
+  assert.ok(continuationSection);
+  assert.equal(continuationSection.parentElement, document.querySelector('.agent-detail-body'));
+});
+
+test('Agent detail duration labels follow active execution semantics rather than completedAt', async () => {
+  const failed = row({ status: 'failed', attention: 'none', completedAt: null, progress: { phase: 'terminal', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null } });
+  await mount([failed]); await click('详情');
+  assert.doesNotMatch(document.querySelector('.agent-detail-header').textContent, /已运行/);
+  assert.match(document.querySelector('.agent-detail-header').textContent, /耗时/);
+  assert.match(document.querySelector('.agent-detail-live-grid').textContent, /总耗时/);
+  assert.doesNotMatch(document.querySelector('.agent-detail-live-grid').textContent, /已运行/);
+  await act(async () => root.unmount()); root = null;
+
+  const running = row({ status: 'running', attention: 'none', completedAt: null, progress: { phase: 'running', activityPhase: 'provider', toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null } });
+  await mount([running]); await click('详情');
+  assert.match(document.querySelector('.agent-detail-header').textContent, /已运行/);
+  assert.match(document.querySelector('.agent-detail-live-grid').textContent, /已运行/);
+  assert.doesNotMatch(document.querySelector('.agent-detail-live-grid').textContent, /总耗时/);
 });
 
 test('composer describes workspace execution without a permission selector', async () => {
   await mount([]);
-  assert.match(document.querySelector('.agent-composer-footer').textContent, /Codex · 工作区执行/);
+  assert.match(document.querySelector('.agent-composer-footer').textContent, /Codex · 当前工作区 \(A\) · Local Runner Active/);
   assert.doesNotMatch(document.body.textContent, /只读执行/);
 });
 
@@ -381,7 +588,7 @@ test('switching to a related execution from detail pane keeps its new details op
     if (r.action === 'continue') return {ok:false,error:{code:'AGENT_OPERATION_FAILED',message:'handoff error',executionId:'new-E2'}};
     if (r.action === 'observe' && r.executionId === 'new-E2') return {ok:true,data:row({executionId:'new-E2',prompt:'new related task'})};
   });
-  await click('详情'); await input('next', '#agent-continuation'); await click('继续对话');
+  await click('详情'); await input('next', '#agent-continuation'); await click('继续任务');
   await click('查看相关任务');
   await act(async () => new Promise(resolve => setTimeout(resolve, 10)));
   assert.ok(document.querySelector('[aria-label="任务详情"]'));
@@ -393,7 +600,7 @@ test('list refresh cannot compete with an outstanding detail observation', async
   const calls = await mount([row()], r => r.action === 'observe' ? new Promise(done => {resolve = done;}) : undefined);
   await click('详情');
   // Direct invocation also exercises the handler guard while the native modal blocks interaction.
-  await click('刷新');
+  await refreshTasks();
   assert.equal(calls.filter(c => c.action === 'list').length, 1);
   await act(async () => resolve({ok:true,data:row({prompt:'latest detail'})}));
   assert.match(document.querySelector('[aria-label="任务详情"] .agent-prose').textContent, /latest detail/);
@@ -458,7 +665,7 @@ test('recent tasks use the same official thread title as the sidebar with a lega
     row({ executionId: 'named', threadName: name, prompt }),
     row({ executionId: 'legacy', threadName: '   ', prompt: '旧任务提示' }),
   ]);
-  const titles = document.querySelectorAll('.agent-row-title h3');
+  const titles = document.querySelectorAll('.agent-task-title h3');
   assert.equal(titles[0].textContent, name);
   assert.equal(titles[1].textContent, '旧任务提示');
   assert.ok(!document.querySelector('.agent-history').textContent.includes(prompt));
@@ -486,7 +693,7 @@ test('project navigation groups tasks and opens a non-modal right content pane',
   assert.equal(calls.some(c=>['start','continue','cancel','resume_pending'].includes(c.action)),false);
 });
 
-test('task detail view controls sidebar selection and returns to the Agent list', async () => {
+test('task detail view follows host navigation and has no in-page return', async () => {
   const host = navigationHost(); const project = workspace('A');
   let shownTask = 0; let shownAgent = 0;
   const props = { workspace: project, workspaces: [project], sidebarContainer: host, onShowTask: () => shownTask++, onShowAgent: () => shownAgent++, detailView: true };
@@ -503,10 +710,8 @@ test('task detail view controls sidebar selection and returns to the Agent list'
   await render(true);
   assert.equal(host.querySelector('.project-task').dataset.selected, 'true');
   assert.match(document.querySelector('.agent-detail').textContent, /原始任务/);
-  await click('全部任务');
-  assert.equal(shownAgent, 1);
-  assert.equal(document.querySelector('.agent-detail'), null);
-  assert.equal(host.querySelector('.project-task').dataset.selected, 'false');
+  assert.equal(button('返回 Agent 任务'), undefined);
+  assert.equal(shownAgent, 0);
 });
 
 test('sidebar dates use local calendar boundaries instead of elapsed 24 hours', async () => {
@@ -591,25 +796,118 @@ test('project hints use keyboard accessible tooltips without native titles', asy
   await act(async()=>heading.focus());
   assert.match(document.querySelector('[role="tooltip"]').textContent,/拖动可排序/);
   assert.ok(heading.getAttribute('aria-describedby'));
-  assert.equal(document.querySelector('[title]'),null);
+  assert.equal(host.querySelector('[title]'),null);
   await act(async()=>heading.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true})));
   assert.equal(document.querySelector('[role="tooltip"]'),null);
   assert.equal(heading.getAttribute('aria-expanded'),'true');
 });
 
-test('disabled copy action still explains itself through its tooltip', async () => {
+test('sidebar load-more button follows the real pending request and recovers to retry', async () => {
+  const host = navigationHost(); const project = workspace('A');
+  const tasks = Array.from({ length: 7 }, (_, index) => row({ executionId: `task-${index}`, canonicalWorkspaceRoot: project.root }));
+  await mount(tasks, undefined, { workspaces: [project], sidebarContainer: host });
+  const group = host.querySelector('.project-task-group');
+  let pending = Promise.withResolvers();
+  api.agentHistory = () => pending.promise;
+  const more = group.querySelector('.project-task-more');
+  assert.equal(more.textContent.trim(), '查看更多');
+  assert.equal(more.getAttribute('aria-busy'), 'false');
+  assert.equal(more.dataset.state, 'idle');
+  assert.ok(more.querySelector('.project-task-more-icon-idle'));
+
+  await act(async () => more.click());
+  assert.equal(group.querySelector('.project-task-more'), more);
+  assert.equal(more.textContent.trim(), '正在加载…');
+  assert.equal(more.getAttribute('aria-busy'), 'true');
+  assert.equal(more.dataset.state, 'loading');
+  assert.equal(more.disabled, true);
+  assert.ok(more.querySelector('.project-task-more-icon-loading'));
+  await act(async () => pending.resolve({ executions: tasks.slice(5), nextCursor: 'next-page' }));
+  assert.equal(more.textContent.trim(), '查看更多');
+  assert.equal(more.getAttribute('aria-busy'), 'false');
+  assert.equal(more.dataset.state, 'idle');
+
+  pending = Promise.withResolvers();
+  api.agentHistory = () => pending.promise;
+  await act(async () => more.click());
+  await act(async () => pending.reject(new Error('page unavailable')));
+  assert.equal(group.querySelector('.project-task-more'), more);
+  assert.equal(more.textContent.trim(), '重试');
+  assert.equal(more.getAttribute('aria-busy'), 'false');
+  assert.equal(more.dataset.state, 'retry');
+  assert.equal(more.disabled, false);
+  assert.ok(more.querySelector('.project-task-more-icon-retry'));
+  assert.match(group.querySelector('[role="status"]').textContent, /加载更多失败，请重试/);
+
+  api.agentHistory = async () => ({ executions: [], nextCursor: 'remaining-page' });
+  await act(async () => more.click());
+  assert.equal(group.querySelector('[role="status"]'), null);
+  assert.equal(more.textContent.trim(), '查看更多');
+  assert.equal(more.dataset.state, 'idle');
+  const styles = readFileSync('src/styles.css', 'utf8');
+  assert.match(styles, /\.project-task-more\[data-state="loading"\] \.project-task-more-icon-loading \{ animation: agent-control-spin/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\r?\n  \.project-task, \.project-task-heading, \.project-task-more-icon-slot svg \{ transition: none; \}\r?\n  \.project-task-more\[data-state="loading"\] \.project-task-more-icon-loading, \.project-task-more-label \{ animation: none; \}\r?\n\}/);
+});
+
+test('sidebar load-more keeps pagination retry separate from its background refresh', async () => {
+  const originalSetInterval = window.setInterval;
+  const originalClearInterval = window.clearInterval;
+  let refreshNow;
+  window.setInterval = callback => { refreshNow = callback; return 1; };
+  window.clearInterval = () => {};
+  try {
+    const host = navigationHost(); const project = workspace('A');
+    const tasks = Array.from({ length: 6 }, (_, index) => row({ executionId: `task-${index}`, canonicalWorkspaceRoot: project.root }));
+    await mount(tasks, undefined, { workspaces: [project], sidebarContainer: host });
+    const more = host.querySelector('.project-task-more');
+    let pending = Promise.withResolvers();
+    api.agentHistory = () => pending.promise;
+    assert.ok(refreshNow);
+    await act(async () => refreshNow());
+    assert.equal(more.disabled, true);
+    assert.equal(more.dataset.state, 'idle');
+    await act(async () => more.click());
+    assert.equal(more.getAttribute('aria-busy'), 'false');
+    await act(async () => pending.reject(new Error('refresh unavailable')));
+    assert.equal(more.disabled, false);
+    assert.equal(more.textContent.trim(), '查看更多');
+    assert.equal(more.dataset.state, 'idle');
+    assert.match(host.querySelector('[role="status"]').textContent, /任务加载失败/);
+
+    pending = Promise.withResolvers();
+    api.agentHistory = () => pending.promise;
+    await act(async () => more.click());
+    await act(async () => pending.reject(new Error('page unavailable')));
+    assert.equal(more.textContent.trim(), '重试');
+    assert.equal(more.dataset.state, 'retry');
+    assert.match([...host.querySelectorAll('[role="status"]')].at(-1).textContent, /加载更多失败，请重试/);
+
+    api.agentHistory = async () => ({ executions: tasks.slice(0, 5), nextCursor: 'task-4' });
+    await act(async () => refreshNow());
+    assert.equal(more.textContent.trim(), '重试');
+    assert.equal(more.dataset.state, 'retry');
+    assert.equal(host.querySelectorAll('[role="status"]').length, 1);
+    assert.match(host.querySelector('[role="status"]').textContent, /加载更多失败，请重试/);
+  } finally {
+    if (root) await act(async () => root.unmount());
+    root = null;
+    window.setInterval = originalSetInterval;
+    window.clearInterval = originalClearInterval;
+  }
+});
+
+test('technical copy remains available without exposing JSON until technical information is opened', async () => {
   await mount([row()]); await click('详情');
-  const details = document.querySelector('.agent-technical'); details.open=true;
+  const details = document.querySelector('.agent-technical'); assert.equal(details.open, false);
   const original=Object.getOwnPropertyDescriptor(globalThis,'navigator');
   Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:async()=>{}}}});
   try {
-    await act(async()=>document.querySelector('.agent-json-copy').click());
-    assert.equal(document.querySelector('.agent-json-copy').disabled,true);
-    const trigger=document.querySelector('.agent-json-copy-trigger');
-    assert.equal(trigger.tabIndex,0);
-    await act(async()=>trigger.focus());
-    assert.match(document.querySelector('[role="tooltip"]').textContent,/已复制/);
-    assert.equal(document.querySelector('[title]'),null);
+    await act(async()=>document.querySelector('.agent-technical-copy').click());
+    assert.equal(document.querySelector('.agent-technical-copy').dataset.copyState,'copied');
+    assert.equal(details.open, false);
+    await act(async()=>details.querySelector('summary').click());
+    assert.equal(details.open, true);
+    assert.ok(document.querySelector('[aria-label="原始执行数据"]'));
   } finally { if (original) Object.defineProperty(globalThis,'navigator',original); else delete globalThis.navigator; }
 });
 
@@ -689,7 +987,7 @@ for (const entry of ['sidebar', 'history']) test(`running task deletion requires
 test('recent task title tooltip shows a bounded summary instead of the full prompt', async () => {
   const prompt = '检查任务内容。\n'.repeat(120);
   await mount([row({ prompt })]);
-  const title = document.querySelector('.agent-row-title h3');
+  const title = document.querySelector('.agent-task-title h3');
   await act(async () => title.focus());
   const tooltip = document.querySelector('[role="tooltip"]');
   assert.ok(tooltip);

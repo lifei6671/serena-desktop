@@ -7,6 +7,7 @@ import { lazy, Suspense, useState } from "react";
 import { toast } from "sonner";
 import { ProjectPanel } from "./ProjectPanel";
 import { useAppController } from "./app/useAppController";
+import { api } from "./api";
 import type { ServerStatus } from "./types";
 
 const StatusPage = lazy(() => import("./features/status/StatusPage"));
@@ -54,6 +55,13 @@ function App() {
         } as const
       )[installation.state]
     : "检测中";
+  const setMcpRunning = (enabled: boolean) => {
+    brokerController.perform(
+      "更新连接入口",
+      () => api.setBroker(enabled, state.config.broker.port, state.config.broker.allowLan),
+      enabled ? "MCP 连接入口已启用" : "MCP 连接入口已停止",
+    );
+  };
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -85,7 +93,7 @@ function App() {
             aria-current={tab === "agent" ? "page" : undefined}
             onClick={() => setTab("agent")}
           >
-            <Bot aria-hidden="true" />Agent 编排
+            <Bot aria-hidden="true" />Agent
           </Button>
           <Button
             variant={tab === "logs" ? "secondary" : "ghost"}
@@ -124,7 +132,7 @@ function App() {
             />
           </section>
         ) : tab === "remote" ? (
-          <RemoteAccessPage controller={remote} port={state.config.broker.port} allowLan={state.config.broker.allowLan} onSettings={() => setTab("settings")} />
+          <RemoteAccessPage controller={remote} port={state.config.broker.port} allowLan={state.config.broker.allowLan} mcpRunning={brokerController.broker?.running ?? null} mcpStartedAt={brokerController.broker?.startedAt ?? null} mcpBusy={!!brokerController.busy} onSetMcpRunning={setMcpRunning} onSettings={() => setTab("settings")} />
         ) : tab === "serena" ? (
           <StatusPage {...controller} state={state} />
         ) : tab === "agent" || tab === "task" ? (

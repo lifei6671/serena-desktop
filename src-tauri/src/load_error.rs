@@ -7,10 +7,12 @@ use std::{
 use tauri::{Manager, WebviewWindow};
 use webview2_com::{
     CoTaskMemPWSTR,
-    Microsoft::Web::WebView2::Win32::COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED,
-    NavigationCompletedEventHandler, NavigationStartingEventHandler,
+    Microsoft::Web::WebView2::Win32::{
+        COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED, ICoreWebView2ProcessFailedEventArgs2,
+    },
+    NavigationCompletedEventHandler, NavigationStartingEventHandler, ProcessFailedEventHandler,
 };
-use windows::core::{HSTRING, PWSTR};
+use windows::core::{HSTRING, Interface, PWSTR};
 
 fn page(code: i32) -> String {
     include_str!("load_error.html")
@@ -40,6 +42,7 @@ fn action(active: bool, uri: &str) -> Option<&str> {
 pub fn install(window: &WebviewWindow) -> tauri::Result<()> {
     let initial = window.url()?;
     let app = window.app_handle().clone();
+    let log_path = app.path().app_log_dir()?.join("app.log");
     window.with_webview(move |webview| {
         // All COM calls and the Rc<Cell> remain on WebView2's UI thread.
         let install = || -> windows::core::Result<()> { unsafe {
@@ -96,6 +99,22 @@ pub fn install(window: &WebviewWindow) -> tauri::Result<()> {
                         }
                     }
                 }
+                Ok(())
+            })), &mut token)?;
+            core.add_ProcessFailed(&ProcessFailedEventHandler::create(Box::new(move |_, args| {
+                let Some(args) = args else { return Ok(()); };
+                let mut kind = Default::default();
+                let kind = args.ProcessFailedKind(&mut kind).ok().map(|_| kind.0);
+                let details = args.cast::<ICoreWebView2ProcessFailedEventArgs2>().ok();
+                let reason = details.as_ref().and_then(|details| {
+                    let mut reason = Default::default();
+                    details.Reason(&mut reason).ok().map(|_| reason.0)
+                });
+                let exit_code = details.as_ref().and_then(|details| {
+                    let mut exit_code = 0;
+                    details.ExitCode(&mut exit_code).ok().map(|_| exit_code)
+                });
+                crate::logs::append(&log_path, "webview2 process", &format!("kind={kind:?} reason={reason:?} exit_code={exit_code:?}"));
                 Ok(())
             })), &mut token)?;
             core.Settings()?.SetIsBuiltInErrorPageEnabled(false)?;

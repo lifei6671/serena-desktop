@@ -316,6 +316,7 @@ impl Broker {
                 .iter()
                 .map(|ip| format!("http://{ip}:{}/mcp", address.port()))
                 .collect(),
+            started_at: chrono::Utc::now().timestamp_millis(),
             cancel: token,
             handle,
         });
