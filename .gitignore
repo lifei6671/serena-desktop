@@ -32,3 +32,5 @@ src-tauri/gen/
 .codegraph/
 docs/assets/
 docs/tasks/
+.workbuddy/
+.trellis/
