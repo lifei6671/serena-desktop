@@ -589,7 +589,12 @@ async fn binary_resolution_failure_pending_can_resume_first_dispatch() {
     let response = service
         .checked_operation(start("a", "k"), w(dir.path(), "W"))
         .await;
-    let id = response["data"]["executionId"].as_str().unwrap().to_owned();
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error"]["code"], "CODEX_APP_SERVER_INCOMPATIBLE");
+    let id = response["error"]["executionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         while store.product_worker_owned(&id) {
             tokio::task::yield_now().await;
@@ -668,6 +673,7 @@ async fn unbound_persisted_runtime_attempt_stays_fail_closed() {
         runtime_pool: Default::default(),
         store: store.clone(),
         executable: "unused".into(),
+        backend_error: None,
         owner: "fixture".into(),
     };
     provider.failed("e").await.unwrap();

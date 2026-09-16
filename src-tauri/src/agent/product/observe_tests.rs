@@ -284,8 +284,21 @@ async fn revisions_separate_control_activity_and_store_cas() {
             $field = old;
         }};
     }
-    change!(view.thread_id, Some("THREAD".into()));
-    change!(view.turn_id, Some("TURN".into()));
+    macro_rules! unchanged {
+        ($field:expr, $value:expr) => {{
+            let mut old = $value;
+            std::mem::swap(&mut $field, &mut old);
+            assert_eq!(view.control_revision(), revision);
+            $field = old;
+        }};
+    }
+    unchanged!(view.thread_id, Some("THREAD".into()));
+    unchanged!(view.thread_name, Some("Safe persisted title".into()));
+    unchanged!(view.turn_id, Some("TURN".into()));
+    unchanged!(
+        view.provider_session_label,
+        Some("Safe persisted title".into())
+    );
     change!(view.status, "running".into());
     change!(view.dispatch_state, "dispatched".into());
     change!(view.provider_terminal_status, Some("completed".into()));
@@ -300,7 +313,7 @@ async fn revisions_separate_control_activity_and_store_cas() {
     change!(view.available_actions.can_resume_pending, false);
     change!(view.progress.phase, ProgressPhase::Running);
     change!(view.completed_at, Some(8));
-    change!(view.runtime_instance_id, Some("R".into()));
+    unchanged!(view.runtime_instance_id, Some("R".into()));
     change!(view.owns_claim, false);
     for (phase, category, last) in [
         (Some(ActivityPhase::Provider), None, Some(5)),
@@ -774,7 +787,7 @@ async fn late_old_turn_activity_cannot_change_unbound_continuation_or_wake_obser
     let service = AgentProductService::new(store.clone());
     let before = service.observe("e2".into(), false).await.unwrap();
     let before_record = store.execution("e2".into()).await.unwrap().unwrap();
-    assert_eq!(before.thread_id.as_deref(), Some("ROOT"));
+    assert_eq!(before.thread_id, None);
     assert!(before.turn_id.is_none());
     let wait = service.checked_operation(
         json!({"action":"observe","executionId":"e2","knownRevision":before.revision.clone(),"waitMs":120}),
@@ -804,8 +817,11 @@ async fn late_old_turn_activity_cannot_change_unbound_continuation_or_wake_obser
     assert!(after_old.activity_phase.is_none());
     assert!(after_old.tool_category.is_none());
 
-    db.execute("UPDATE executions SET turn_id='TURN-2' WHERE id='e2'", [])
-        .unwrap();
+    db.execute(
+        "UPDATE executions SET thread_id='ROOT',turn_id='TURN-2' WHERE id='e2'",
+        [],
+    )
+    .unwrap();
     store
         .execution_activity(
             "e2".into(),
@@ -821,7 +837,7 @@ async fn late_old_turn_activity_cannot_change_unbound_continuation_or_wake_obser
     assert_eq!(current.turn_id.as_deref(), Some("TURN-2"));
     assert_eq!(current.progress.activity_phase, Some(ActivityPhase::Tool));
     assert_eq!(current.progress.tool_category, Some(ToolCategory::Test));
-    assert_ne!(current.revision, before.revision);
+    assert_eq!(current.revision, before.revision);
 }
 
 #[tokio::test]

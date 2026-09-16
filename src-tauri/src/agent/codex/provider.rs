@@ -6,13 +6,26 @@ use super::{
 use crate::agent::{
     coordinator::{WorkspaceExecutionCoordinator, now},
     execution::state::{DispatchState, Status, Transition},
+    provider::{
+        ProviderCancelContext, ProviderCapabilities, ProviderDescriptor, ProviderError,
+        ProviderErrorCode, ProviderExecutionContext, ProviderId, ProviderOutcome,
+        ProviderResultCompleteness, ProviderRunResult, ProviderStartupContext,
+        port::{
+            AgentEventSink, AgentProvider, ProviderAcceptanceSink, ProviderContinuationContext,
+            ProviderContinuationDecision, ProviderExecutionFailure, ProviderFuture,
+            ProviderReconcileItem, ProviderReconcileKind, ProviderReconcileSummary,
+        },
+        registry::{ProviderHealth, ProviderRegistry},
+    },
     store::{ExecutionRecord, StateStore},
+    task_manager::recovery::{RecoveryOutcome, recover_startup_with_authority},
 };
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 pub(crate) struct CodexProvider {
     pub store: StateStore,
     pub executable: PathBuf,
+    pub(crate) backend_error: Option<String>,
     pub owner: String,
     pub runtime_pool: std::sync::Arc<super::pool::CodexRuntimePool>,
 }
@@ -21,19 +34,130 @@ pub enum ExecutionFailure {
     State(String),
     Runtime(super::runtime::RuntimeFailure),
 }
+
+fn provider_execution_failure(error: ExecutionFailure) -> ProviderExecutionFailure {
+    match error {
+        ExecutionFailure::State(value) => ProviderExecutionFailure::State(value),
+        ExecutionFailure::Runtime(failure) => ProviderExecutionFailure::Runtime {
+            code: failure.code.to_string(),
+            message: failure.message,
+        },
+    }
+}
+
+/// Codex-private managed continuation provenance. This is deliberately shared
+/// by the public eligibility projection and the runtime parent resolver so a
+/// child can only resume the exact Thread that was validated for its source.
+fn managed_continuation_thread(row: &ExecutionRecord) -> Option<&str> {
+    let thread = row.thread_id.as_deref().filter(|value| !value.is_empty())?;
+    let turn = row.turn_id.as_deref().filter(|value| !value.is_empty())?;
+    let runtime = row
+        .runtime_instance_id
+        .as_deref()
+        .filter(|value| !value.is_empty())?;
+    let result = row
+        .final_result_json
+        .as_deref()
+        .and_then(|result| serde_json::from_str::<serde_json::Value>(result).ok())?;
+    (result["historyMode"] == "paginated"
+        && result["executionId"].as_str() == Some(row.id.as_str())
+        && result["turnId"].as_str() == Some(turn)
+        && result["threadId"].as_str() == Some(thread)
+        && result["sourceRuntimeId"].as_str() == Some(runtime))
+    .then_some(thread)
+}
+
+fn activity_telemetry_event(
+    execution_id: &str,
+    envelope_runtime_id: &str,
+    client_runtime_id: &str,
+    root_thread_id: &str,
+    row: &ExecutionRecord,
+    activity: &super::protocol::Activity,
+) -> Option<crate::agent::provider::telemetry::AgentActivityEvent> {
+    if envelope_runtime_id != client_runtime_id
+        || row.runtime_instance_id.as_deref() != Some(client_runtime_id)
+        || activity.thread_id != root_thread_id
+        || row.thread_id.as_deref() != Some(root_thread_id)
+        || row.thread_id.as_deref() != Some(activity.thread_id.as_str())
+        || row.turn_id.as_deref() != Some(activity.turn_id.as_str())
+    {
+        return None;
+    }
+    match (activity.phase, activity.tool_category) {
+        (crate::agent::activity::ActivityPhase::Provider, None) => Some(
+            crate::agent::provider::telemetry::AgentActivityEvent::provider(
+                execution_id.into(),
+                activity.observed_at,
+            ),
+        ),
+        (crate::agent::activity::ActivityPhase::Tool, Some(category)) => {
+            Some(crate::agent::provider::telemetry::AgentActivityEvent::tool(
+                execution_id.into(),
+                category,
+                activity.observed_at,
+            ))
+        }
+        _ => None,
+    }
+}
 impl From<String> for ExecutionFailure {
     fn from(error: String) -> Self {
         Self::State(error)
     }
 }
+struct NoopAcceptanceSink;
+impl ProviderAcceptanceSink for NoopAcceptanceSink {
+    fn accepted(&self) {}
+}
+struct NoopEventSink;
+impl AgentEventSink for NoopEventSink {}
 impl CodexProvider {
+    async fn continuation_runtime_thread(
+        &self,
+        parent_execution_id: &str,
+    ) -> Result<String, String> {
+        let source = self.row(parent_execution_id).await?;
+        managed_continuation_thread(&source)
+            .map(str::to_owned)
+            .ok_or_else(|| "AGENT_CONTINUE_NOT_ALLOWED".into())
+    }
+
+    async fn runtime_continuation_target(
+        &self,
+        row: &ExecutionRecord,
+    ) -> Result<Option<String>, String> {
+        match row.parent_execution_id.as_deref() {
+            Some(parent_execution_id) => self
+                .continuation_runtime_thread(parent_execution_id)
+                .await
+                .map(Some),
+            // Bounded compatibility for pre-C2 and previously bound rows only.
+            None => Ok(row.thread_id.clone()),
+        }
+    }
+
     pub async fn execute(&self, id: &str) -> Result<ExecutionRecord, ExecutionFailure> {
-        self.execute_with_acceptance(id, &mut None).await
+        self.execute_with_acceptance_and_telemetry(
+            id,
+            Arc::new(NoopAcceptanceSink),
+            Arc::new(NoopEventSink),
+        )
+        .await
     }
     pub(crate) async fn execute_with_acceptance(
         &self,
         id: &str,
-        acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        acceptance: Arc<dyn ProviderAcceptanceSink>,
+    ) -> Result<ExecutionRecord, ExecutionFailure> {
+        self.execute_with_acceptance_and_telemetry(id, acceptance, Arc::new(NoopEventSink))
+            .await
+    }
+    async fn execute_with_acceptance_and_telemetry(
+        &self,
+        id: &str,
+        acceptance: Arc<dyn ProviderAcceptanceSink>,
+        telemetry: Arc<dyn AgentEventSink>,
     ) -> Result<ExecutionRecord, ExecutionFailure> {
         let _worker = self.runtime_pool.enter().await?;
         let row = self.row(id).await?;
@@ -61,13 +185,27 @@ impl CodexProvider {
         }
         if lease.is_none() {
             let runtime_id = crate::agent::task_manager::AgentTaskManager::id("runtime");
+            let executable = if self.executable.as_os_str().is_empty() {
+                match super::discovery::discover().await {
+                    Ok(path) => path,
+                    Err(error) => {
+                        let diagnostic = match self.failed(id).await {
+                            Ok(()) => error,
+                            Err(state) => format!("{error}; reconciliation persistence: {state}"),
+                        };
+                        return Err(diagnostic.into());
+                    }
+                }
+            } else {
+                self.executable.clone()
+            };
             let managed = match self
                 .connect(
                     id,
                     self.store.clone(),
                     self.owner.clone(),
                     runtime_id.clone(),
-                    self.executable.clone(),
+                    executable,
                     PathBuf::from(&row.canonical_workspace_root),
                 )
                 .await
@@ -106,7 +244,8 @@ impl CodexProvider {
             };
             *lease = Some(managed);
         }
-        self.run_leased(id, &mut lease, acceptance).await
+        self.run_leased(id, &mut lease, acceptance.as_ref(), telemetry.as_ref())
+            .await
     }
     async fn connect(
         &self,
@@ -145,7 +284,7 @@ impl CodexProvider {
         &self,
         id: &str,
         managed: managed::ManagedClient,
-        acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        acceptance: Arc<dyn ProviderAcceptanceSink>,
     ) -> Result<ExecutionRecord, ExecutionFailure> {
         let _worker = self.runtime_pool.enter().await?;
         let mut lease = self
@@ -154,13 +293,15 @@ impl CodexProvider {
             .await?;
         assert!(lease.is_none());
         *lease = Some(managed);
-        self.run_leased(id, &mut lease, acceptance).await
+        self.run_leased(id, &mut lease, acceptance.as_ref(), &NoopEventSink)
+            .await
     }
     async fn run_leased(
         &self,
         id: &str,
         lease: &mut Option<managed::ManagedClient>,
-        acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        acceptance: &dyn ProviderAcceptanceSink,
+        telemetry: &dyn AgentEventSink,
     ) -> Result<ExecutionRecord, ExecutionFailure> {
         let client = &lease.as_ref().unwrap().client;
         let result = tokio::select! {
@@ -169,7 +310,7 @@ impl CodexProvider {
                 self.failed(id).await?;
                 Err("AGENT_SHUTTING_DOWN".into())
             },
-            result = self.run_client_with_acceptance(id, client, acceptance) => result,
+            result = self.run_client_with_acceptance_and_telemetry(id, client, acceptance, telemetry) => result,
         };
         let row = self.row(id).await;
         if let Ok(row) = &row
@@ -331,13 +472,24 @@ impl CodexProvider {
         id: &str,
         client: &Client,
     ) -> Result<ExecutionRecord, String> {
-        self.run_client_with_acceptance(id, client, &mut None).await
+        self.run_client_with_acceptance(id, client, &NoopAcceptanceSink)
+            .await
     }
     pub(crate) async fn run_client_with_acceptance(
         &self,
         id: &str,
         client: &Client,
-        acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        acceptance: &dyn ProviderAcceptanceSink,
+    ) -> Result<ExecutionRecord, String> {
+        self.run_client_with_acceptance_and_telemetry(id, client, acceptance, &NoopEventSink)
+            .await
+    }
+    pub(crate) async fn run_client_with_acceptance_and_telemetry(
+        &self,
+        id: &str,
+        client: &Client,
+        acceptance: &dyn ProviderAcceptanceSink,
+        telemetry: &dyn AgentEventSink,
     ) -> Result<ExecutionRecord, String> {
         let outcome = async {
             let row = self.row(id).await?;
@@ -348,7 +500,8 @@ impl CodexProvider {
                 .prepare_execution(&self.store)
                 .await
                 .map_err(|e| e.to_string())?;
-            self.run_active_client(id, client, acceptance).await
+            self.run_active_client(id, client, acceptance, telemetry)
+                .await
         }
         .await;
         if let Err(error) = &outcome {
@@ -368,7 +521,8 @@ impl CodexProvider {
         &self,
         id: &str,
         client: &Client,
-        acceptance: &mut Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        acceptance: &dyn ProviderAcceptanceSink,
+        telemetry: &dyn AgentEventSink,
     ) -> Result<ExecutionRecord, String> {
         let row = self.row(id).await?;
         if row.status == "cancelled" && row.dispatch_state == "not_dispatched" {
@@ -395,11 +549,13 @@ impl CodexProvider {
             .map_err(|e| e.to_string())?;
         let mode =
             serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?;
-        let warm = row
-            .thread_id
+        // A parent is the current continuation authority. A persisted child
+        // thread is only the bounded pre-C2 fallback when there is no parent.
+        let continuation_thread = self.runtime_continuation_target(&row).await?;
+        let warm = continuation_thread
             .as_deref()
-            .is_some_and(|id| client.loaded_thread(id).is_some());
-        let thread = if let Some(thread_id) = &row.thread_id {
+            .is_some_and(|thread_id| client.loaded_thread(thread_id).is_some());
+        let thread = if let Some(thread_id) = continuation_thread.as_deref() {
             let thread = if let Some(thread) = client.loaded_thread(thread_id) {
                 thread
             } else {
@@ -427,9 +583,7 @@ impl CodexProvider {
                 .await?;
         }
         // Product continue is accepted only after exact managed Thread validation.
-        if let Some(receipt) = acceptance.take() {
-            let _ = receipt.send(Ok(()));
-        }
+        acceptance.accepted();
         let (flushed_tx, mut flushed_rx) = tokio::sync::oneshot::channel();
         let request = client.turn_start_observed(
             &thread.id,
@@ -510,7 +664,13 @@ impl CodexProvider {
                 }
                 event = client.receive_event() => {
                     let event = event.map_err(|e| e.to_string())?;
-                    if event.runtime_id != client.runtime_id() { return Err("PROVIDER_RUNTIME_MISMATCH".into()); }
+                    if event.runtime_id != client.runtime_id() {
+                        if matches!(&event.notification, Notification::Activity(_)) {
+                            eprintln!("Codex activity hint dropped");
+                            continue;
+                        }
+                        return Err("PROVIDER_RUNTIME_MISMATCH".into());
+                    }
                     let event_thread = match &event.notification {
                         Notification::ThreadStarted(t) => Some(&t.id),
                         Notification::TurnStarted {thread_id,..} | Notification::TurnCompleted {thread_id,..}
@@ -562,19 +722,20 @@ impl CodexProvider {
                                     continue;
                                 }
                             };
-                            if row.thread_id.as_deref() == Some(activity.thread_id.as_str())
-                                && row.turn_id.as_deref() == Some(activity.turn_id.as_str())
-                                && let Err(error) = self.store.execution_activity(
-                                    id.into(),
-                                    activity.thread_id,
-                                    activity.turn_id,
-                                    activity.phase,
-                                    activity.tool_category,
-                                    activity.observed_at,
-                                ).await
-                            {
-                                eprintln!("Codex activity hint dropped: {error}");
-                            }
+                            let Some(event) = activity_telemetry_event(
+                                id,
+                                &event.runtime_id,
+                                client.runtime_id(),
+                                &thread.id,
+                                &row,
+                                &activity,
+                            ) else {
+                                eprintln!("Codex activity hint dropped");
+                                continue;
+                            };
+                            telemetry
+                                .publish(crate::agent::provider::telemetry::AgentTelemetryEvent::Activity(event))
+                                .await;
                         }
                         Notification::PermissionDenied { thread_id, turn_id, kind } => {
                             let row = match self.row(id).await {
@@ -633,8 +794,234 @@ impl CodexProvider {
     }
 }
 
+pub(crate) async fn register_codex_provider(
+    registry: &mut ProviderRegistry,
+    store: StateStore,
+    owner: String,
+    runtime_pool: Arc<super::pool::CodexRuntimePool>,
+) -> Result<(), ProviderError> {
+    register_codex_provider_with_discovery(
+        registry,
+        store,
+        owner,
+        runtime_pool,
+        super::discovery::discover().await,
+    )
+}
+
+pub(crate) fn register_codex_provider_with_discovery(
+    registry: &mut ProviderRegistry,
+    store: StateStore,
+    owner: String,
+    runtime_pool: Arc<super::pool::CodexRuntimePool>,
+    discovery: Result<PathBuf, String>,
+) -> Result<(), ProviderError> {
+    let (executable, backend_error, health) = match discovery {
+        Ok(executable) => (executable, None, ProviderHealth::Available),
+        Err(error) => (PathBuf::new(), Some(error), ProviderHealth::Unavailable),
+    };
+    registry.register(
+        Arc::new(CodexProvider {
+            store,
+            executable,
+            backend_error,
+            owner,
+            runtime_pool,
+        }),
+        health,
+    )
+}
+
+fn provider_run_result(row: ExecutionRecord) -> Result<ProviderRunResult, ProviderError> {
+    let outcome = match row.status.as_str() {
+        "completed" => ProviderOutcome::Completed,
+        "failed" => ProviderOutcome::Failed,
+        "cancelled" => ProviderOutcome::Cancelled,
+        "interrupted" => ProviderOutcome::Interrupted,
+        _ => {
+            return Err(ProviderError {
+                code: ProviderErrorCode::AgentProviderContractError,
+            });
+        }
+    };
+    let result_completeness = match row.result_completeness.as_str() {
+        "unknown" => ProviderResultCompleteness::Unknown,
+        "partial" => ProviderResultCompleteness::Partial,
+        "complete" => ProviderResultCompleteness::Complete,
+        _ => {
+            return Err(ProviderError {
+                code: ProviderErrorCode::AgentProviderContractError,
+            });
+        }
+    };
+    let result = row
+        .final_result_json
+        .map(|value| serde_json::from_str(&value))
+        .transpose()
+        .map_err(|_| ProviderError {
+            code: ProviderErrorCode::AgentProviderContractError,
+        })?;
+    Ok(ProviderRunResult {
+        execution_id: row.id,
+        outcome,
+        result,
+        result_completeness,
+        diagnostic_code: row.error_code,
+    })
+}
+
+fn provider_reconcile_item(outcome: &RecoveryOutcome) -> ProviderReconcileItem {
+    let (subject_id, kind) = match outcome {
+        RecoveryOutcome::OrphanRuntime {
+            runtime_id,
+            failure: None,
+        } => (
+            runtime_id.clone(),
+            ProviderReconcileKind::OrphanResourceRecovered,
+        ),
+        RecoveryOutcome::OrphanRuntime {
+            runtime_id,
+            failure: Some(_),
+        } => (
+            runtime_id.clone(),
+            ProviderReconcileKind::OrphanResourceUnknown,
+        ),
+        RecoveryOutcome::Released { execution_id } => (
+            execution_id.clone(),
+            ProviderReconcileKind::ExecutionReleased,
+        ),
+        RecoveryOutcome::Inconsistent { execution_id, .. } => (
+            execution_id.clone(),
+            ProviderReconcileKind::ExecutionInconsistent,
+        ),
+        RecoveryOutcome::PendingExplicitResume { execution_id } => (
+            execution_id.clone(),
+            ProviderReconcileKind::ExecutionPendingExplicitResume,
+        ),
+        RecoveryOutcome::Unknown { execution_id, .. } => (
+            execution_id.clone(),
+            ProviderReconcileKind::ExecutionUnknown,
+        ),
+        RecoveryOutcome::RuntimeFailure { execution_id, .. } => (
+            execution_id.clone(),
+            ProviderReconcileKind::ExecutionProviderFailure,
+        ),
+        RecoveryOutcome::Interrupted { execution, .. } => (
+            execution.id.clone(),
+            ProviderReconcileKind::ExecutionInterrupted,
+        ),
+    };
+    ProviderReconcileItem { subject_id, kind }
+}
+
+impl AgentProvider for CodexProvider {
+    fn descriptor(&self) -> ProviderDescriptor {
+        ProviderDescriptor {
+            id: ProviderId::new("codex".into()).expect("static Codex provider id is valid"),
+            display_name: "Codex".into(),
+            version: Some(super::protocol::VERSION.into()),
+        }
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities {
+            can_execute: true,
+            can_continue: true,
+            can_cancel: true,
+            can_recover: true,
+            activity: true,
+            token_usage: false,
+        }
+    }
+
+    fn execute<'a>(
+        &'a self,
+        context: ProviderExecutionContext,
+        acceptance: Arc<dyn ProviderAcceptanceSink>,
+        telemetry: Arc<dyn AgentEventSink>,
+    ) -> ProviderFuture<'a, Result<ProviderRunResult, ProviderExecutionFailure>> {
+        Box::pin(async move {
+            let row = self
+                .execute_with_acceptance_and_telemetry(&context.execution_id, acceptance, telemetry)
+                .await
+                .map_err(provider_execution_failure)?;
+            provider_run_result(row).map_err(|_| {
+                ProviderExecutionFailure::State("AGENT_PROVIDER_CONTRACT_ERROR".into())
+            })
+        })
+    }
+
+    fn cancel<'a>(
+        &'a self,
+        context: ProviderCancelContext,
+    ) -> ProviderFuture<'a, Result<(), ProviderError>> {
+        Box::pin(async move {
+            self.store
+                .request_cancel(context.execution_id, now())
+                .await
+                .map(|_| ())
+                .map_err(|_| ProviderError {
+                    code: ProviderErrorCode::AgentProviderOperationFailed,
+                })
+        })
+    }
+
+    fn validate_continuation<'a>(
+        &'a self,
+        context: ProviderContinuationContext,
+    ) -> ProviderFuture<'a, Result<ProviderContinuationDecision, ProviderError>> {
+        Box::pin(async move {
+            let row = self
+                .store
+                .execution(context.source_execution_id)
+                .await
+                .map_err(|_| ProviderError {
+                    code: ProviderErrorCode::AgentProviderOperationFailed,
+                })?
+                .ok_or(ProviderError {
+                    code: ProviderErrorCode::AgentProviderOperationFailed,
+                })?;
+            let eligible = managed_continuation_thread(&row).is_some();
+            Ok(if eligible {
+                ProviderContinuationDecision::Eligible
+            } else {
+                ProviderContinuationDecision::Ineligible
+            })
+        })
+    }
+
+    fn startup_reconcile<'a>(
+        &'a self,
+        _context: ProviderStartupContext,
+    ) -> ProviderFuture<'a, Result<ProviderReconcileSummary, ProviderError>> {
+        Box::pin(async move {
+            let outcomes = recover_startup_with_authority(
+                &self.store,
+                &self.executable,
+                &self.owner,
+                &self.runtime_pool,
+                self.backend_error.as_deref(),
+            )
+            .await
+            .map_err(|failure| ProviderError {
+                code: if failure.code == "CODEX_APP_SERVER_INCOMPATIBLE" {
+                    ProviderErrorCode::AgentProviderCapabilityUnsupported
+                } else {
+                    ProviderErrorCode::AgentProviderOperationFailed
+                },
+            })?;
+            Ok(ProviderReconcileSummary {
+                items: outcomes.iter().map(provider_reconcile_item).collect(),
+            })
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 mod cancellation_tests;
+
+#[cfg(test)]
+mod adapter_tests;

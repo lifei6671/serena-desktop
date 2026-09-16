@@ -32,6 +32,271 @@ fn scope() -> CleanupScope {
     CleanupScope::fixture("R1", "T1", "E1")
 }
 
+#[derive(Clone, Copy)]
+enum InjectedRuntimeMismatch {
+    Activity,
+    Lifecycle,
+}
+
+struct TestAcceptanceSink;
+impl crate::agent::provider::port::ProviderAcceptanceSink for TestAcceptanceSink {
+    fn accepted(&self) {}
+}
+
+fn turn_notification(method: &str, status: &str) -> Notification {
+    protocol::notification(
+        method.into(),
+        json!({
+            "threadId": "THREAD",
+            "turn": {"id": "TURN", "status": status, "items": [], "itemsView": "summary"}
+        }),
+    )
+    .unwrap()
+}
+
+async fn run_provider_with_injected_runtime_mismatch(
+    mismatch: InjectedRuntimeMismatch,
+) -> (
+    std::result::Result<crate::agent::store::ExecutionRecord, String>,
+    crate::agent::store::ExecutionRecord,
+) {
+    let temp = tempfile::tempdir().unwrap();
+    let store = crate::agent::store::StateStore::open(temp.path().into())
+        .await
+        .unwrap();
+    let manager = crate::agent::task_manager::AgentTaskManager::new(
+        store.clone(),
+        "does-not-exist.exe".into(),
+    );
+    let request = serde_json::from_value(json!({
+        "agent_id": "runtime-mismatch-agent",
+        "request_key": "runtime-mismatch-key",
+        "prompt": "Reply exactly VERTICAL_SLICE_OK.",
+        "execution_profile": {},
+        "workspace_id": "isolated",
+        "canonical_workspace_root": temp.path().to_str().unwrap(),
+        "mode": "read_only"
+    }))
+    .unwrap();
+    let created = manager.create(request).await.unwrap();
+    rusqlite::Connection::open(temp.path().join("agent-state.db"))
+        .unwrap()
+        .execute(
+            "INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES ('R1','fixture','running',1,1)",
+            [],
+        )
+        .unwrap();
+
+    let (mut client, server) = pair();
+    let (events, receiver) = tokio::sync::mpsc::channel(4);
+    // The production wire decoder stamps its Client Runtime on every Event, so
+    // only this test fixture can inject the otherwise-unrepresentable stale
+    // envelope while retaining the real Provider receive_event path.
+    client.events = tokio::sync::Mutex::new(receiver);
+    let execution_id = created.execution_id.clone();
+    let fake_store = store.clone();
+    let fake = tokio::spawn(async move {
+        let mut server = BufReader::new(server);
+        handshake(&mut server).await;
+        let request = recv(&mut server).await;
+        assert_eq!(request["method"], "thread/start");
+        reply(
+            &mut server,
+            &request,
+            json!({"thread":{"id":"THREAD","name":"fixture","turns":[],"historyMode":"paginated"}}),
+        )
+        .await;
+        let request = recv(&mut server).await;
+        assert_eq!(request["method"], "turn/start");
+        reply(
+            &mut server,
+            &request,
+            json!({"turn":{"id":"TURN","status":"inProgress","items":[],"itemsView":"summary"}}),
+        )
+        .await;
+
+        events
+            .send(Event {
+                runtime_id: "R1".into(),
+                notification: turn_notification("turn/started", "inProgress"),
+                _bytes: None,
+                _slot: None,
+            })
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let row = fake_store
+                    .execution(execution_id.clone())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                if row.runtime_instance_id.as_deref() == Some("R1")
+                    && row.thread_id.as_deref() == Some("THREAD")
+                    && row.turn_id.as_deref() == Some("TURN")
+                    && row.status == "running"
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+
+        let notification = match mismatch {
+            InjectedRuntimeMismatch::Activity => Notification::Activity(Activity {
+                thread_id: "THREAD".into(),
+                turn_id: "TURN".into(),
+                phase: crate::agent::activity::ActivityPhase::Tool,
+                tool_category: Some(crate::agent::activity::ToolCategory::Test),
+                observed_at: 123,
+            }),
+            InjectedRuntimeMismatch::Lifecycle => turn_notification("turn/started", "inProgress"),
+        };
+        events
+            .send(Event {
+                runtime_id: "R-stale".into(),
+                notification,
+                _bytes: None,
+                _slot: None,
+            })
+            .await
+            .unwrap();
+
+        if matches!(mismatch, InjectedRuntimeMismatch::Activity) {
+            // mpsc preserves this order: Provider must receive the stale Activity
+            // before it can observe the valid terminal that follows it.
+            events
+                .send(Event {
+                    runtime_id: "R1".into(),
+                    notification: turn_notification("turn/completed", "completed"),
+                    _bytes: None,
+                    _slot: None,
+                })
+                .await
+                .unwrap();
+
+            let request = recv(&mut server).await;
+            assert_eq!(request["method"], "thread/read");
+            reply(
+                &mut server,
+                &request,
+                json!({"thread":{"id":"THREAD","name":"fixture","turns":[],"historyMode":"paginated"}}),
+            )
+            .await;
+            let request = recv(&mut server).await;
+            assert_eq!(request["method"], "thread/turns/list");
+            reply(
+                &mut server,
+                &request,
+                json!({"data":[{"id":"TURN","status":"completed","items":[],"itemsView":"summary"}],"nextCursor":null}),
+            )
+            .await;
+            let request = recv(&mut server).await;
+            assert_eq!(request["method"], "thread/items/list");
+            reply(
+                &mut server,
+                &request,
+                json!({"data":[{"turnId":"TURN","item":{"type":"agentMessage","id":"persisted","phase":"final_answer","text":"VERTICAL_SLICE_OK"}}],"nextCursor":null}),
+            )
+            .await;
+            let request = recv(&mut server).await;
+            assert_eq!(request["method"], "thread/backgroundTerminals/clean");
+            reply(&mut server, &request, json!({})).await;
+            for _ in 0..1 {
+                let request = recv(&mut server).await;
+                assert_eq!(request["method"], "thread/backgroundTerminals/list");
+                reply(&mut server, &request, json!({"data":[],"nextCursor":null})).await;
+            }
+            let mut trailing = String::new();
+            assert_eq!(
+                server.read_line(&mut trailing).await.unwrap(),
+                0,
+                "{trailing}"
+            );
+        } else {
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    let row = fake_store
+                        .execution(execution_id.clone())
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    if row.error_code.as_deref() == Some("CODEX_PROVIDER_FAILURE") {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+    });
+
+    client.initialize().await.unwrap();
+    let provider = crate::agent::codex::provider::CodexProvider {
+        store: store.clone(),
+        executable: "unused".into(),
+        backend_error: None,
+        owner: "fixture".into(),
+        runtime_pool: Default::default(),
+    };
+    let telemetry = crate::agent::telemetry_projector::ExecutionTelemetryProjector::new(
+        store.clone(),
+        created.execution_id.clone(),
+    );
+    let outcome = provider
+        .run_client_with_acceptance_and_telemetry(
+            &created.execution_id,
+            &client,
+            &TestAcceptanceSink,
+            &telemetry,
+        )
+        .await;
+    let row = store
+        .execution(created.execution_id)
+        .await
+        .unwrap()
+        .unwrap();
+    drop(client);
+    let fake = fake.await;
+    assert!(fake.is_ok(), "fake={fake:?}; provider={outcome:?}");
+    (outcome, row)
+}
+
+#[test]
+fn stale_activity_envelope_runtime_is_dropped_and_execution_completes() {
+    run(async {
+        let (outcome, row) =
+            run_provider_with_injected_runtime_mismatch(InjectedRuntimeMismatch::Activity).await;
+        assert!(outcome.is_ok(), "{outcome:?}");
+        assert_eq!(row.status, "completed");
+        assert_eq!(row.provider_terminal_status.as_deref(), Some("completed"));
+        assert_eq!(row.result_completeness, "complete");
+        assert_eq!(row.release_evidence_state, "complete");
+        assert!(row.last_activity_at.is_none());
+        assert!(row.activity_phase.is_none());
+        assert!(row.tool_category.is_none());
+        assert!(row.error_code.is_none());
+    });
+}
+
+#[test]
+fn stale_lifecycle_envelope_runtime_remains_provider_runtime_mismatch() {
+    run(async {
+        let (outcome, row) =
+            run_provider_with_injected_runtime_mismatch(InjectedRuntimeMismatch::Lifecycle).await;
+        assert_eq!(outcome.unwrap_err(), "PROVIDER_RUNTIME_MISMATCH");
+        assert_eq!(row.status, "reconciling");
+        assert_eq!(row.error_code.as_deref(), Some("CODEX_PROVIDER_FAILURE"));
+        assert_eq!(
+            row.error_message.as_deref(),
+            Some("PROVIDER_RUNTIME_MISMATCH")
+        );
+    });
+}
+
 #[test]
 fn compatibility_identity_requires_all_three_fields() {
     let original = CompatibilityIdentity {

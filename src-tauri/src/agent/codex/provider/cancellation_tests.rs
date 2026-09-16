@@ -224,6 +224,7 @@ async fn race(case: &'static str) {
         runtime_pool: Default::default(),
         store: store.clone(),
         executable: "unused".into(),
+        backend_error: None,
         owner: "test".into(),
     };
     let outcome = tokio::time::timeout(Duration::from_secs(25), provider.run_client(&id, &client))
@@ -406,6 +407,7 @@ fn cancel_wins_and_late_cancel_is_absorbing() {
             store: store.clone(),
             owner: "test".into(),
             executable: "unused".into(),
+            backend_error: None,
         };
         assert_eq!(provider.run_client(&row.id, &client).await.unwrap(), row);
         drop(client);
@@ -548,6 +550,7 @@ fn partial_write_and_unconfirmed_flush_are_uncertain_without_replay() {
                 runtime_pool: Default::default(),
                 store: store.clone(),
                 executable: "unused".into(),
+                backend_error: None,
                 owner: "test".into(),
             };
             assert!(provider.run_client(&id, &client).await.is_err());
@@ -652,6 +655,7 @@ fn real_fixed_binary_interrupt_smoke() {
             runtime_pool: Default::default(),
             store: store.clone(),
             executable: exe,
+            backend_error: None,
             owner: "task007-smoke".into(),
         };
         let cancel = async {

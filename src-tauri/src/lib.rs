@@ -130,39 +130,22 @@ pub fn run() {
                     &format!("Agent backend unavailable: {error}"),
                 );
             }
-            for outcome in outcomes {
-                use agent::task_manager::recovery::RecoveryOutcome::*;
-                let (kind, id) = match &outcome {
-                    OrphanRuntime {
-                        runtime_id,
-                        failure,
-                    } => (
-                        if failure.is_some() {
-                            "orphan runtime unknown"
-                        } else {
-                            "orphan runtime terminated"
-                        },
-                        runtime_id,
-                    ),
-                    Released { execution_id } => ("released", execution_id),
-                    Inconsistent { execution_id, .. } => {
-                        ("inconsistent; claim retained", execution_id)
-                    }
-                    PendingExplicitResume { execution_id } => {
-                        ("pending explicit resume", execution_id)
-                    }
-                    Unknown { execution_id, .. } => ("unknown; claim retained", execution_id),
-                    RuntimeFailure { execution_id, .. } => {
-                        ("runtime failure; claim retained", execution_id)
-                    }
-                    Interrupted { execution, .. } => {
-                        ("interrupted; safely released", &execution.id)
-                    }
+            for item in outcomes {
+                use agent::provider::port::ProviderReconcileKind::*;
+                let kind = match item.kind {
+                    OrphanResourceRecovered => "orphan resource terminated",
+                    OrphanResourceUnknown => "orphan resource unknown",
+                    ExecutionReleased => "released",
+                    ExecutionInconsistent => "inconsistent; claim retained",
+                    ExecutionPendingExplicitResume => "pending explicit resume",
+                    ExecutionUnknown => "unknown; claim retained",
+                    ExecutionProviderFailure => "provider failure; claim retained",
+                    ExecutionInterrupted => "interrupted; safely released",
                 };
                 logs::append(
                     &app.state::<std::sync::Arc<SupervisorState>>().paths.app_log,
                     "agent recovery",
-                    &format!("{id}: {kind}"),
+                    &format!("{}: {kind}", item.subject_id),
                 );
             }
             let product = std::sync::Arc::new(product);

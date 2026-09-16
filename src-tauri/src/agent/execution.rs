@@ -34,6 +34,10 @@ pub struct CreateExecutionInput {
     #[serde(default)]
     pub provider: Provider,
     pub mode: ExecutionMode,
+    /// Generic continuation lineage. Runtime protocol identity remains separate.
+    #[serde(default)]
+    pub parent_execution_id: Option<String>,
+    /// Temporary persisted runtime compatibility identity. It is not request identity.
     #[serde(default)]
     pub thread_id: Option<String>,
 }
@@ -80,7 +84,7 @@ pub fn canonicalize_request(input: CreateExecutionInput) -> Result<CanonicalRequ
         &input.canonical_workspace_root,
         input.provider,
         input.mode,
-        &input.thread_id,
+        &input.parent_execution_id,
     ))
     .map_err(|e| e.to_string())?;
     let hash = Sha256::digest(&bytes)
@@ -93,6 +97,38 @@ pub fn canonicalize_request(input: CreateExecutionInput) -> Result<CanonicalRequ
         bytes,
         hash,
     })
+}
+
+/// Exact pre-C2 request-hash compatibility for persisted continuation rows only.
+///
+/// New request canonicalization never calls this helper. Its caller must first
+/// establish that the persisted row has no `parent_execution_id`; this permits a
+/// bounded retry of a row written when the final tuple slot was a source thread.
+pub(crate) fn legacy_pre_c2_continuation_hash(
+    input: &CreateExecutionInput,
+    source_thread_id: &Option<String>,
+) -> Result<String, String> {
+    if !input.execution_profile.is_object() {
+        return Err("execution_profile must be a JSON object".into());
+    }
+    let profile_json = canonical_json(&input.execution_profile);
+    let bytes = serde_json::to_vec(&(
+        "execution-request-v1",
+        &input.agent_id,
+        &input.request_key,
+        &input.prompt,
+        &profile_json,
+        &input.workspace_id,
+        &input.canonical_workspace_root,
+        input.provider,
+        input.mode,
+        source_thread_id,
+    ))
+    .map_err(|e| e.to_string())?;
+    Ok(Sha256::digest(&bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
 }
 
 fn canonical_json(value: &Value) -> String {

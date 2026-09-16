@@ -115,10 +115,10 @@ fn every_variable_input_participates_and_framing_is_unambiguous() {
     a.mode = ExecutionMode::WorkspaceWrite;
     variants.push(a);
     let mut a = input();
-    a.thread_id = Some("b".into());
+    a.parent_execution_id = Some("b".into());
     variants.push(a);
     let mut a = input();
-    a.thread_id = Some("".into());
+    a.parent_execution_id = Some("".into());
     variants.push(a);
     for variant in variants {
         assert_ne!(
@@ -136,6 +136,36 @@ fn every_variable_input_participates_and_framing_is_unambiguous() {
         canonicalize_request(a).unwrap().request_hash(),
         canonicalize_request(b).unwrap().request_hash()
     );
+}
+
+#[test]
+fn thread_is_runtime_compatibility_but_parent_execution_is_request_identity() {
+    let baseline = canonicalize_request(input()).unwrap();
+    let mut other_thread = input();
+    other_thread.thread_id = Some("provider-thread-b".into());
+    assert_eq!(
+        canonicalize_request(other_thread).unwrap().request_hash(),
+        baseline.request_hash()
+    );
+
+    let mut first_parent = input();
+    first_parent.parent_execution_id = Some("execution-a".into());
+    let mut second_parent = input();
+    second_parent.parent_execution_id = Some("execution-b".into());
+    assert_ne!(
+        canonicalize_request(first_parent).unwrap().request_hash(),
+        canonicalize_request(second_parent).unwrap().request_hash()
+    );
+
+    let source = include_str!("../execution.rs");
+    let current = source
+        .split("pub fn canonicalize_request")
+        .nth(1)
+        .unwrap()
+        .split("/// Exact pre-C2")
+        .next()
+        .unwrap();
+    assert!(!current.contains("thread_id"));
 }
 
 #[test]

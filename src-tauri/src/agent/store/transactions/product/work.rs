@@ -61,7 +61,7 @@ impl StateStore {
                             return Err("EXECUTION_REQUEST_KEY_CONFLICT".into());
                         }
                         let request =
-                            canonicalize_request(input(&row, request_key, prompt, None)?)?;
+                            canonicalize_request(input(&row, request_key, prompt, None, None)?)?;
                         (row, request)
                     }
                     Action::Continue {
@@ -81,9 +81,11 @@ impl StateStore {
                             &parent,
                             request_key,
                             prompt,
-                            parent.thread_id.clone(),
+                            Some(parent.id.clone()),
+                            None,
                         )?)?;
-                        (row, request)
+                        return continuation_prior_outcome(row, &parent, &request)
+                            .map(|outcome| Some(outcome.execution_id));
                     }
                     _ => return Err("WORK_INVALID_ARGUMENT".into()),
                 };

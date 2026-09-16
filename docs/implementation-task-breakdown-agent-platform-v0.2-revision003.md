@@ -253,11 +253,21 @@ Blocked by: None
 Allowed scope: 新 `agent/provider` domain module、`agent/mod.rs`。  
 Forbidden scope: 改 Codex Runtime、Store、Execution 状态机。  
 Contract references: §15～§18；§50 Provider  
-Implementation requirements: `ProviderRunResult` 不含任何 Claim/Runtime safety 字段。  
+Implementation requirements: Human-approved binding clarification：
+
+- `ProviderId` 是 `String` newtype，`serde(transparent)`，JSON string；首版值为 `codex`，Core 不解析 Provider-specific 前缀/格式；validation 要求非空并拒绝任何 whitespace/control character，除此之外不增加正则、长度或字符集约束。
+- `ProviderExecutionContext` 与 `ProviderCancelContext` 均为 `#[serde(rename_all = "camelCase", deny_unknown_fields)]`，且仅含 `execution_id: String`；不携带 `workspaceId`、`canonicalRoot`、thread、turn、job、`historyMode` 或 Runtime identity，Provider 通过权威 StateStore / Execution identity 读取冻结执行上下文。
+- `ProviderStartupContext` 为 `deny_unknown_fields`、序列化为 `{}` 的空 struct；Provider 实例持有自己的 Store / Runtime 依赖。
+- `ProviderErrorCode` 的 serde string 精确为 `AGENT_PROVIDER_NOT_FOUND`、`AGENT_PROVIDER_UNAVAILABLE`、`AGENT_PROVIDER_CAPABILITY_UNSUPPORTED`、`AGENT_PROVIDER_CONTRACT_ERROR`、`AGENT_PROVIDER_OPERATION_FAILED`；`ProviderError` 为 `#[serde(rename_all = "camelCase", deny_unknown_fields)]` 且仅含 `code: ProviderErrorCode`。
+- `ProviderOutcome` 是 snake_case enum：`completed` / `failed` / `cancelled` / `interrupted`；它不授权 Workspace Claim release。
+- `ProviderResultCompleteness` 是 snake_case enum：`unknown` / `partial` / `complete`，语义与现有 Execution result completeness 一致，但本 Task 不修改现有 Execution 类型。
+- `ProviderRunResult` 为 `#[serde(rename_all = "camelCase", deny_unknown_fields)]`，精确字段为 `execution_id: String`、`outcome: ProviderOutcome`、`result: Option<serde_json::Value>`、`result_completeness: ProviderResultCompleteness`、`diagnostic_code: Option<String>`。
+- `ProviderError` 不含 raw provider message、command/stdout/stderr/runtime/thread/turn/job；`ProviderRunResult` 不含 `safe`、`safeToReleaseWorkspace`、`releaseEvidence`、`jobEmpty`、`runtimeTerminated`、`cleanupComplete` 或 thread/turn/job/`historyMode`/Runtime identity。finalization 必须重新读取权威 StateStore / Runtime evidence。
+
 Non-goals: Registry 或 routing。  
-Tests required: type validation、serialization、forged safety field rejection。  
+Tests required: `ProviderId` validation/JSON string；全部 Context/Error/Outcome/Completeness/RunResult 精确 serialization；unknown-field 与 forged safety/identity field rejection。
 Evidence required: focused Rust tests。  
-Acceptance criteria: domain 不暴露 thread/turn/job/historyMode。  
+Acceptance criteria: 上述字段类型、枚举 wire value、camelCase/snake_case/SCREAMING_SNAKE_CASE 与 `deny_unknown_fields` 全部由 focused tests 固定；domain 不暴露第二套 Workspace/Execution Authority，`ProviderRunResult` 不能授权 Claim Release；P1-001 不再存在字段或 serialization DESIGN_BLOCKER。
 Rollback / failure behavior: 删除新增纯 domain module 即可。  
 Risk: low  
 Estimated blast radius: small  
@@ -278,7 +288,7 @@ Forbidden scope: 引入 `async-trait`、改变 Runtime ownership。
 Contract references: §17；§19  
 Implementation requirements: boxed future；execute/cancel/startup_reconcile 契约完整。  
 Non-goals: Codex adapter。  
-Tests required: object-safety compile test、fake provider contract test。  
+Tests required: object-safety compile test、fake provider contract test；`ProviderStartupContext` 继续固定为空 `{}` 且无 result sink / callback；fake `startup_reconcile` 返回包含 items 的 typed `ProviderReconcileSummary`，不得再用零尺寸 / ZST 断言机械锁死 summary。
 Evidence required: compile/test result。  
 Acceptance criteria: fake Provider 可作为 `Arc<dyn AgentProvider>` 调用。  
 Rollback / failure behavior: 无注册调用前可独立回滚。  
@@ -330,20 +340,26 @@ Can run in parallel with: P1-006
 
 ## P1-005 — AgentTaskManager 经 Registry 路由
 
+> Human-approved binding clarification / DCR：这是对 revision003 Design Freeze 的最小补充，仅冻结 P1-005 的 Provider pre-turn acceptance 握手与机械回归，不进入 P1-006 / P1-007，也不修改 P1-001 已冻结的 `ProviderExecutionContext` 字段。
+
+> Human-approved resolver clarification / DCR（第二个最小 DCR）：仅补充 `get_registered()` 与 Provider unavailable 时的 cancel 路由回归；原 ProviderAcceptanceSink DCR 及其余 P1-005 冻结语义不变。
+
+> Human-approved execution-failure clarification / DCR-3（第三个最小 DCR）：`AgentProvider::execute` 改用 Provider 层内部 `ProviderExecutionFailure`，解除 AgentTaskManager 对 Codex 私有 `ExecutionFailure` 的依赖。只解决前一轮 DESIGN_BLOCKER；不扩展 `ProviderError` wire contract，不建立通用错误框架，也不进入 P1-006 / P1-007 / P1-008。
+
 Phase: Phase 1  
 Type: implementation  
 Goal: execute/cancel 按 ProviderId 经 Registry 调用。  
 Why now: 完成 Control Plane 的执行解耦。  
 Dependencies: P1-004 (H)  
 Blocked by: None  
-Allowed scope: `agent/task_manager.rs`、相关 product adapter tests。  
-Forbidden scope: Claim、requestKey、cancel/finalize/recovery 语义变化。  
+Allowed scope: `agent/provider/port.rs`、`agent/provider/registry.rs`、`agent/provider/registry/tests.rs`、`agent/codex/provider.rs`、`agent/task_manager.rs` 与相关 provider / product adapter tests。
+Forbidden scope: Claim、requestKey、cancel/finalize/recovery 语义变化；Store schema / lifecycle、Runtime、Job、telemetry 修改。
 Contract references: §15；§17～§20；§22；§52 Phase 1  
-Implementation requirements: 当前默认仍是 Codex；Provider completed 不能直接 release Claim。  
+Implementation requirements: 当前默认仍是 Codex；`execute(context, acceptance, telemetry)` 保持 object-safe / boxed future / no async-trait，并返回 `Result<ProviderRunResult, ProviderExecutionFailure>`。`ProviderExecutionFailure` 仅为 Provider 层内部类型，不实现 serde，不是 wire / Product DTO，也不进入 MCP schema；最小 variant 为 `State(String)` 与 `Runtime { code, message }`。`State(String)` 保留现有执行状态/安全诊断字符串语义；`Runtime` 只携带安全诊断 code + message，禁止 Runtime handle/id、thread、turn、job、`historyMode`、Claim/evidence。既有 `ProviderError` 继续仅含 `{ code }`，五个稳定码不变且不扩 payload；cancel、startup_reconcile 与 Registry 仍使用 `ProviderError`。Codex Adapter 将 `codex::provider::ExecutionFailure::State(value)` 映射为 `ProviderExecutionFailure::State(value)`，将 `ExecutionFailure::Runtime(failure)` 映射为 `ProviderExecutionFailure::Runtime { code: failure.code, message: failure.message }`；`failure` 中的真实 Runtime owner/identity 与 quarantine ownership 留在 `CodexRuntimePool` / Adapter 内，跨 Port 只传 code/message。AgentTaskManager 只消费 `ProviderExecutionFailure`，不依赖 Codex 私有 `ExecutionFailure`，不解释 Runtime/thread/turn/`historyMode`。Host 提供 one-shot / at-most-once `ProviderAcceptanceSink`；它无 payload、无 rejected/error 方法，drop 不改变 lifecycle。Start 在 availability/quarantine/pre-dispatch checks 后、`turn/start` 前 acceptance；Continue 仅在 managed Thread resume、exact identity、`historyMode=Paginated` 与 Execution bind 成功后、`turn/start` 前 acceptance。acceptance 前的 `Err` 投影为 rejection；无 acceptance 的异常结束或 terminal success 不得虚构 acceptance，走现有稳定错误 / contract error 路径。`accepted()` 不写 DB，不改变 dispatch/status；Store `dispatch_state` 不能等价替代 acceptance。它不授权 Claim release，不代表 providerInvoked/dispatched/terminal，不进入 Activity Revision；公共层不解释 Codex 私有 Thread / Turn / `historyMode` / Runtime。Provider completed 不能直接 release Claim，finalize 仍重读权威 evidence。Registry 保留 `get(&ProviderId)` 的 health-gated 语义供 execute / continue 使用，unknown 返回 `AGENT_PROVIDER_NOT_FOUND`，`Unavailable` 返回 `AGENT_PROVIDER_UNAVAILABLE`；新增 `get_registered(&ProviderId)`，只检查注册存在性，unknown 返回 `AGENT_PROVIDER_NOT_FOUND`，已注册时即使 `Unavailable` 也返回 Provider handle 且不改变或伪造 health。cancel 从 persisted `Execution.provider` 构造 `ProviderId`，经 `get_registered()` 后检查 `capabilities().can_cancel`；`false` 返回 `AGENT_PROVIDER_CAPABILITY_UNSUPPORTED`，`true` 调用 `provider.cancel()`，Provider / CLI health 不作前置门禁。该区分不是通用 bypass，不新增状态、错误码、Store 字段、fallback、Codex 特判或 Plugin ABI。上述失败边界调整必须保持 `AGENT_RUNTIME_QUARANTINED` Product 投影、Recovery Runtime/State failure 分类，以及 Execution/Claim pending/Unknown/finalize authority 全部不变。
 Non-goals: 多 Provider UI。  
-Tests required: Runtime/Recovery/Cancel/requestKey/Claim/atomic release 全套回归。  
+Tests required: provider / control tests 继续验证 `ProviderError` `{ code }` wire 不变，并验证 `ProviderExecutionFailure` 不可 serde / wire；Recovery `explicit_resume_binary_failure_keeps_pending_and_claim` 恢复通过并保持 Runtime failure 分类；Runtime quarantine Product regression 恢复 `AGENT_RUNTIME_QUARANTINED`；Start acceptance 时点；Continue acceptance 在 bind 后、`turn/start` 前；wrong identity / legacy / missing history 不 acceptance 且不 `turn/start`；Provider terminal 不可替代 acceptance；`get_registered()` unknown 返回 not found、registered unavailable 返回原 Provider handle 且 health 保持 unavailable；persisted Provider unavailable 时 cancel 仍经 capability gate 调用 `provider.cancel()`，同时 execute / continue 仍由 `get()` 拒绝；现有 P1-005 routing / acceptance / cancel tests 全部继续通过；Runtime/Recovery/Cancel/requestKey/Claim/atomic release 全套回归。
 Evidence required: focused + existing safety test results。  
-Acceptance criteria: routing 变化后所有 Runtime Safety tests 无回归。  
+Acceptance criteria: `AgentProvider::execute` 只经 Provider 层内部 `ProviderExecutionFailure` 暴露 State/Runtime 安全诊断，AgentTaskManager 不再依赖 Codex 私有失败类型；`ProviderError` `{ code }` wire、`AGENT_RUNTIME_QUARANTINED` Product 投影、Recovery Runtime/State 分类与 Execution/Claim pending/Unknown/finalize authority 均无变化，前一轮 DESIGN_BLOCKER 关闭。routing 变化后所有 Runtime Safety tests 无回归；Provider 已注册但 unavailable 时，cancel 仍按 persisted ProviderId 路由并保留 capability / manual-resolution safety，execute / continue 不可启动或继续 Provider work。
 Rollback / failure behavior: 数据格式不变，可恢复旧 route。  
 Risk: high  
 Estimated blast radius: medium  
@@ -351,21 +367,23 @@ Can run in parallel with: P1-006、P1-007
 
 ## P1-006 — Provider Startup Reconcile Port
 
+> Human-approved startup-reconcile clarification / DCR-4：`ProviderStartupContext` 保持空 `{}`；`ProviderReconcileSummary` 改为 Provider 层内部 typed result，并冻结 registration-only startup routing、Codex mapping、失败隔离与最小 health update。该 DCR 不改变 P1-005，也不进入 P1-007 / P1-008。
+
 Phase: Phase 1  
 Type: implementation  
 Goal: Desktop startup 经 Registry 调用各 Provider 的 reconcile。  
 Why now: Recovery ownership 不能留在通用层的 Codex 特判。  
 Dependencies: P1-004 (H)  
 Blocked by: None  
-Allowed scope: `lib.rs` Agent startup、`task_manager.rs`、Codex recovery adapter。  
-Forbidden scope: 修改 Recovery identity、Unknown fail-closed、Claim release。  
-Contract references: §5.5～§5.8；§19～§20  
-Implementation requirements: Codex 私有 runtime/thread/turn/job 解释留在 Adapter。  
-Non-goals: 并行重写 recovery。  
-Tests required: restart、unknown issuer、orphan claim、termination evidence。  
+Allowed scope: `agent/provider/port.rs` + port tests（仅 typed summary contract 与移除旧 ZST assertion）、`agent/provider/registry.rs` + tests（Registry 仅允许增加一个内部 health update API，如 `set_health` 或等价命名，且必须校验 Provider 已注册）、`agent/product.rs` + directly related startup / recovery tests（仅 `initialize` / `recover_before_publish` 所需的最小 startup initialization / report plumbing 与类型投影）、现有 `lib.rs` Agent startup、`task_manager.rs`、Codex recovery adapter。
+Forbidden scope: 修改 Recovery identity、Unknown fail-closed、Runtime ownership / quarantine、Claim release / finalize、startup-before-publication 顺序；修改 `ProviderError`、`ProviderExecutionFailure`、P1-005 acceptance / `get()` / `get_registered()` / cancel 语义；修改 Store / Runtime / Job；改变 Product DTO / MCP schema 或重设计 public Product behavior，`agent/product.rs` 权限不超出 startup initialization / report plumbing；新增错误码、状态机、插件框架、自动重试、health reason / time metadata；进入 P1-007 / P1-008。
+Contract references: §5.5～§5.8；§17；§19～§20；§22
+Implementation requirements: `ProviderStartupContext` 继续保持序列化为 `{}` 的空 struct，不引入 result sink / callback。`ProviderReconcileSummary { items: Vec<ProviderReconcileItem> }`、`ProviderReconcileItem { subject_id: String, kind: ProviderReconcileKind }` 与八个冻结 kind 是 Provider 层内部、provider-agnostic typed startup report；不做 serde，不是 Product / MCP / wire DTO。`subject_id` 是只供 Host startup report / logging 使用的 opaque subject identity，Core 不解析格式 / 前缀；summary 不得携带 Runtime handle / id、thread、turn、job、`historyMode`、Claim、release / termination evidence、raw provider error、`ExecutionRecord` 或 Provider private object。Codex 可继续内部产生现有 `Vec<RecoveryOutcome>`，在 Adapter 边界按原 report 顺序逐项映射为 `OrphanResourceRecovered`、`OrphanResourceUnknown`、`ExecutionReleased`、`ExecutionInconsistent`、`ExecutionPendingExplicitResume`、`ExecutionUnknown`、`ExecutionProviderFailure`、`ExecutionInterrupted`；私有 evidence / Runtime owner 留在 Codex recovery / `CodexRuntimePool`，不跨 Port。startup routing 必须枚举已注册 Provider，经 registration-only `get_registered()` 取得 Provider，不得用 health-gated `get()` 跳过历史安全恢复；只有 `capabilities().can_recover == true` 才执行 `startup_reconcile`，Codex 完成 P1-006 后设为 `true`。Host 复用现有 startup logging / reporting，仅匹配 kind + `subject_id`，不解释 Codex 私有 identity / evidence。单个 Provider 返回 `ProviderError` 时，其 durable Claim / Unknown 保持 fail-closed，不释放未证明安全的资源；Registry 将该已注册 Provider health 更新为 `Unavailable`，后续 execute / continue 仍被 `get()` 拒绝；其他已注册且可恢复 Provider 继续 reconcile，不回滚。unknown health update 继续返回 `AGENT_PROVIDER_NOT_FOUND`。
+Non-goals: 并行重写 recovery；通用插件 / 重试 / health metadata 框架。
+Tests required: typed summary 全八类 mapping；与原 `RecoveryOutcome` report 逐项顺序等价；summary 类型无 private identity / evidence fields 且不可 serde / wire；Provider 已注册但 unavailable 时仍执行 recovery；单 Provider reconcile failure 会 mark unavailable、保持 Claim / Unknown fail-closed、拒绝其后续 execute / continue，并允许其他 `can_recover` Provider 继续；unknown health update 返回 `AGENT_PROVIDER_NOT_FOUND`；既有 restart、unknown issuer、orphan claim、termination evidence、P1-005 routing / acceptance / cancel 回归不变。
 Evidence required: recovery regression matrix。  
-Acceptance criteria: Registry reconcile 与旧恢复结果逐项一致。  
-Rollback / failure behavior: reconcile error 隔离为 Provider unavailable/error。  
+Acceptance criteria: Registry reconcile 与旧恢复结果 kind / subject / 顺序逐项一致；公共层只消费 `ProviderReconcileKind` + opaque `subject_id`，不获得 Codex private identity / evidence；unavailable Provider 不会被 recovery 跳过；单 Provider failure fail-closed、标记 unavailable 且不阻止其他可恢复 Provider；P1-005 与既有 Recovery / Runtime / Claim / startup 顺序语义无变化。
+Rollback / failure behavior: reconcile error 隔离为对应 Provider unavailable，未证明安全的 durable Claim / Unknown 保持不释放，其他可恢复 Provider 继续且不回滚。
 Risk: high  
 Estimated blast radius: medium  
 Can run in parallel with: P1-005、P1-007
@@ -392,6 +410,14 @@ Estimated blast radius: medium
 Can run in parallel with: P1-005、P1-006
 
 ## P1-008 — Provider Product Projection 与 Architecture Gates
+
+> Bounded implementation clarification（P1-008B）：本单元先建立 Provider-owned、非 serde/wire 的 `validate_continuation(ProviderContinuationContext { source_execution_id }) -> ProviderContinuationDecision`。Codex Adapter 仅在自身 StateStore 内解释 managed provenance；Port 不携带或返回 thread/turn/runtime/job/historyMode/Claim/evidence/finalResult。它不接入 Product、Store 或 TaskManager Continue routing，不改变 `ProviderRunResult`、Claim authority 或状态机。当前 `continuation_eligible()` 保持原样；P1-008C 才执行 route cutover 并删除重复的 Codex 私有判断。
+
+> Bounded implementation clarification（P1-008C1）：Continue 先在 Store 按既有 canonical request/request hash 与 Work retry context 解析 exact retry；仅无 prior 时才由 TaskManager 对 Provider-agnostic lifecycle candidate 使用 registration-only Provider lookup、capability 与 `validate_continuation`。创建事务复核 retry、Work、core lifecycle、Claim 与 source revision。Product `canContinue` 先作 core/claim/agent cheap filter，再安全投影只读 Provider validation。`CreateExecutionInput.thread_id`、`execution-request-v1` request hash 与 child thread copy 本单元保持不变；其私有 identity/request-hash 依赖仍由 P1-008C2 处理，P1-008 Gate 尚未闭合。
+
+> Bounded implementation clarification（P1-008C2A）：`execution-request-v1` 的 continuation request identity 改为 provider-agnostic `parent_execution_id`（source Execution ID）；fresh 仍为 null，固定 bytes/hash 不变。`thread_id` 继续作为临时 persistence/runtime compatibility input，但不参与当前 canonical hash；新 child 写入 generic parent，同时保留 child thread copy。仅 `parent_execution_id IS NULL` 的 pre-C2 persisted row 可由 Store 内封闭的 exact legacy hash 比对重试；不 backfill 或推测 parent。Codex runtime child thread copy 的变更仍是 C2B blocker，本说明不宣告 P1-008 Gate PASS。
+
+> Bounded implementation clarification（P1-008C2B）：current continuation child 只持久化 generic `parent_execution_id`，不再复制 Provider thread。parent/source 是 runtime continuation authority；Codex Adapter 在私有边界按受管 provenance 解析 source thread，并在 bind 后才开始 turn。`parent_execution_id IS NULL` 且 child 已有 thread 的 fallback 只保留给旧持久化行；不 backfill、不扩散 Provider-private identity，也不宣告 P1-008 Gate PASS。
 
 Phase: Phase 1  
 Type: contract-test  

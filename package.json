@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "lint": "eslint .",
+    "test": "node --test src/*.test.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

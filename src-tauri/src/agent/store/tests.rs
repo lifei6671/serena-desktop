@@ -20,6 +20,13 @@ fn insert(c: &mut Connection, id: &str, agent: &str, root: &str) {
     insert_execution(&tx, id, 123, &request(agent, root)).unwrap();
     tx.commit().unwrap();
 }
+fn insert_pre_v6(c: &Connection, id: &str, agent: &str, root: &str, thread_id: Option<&str>) {
+    let request = request(agent, root);
+    c.execute(
+        "INSERT INTO executions (id,agent_id,request_key,request_hash,prompt,execution_profile_json,workspace_id,canonical_workspace_root,provider,mode,thread_id,status,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'codex','workspace_write',?9,'dispatch_pending',123,123)",
+        params![id, agent, request.input().request_key, request.request_hash(), request.input().prompt, request.execution_profile_json(), request.input().workspace_id, root, thread_id],
+    ).unwrap();
+}
 fn runtime(c: &Connection, id: &str) {
     c.execute("INSERT INTO runtime_instances (id,owner_host_instance_id,state,created_at,updated_at) VALUES (?1,'host','unknown',1,1)", [id]).unwrap();
 }
@@ -31,7 +38,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
         let store = open(dir.path());
         let c = store.connection.lock().unwrap();
         for (pragma, expected) in [
-            ("user_version", 5),
+            ("user_version", 6),
             ("foreign_keys", 1),
             ("synchronous", 2),
             ("busy_timeout", 5000),
@@ -110,7 +117,7 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        5
+        6
     );
     assert_eq!(
         c.query_row(
@@ -130,6 +137,38 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
         .unwrap(),
         0
     );
+
+    let mut legacy = Connection::open_in_memory().unwrap();
+    legacy.execute_batch(SCHEMA_V1).unwrap();
+    legacy.execute_batch(SCHEMA_V2).unwrap();
+    legacy.execute_batch(SCHEMA_V3).unwrap();
+    legacy.execute_batch(SCHEMA_V4).unwrap();
+    legacy.execute_batch(SCHEMA_V5).unwrap();
+    legacy.pragma_update(None, "user_version", 5).unwrap();
+    insert_pre_v6(&legacy, "old", "agent", "root", Some("legacy-thread"));
+    {
+        let tx = legacy.transaction().unwrap();
+        assert!(
+            tx.execute_batch(&format!("{SCHEMA_V6}\nCREATE TABLE broken ("))
+                .is_err()
+        );
+    }
+    assert_eq!(
+        legacy
+            .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+            .unwrap(),
+        5
+    );
+    assert_eq!(
+        legacy
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('executions') WHERE name='parent_execution_id'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap(),
+        0
+    );
 }
 
 #[test]
@@ -137,7 +176,7 @@ fn v1_migration_preserves_executions_and_adds_nullable_thread_names() {
     let mut c = Connection::open_in_memory().unwrap();
     c.execute_batch(SCHEMA_V1).unwrap();
     c.pragma_update(None, "user_version", 1).unwrap();
-    insert(&mut c, "old", "agent", "root");
+    insert_pre_v6(&c, "old", "agent", "root", Some("legacy-thread"));
     let before: (String, String, i64) = c
         .query_row(
             "SELECT id,prompt,revision FROM executions WHERE id='old'",
@@ -158,6 +197,8 @@ fn v1_migration_preserves_executions_and_adds_nullable_thread_names() {
     assert_eq!(old.last_activity_at, None);
     assert_eq!(old.activity_phase, None);
     assert_eq!(old.tool_category, None);
+    assert_eq!(old.parent_execution_id, None);
+    assert_eq!(old.thread_id.as_deref(), Some("legacy-thread"));
     assert_eq!(
         c.query_row("SELECT count(*) FROM thread_names", [], |r| r
             .get::<_, i64>(0))
@@ -186,17 +227,49 @@ fn v2_migration_preserves_history_and_adds_nullable_activity() {
     c.execute_batch(SCHEMA_V1).unwrap();
     c.execute_batch(SCHEMA_V2).unwrap();
     c.pragma_update(None, "user_version", 2).unwrap();
-    insert(&mut c, "old", "agent", "root");
+    insert_pre_v6(&c, "old", "agent", "root", Some("legacy-thread"));
     migrate(&mut c).unwrap();
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        5
+        6
     );
     let old = execution_record(&c, "old").unwrap().unwrap();
     assert_eq!(old.last_activity_at, None);
     assert_eq!(old.activity_phase, None);
     assert_eq!(old.tool_category, None);
+}
+
+#[test]
+fn every_pre_v6_schema_preserves_history_and_reopens_with_null_parent() {
+    let schemas = [SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5];
+    for version in 1..=5 {
+        let mut c = Connection::open_in_memory().unwrap();
+        for schema in schemas.iter().take(version) {
+            c.execute_batch(schema).unwrap();
+        }
+        c.pragma_update(None, "user_version", version as i64)
+            .unwrap();
+        insert_pre_v6(&c, "old", "agent", "root", Some("shared-codex-thread"));
+        let before: (String, String, Option<String>) = c
+            .query_row(
+                "SELECT request_hash,prompt,thread_id FROM executions WHERE id='old'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+
+        migrate(&mut c).unwrap();
+        migrate(&mut c).unwrap();
+        assert_eq!(
+            c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            6
+        );
+        let after = execution_record(&c, "old").unwrap().unwrap();
+        assert_eq!((after.request_hash, after.prompt, after.thread_id), before);
+        assert_eq!(after.parent_execution_id, None);
+    }
 }
 
 #[test]
@@ -222,12 +295,12 @@ fn unsupported_or_unversioned_history_is_not_guessed_or_rewritten() {
             .unwrap(),
         0
     );
-    c.pragma_update(None, "user_version", 6).unwrap();
+    c.pragma_update(None, "user_version", 7).unwrap();
     assert!(migrate(&mut c).unwrap_err().contains("unsupported"));
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        6
+        7
     );
 }
 
@@ -493,12 +566,20 @@ fn v3_migration_adds_attempt_reservations_without_changing_legacy_rows() {
     c.execute_batch(SCHEMA_V2).unwrap();
     c.execute_batch(SCHEMA_V3).unwrap();
     c.pragma_update(None, "user_version", 3).unwrap();
-    insert(&mut c, "E1", "A", "W");
+    insert_pre_v6(&c, "E1", "A", "W", Some("legacy-thread"));
     runtime(&c, "runtime-E1");
-    let before = execution_record(&c, "E1").unwrap().unwrap();
+    let before: (String, String, Option<String>) = c
+        .query_row(
+            "SELECT request_hash,prompt,thread_id FROM executions WHERE id='E1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
     migrate(&mut c).unwrap();
     migrate(&mut c).unwrap();
-    assert_eq!(execution_record(&c, "E1").unwrap().unwrap(), before);
+    let after = execution_record(&c, "E1").unwrap().unwrap();
+    assert_eq!((after.request_hash, after.prompt, after.thread_id), before);
+    assert_eq!(after.parent_execution_id, None);
     assert!(runtime_attempts::runtime_attempt_exists(&c, "E1").unwrap());
     c.execute("INSERT INTO execution_runtime_attempts(execution_id,runtime_instance_id,created_at) VALUES ('E1','R123',1)",[]).unwrap();
     assert!(runtime_attempts::runtime_attempt_exists(&c, "E1").unwrap());

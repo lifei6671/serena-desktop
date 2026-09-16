@@ -135,6 +135,37 @@ impl StateStore {
         tool_category: Option<ToolCategory>,
         observed_at: i64,
     ) -> Result<(), String> {
+        self.project_execution_activity_inner(
+            id,
+            Some((thread_id, turn_id)),
+            phase,
+            tool_category,
+            observed_at,
+        )
+        .await
+    }
+
+    /// Provider-agnostic activity projection after the Adapter has validated
+    /// protocol identity. It never changes lifecycle authority.
+    pub(crate) async fn project_execution_activity(
+        &self,
+        id: String,
+        phase: ActivityPhase,
+        tool_category: Option<ToolCategory>,
+        observed_at: i64,
+    ) -> Result<(), String> {
+        self.project_execution_activity_inner(id, None, phase, tool_category, observed_at)
+            .await
+    }
+
+    async fn project_execution_activity_inner(
+        &self,
+        id: String,
+        protocol_identity: Option<(String, String)>,
+        phase: ActivityPhase,
+        tool_category: Option<ToolCategory>,
+        observed_at: i64,
+    ) -> Result<(), String> {
         if (phase == ActivityPhase::Provider) != tool_category.is_none() {
             return Err("INVALID_EXECUTION_ACTIVITY".into());
         }
@@ -153,8 +184,9 @@ impl StateStore {
                 return Ok(());
             }
             owns_claim(tx, &id)?;
-            if row.thread_id.as_deref() != Some(thread_id.as_str())
-                || row.turn_id.as_deref() != Some(turn_id.as_str())
+            if let Some((thread_id, turn_id)) = protocol_identity
+                && (row.thread_id.as_deref() != Some(thread_id.as_str())
+                    || row.turn_id.as_deref() != Some(turn_id.as_str()))
             {
                 return Err("EXECUTION_PROTOCOL_IDENTITY_MISMATCH".into());
             }
@@ -408,7 +440,8 @@ fn create(
     let snapshot_mismatch: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM executions WHERE agent_id=?1 AND
-         (workspace_id IS NOT ?2 OR canonical_workspace_root IS NOT ?3 OR thread_id IS NOT ?4
+         (workspace_id IS NOT ?2 OR canonical_workspace_root IS NOT ?3
+          OR (?7 IS NULL AND thread_id IS NOT ?4)
           OR execution_profile_json IS NOT ?5 OR mode IS NOT ?6 OR provider != 'codex'))",
             params![
                 input.agent_id,
@@ -419,7 +452,8 @@ fn create(
                 match input.mode {
                     crate::agent::execution::ExecutionMode::ReadOnly => "read_only",
                     crate::agent::execution::ExecutionMode::WorkspaceWrite => "workspace_write",
-                }
+                },
+                input.parent_execution_id,
             ],
             |r| r.get(0),
         )

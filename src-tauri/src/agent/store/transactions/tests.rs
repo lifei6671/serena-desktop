@@ -1007,6 +1007,59 @@ fn delayed_activity_event_time_does_not_regress_execution_updated_at() {
 }
 
 #[test]
+fn provider_agnostic_activity_projection_preserves_activity_store_semantics() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Running, DispatchState::Dispatched);
+    let before = status(&store);
+
+    block(store.project_execution_activity(
+        "e".into(),
+        ActivityPhase::Tool,
+        Some(ToolCategory::Test),
+        10,
+    ))
+    .unwrap();
+    let projected = status(&store);
+    assert_eq!(projected.last_activity_at, Some(10));
+    assert_eq!(projected.activity_phase.as_deref(), Some("tool"));
+    assert_eq!(projected.tool_category.as_deref(), Some("test"));
+    assert_eq!(projected.revision, before.revision + 1);
+
+    assert_eq!(
+        block(store.project_execution_activity(
+            "e".into(),
+            ActivityPhase::Provider,
+            Some(ToolCategory::Test),
+            11,
+        ))
+        .unwrap_err(),
+        "INVALID_EXECUTION_ACTIVITY"
+    );
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute("DELETE FROM workspace_claims WHERE execution_id='e'", [])
+        .unwrap();
+    assert_eq!(
+        block(store.project_execution_activity("e".into(), ActivityPhase::Provider, None, 12,))
+            .unwrap_err(),
+        "WORKSPACE_CLAIM_INCONSISTENT"
+    );
+
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute("UPDATE executions SET status='completed' WHERE id='e'", [])
+        .unwrap();
+    let terminal = status(&store);
+    block(store.project_execution_activity("e".into(), ActivityPhase::Provider, None, 13)).unwrap();
+    assert_eq!(status(&store), terminal);
+}
+
+#[test]
 fn late_diagnostics_do_not_hide_new_runtime_evidence_and_consumption_is_atomic() {
     let dir = tempfile::tempdir().unwrap();
     let s = open(dir.path());

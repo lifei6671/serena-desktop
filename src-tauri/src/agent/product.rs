@@ -2,9 +2,10 @@
 use super::{
     activity::{ActivityPhase, ActivitySilence, ToolCategory},
     coordinator::now,
+    provider::port::ProviderReconcileItem,
     store::{
         StateStore,
-        transactions::product::{WorkspaceSnapshot, continuation_eligible},
+        transactions::product::{ProductSnapshot, WorkspaceSnapshot, continuation_core_eligible},
     },
     task_manager::AgentTaskManager,
 };
@@ -79,6 +80,23 @@ pub struct AvailableActions {
 }
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct ProviderProduct {
+    pub id: String,
+    pub display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+impl ProviderProduct {
+    fn codex() -> Self {
+        Self {
+            id: "codex".into(),
+            display_name: "Codex".into(),
+            version: None,
+        }
+    }
+}
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct Progress {
     pub phase: ProgressPhase,
     pub activity_phase: Option<ActivityPhase>,
@@ -134,11 +152,13 @@ pub struct ExecutionView {
     pub execution_id: String,
     pub agent_id: String,
     pub workspace_id: String,
+    pub provider: ProviderProduct,
     pub status: String,
     pub dispatch_state: String,
     pub thread_id: Option<String>,
     pub thread_name: Option<String>,
     pub turn_id: Option<String>,
+    pub provider_session_label: Option<String>,
     pub provider_terminal_status: Option<String>,
     /// Last diagnostic only; status and Provider terminal remain lifecycle authorities.
     pub error_code: Option<String>,
@@ -168,6 +188,31 @@ pub struct ExecutionView {
     pub updated_at: i64,
     pub completed_at: Option<i64>,
 }
+
+/// The sole Product projection of persisted provider-opaque compatibility fields.
+///
+/// These fields remain display-only and never inform Product control decisions.
+#[derive(Debug)]
+struct ProviderOpaqueCompatibility {
+    thread_id: Option<String>,
+    thread_name: Option<String>,
+    turn_id: Option<String>,
+    provider_session_label: Option<String>,
+}
+
+impl ProviderOpaqueCompatibility {
+    fn project(snapshot: &ProductSnapshot) -> Self {
+        let thread_name = snapshot.thread_name.clone();
+        Self {
+            thread_id: snapshot.execution.thread_id.clone(),
+            thread_name: thread_name.clone(),
+            turn_id: snapshot.execution.turn_id.clone(),
+            // `thread_name` is the persisted safe Thread Title, never raw Provider payload.
+            provider_session_label: thread_name,
+        }
+    }
+}
+
 impl ExecutionView {
     fn control_revision(&self) -> String {
         // Product control token is independent of the store's durable CAS revision.
@@ -178,10 +223,7 @@ impl ExecutionView {
             self.dispatch_state,
             self.control.provider_invoked,
             self.control.dispatch_certainty,
-            self.runtime_instance_id,
             self.owns_claim,
-            self.thread_id,
-            self.turn_id,
             self.provider_terminal_status,
             self.error_code,
             self.error_message,
@@ -396,7 +438,7 @@ impl AgentProductService {
 
     pub async fn initialize(
         store: StateStore,
-    ) -> Result<(Self, Vec<super::task_manager::recovery::RecoveryOutcome>), String> {
+    ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
         #[cfg(test)]
         let resolution = match TEST_DISCOVERY.try_with(Clone::clone) {
             Ok(result) => result,
@@ -426,10 +468,10 @@ impl AgentProductService {
     }
     async fn recover_before_publish(
         store: StateStore,
-        manager: AgentTaskManager,
-    ) -> Result<(Self, Vec<super::task_manager::recovery::RecoveryOutcome>), String> {
-        let outcomes = manager.recover_startup().await?;
-        Ok((Self { store, manager }, outcomes))
+        mut manager: AgentTaskManager,
+    ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+        let report = manager.reconcile_startup().await?;
+        Ok((Self { store, manager }, report))
     }
     #[cfg(test)]
     pub fn new(store: StateStore) -> Self {
@@ -568,158 +610,164 @@ impl AgentProductService {
         limit: u32,
         include_result: bool,
     ) -> Result<Vec<ExecutionView>, String> {
-        self.store
-            .product_read(id, agent, workspace, limit)
-            .await?
-            .into_iter()
-            .map(|s| {
-                let r = &s.execution;
-                let pending = r.status == "dispatch_pending"
-                    && r.dispatch_state == "not_dispatched"
-                    && r.runtime_instance_id.is_none()
-                    && r.provider_terminal_status.is_none()
-                    && s.owns_claim
-                    && !s.runtime_attempt_exists
-                    && !self.store.product_worker_owned(&r.id);
-                let quarantined_pending = pending
-                    && self
-                        .manager
-                        .runtime_pool
-                        .check_workspace(&r.canonical_workspace_root)
-                        .is_err();
-                let actions = AvailableActions {
-                    can_cancel: matches!(
-                        r.status.as_str(),
-                        "dispatch_pending" | "running" | "cancel_requested" | "cancelling"
-                    ) && r.provider_terminal_status.is_none(),
-                    can_continue: continuation_eligible(r) && s.claim_free && s.agent_free,
-                    can_resume_pending: pending && !quarantined_pending,
-                };
-                let final_result = r
-                    .final_result_json
-                    .as_ref()
-                    .filter(|_| include_result)
-                    .map(|v| {
-                        serde_json::from_str(v)
-                            .map_err(|e| format!("Invalid persisted result: {e}"))
-                    })
-                    .transpose()?;
-                let attention = if r.status == "unknown" || quarantined_pending {
-                    "manual_resolution_required"
-                } else if pending {
-                    "pending_explicit_resume"
+        let snapshots = self.store.product_read(id, agent, workspace, limit).await?;
+        let mut views = Vec::with_capacity(snapshots.len());
+        for s in snapshots {
+            let compatibility = ProviderOpaqueCompatibility::project(&s);
+            let r = &s.execution;
+            let pending = r.status == "dispatch_pending"
+                && r.dispatch_state == "not_dispatched"
+                && r.runtime_instance_id.is_none()
+                && r.provider_terminal_status.is_none()
+                && s.owns_claim
+                && !s.runtime_attempt_exists
+                && !self.store.product_worker_owned(&r.id);
+            let quarantined_pending = pending
+                && self
+                    .manager
+                    .runtime_pool
+                    .check_workspace(&r.canonical_workspace_root)
+                    .is_err();
+            let actions = AvailableActions {
+                can_cancel: matches!(
+                    r.status.as_str(),
+                    "dispatch_pending" | "running" | "cancel_requested" | "cancelling"
+                ) && r.provider_terminal_status.is_none(),
+                can_continue: if continuation_core_eligible(r) && s.claim_free && s.agent_free {
+                    self.manager
+                        .can_continue(r.id.clone(), r.provider.clone())
+                        .await
                 } else {
-                    "none"
-                };
-                let phase = match r.status.as_str() {
-                    "dispatch_pending" => match r.dispatch_state.as_str() {
-                        "not_dispatched" => ProgressPhase::Pending,
-                        "dispatching" => ProgressPhase::Dispatching,
-                        "dispatched" => ProgressPhase::Running,
-                        "uncertain" => ProgressPhase::Reconciling,
-                        _ => {
-                            return Err(format!(
-                                "Invalid persisted dispatch state: {}",
-                                r.dispatch_state
-                            ));
-                        }
-                    },
-                    "running" | "cancel_requested" | "cancelling" => ProgressPhase::Running,
-                    "finalizing" => ProgressPhase::Finalizing,
-                    "reconciling" | "unknown" => ProgressPhase::Reconciling,
-                    "completed" | "failed" | "cancelled" | "interrupted" => ProgressPhase::Terminal,
-                    _ => return Err(format!("Invalid persisted execution status: {}", r.status)),
-                };
-                let result_available = r.final_result_json.is_some();
-                let activity_phase = r
-                    .activity_phase
-                    .as_deref()
-                    .map(ActivityPhase::try_from)
-                    .transpose()?;
-                let tool_category = r
-                    .tool_category
-                    .as_deref()
-                    .map(ToolCategory::try_from)
-                    .transpose()?;
-                match (r.last_activity_at, activity_phase, tool_category) {
-                    (None, None, None)
-                    | (Some(_), Some(ActivityPhase::Provider), None)
-                    | (Some(_), Some(ActivityPhase::Tool), Some(_)) => {}
-                    _ => return Err("Invalid persisted execution activity".into()),
+                    false
+                },
+                can_resume_pending: pending && !quarantined_pending,
+            };
+            let final_result = r
+                .final_result_json
+                .as_ref()
+                .filter(|_| include_result)
+                .map(|v| {
+                    serde_json::from_str(v).map_err(|e| format!("Invalid persisted result: {e}"))
+                })
+                .transpose()?;
+            let attention = if r.status == "unknown" || quarantined_pending {
+                "manual_resolution_required"
+            } else if pending {
+                "pending_explicit_resume"
+            } else {
+                "none"
+            };
+            let phase = match r.status.as_str() {
+                "dispatch_pending" => match r.dispatch_state.as_str() {
+                    "not_dispatched" => ProgressPhase::Pending,
+                    "dispatching" => ProgressPhase::Dispatching,
+                    "dispatched" => ProgressPhase::Running,
+                    "uncertain" => ProgressPhase::Reconciling,
+                    _ => {
+                        return Err(format!(
+                            "Invalid persisted dispatch state: {}",
+                            r.dispatch_state
+                        ));
+                    }
+                },
+                "running" | "cancel_requested" | "cancelling" => ProgressPhase::Running,
+                "finalizing" => ProgressPhase::Finalizing,
+                "reconciling" | "unknown" => ProgressPhase::Reconciling,
+                "completed" | "failed" | "cancelled" | "interrupted" => ProgressPhase::Terminal,
+                _ => return Err(format!("Invalid persisted execution status: {}", r.status)),
+            };
+            let result_available = r.final_result_json.is_some();
+            let activity_phase = r
+                .activity_phase
+                .as_deref()
+                .map(ActivityPhase::try_from)
+                .transpose()?;
+            let tool_category = r
+                .tool_category
+                .as_deref()
+                .map(ToolCategory::try_from)
+                .transpose()?;
+            match (r.last_activity_at, activity_phase, tool_category) {
+                (None, None, None)
+                | (Some(_), Some(ActivityPhase::Provider), None)
+                | (Some(_), Some(ActivityPhase::Tool), Some(_)) => {}
+                _ => return Err("Invalid persisted execution activity".into()),
+            }
+            let activity_age_ms = r
+                .last_activity_at
+                .map(|last| now().saturating_sub(last).max(0));
+            let silence_level = ActivitySilence::from_activity_age_ms(activity_age_ms);
+            let next_action = match attention {
+                "manual_resolution_required" => Some(NextAction::ManualResolution),
+                "pending_explicit_resume" => Some(NextAction::ResumePending),
+                _ if phase == ProgressPhase::Terminal
+                    && result_available
+                    && final_result.is_none() =>
+                {
+                    Some(NextAction::ReviewResult {
+                        include_result: true,
+                    })
                 }
-                let activity_age_ms = r
-                    .last_activity_at
-                    .map(|last| now().saturating_sub(last).max(0));
-                let silence_level = ActivitySilence::from_activity_age_ms(activity_age_ms);
-                let next_action = match attention {
-                    "manual_resolution_required" => Some(NextAction::ManualResolution),
-                    "pending_explicit_resume" => Some(NextAction::ResumePending),
-                    _ if phase == ProgressPhase::Terminal
-                        && result_available
-                        && final_result.is_none() =>
-                    {
-                        Some(NextAction::ReviewResult {
-                            include_result: true,
-                        })
-                    }
-                    _ if phase != ProgressPhase::Terminal => {
-                        Some(NextAction::Observe { wait_ms: 20_000 })
-                    }
-                    _ => None,
-                };
-                let mut view = ExecutionView {
-                    control: ControlReceipt::accepted(r, next_action.clone()),
-                    prompt: r.prompt.clone(),
-                    canonical_workspace_root: r.canonical_workspace_root.clone(),
-                    execution_id: r.id.clone(),
-                    agent_id: r.agent_id.clone(),
-                    workspace_id: r.workspace_id.clone(),
-                    status: r.status.clone(),
-                    dispatch_state: r.dispatch_state.clone(),
-                    thread_id: r.thread_id.clone(),
-                    thread_name: s.thread_name,
-                    turn_id: r.turn_id.clone(),
-                    provider_terminal_status: r.provider_terminal_status.clone(),
-                    error_code: r.error_code.as_ref().map(|code| match code.as_str() {
-                        "CODEX_TURN_ERROR" => code.clone(),
-                        "CODEX_PROVIDER_FAILURE" => code.clone(),
-                        "CODEX_PERMISSION_DENIED" => code.clone(),
-                        _ => "EXECUTION_DIAGNOSTIC".into(),
-                    }),
-                    error_message: execution_diagnostic_message(r),
-                    result_completeness: r.result_completeness.clone(),
-                    revision: String::new(),
-                    control_revision: String::new(),
-                    activity_revision: String::new(),
-                    runtime_instance_id: r.runtime_instance_id.clone(),
-                    owns_claim: s.owns_claim,
-                    unchanged: None,
-                    result_available,
-                    progress: Progress {
-                        phase,
-                        activity_phase,
-                        tool_category,
-                        last_activity_at: r.last_activity_at,
-                        activity_age_ms,
-                        silence_level,
-                    },
-                    next_action,
-                    final_result,
-                    interrupt_requested: r.interrupt_requested_at.is_some(),
-                    interrupt_acknowledged: r.interrupt_ack_at.is_some(),
-                    interrupt_timed_out: r.interrupt_timeout_at.is_some(),
-                    attention: attention.into(),
-                    available_actions: actions,
-                    created_at: s.created_at,
-                    updated_at: s.updated_at,
-                    completed_at: s.completed_at,
-                };
-                view.control_revision = view.control_revision();
-                view.revision = view.control_revision.clone();
-                view.activity_revision = view.activity_revision();
-                Ok(view)
-            })
-            .collect()
+                _ if phase != ProgressPhase::Terminal => {
+                    Some(NextAction::Observe { wait_ms: 20_000 })
+                }
+                _ => None,
+            };
+            let mut view = ExecutionView {
+                control: ControlReceipt::accepted(r, next_action.clone()),
+                prompt: r.prompt.clone(),
+                canonical_workspace_root: r.canonical_workspace_root.clone(),
+                execution_id: r.id.clone(),
+                agent_id: r.agent_id.clone(),
+                workspace_id: r.workspace_id.clone(),
+                provider: ProviderProduct::codex(),
+                status: r.status.clone(),
+                dispatch_state: r.dispatch_state.clone(),
+                thread_id: compatibility.thread_id,
+                thread_name: compatibility.thread_name,
+                turn_id: compatibility.turn_id,
+                provider_session_label: compatibility.provider_session_label,
+                provider_terminal_status: r.provider_terminal_status.clone(),
+                error_code: r.error_code.as_ref().map(|code| match code.as_str() {
+                    "CODEX_TURN_ERROR" => code.clone(),
+                    "CODEX_PROVIDER_FAILURE" => code.clone(),
+                    "CODEX_PERMISSION_DENIED" => code.clone(),
+                    _ => "EXECUTION_DIAGNOSTIC".into(),
+                }),
+                error_message: execution_diagnostic_message(r),
+                result_completeness: r.result_completeness.clone(),
+                revision: String::new(),
+                control_revision: String::new(),
+                activity_revision: String::new(),
+                runtime_instance_id: r.runtime_instance_id.clone(),
+                owns_claim: s.owns_claim,
+                unchanged: None,
+                result_available,
+                progress: Progress {
+                    phase,
+                    activity_phase,
+                    tool_category,
+                    last_activity_at: r.last_activity_at,
+                    activity_age_ms,
+                    silence_level,
+                },
+                next_action,
+                final_result,
+                interrupt_requested: r.interrupt_requested_at.is_some(),
+                interrupt_acknowledged: r.interrupt_ack_at.is_some(),
+                interrupt_timed_out: r.interrupt_timeout_at.is_some(),
+                attention: attention.into(),
+                available_actions: actions,
+                created_at: s.created_at,
+                updated_at: s.updated_at,
+                completed_at: s.completed_at,
+            };
+            view.control_revision = view.control_revision();
+            view.revision = view.control_revision.clone();
+            view.activity_revision = view.activity_revision();
+            views.push(view);
+        }
+        Ok(views)
     }
 }
 
@@ -730,11 +778,7 @@ fn execution_diagnostic_message(row: &super::store::ExecutionRecord) -> Option<S
     let raw = row.error_message.as_deref().unwrap_or("");
     let message = match code {
         "CODEX_TURN_ERROR" => {
-            let category = serde_json::from_str::<Value>(raw).ok()
-                .and_then(|v| serde_json::from_value::<super::codex::protocol::CodexErrorInfo>(v["error"]["codexErrorInfo"].clone()).ok())
-                .and_then(|v| serde_json::to_value(v).ok())
-                .and_then(|v| match v { Value::String(s) => Some(s), Value::Object(o) => o.keys().next().cloned(), _ => None })
-                .unwrap_or_else(|| "other".into());
+            let category = safe_turn_error_category(raw).unwrap_or("other");
             format!("{category}: Codex reported a turn diagnostic.")
         }
         "CODEX_PROVIDER_FAILURE" => match raw.split(':').next().unwrap_or("") {
@@ -759,6 +803,39 @@ fn execution_diagnostic_message(row: &super::store::ExecutionRecord) -> Option<S
         _ => "Execution diagnostic recorded; raw details withheld.".into(),
     };
     Some(message.chars().take(256).collect())
+}
+
+fn safe_turn_error_category(raw: &str) -> Option<&'static str> {
+    const SAFE_CATEGORIES: &[&str] = &[
+        "contextWindowExceeded",
+        "sessionBudgetExceeded",
+        "usageLimitExceeded",
+        "rateLimitExceeded",
+        "serverOverloaded",
+        "cyberPolicy",
+        "misalignmentPolicyViolation",
+        "internalServerError",
+        "unauthorized",
+        "badRequest",
+        "threadRollbackFailed",
+        "sandboxError",
+        "other",
+        "httpConnectionFailed",
+        "responseStreamConnectionFailed",
+        "responseStreamDisconnected",
+        "responseTooManyFailedAttempts",
+        "activeTurnNotSteerable",
+    ];
+    let value = serde_json::from_str::<Value>(raw).ok()?;
+    let category = match value.pointer("/error/codexErrorInfo")? {
+        Value::String(category) => category.as_str(),
+        Value::Object(fields) if fields.len() == 1 => fields.keys().next()?.as_str(),
+        _ => return None,
+    };
+    SAFE_CATEGORIES
+        .iter()
+        .copied()
+        .find(|safe| *safe == category)
 }
 
 #[cfg(test)]

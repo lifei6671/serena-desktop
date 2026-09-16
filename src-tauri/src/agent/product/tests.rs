@@ -82,6 +82,173 @@ async fn thread_names_are_shared_persistent_without_control_revision_change() {
 }
 
 #[tokio::test]
+async fn provider_opaque_compatibility_projects_legacy_fields_and_safe_session_label() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    store
+        .product_create_fresh(
+            "e".into(),
+            "a".into(),
+            "k".into(),
+            "prompt".into(),
+            "W".into(),
+            w(dir.path(), "W"),
+            10,
+        )
+        .await
+        .unwrap();
+    store.request_cancel("e".into(), 11).await.unwrap();
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute(
+        "UPDATE executions SET thread_id='THREAD', turn_id='TURN' WHERE id='e'",
+        [],
+    )
+    .unwrap();
+    let service = AgentProductService::new(store.clone());
+
+    let without_title =
+        serde_json::to_value(service.observe("e".into(), false).await.unwrap()).unwrap();
+    let assert_codex_provider = |view: &Value| {
+        assert_eq!(view["provider"]["id"], "codex");
+        assert_eq!(view["provider"]["displayName"], "Codex");
+        assert!(
+            view["provider"]["displayName"]
+                .as_str()
+                .is_some_and(|v| !v.is_empty())
+        );
+        assert!(view["provider"].get("version").is_none());
+    };
+    assert_codex_provider(&without_title);
+    assert_eq!(without_title["threadId"], "THREAD");
+    assert_eq!(without_title["threadName"], Value::Null);
+    assert_eq!(without_title["turnId"], "TURN");
+    assert_eq!(without_title["providerSessionLabel"], Value::Null);
+
+    store
+        .save_thread_name("THREAD".into(), Some("Safe persisted title".into()))
+        .await
+        .unwrap();
+    let with_title =
+        serde_json::to_value(service.observe("e".into(), false).await.unwrap()).unwrap();
+    assert_eq!(with_title["threadId"], "THREAD");
+    assert_eq!(with_title["threadName"], "Safe persisted title");
+    assert_eq!(with_title["turnId"], "TURN");
+    assert_eq!(with_title["providerSessionLabel"], "Safe persisted title");
+    assert_codex_provider(&with_title);
+
+    let observed = service
+        .checked_operation(
+            json!({"action":"observe","executionId":"e","waitMs":0}),
+            None,
+        )
+        .await;
+    assert_codex_provider(&observed["data"]);
+    let listed = service
+        .checked_operation(json!({"action":"list"}), None)
+        .await;
+    assert_codex_provider(&listed["data"]["executions"][0]);
+    let execution_response = success(ProductData::Execution(Box::new(
+        service.observe("e".into(), false).await.unwrap(),
+    )));
+    assert_codex_provider(&execution_response["data"]);
+}
+
+#[tokio::test]
+async fn provider_opaque_identity_does_not_change_control_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    store
+        .product_create_fresh(
+            "e".into(),
+            "a".into(),
+            "k".into(),
+            "prompt".into(),
+            "W".into(),
+            w(dir.path(), "W"),
+            10,
+        )
+        .await
+        .unwrap();
+    store.request_cancel("e".into(), 11).await.unwrap();
+    let service = AgentProductService::new(store.clone());
+    let before = service.observe("e".into(), false).await.unwrap();
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute(
+        "INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES ('RUNTIME','fixture','terminated',1,1)",
+        [],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE executions SET runtime_instance_id='RUNTIME', thread_id='THREAD', turn_id='TURN' WHERE id='e'",
+        [],
+    )
+    .unwrap();
+    let with_provider_identity = service.observe("e".into(), false).await.unwrap();
+    assert_eq!(
+        with_provider_identity.control_revision,
+        before.control_revision
+    );
+    assert_eq!(with_provider_identity.revision, before.revision);
+
+    store
+        .save_thread_name("THREAD".into(), Some("Safe persisted title".into()))
+        .await
+        .unwrap();
+    let with_session_label = service.observe("e".into(), false).await.unwrap();
+    assert_eq!(with_session_label.control_revision, before.control_revision);
+    assert_eq!(
+        with_session_label.provider_session_label.as_deref(),
+        Some("Safe persisted title")
+    );
+}
+
+#[test]
+fn provider_opaque_compatibility_is_the_only_product_projection_allowlist() {
+    let source = include_str!("../product.rs");
+    let control_revision = source
+        .split("fn control_revision(&self) -> String {")
+        .nth(1)
+        .unwrap()
+        .split("fn activity_revision(&self) -> String {")
+        .next()
+        .unwrap();
+    for identity in [
+        "runtime_instance_id",
+        "thread_id",
+        "thread_name",
+        "turn_id",
+        "provider_session_label",
+    ] {
+        assert!(
+            !control_revision.contains(identity),
+            "control revision must exclude {identity}"
+        );
+    }
+
+    let views = source.split("async fn views(").nth(1).unwrap();
+    assert!(views.contains("let compatibility = ProviderOpaqueCompatibility::project(&s);"));
+    for projection in [
+        "thread_id: compatibility.thread_id",
+        "thread_name: compatibility.thread_name",
+        "turn_id: compatibility.turn_id",
+        "provider_session_label: compatibility.provider_session_label",
+    ] {
+        assert!(views.contains(projection), "missing {projection}");
+    }
+    for direct_snapshot_identity in ["r.thread_id", "r.thread_name", "r.turn_id", "s.thread_name"] {
+        assert!(
+            !views.contains(direct_snapshot_identity),
+            "views must use the compatibility projector, not {direct_snapshot_identity}"
+        );
+    }
+    let private_thread_type = ["Codex", "Thread", "Info"].concat();
+    let private_error_type =
+        ["super::codex", "::protocol", "::", "Codex", "Error", "Info"].concat();
+    assert!(!source.contains(&private_thread_type));
+    assert!(!source.contains(&private_error_type));
+}
+
+#[tokio::test]
 async fn desktop_history_pages_are_read_only_stable_and_workspace_filtered() {
     let dir = tempfile::tempdir().unwrap();
     let store = StateStore::open(dir.path().into()).await.unwrap();
@@ -552,10 +719,10 @@ fn async_receipt_idempotency_and_exact_continuation() {
         assert!(first.available_actions.can_continue);
         let source = store.execution(id.clone()).await.unwrap().unwrap();
         assert_eq!(source.mode, "workspace_write");
-        assert!(continuation_eligible(&source));
+        assert!(continuation_core_eligible(&source));
         let mut legacy_provenance = source.clone();
         legacy_provenance.mode = "read_only".into();
-        assert!(!continuation_eligible(&legacy_provenance));
+        assert!(!continuation_core_eligible(&legacy_provenance));
         assert_eq!(
             s.checked_operation(start("a", "new"), None).await["error"]["code"],
             "AGENT_LINEAGE_CONFLICT"
@@ -579,6 +746,15 @@ fn async_receipt_idempotency_and_exact_continuation() {
         assert_eq!(r["ok"], true, "{r}");
         let id2 = r["data"]["executionId"].as_str().unwrap().to_string();
         assert_ne!(id, id2);
+        // An exact retry is resolved before Provider provenance validation. This
+        // fixture makes a fresh validation ineligible while retaining request hash bytes.
+        rusqlite::Connection::open(temp.path().join("agent-state.db"))
+            .unwrap()
+            .execute(
+                "UPDATE executions SET final_result_json=NULL WHERE id=?1",
+                [&id],
+            )
+            .unwrap();
         assert_eq!(
             s.checked_operation(req, None).await["data"]["executionId"],
             id2
@@ -610,6 +786,53 @@ fn async_receipt_idempotency_and_exact_continuation() {
         assert!(!methods.contains(&"thread/start".into()));
         assert_eq!(methods.iter().filter(|m| *m == "turn/start").count(), 1);
     });
+}
+
+#[test]
+fn continuation_core_and_product_action_filter_are_provider_opaque() {
+    let store_source = include_str!("../store/transactions/product.rs");
+    let start = store_source
+        .find("pub fn continuation_core_eligible")
+        .unwrap();
+    let end = store_source[start..]
+        .find("\n}\n\n/// Provider-opaque handoff")
+        .unwrap()
+        + start;
+    let core = &store_source[start..=end];
+    for forbidden in [
+        "codex",
+        "thread_id",
+        "turn_id",
+        "runtime_instance_id",
+        "final_result_json",
+        "historyMode",
+    ] {
+        assert!(!core.contains(forbidden), "core leaked {forbidden}");
+    }
+
+    let product_source = include_str!("../product.rs");
+    let start = product_source
+        .find("let actions = AvailableActions")
+        .unwrap();
+    let end = product_source[start..]
+        .find("\n            let final_result")
+        .unwrap()
+        + start;
+    let actions = &product_source[start..end];
+    for forbidden in [
+        "thread_id",
+        "turn_id",
+        "runtime_instance_id",
+        "final_result_json",
+        "historyMode",
+    ] {
+        assert!(
+            !actions.contains(forbidden),
+            "Product action filter leaked {forbidden}"
+        );
+    }
+    assert!(actions.contains("continuation_core_eligible"));
+    assert!(actions.contains(".can_continue("));
 }
 
 #[test]
@@ -1084,6 +1307,82 @@ fn unknown_reads_and_invalid_continuation_sources_are_fail_closed() {
 }
 
 #[test]
+fn concurrent_new_continue_keys_have_one_creation_winner() {
+    run(async {
+        let temp = tempfile::tempdir().unwrap();
+        let store = StateStore::open(temp.path().into()).await.unwrap();
+        let (source_service, release, source_fake) = fake_service(
+            store.clone(),
+            temp.path().join("agent-state.db"),
+            "SOURCE_RUNTIME",
+            "SOURCE_TURN",
+            false,
+            "paginated",
+        )
+        .await;
+        let source = source_service
+            .checked_operation(start("continue-lineage", "source"), w(temp.path(), "W"))
+            .await["data"]["executionId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        release.send(()).unwrap();
+        final_row(&source_service, &source).await;
+        drop(source_service);
+        source_fake.await.unwrap();
+
+        let (service, release, fake) = fake_service(
+            store,
+            temp.path().join("agent-state.db"),
+            "CONTINUE_RUNTIME",
+            "CONTINUE_TURN",
+            true,
+            "paginated",
+        )
+        .await;
+        let (first, second) = tokio::join!(
+            service.checked_operation(
+                json!({"action":"continue","executionId":source,"requestKey":"first","prompt":"first"}),
+                None,
+            ),
+            service.checked_operation(
+                json!({"action":"continue","executionId":source,"requestKey":"second","prompt":"second"}),
+                None,
+            )
+        );
+        assert_ne!(first["ok"], second["ok"]);
+        let (winner, loser) = if first["ok"] == true {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        assert!(
+            ["AGENT_BUSY", "AGENT_CONTINUE_NOT_ALLOWED"]
+                .contains(&loser["error"]["code"].as_str().unwrap()),
+            "{loser}"
+        );
+        release.send(()).unwrap();
+        final_row(&service, winner["data"]["executionId"].as_str().unwrap()).await;
+        drop(service);
+        let methods = fake.await.unwrap();
+        assert_eq!(
+            methods
+                .iter()
+                .filter(|method| *method == "thread/resume")
+                .count(),
+            1
+        );
+        assert_eq!(
+            methods
+                .iter()
+                .filter(|method| *method == "turn/start")
+                .count(),
+            1
+        );
+    });
+}
+
+#[test]
 fn concurrent_new_keys_create_only_one_lineage_worker() {
     run(async {
         let temp = tempfile::tempdir().unwrap();
@@ -1180,7 +1479,7 @@ fn concurrent_continuations_allow_only_one_new_turn() {
 #[test]
 fn production_startup_recovery_classifies_claims_before_service_publication() {
     run(async {
-        use crate::agent::task_manager::recovery::RecoveryOutcome;
+        use crate::agent::provider::port::ProviderReconcileKind;
         for case in ["pending", "terminated", "unknown"] {
             let temp = tempfile::tempdir().unwrap();
             let store = StateStore::open(temp.path().into()).await.unwrap();
@@ -1219,7 +1518,7 @@ fn production_startup_recovery_classifies_claims_before_service_publication() {
                 match case {
                     "pending" => {
                         assert!(
-                            matches!(&outcomes[0], RecoveryOutcome::PendingExplicitResume{execution_id} if execution_id=="startup-e")
+                            matches!(&outcomes[0], super::ProviderReconcileItem { subject_id, kind: ProviderReconcileKind::ExecutionPendingExplicitResume } if subject_id=="startup-e")
                         );
                         assert_eq!(row, before);
                         assert!(claim.is_some());
@@ -1233,7 +1532,13 @@ fn production_startup_recovery_classifies_claims_before_service_publication() {
                         );
                     }
                     "unknown" => {
-                        assert!(matches!(&outcomes[0], RecoveryOutcome::Unknown { .. }));
+                        assert!(matches!(
+                            &outcomes[0],
+                            super::ProviderReconcileItem {
+                                kind: ProviderReconcileKind::ExecutionUnknown,
+                                ..
+                            }
+                        ));
                         assert_eq!(row, before);
                         assert!(claim.is_some());
                         assert_eq!(
@@ -1266,7 +1571,7 @@ fn production_startup_recovery_classifies_claims_before_service_publication() {
 #[test]
 fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads() {
     run(async {
-        use crate::agent::task_manager::recovery::RecoveryOutcome;
+        use crate::agent::provider::port::ProviderReconcileKind;
         for code in ["BACKEND_UNAVAILABLE", "CODEX_APP_SERVER_INCOMPATIBLE"] {
             for case in ["pending", "unknown", "terminated", "needs-r2"] {
                 let temp = tempfile::tempdir().unwrap();
@@ -1327,7 +1632,10 @@ fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads
                     "pending" => {
                         assert!(matches!(
                             &outcomes[0],
-                            RecoveryOutcome::PendingExplicitResume { .. }
+                            super::ProviderReconcileItem {
+                                kind: ProviderReconcileKind::ExecutionPendingExplicitResume,
+                                ..
+                            }
                         ));
                         assert_eq!(before, after);
                         assert!(claim.is_some());
@@ -1344,19 +1652,39 @@ fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads
                         );
                     }
                     "unknown" => {
-                        assert!(matches!(&outcomes[0], RecoveryOutcome::Unknown { .. }));
+                        assert!(matches!(
+                            &outcomes[0],
+                            super::ProviderReconcileItem {
+                                kind: ProviderReconcileKind::ExecutionUnknown,
+                                ..
+                            }
+                        ));
                         assert_eq!(before, after);
                         assert!(claim.is_some());
                     }
                     "terminated" => {
-                        assert!(matches!(&outcomes[0], RecoveryOutcome::Interrupted { .. }));
+                        assert!(matches!(
+                            &outcomes[0],
+                            super::ProviderReconcileItem {
+                                kind: ProviderReconcileKind::ExecutionInterrupted,
+                                ..
+                            }
+                        ));
                         assert_eq!(after.status, "interrupted");
                         assert!(claim.is_none());
                     }
                     _ => {
-                        assert!(
-                            matches!(&outcomes[0],RecoveryOutcome::RuntimeFailure{failure,..} if failure.code==code)
-                        );
+                        if code == "CODEX_APP_SERVER_INCOMPATIBLE" {
+                            assert!(outcomes.is_empty());
+                        } else {
+                            assert!(matches!(
+                                &outcomes[0],
+                                super::ProviderReconcileItem {
+                                    kind: ProviderReconcileKind::ExecutionProviderFailure,
+                                    ..
+                                }
+                            ));
+                        }
                         assert!(claim.is_some());
                         assert_ne!(after.result_completeness, "complete");
                     }

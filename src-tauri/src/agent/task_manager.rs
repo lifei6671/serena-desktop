@@ -1,11 +1,32 @@
 //! Internal execution and exact-id cancellation entry points. No scheduler.
+#[cfg(test)]
+use super::codex::provider::CodexProvider;
 use super::{
-    codex::provider::CodexProvider,
+    codex::provider::register_codex_provider_with_discovery,
     coordinator::WorkspaceExecutionCoordinator,
     execution::{CreateExecutionInput, ExecutionMode, canonicalize_request},
-    store::{StateStore, transactions::CreateOutcome},
+    provider::{
+        ProviderCancelContext, ProviderError, ProviderErrorCode, ProviderExecutionContext,
+        ProviderId, ProviderStartupContext,
+        port::{
+            ProviderAcceptanceSink, ProviderContinuationContext, ProviderContinuationDecision,
+            ProviderExecutionFailure, ProviderReconcileItem,
+        },
+        registry::{ProviderHealth, ProviderRegistry},
+    },
+    store::{
+        StateStore,
+        transactions::{
+            CreateOutcome,
+            product::{ContinuationCandidate, ContinuationPreflight},
+        },
+    },
+    telemetry_projector::ExecutionTelemetryProjector,
 };
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 pub mod recovery;
 
@@ -16,19 +37,176 @@ pub struct AgentTaskManager {
     pub(crate) backend_error: Option<String>,
     owner: String,
     pub(crate) runtime_pool: std::sync::Arc<super::codex::pool::CodexRuntimePool>,
+    registry: Arc<Mutex<Option<Arc<ProviderRegistry>>>>,
     #[cfg(test)]
     pub(crate) test_handoff: Option<std::sync::Arc<(tokio::sync::Notify, tokio::sync::Notify)>>,
     #[cfg(test)]
     pub(crate) test_client: Option<(std::sync::Arc<super::codex::app_server::Client>, PathBuf)>,
 }
+
+enum AcceptanceState {
+    Pending(Option<tokio::sync::oneshot::Sender<Result<(), String>>>),
+    Accepted,
+    Closed,
+}
+
+struct HostAcceptanceSink(Mutex<AcceptanceState>);
+
+impl HostAcceptanceSink {
+    fn new(receipt: Option<tokio::sync::oneshot::Sender<Result<(), String>>>) -> Self {
+        Self(Mutex::new(AcceptanceState::Pending(receipt)))
+    }
+
+    fn is_accepted(&self) -> bool {
+        matches!(*self.0.lock().unwrap(), AcceptanceState::Accepted)
+    }
+
+    fn reject(&self, error: String) {
+        let receipt = {
+            let mut state = self.0.lock().unwrap();
+            match std::mem::replace(&mut *state, AcceptanceState::Closed) {
+                AcceptanceState::Pending(receipt) => receipt,
+                AcceptanceState::Accepted => {
+                    *state = AcceptanceState::Accepted;
+                    None
+                }
+                AcceptanceState::Closed => None,
+            }
+        };
+        if let Some(receipt) = receipt {
+            let _ = receipt.send(Err(error));
+        }
+    }
+}
+
+impl ProviderAcceptanceSink for HostAcceptanceSink {
+    fn accepted(&self) {
+        let receipt = {
+            let mut state = self.0.lock().unwrap();
+            match std::mem::replace(&mut *state, AcceptanceState::Accepted) {
+                AcceptanceState::Pending(receipt) => receipt,
+                AcceptanceState::Accepted => {
+                    *state = AcceptanceState::Accepted;
+                    None
+                }
+                AcceptanceState::Closed => {
+                    *state = AcceptanceState::Closed;
+                    None
+                }
+            }
+        };
+        if let Some(receipt) = receipt {
+            let _ = receipt.send(Ok(()));
+        }
+    }
+}
+
+fn provider_error_code(code: ProviderErrorCode) -> &'static str {
+    match code {
+        ProviderErrorCode::AgentProviderNotFound => "AGENT_PROVIDER_NOT_FOUND",
+        ProviderErrorCode::AgentProviderUnavailable => "AGENT_PROVIDER_UNAVAILABLE",
+        ProviderErrorCode::AgentProviderCapabilityUnsupported => {
+            "AGENT_PROVIDER_CAPABILITY_UNSUPPORTED"
+        }
+        ProviderErrorCode::AgentProviderContractError => "AGENT_PROVIDER_CONTRACT_ERROR",
+        ProviderErrorCode::AgentProviderOperationFailed => "AGENT_PROVIDER_OPERATION_FAILED",
+    }
+}
+
+fn provider_failure(error: ProviderError) -> ProviderExecutionFailure {
+    provider_error_code(error.code).to_string().into()
+}
+
+fn provider_id(value: String) -> Result<ProviderId, ProviderExecutionFailure> {
+    ProviderId::new(value)
+        .map_err(|_| ProviderExecutionFailure::State("AGENT_PROVIDER_CONTRACT_ERROR".to_string()))
+}
+
+fn continuation_provider_error(error: ProviderError) -> String {
+    match error.code {
+        ProviderErrorCode::AgentProviderNotFound
+        | ProviderErrorCode::AgentProviderCapabilityUnsupported => {
+            "AGENT_CONTINUE_NOT_ALLOWED".into()
+        }
+        code => provider_error_code(code).into(),
+    }
+}
+
 impl AgentTaskManager {
+    async fn validate_continuation_candidate(
+        &self,
+        candidate: &ContinuationCandidate,
+    ) -> Result<(), String> {
+        self.validate_continuation_source(&candidate.source_execution_id, &candidate.provider_id)
+            .await
+    }
+
+    async fn validate_continuation_source(
+        &self,
+        source_execution_id: &str,
+        provider_value: &str,
+    ) -> Result<(), String> {
+        let provider_id = ProviderId::new(provider_value.into())
+            .map_err(|_| "AGENT_CONTINUE_NOT_ALLOWED".to_string())?;
+        let provider = self
+            .registry()
+            .map_err(continuation_provider_error)?
+            .get_registered(&provider_id)
+            .map_err(continuation_provider_error)?;
+        if !provider.capabilities().can_continue {
+            return Err("AGENT_CONTINUE_NOT_ALLOWED".into());
+        }
+        match provider
+            .validate_continuation(ProviderContinuationContext {
+                source_execution_id: source_execution_id.into(),
+            })
+            .await
+            .map_err(continuation_provider_error)?
+        {
+            ProviderContinuationDecision::Eligible => Ok(()),
+            ProviderContinuationDecision::Ineligible => Err("AGENT_CONTINUE_NOT_ALLOWED".into()),
+        }
+    }
+
+    pub(crate) async fn can_continue(
+        &self,
+        source_execution_id: String,
+        provider_id: String,
+    ) -> bool {
+        self.validate_continuation_source(&source_execution_id, &provider_id)
+            .await
+            .is_ok()
+    }
+
     pub async fn cancel(
         &self,
         execution_id: &str,
     ) -> Result<super::store::ExecutionRecord, String> {
-        self.store
-            .request_cancel(execution_id.into(), super::coordinator::now())
+        let row = self
+            .store
+            .execution(execution_id.into())
+            .await?
+            .ok_or("EXECUTION_NOT_FOUND")?;
+        let provider_id = ProviderId::new(row.provider)
+            .map_err(|_| "AGENT_PROVIDER_CONTRACT_ERROR".to_string())?;
+        let provider = self
+            .registry()
+            .map_err(|error| provider_error_code(error.code).to_string())?
+            .get_registered(&provider_id)
+            .map_err(|error| provider_error_code(error.code).to_string())?;
+        if !provider.capabilities().can_cancel {
+            return Err("AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into());
+        }
+        provider
+            .cancel(ProviderCancelContext {
+                execution_id: execution_id.into(),
+            })
             .await
+            .map_err(|error| provider_error_code(error.code).to_string())?;
+        self.store
+            .execution(execution_id.into())
+            .await?
+            .ok_or_else(|| "EXECUTION_NOT_FOUND".into())
     }
     pub fn new(store: StateStore, executable: PathBuf) -> Self {
         Self {
@@ -37,11 +215,75 @@ impl AgentTaskManager {
             backend_error: None,
             owner: Self::id("host"),
             runtime_pool: Default::default(),
+            registry: Default::default(),
             #[cfg(test)]
             test_handoff: None,
             #[cfg(test)]
             test_client: None,
         }
+    }
+    fn build_registry(&self) -> Result<ProviderRegistry, ProviderError> {
+        let mut registry = ProviderRegistry::new();
+        let discovery = self
+            .backend_error
+            .clone()
+            .map_or_else(|| Ok(self.executable.clone()), Err);
+        register_codex_provider_with_discovery(
+            &mut registry,
+            self.store.clone(),
+            self.owner.clone(),
+            self.runtime_pool.clone(),
+            discovery,
+        )?;
+        Ok(registry)
+    }
+    fn registry(&self) -> Result<Arc<ProviderRegistry>, ProviderError> {
+        let mut current = self.registry.lock().unwrap();
+        if let Some(registry) = current.as_ref() {
+            return Ok(registry.clone());
+        }
+        let registry = Arc::new(self.build_registry()?);
+        *current = Some(registry.clone());
+        Ok(registry)
+    }
+    pub(crate) async fn reconcile_startup(&mut self) -> Result<Vec<ProviderReconcileItem>, String> {
+        let registry = self
+            .registry
+            .lock()
+            .unwrap()
+            .take()
+            .map_or_else(
+                || self.build_registry(),
+                |registry| {
+                    Arc::try_unwrap(registry).map_err(|_| ProviderError {
+                        code: ProviderErrorCode::AgentProviderContractError,
+                    })
+                },
+            )
+            .map_err(|error| provider_error_code(error.code).to_string())?;
+        let mut registry = registry;
+        let mut report = Vec::new();
+        for descriptor in registry.list_descriptors() {
+            let id = descriptor.id;
+            let provider = registry
+                .get_registered(&id)
+                .map_err(|error| provider_error_code(error.code).to_string())?;
+            if !provider.capabilities().can_recover {
+                continue;
+            }
+            match provider.startup_reconcile(ProviderStartupContext {}).await {
+                Ok(summary) => report.extend(summary.items),
+                Err(_) => registry
+                    .set_health(&id, ProviderHealth::Unavailable)
+                    .map_err(|error| provider_error_code(error.code).to_string())?,
+            }
+        }
+        *self.registry.lock().unwrap() = Some(Arc::new(registry));
+        Ok(report)
+    }
+    #[cfg(test)]
+    fn use_registry(&mut self, registry: ProviderRegistry) {
+        *self.registry.lock().unwrap() = Some(Arc::new(registry));
     }
     pub(crate) fn id(prefix: &str) -> String {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -58,6 +300,7 @@ impl AgentTaskManager {
     ) -> Result<CreateOutcome, String> {
         // One fresh read-only slice uses the already accepted client policy.
         if input.mode != ExecutionMode::ReadOnly
+            || input.parent_execution_id.is_some()
             || input.thread_id.is_some()
             || input.execution_profile != serde_json::json!({})
         {
@@ -72,7 +315,7 @@ impl AgentTaskManager {
     pub async fn execute(
         &self,
         input: CreateExecutionInput,
-    ) -> Result<CreateOutcome, super::codex::provider::ExecutionFailure> {
+    ) -> Result<CreateOutcome, ProviderExecutionFailure> {
         let mut outcome = self.create(input).await?;
         if !outcome.created {
             return Ok(outcome);
@@ -85,7 +328,7 @@ impl AgentTaskManager {
     pub async fn resume_pending_execution(
         &self,
         execution_id: &str,
-    ) -> Result<super::store::ExecutionRecord, super::codex::provider::ExecutionFailure> {
+    ) -> Result<super::store::ExecutionRecord, ProviderExecutionFailure> {
         self.dispatch_pending_execution(execution_id).await
     }
     pub(crate) async fn product_submit(
@@ -135,19 +378,47 @@ impl AgentTaskManager {
                     execution_id,
                     request_key,
                     prompt,
-                } => Some(
-                    manager
+                } => {
+                    let mut work = work;
+                    if let Some(context) = &mut work {
+                        if context
+                            .parent_execution_id
+                            .as_ref()
+                            .is_some_and(|parent| parent != &execution_id)
+                        {
+                            return Err("WORK_INVALID_ARGUMENT".to_string().into());
+                        }
+                        context.parent_execution_id = Some(execution_id.clone());
+                    }
+                    let candidate = match manager
                         .store
-                        .product_create_continuation_with_work(
-                            Self::id("execution"),
-                            execution_id,
-                            request_key,
-                            prompt,
-                            work,
-                            super::coordinator::now(),
+                        .product_continuation_preflight(
+                            execution_id.clone(),
+                            request_key.clone(),
+                            prompt.clone(),
+                            work.clone(),
                         )
-                        .await?,
-                ),
+                        .await?
+                    {
+                        ContinuationPreflight::Existing(id) => return Ok(id),
+                        ContinuationPreflight::Candidate(candidate) => candidate,
+                    };
+                    manager.validate_continuation_candidate(&candidate).await?;
+                    Some(
+                        manager
+                            .store
+                            .product_create_continuation_with_work(
+                                Self::id("execution"),
+                                execution_id,
+                                request_key,
+                                prompt,
+                                work,
+                                Some(candidate.source_revision),
+                                super::coordinator::now(),
+                            )
+                            .await?,
+                    )
+                }
                 Action::ResumePending { execution_id } => {
                     if let Some(error) = &manager.backend_error {
                         return Err(super::product::ProductError::new(
@@ -207,76 +478,128 @@ impl AgentTaskManager {
     async fn dispatch_pending_execution(
         &self,
         execution_id: &str,
-    ) -> Result<super::store::ExecutionRecord, super::codex::provider::ExecutionFailure> {
+    ) -> Result<super::store::ExecutionRecord, ProviderExecutionFailure> {
         self.dispatch_with_receipt(execution_id, None, false).await
     }
     async fn dispatch_with_receipt(
         &self,
         execution_id: &str,
-        mut receipt: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
-        continuation: bool,
-    ) -> Result<super::store::ExecutionRecord, super::codex::provider::ExecutionFailure> {
-        let mut provider = CodexProvider {
-            store: self.store.clone(),
-            executable: self.executable.clone(),
-            owner: self.owner.clone(),
-            runtime_pool: self.runtime_pool.clone(),
-        };
-        let backend_error = self.backend_error.clone();
+        receipt: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        _continuation: bool,
+    ) -> Result<super::store::ExecutionRecord, ProviderExecutionFailure> {
+        let manager = self.clone();
         let id = execution_id.to_owned();
-        #[cfg(test)]
-        let test_client = self.test_client.clone();
+        let backend_error = self.backend_error.clone();
+        let acceptance = Arc::new(HostAcceptanceSink::new(receipt));
+        let worker_acceptance = acceptance.clone();
         // The owned worker retains the permit even if its caller stops waiting.
         // Provider/ManagedClient continue to own Runtime and Job convergence.
-        tokio::spawn(async move {
+        let joined = tokio::spawn(async move {
             let admission = async {
-                let row = provider.store.execution(id.clone()).await?.ok_or("EXECUTION_NOT_FOUND")?;
-                provider.runtime_pool.check_workspace(&row.canonical_workspace_root)?;
-                provider.store.guard_pending_dispatch(id.clone()).await
-            }.await;
-            let permit = admission;
-            let _permit = match permit {
-                Ok(p)=>p,
-                Err(e)=>{if let Some(receipt)=receipt {let _=receipt.send(Err(e.clone()));}return Err(e.into());}
-            };
-            if let Some(error) = backend_error {
-                provider.failed(&id).await?;
-                if let Some(receipt) = receipt { let _ = receipt.send(Err(error.clone())); }
-                return Err(error.into());
+                let row = manager
+                    .store
+                    .execution(id.clone())
+                    .await?
+                    .ok_or_else(|| "EXECUTION_NOT_FOUND".to_string())?;
+                let permit = manager.store.guard_pending_dispatch(id.clone()).await?;
+                Ok::<_, ProviderExecutionFailure>((row, permit))
             }
-            if provider.executable.as_os_str().is_empty() {
-                match super::codex::discovery::discover().await {
-                    Ok(path)=>provider.executable=path,
-                    Err(e)=>{
-                        let diagnostic=match provider.failed(&id).await{Ok(())=>e,Err(state)=>format!("{e}; reconciliation persistence: {state}")};
-                        if let Some(receipt)=receipt {let _=receipt.send(Err(diagnostic.clone()));}
-                        return Err(diagnostic.into());
-                    }
-                }
-            }
-            if !continuation && let Some(receipt)=receipt.take() {let _=receipt.send(Ok(()));}
-            let result = async {
+            .await?;
+            let (row, _permit) = admission;
+            let provider_id = provider_id(row.provider)?;
+            let provider = manager
+                .registry()
+                .map_err(provider_failure)?
+                .get(&provider_id)
+                .map_err(provider_failure)?;
+            let telemetry = Arc::new(ExecutionTelemetryProjector::new(manager.store.clone(), id.clone()));
+
             #[cfg(test)]
-            if let Some((client, database)) = test_client {
+            if let Some((client, database)) = manager.test_client.clone() {
                 // Test-only Runtime creation boundary; reuse the TASK-006 Fake wire pipeline.
                 rusqlite::Connection::open(database).unwrap().execute(
                     "INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES (?1,'fixture','running',1,1)",
                     [client.runtime_id()],
                 ).unwrap();
-                client.initialize().await.map_err(|e| super::codex::provider::ExecutionFailure::State(e.to_string()))?;
-                return provider.run_client_with_acceptance(&id, &client, &mut receipt).await.map_err(super::codex::provider::ExecutionFailure::State);
-            }
-            provider.execute_with_acceptance(&id, &mut receipt).await
-            }.await;
-            if let Some(receipt) = receipt {
-                let error = match &result {
-                    Err(super::codex::provider::ExecutionFailure::State(e)) => e.clone(),
-                    Err(super::codex::provider::ExecutionFailure::Runtime(e)) => format!("{}: {}", e.code, e.message),
-                    Ok(_) => "AGENT_CONTINUE_NOT_ALLOWED: execution ended before acceptance".into(),
+                client
+                    .initialize()
+                    .await
+                    .map_err(|e| ProviderExecutionFailure::State(e.to_string()))?;
+                let provider = CodexProvider {
+                    store: manager.store.clone(),
+                    executable: manager.executable.clone(),
+                    backend_error: manager.backend_error.clone(),
+                    owner: manager.owner.clone(),
+                    runtime_pool: manager.runtime_pool.clone(),
                 };
-                let _ = receipt.send(Err(error));
+                return provider
+                    .run_client_with_acceptance_and_telemetry(
+                        &id,
+                        &client,
+                        worker_acceptance.as_ref(),
+                        telemetry.as_ref(),
+                    )
+                    .await
+                    .map_err(ProviderExecutionFailure::State);
             }
-            result
-        }).await.map_err(|e| super::codex::provider::ExecutionFailure::State(e.to_string()))?
+
+            let run = provider
+                .execute(
+                    ProviderExecutionContext {
+                        execution_id: id.clone(),
+                    },
+                    worker_acceptance,
+                    telemetry,
+                )
+                .await?;
+            if run.execution_id != id {
+                return Err(ProviderExecutionFailure::State(
+                    "AGENT_PROVIDER_CONTRACT_ERROR".into(),
+                ));
+            }
+            manager
+                .store
+                .execution(id)
+                .await?
+                .ok_or_else(|| "EXECUTION_NOT_FOUND".to_string().into())
+        })
+        .await;
+        let result = match joined {
+            Ok(result) => result,
+            Err(_) => {
+                acceptance.reject("AGENT_PROVIDER_CONTRACT_ERROR".into());
+                return Err(ProviderExecutionFailure::State(
+                    "AGENT_PROVIDER_CONTRACT_ERROR".into(),
+                ));
+            }
+        };
+
+        match result {
+            Ok(row) if acceptance.is_accepted() => Ok(row),
+            Ok(_) => {
+                acceptance.reject("AGENT_PROVIDER_CONTRACT_ERROR".into());
+                Err(ProviderExecutionFailure::State(
+                    "AGENT_PROVIDER_CONTRACT_ERROR".into(),
+                ))
+            }
+            Err(error) => {
+                let receipt_error = match &error {
+                    ProviderExecutionFailure::State(error)
+                        if error == "AGENT_PROVIDER_UNAVAILABLE" =>
+                    {
+                        backend_error.unwrap_or_else(|| error.clone())
+                    }
+                    ProviderExecutionFailure::State(error) => error.clone(),
+                    ProviderExecutionFailure::Runtime { code, message } => {
+                        format!("{code}: {message}")
+                    }
+                };
+                acceptance.reject(receipt_error);
+                Err(error)
+            }
+        }
     }
 }
+
+#[cfg(test)]
+mod tests;

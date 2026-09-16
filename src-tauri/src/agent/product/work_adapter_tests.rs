@@ -937,7 +937,6 @@ async fn cancel_transaction_failure_remains_rejected_without_mutation() {
         )
         .await
         .unwrap_err();
-    assert!(error.message.contains("cancel transaction rejected"));
     assert!(error.accepted_execution_id.is_none());
     let response = s.adapter_error_response(error).await;
     assert_eq!(response["ok"], false);

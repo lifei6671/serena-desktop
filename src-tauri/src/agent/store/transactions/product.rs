@@ -2,6 +2,7 @@
 use super::*;
 use crate::agent::execution::{
     CreateExecutionInput, ExecutionMode, Provider, canonicalize_request,
+    legacy_pre_c2_continuation_hash,
 };
 
 mod work;
@@ -31,31 +32,33 @@ pub struct ControlContext {
     pub related_unknown: bool,
     pub blocker_id: Option<String>,
 }
-pub fn continuation_eligible(row: &ExecutionRecord) -> bool {
+/// Product-owned lifecycle eligibility. Provider provenance remains behind the
+/// Provider port; P1-008C2 intentionally retains legacy request identity.
+pub fn continuation_core_eligible(row: &ExecutionRecord) -> bool {
     if !matches!(
         row.status.as_str(),
         "completed" | "failed" | "cancelled" | "interrupted"
     ) || row.release_evidence_state != "complete"
-        || row.provider != "codex"
         || row.mode != "workspace_write"
         || row.execution_profile_json != "{}"
-        || row.thread_id.as_deref().is_none_or(str::is_empty)
-        || row.turn_id.as_deref().is_none_or(str::is_empty)
-        || row.runtime_instance_id.as_deref().is_none_or(str::is_empty)
     {
         return false;
     }
-    // Managed provenance comes from the sealed, persisted result, never caller input.
-    row.final_result_json
-        .as_ref()
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-        .is_some_and(|v| {
-            v["historyMode"] == "paginated"
-                && v["executionId"].as_str() == Some(row.id.as_str())
-                && v["turnId"].as_str() == row.turn_id.as_deref()
-                && v["threadId"].as_str() == row.thread_id.as_deref()
-                && v["sourceRuntimeId"].as_str() == row.runtime_instance_id.as_deref()
-        })
+    true
+}
+
+/// Provider-opaque handoff after Store-owned retry and lifecycle checks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ContinuationCandidate {
+    pub source_execution_id: String,
+    pub provider_id: String,
+    pub source_revision: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ContinuationPreflight {
+    Existing(String),
+    Candidate(ContinuationCandidate),
 }
 fn key(c: &Connection, agent: &str, request: &str) -> Result<Option<ExecutionRecord>, String> {
     let id: Option<String> = c
@@ -77,6 +80,7 @@ fn input(
     row: &ExecutionRecord,
     key: String,
     prompt: String,
+    parent_execution_id: Option<String>,
     thread: Option<String>,
 ) -> Result<CreateExecutionInput, String> {
     Ok(CreateExecutionInput {
@@ -90,6 +94,7 @@ fn input(
         provider: serde_json::from_value(serde_json::json!(row.provider))
             .map_err(|e| e.to_string())?,
         mode: serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?,
+        parent_execution_id,
         thread_id: thread,
     })
 }
@@ -106,7 +111,95 @@ fn prior_outcome(
         created: false,
     })
 }
+
+/// The only pre-C2 compatibility path. A v6 row has an explicit parent and is
+/// always compared through current canonicalization; only a NULL parent plus an
+/// exact persisted old hash may retry through the old source-thread tuple.
+fn continuation_prior_outcome(
+    prior: ExecutionRecord,
+    source: &ExecutionRecord,
+    request: &CanonicalRequest,
+) -> Result<CreateOutcome, String> {
+    match prior_outcome(prior.clone(), request) {
+        Ok(outcome) => Ok(outcome),
+        Err(error) if prior.parent_execution_id.is_none() => {
+            if prior.request_hash
+                == legacy_pre_c2_continuation_hash(request.input(), &source.thread_id)?
+            {
+                Ok(CreateOutcome {
+                    execution_id: prior.id.clone(),
+                    execution: prior,
+                    created: false,
+                })
+            } else {
+                Err(error)
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
 impl StateStore {
+    /// Resolves an exact retry before Provider validation. The canonical request
+    /// uses the source execution ID as generic continuation request identity.
+    pub(crate) async fn product_continuation_preflight(
+        &self,
+        source: String,
+        request_key: String,
+        prompt: String,
+        work: Option<WorkExecutionContext>,
+    ) -> Result<ContinuationPreflight, String> {
+        self.read(move |c| {
+            let tx = c.unchecked_transaction()?;
+            Ok((|| -> Result<ContinuationPreflight, String> {
+                if let Some(work) = &work {
+                    require_membership(&tx, &source, &work.work_run_id)?;
+                }
+                let row = execution_record(&tx, &source)
+                    .map_err(|e| e.to_string())?
+                    .ok_or("EXECUTION_NOT_FOUND")?;
+                let request = canonicalize_request(input(
+                    &row,
+                    request_key.clone(),
+                    prompt,
+                    Some(row.id.clone()),
+                    None,
+                )?)?;
+                if let Some(prior) = key(&tx, &row.agent_id, &request_key)? {
+                    if let Some(work) = &work {
+                        require_retry_context(&tx, &prior.id, work)?;
+                    }
+                    return Ok(ContinuationPreflight::Existing(
+                        continuation_prior_outcome(prior, &row, &request)?.execution_id,
+                    ));
+                }
+                if let Some(work) = &work {
+                    validate_new_work(
+                        &tx,
+                        work,
+                        &request.input().workspace_id,
+                        Some(&request.input().canonical_workspace_root),
+                    )?;
+                }
+                let claimed: bool = tx
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM workspace_claims WHERE execution_id=?1)",
+                        [&source],
+                        |r| r.get(0),
+                    )
+                    .map_err(|e| e.to_string())?;
+                if !continuation_core_eligible(&row) || claimed {
+                    return Err("AGENT_CONTINUE_NOT_ALLOWED".into());
+                }
+                Ok(ContinuationPreflight::Candidate(ContinuationCandidate {
+                    source_execution_id: row.id,
+                    provider_id: row.provider,
+                    source_revision: row.revision,
+                }))
+            })())
+        })
+        .await?
+    }
+
     /// Desktop history cursor: creation time plus exact identity, never OFFSET.
     pub async fn product_history_ids(
         &self,
@@ -136,7 +229,7 @@ impl StateStore {
                 let (agent, root) = match action {
                     Action::Start { agent_id, request_key, prompt, workspace_id } => {
                         if let Some(row) = key(&tx, &agent_id, &request_key)? {
-                            let request = canonicalize_request(input(&row, request_key, prompt, None)?)?;
+                            let request = canonicalize_request(input(&row, request_key, prompt, None, None)?)?;
                             if row.workspace_id == workspace_id && row.request_hash == request.request_hash() { context.accepted_id = Some(row.id); }
                         }
                         if let Some((id, status)) = tx.query_row("SELECT id,status FROM executions WHERE agent_id=?1 ORDER BY created_at DESC,id DESC LIMIT 1", [&agent_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).optional().map_err(|e| e.to_string())? {
@@ -147,9 +240,9 @@ impl StateStore {
                     }
                     Action::Continue { execution_id, request_key, prompt } => {
                         if let Some(row) = execution_record(&tx, &execution_id).map_err(|e| e.to_string())? {
-                            let request = canonicalize_request(input(&row, request_key.clone(), prompt, row.thread_id.clone())?)?;
+                            let request = canonicalize_request(input(&row, request_key.clone(), prompt, Some(row.id.clone()), None)?)?;
                             if let Some(prior) = key(&tx, &row.agent_id, &request_key)?
-                                && prior.request_hash == request.request_hash() { context.accepted_id = Some(prior.id); }
+                                && let Ok(outcome) = continuation_prior_outcome(prior, &row, &request) { context.accepted_id = Some(outcome.execution_id); }
                             context.related_unknown = row.status == "unknown";
                             context.related_id = Some(row.id);
                             (Some(row.agent_id), Some(row.canonical_workspace_root))
@@ -220,7 +313,7 @@ impl StateStore {
                 if row.workspace_id != expected_workspace_id {
                     return Err("EXECUTION_REQUEST_KEY_CONFLICT".into());
                 }
-                let request = canonicalize_request(input(&row, request_key, prompt, None)?)?;
+                let request = canonicalize_request(input(&row, request_key, prompt, None, None)?)?;
                 if let Some(work) = &work {
                     require_retry_context(tx, &row.id, work)?;
                 }
@@ -256,13 +349,15 @@ impl StateStore {
                 canonical_workspace_root: w.root,
                 provider: Provider::Codex,
                 mode: ExecutionMode::WorkspaceWrite,
+                parent_execution_id: None,
                 thread_id: None,
             })?;
             create_with_work(tx, &id, &request, work.as_ref(), now)
         })
         .await
     }
-    pub async fn product_create_continuation(
+    #[cfg(test)]
+    pub(crate) async fn product_create_continuation(
         &self,
         id: String,
         source: String,
@@ -270,7 +365,7 @@ impl StateStore {
         prompt: String,
         now: i64,
     ) -> Result<CreateOutcome, String> {
-        self.product_create_continuation_with_work(id, source, request_key, prompt, None, now)
+        self.product_create_continuation_with_work(id, source, request_key, prompt, None, None, now)
             .await
     }
 
@@ -281,6 +376,7 @@ impl StateStore {
         request_key: String,
         prompt: String,
         mut work: Option<WorkExecutionContext>,
+        expected_source_revision: Option<i64>,
         now: i64,
     ) -> Result<CreateOutcome, String> {
         self.write(move |tx| {
@@ -303,13 +399,17 @@ impl StateStore {
                 &row,
                 request_key.clone(),
                 prompt,
-                row.thread_id.clone(),
+                Some(row.id.clone()),
+                None,
             )?)?;
             if let Some(prior) = key(tx, &row.agent_id, &request_key)? {
                 if let Some(work) = &work {
                     require_retry_context(tx, &prior.id, work)?;
                 }
-                return prior_outcome(prior, &request);
+                return continuation_prior_outcome(prior, &row, &request);
+            }
+            if expected_source_revision.is_some_and(|revision| row.revision != revision) {
+                return Err("AGENT_CONTINUE_NOT_ALLOWED".into());
             }
             if let Some(work) = &work {
                 validate_new_work(
@@ -326,7 +426,7 @@ impl StateStore {
                     |r| r.get(0),
                 )
                 .map_err(|e| e.to_string())?;
-            if !continuation_eligible(&row) || claimed {
+            if !continuation_core_eligible(&row) || claimed {
                 return Err("AGENT_CONTINUE_NOT_ALLOWED".into());
             }
             create_with_work(tx, &id, &request, work.as_ref(), now)

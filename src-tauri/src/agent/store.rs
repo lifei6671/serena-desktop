@@ -13,6 +13,7 @@ const SCHEMA_V2: &str =
 const SCHEMA_V4: &str = include_str!("schema_v4.sql");
 const SCHEMA_V3: &str = include_str!("schema_v3.sql");
 const SCHEMA_V5: &str = include_str!("schema_v5.sql");
+const SCHEMA_V6: &str = include_str!("schema_v6.sql");
 
 mod work_runs;
 pub use work_runs::{WorkExecutionLinkRecord, WorkRunRecord};
@@ -45,6 +46,7 @@ pub struct ExecutionRecord {
     pub canonical_workspace_root: String,
     pub provider: String,
     pub mode: String,
+    pub parent_execution_id: Option<String>,
     pub thread_id: Option<String>,
     pub turn_id: Option<String>,
     pub provider_terminal_status: Option<String>,
@@ -280,7 +282,7 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
             }
             apply_migration(&transaction, 1, SCHEMA_V1).map_err(|e| e.to_string())?;
         }
-        1..=5 => {}
+        1..=6 => {}
         _ => return Err(format!("unsupported agent state schema version: {version}")),
     }
     if version < 2 {
@@ -294,6 +296,9 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     }
     if version < 5 {
         apply_migration(&transaction, 5, SCHEMA_V5).map_err(|e| e.to_string())?;
+    }
+    if version < 6 {
+        apply_migration(&transaction, 6, SCHEMA_V6).map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())
 }
@@ -315,8 +320,8 @@ fn insert_execution(
     transaction.execute(
         "INSERT INTO executions (id, agent_id, request_key, request_hash, prompt,
          execution_profile_json, workspace_id, canonical_workspace_root, provider, mode,
-         thread_id, status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'codex', ?9, ?10, 'dispatch_pending', ?11, ?11)",
+         parent_execution_id, thread_id, status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'codex', ?9, ?10, ?11, 'dispatch_pending', ?12, ?12)",
         params![
             id,
             input.agent_id,
@@ -330,6 +335,7 @@ fn insert_execution(
                 ExecutionMode::ReadOnly => "read_only",
                 ExecutionMode::WorkspaceWrite => "workspace_write",
             },
+            input.parent_execution_id,
             input.thread_id,
             created_at
         ],
@@ -346,7 +352,7 @@ pub mod transactions;
 fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<ExecutionRecord>> {
     c.query_row(
             "SELECT id, agent_id, request_key, request_hash, prompt, execution_profile_json,
-             workspace_id, canonical_workspace_root, provider, mode, thread_id,
+             workspace_id, canonical_workspace_root, provider, mode, parent_execution_id, thread_id,
              runtime_instance_id, status, dispatch_state, revision, background_cleanup_state,
              release_evidence_state, release_evidence_kind, release_evidence_json, result_completeness, turn_id, provider_terminal_status, provider_terminal_evidence_runtime_instance_id, final_result_json
              , interrupt_requested_at, interrupt_ack_at, interrupt_timeout_at, interrupt_diagnostic, provider_terminal_evidence_at, error_code, error_message,
@@ -355,14 +361,14 @@ fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<Executi
                 id: r.get(0)?, agent_id: r.get(1)?, request_key: r.get(2)?, request_hash: r.get(3)?,
                 prompt: r.get(4)?, execution_profile_json: r.get(5)?, workspace_id: r.get(6)?,
                 canonical_workspace_root: r.get(7)?, provider: r.get(8)?, mode: r.get(9)?,
-                thread_id: r.get(10)?, runtime_instance_id: r.get(11)?, status: r.get(12)?,
-                dispatch_state: r.get(13)?, revision: r.get(14)?, background_cleanup_state: r.get(15)?,
-                release_evidence_state: r.get(16)?, release_evidence_kind: r.get(17)?,
-                release_evidence_json: r.get(18)?, result_completeness: r.get(19)?, turn_id: r.get(20)?, provider_terminal_status: r.get(21)?, provider_terminal_evidence_runtime_instance_id: r.get(22)?, final_result_json: r.get(23)?,
-                interrupt_requested_at: r.get(24)?, interrupt_ack_at: r.get(25)?,
-                interrupt_timeout_at: r.get(26)?, interrupt_diagnostic: r.get(27)?,
-                 provider_terminal_evidence_at: r.get(28)?,
-                 error_code: r.get(29)?, error_message: r.get(30)?,
-                 last_activity_at: r.get(31)?, activity_phase: r.get(32)?, tool_category: r.get(33)?,
+                parent_execution_id: r.get(10)?, thread_id: r.get(11)?, runtime_instance_id: r.get(12)?, status: r.get(13)?,
+                dispatch_state: r.get(14)?, revision: r.get(15)?, background_cleanup_state: r.get(16)?,
+                release_evidence_state: r.get(17)?, release_evidence_kind: r.get(18)?,
+                release_evidence_json: r.get(19)?, result_completeness: r.get(20)?, turn_id: r.get(21)?, provider_terminal_status: r.get(22)?, provider_terminal_evidence_runtime_instance_id: r.get(23)?, final_result_json: r.get(24)?,
+                interrupt_requested_at: r.get(25)?, interrupt_ack_at: r.get(26)?,
+                interrupt_timeout_at: r.get(27)?, interrupt_diagnostic: r.get(28)?,
+                 provider_terminal_evidence_at: r.get(29)?,
+                 error_code: r.get(30)?, error_message: r.get(31)?,
+                 last_activity_at: r.get(32)?, activity_phase: r.get(33)?, tool_category: r.get(34)?,
              })).optional()
 }

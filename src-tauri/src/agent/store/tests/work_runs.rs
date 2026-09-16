@@ -24,7 +24,7 @@ fn legacy_database(c: &mut Connection, version: i64) {
         }
     }
     c.pragma_update(None, "user_version", version).unwrap();
-    insert(c, "legacy", "agent", "root");
+    insert_pre_v6(c, "legacy", "agent", "root", None);
     runtime(c, "legacy-runtime");
     c.execute(
         "UPDATE executions SET runtime_instance_id='legacy-runtime', status='unknown',
@@ -48,7 +48,7 @@ fn v4_upgrade_preserves_complete_execution_claim_and_existing_schema() {
         "SELECT * FROM executions ORDER BY id",
         "SELECT * FROM workspace_claims ORDER BY canonical_workspace_root",
         "SELECT * FROM runtime_instances ORDER BY id",
-        "SELECT * FROM sqlite_schema ORDER BY name",
+        "SELECT name FROM sqlite_schema ORDER BY name",
     ];
     let before: Vec<_> = queries.iter().map(|sql| snapshot(&c, sql)).collect();
     drop(c);
@@ -59,10 +59,16 @@ fn v4_upgrade_preserves_complete_execution_claim_and_existing_schema() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
                 .unwrap(),
-            5
+            6
         );
-        for (sql, expected) in queries[..3].iter().zip(&before[..3]) {
-            assert_eq!(&snapshot(&c, sql), expected, "{sql}");
+        for (index, (sql, expected)) in queries[..3].iter().zip(&before[..3]).enumerate() {
+            let mut expected = expected.clone();
+            if index == 0 {
+                for row in &mut expected {
+                    row.push(Value::Null);
+                }
+            }
+            assert_eq!(snapshot(&c, sql), expected, "{sql}");
         }
         let schema = snapshot(&c, queries[3]);
         for row in &before[3] {
