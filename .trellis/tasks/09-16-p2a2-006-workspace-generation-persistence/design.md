@@ -1,8 +1,8 @@
-# Design — P2A2-006 Execution Workspace Generation Migration
+# Design — P2A2-006 Execution Workspace Generation Persistence / Migration Compatibility
 
 ## Boundary
 
-This task extends only the internal frozen Workspace identity carried by Work and Execution. The existing entry points retain their present Authority: `WorkProductService::update(Begin)` still receives a legacy `WorkspaceSnapshot`, and no MCP Workspace routing changes.
+This task is persistence and compatibility only. It validates the internal frozen generation field carried by persisted records and does not construct a `WorkspaceSnapshot`, select a workspace, or route a request. P2A2-007 solely owns Start Authority cutover; P2A2-008 solely owns Continue inheritance.
 
 ## Persistent model
 
@@ -10,10 +10,10 @@ Schema v7 adds non-null `workspace_generation INTEGER NOT NULL DEFAULT 1 CHECK(w
 
 ## Identity and idempotency
 
-`WorkspaceSnapshot`, execution input/record, and work-run record carry a nonzero `u64` generation. Work/Execution consistency compares all three identity members.
+Execution input/record and work-run record carry a nonzero `u64` generation. Persisted-record consistency compares the frozen identity members without obtaining a snapshot from an ambient authority.
 
-New requests hash a frozen `execution-request-v2` tuple containing generation. Stored historical v1 hashes are retried only if the row's migrated generation equals the input generation. Pre-C2 continuation fallback remains only for a parentless row and never receives the new field.
+The frozen `execution-request-v2` tuple contains generation. Stored historical hash compatibility remains guarded by the persisted row's generation and existing identity conditions; this task validates that storage-level compatibility only and does not own a continuation route.
 
 ## Exclusions
 
-No public DTO/source schema, WorkspaceResolver, routing Authority, Registry generation rules, claim key, runtime/evidence/recovery behavior, or dependency changes.
+No Begin, Start, or Continue Workspace snapshot construction; no Global ActiveWorkspace, DesktopSelectedWorkspace, session, or last-request fallback; no public DTO/source schema, WorkspaceResolver, routing Authority, Registry generation rules, claim key, runtime/evidence/recovery behavior, or dependency changes.

@@ -1,8 +1,8 @@
-# Implementation Plan — P2A2-006 Execution Workspace Generation Migration
+# Implementation Plan — P2A2-006 Execution Workspace Generation Persistence / Migration Compatibility
 
-1. Inspect existing v6 migrations, frozen identity, request hash, Work transaction, and focused test conventions; retain the supplied source hashes as pre-change reference.
-2. Add transactional v7 migration and store registration/tests, including migration matrix and raw SQL checks.
-3. Propagate generation across execution/work-run persistence and validate nonzero input plus triple consistency.
-4. Implement v2 hashing with narrowly guarded legacy v1/pre-C2 compatibility and regression coverage.
-5. Propagate the new field at snapshot construction sites without changing Authority; add Begin/Start/Continue behavior tests.
-6. Run requested targeted tests, scoped rustfmt check, locked library check, diff checks, then a read-only full-scope delivery review. Do not commit or push.
+1. Inspect the `14bec7a` v7 migration, record persistence, hash compatibility, and focused test baseline; confirm no task-owned source drift.
+2. Verify transactional v7 migration, raw SQL constraints, old-database upgrade, restart, and fixture coverage.
+3. Verify nonzero generation persistence/readback and the frozen persisted-identity compatibility guards.
+4. Verify v2 hash participation and narrowly guarded historical compatibility without rewriting stored hashes or dispatching a provider.
+5. Record that Begin/Start snapshot construction belongs only to P2A2-007 and Continue inheritance only to P2A2-008; do not edit either route here.
+6. Run targeted migration/persistence/compatibility tests, scoped formatting, locked library check, and diff checks. Do not commit or push.

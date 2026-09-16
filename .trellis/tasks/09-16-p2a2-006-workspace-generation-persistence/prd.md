@@ -1,24 +1,25 @@
-# P2A2-006 Execution Workspace Generation Migration
+# P2A2-006 Execution Workspace Generation Persistence / Migration Compatibility
 
 ## Goal
 
-Persist frozen workspace generation for Work and Execution identity with schema v7 and request-key compatibility.
+Validate the already implemented frozen `workspace_generation` persistence, schema migration, and request-key compatibility. This task owns no Workspace Authority routing or snapshot construction.
 
 ## Requirements
 
-- Add schema v7 with checked, nonzero `workspace_generation` columns on `executions` and `work_runs`; migrate historical rows to `1` atomically without touching existing identity, hash, claim, runtime, or evidence fields.
-- Freeze and persist `{workspace_id, canonical_workspace_root, workspace_generation}` for Work and Execution creation, retrieval, and continuation.
-- Reject generation `0` using the existing invalid-request style; require all production creation paths to pass a generation explicitly.
-- Upgrade new request-key hashes to the frozen v2 tuple including generation while accepting exact legacy v1 and pre-C2 continuation hashes only under the specified identity guards.
-- Preserve current legacy ActiveWorkspace Authority for Work/Agent routing. Do not alter public MCP DTOs, WorkspaceResolver semantics, Source/Agent schemas, recovery/runtime/capability contracts, dependencies, frontend, commits, or pushes.
+- Verify schema v7 checked, nonzero `workspace_generation` columns on `executions` and `work_runs`, including atomic historical upgrade to generation `1` without rewriting existing identity, hash, claim, runtime, or evidence facts.
+- Verify a new Execution record persists and reads generation exactly; validate generation `0` rejection and existing persisted identity consistency checks.
+- Verify old-database upgrade, restart, fixtures, and narrowly guarded legacy request-key compatibility. When generation participates in the frozen persisted hash contract, validate the applicable version and compatibility guard.
+- For historical nonterminal Executions, accept only migration from already persisted authoritative facts; when no fact can establish generation, remain fail-closed rather than inferring from a selected, session, or requested workspace.
+- Treat `14bec7a` as the implementation/evidence baseline for the v7 migration, generation persistence, v2 hash, and focused tests. Do not reintroduce or expand legacy routing.
+- Do not alter public MCP DTOs, WorkspaceResolver semantics, Source/Agent schemas, recovery/runtime/capability contracts, dependencies, frontend, commits, or pushes.
 
 ## Acceptance Criteria
 
 - [ ] A fresh database ends at `user_version=7`; v6 data migrates with generation `1`, schema defaults/checks work, migration remains atomic/idempotent, and version `8` is rejected without rewriting it.
-- [ ] Execution and WorkRun generation are stored and returned exactly; zero is rejected and Work/Execution triples must match.
-- [ ] v2 hashes distinguish generations; exact legacy v1 and pre-C2 retries remain accepted only when compatible, without changing stored historical hashes or dispatching a provider.
-- [ ] Begin, Start, and Continue preserve the same frozen workspace triple; mismatches fail as `WORKSPACE_CONTEXT_MISMATCH` before side effects.
-- [ ] Focused migration, identity, request-key, Work, and regression tests pass along with scoped formatting, locked library check, and diff checks.
+- [ ] Execution and WorkRun generation are stored and returned exactly; zero is rejected and persisted identity consistency remains enforced.
+- [ ] v2 hashes distinguish generations; exact legacy retries remain accepted only under their frozen persisted-identity guards, without rewriting historical hashes or dispatching a provider.
+- [ ] Historical nonterminal migration uses only authoritative persisted facts and fails closed when generation cannot be proved.
+- [ ] Focused migration, persistence, request-key compatibility, restart, fixture, and regression tests pass along with scoped formatting, locked library check, and diff checks.
 
 ## Notes
 

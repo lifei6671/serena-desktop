@@ -1,8 +1,8 @@
 {
   "id": "p2a2-006-workspace-generation-persistence",
   "name": "p2a2-006-workspace-generation-persistence",
-  "title": "P2A2-006 Execution Workspace Generation Migration",
-  "description": "Persist frozen workspace generation for Work and Execution identity with schema v7 and request-key compatibility.",
+  "title": "P2A2-006 Execution Workspace Generation Persistence / Migration Compatibility",
+  "description": "Validate frozen workspace_generation persistence, schema migration, and request-key compatibility without owning Workspace Authority routing.",
   "status": "planning",
   "dev_type": null,
   "scope": null,
@@ -21,6 +21,6 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "Renumbered from P2A2-004 to P2A2-006 on 2026-09-16; retained task content and deferred execution per frozen plan.",
+  "notes": "Renumbered from P2A2-004 to P2A2-006 on 2026-09-16; retained task content and deferred execution per frozen plan. Scope corrected on 2026-09-16: persistence/migration compatibility only; P2A2-007 owns Start Authority and P2A2-008 owns Continue inheritance.",
   "meta": {}
 }
