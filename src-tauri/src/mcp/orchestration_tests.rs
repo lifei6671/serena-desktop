@@ -113,6 +113,7 @@ async fn active_fixture(
         id: "W".into(),
         name: "fixture".into(),
         root: root.into(),
+        generation: 1,
     };
     let graph = codegraph::Binding::begin(&workspace, 1, broker.logs.clone());
     *broker.workspace.write().await = Some(Active {

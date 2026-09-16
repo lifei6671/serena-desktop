@@ -90,8 +90,8 @@ pub fn read(sources: Vec<PathBuf>, previous: &[Workspace]) -> Result<SyncResult,
             if !seen.insert(root.clone()) {
                 continue;
             }
-            let id = if let Some(w) = previous.iter().find(|w| w.root == root) {
-                w.id.clone()
+            let (id, generation) = if let Some(w) = previous.iter().find(|w| w.root == root) {
+                (w.id.clone(), w.generation)
             } else {
                 let mut n = 1;
                 while ids.contains(&format!("project-{n}")) {
@@ -99,9 +99,14 @@ pub fn read(sources: Vec<PathBuf>, previous: &[Workspace]) -> Result<SyncResult,
                 }
                 let id = format!("project-{n}");
                 ids.insert(id.clone());
-                id
+                (id, 1)
             };
-            result.projects.push(Workspace { id, name, root });
+            result.projects.push(Workspace {
+                id,
+                name,
+                root,
+                generation,
+            });
         }
     }
     Ok(result)
@@ -152,13 +157,16 @@ mod tests {
             id: "project-8".into(),
             name: "old".into(),
             root: one,
+            generation: 7,
         }];
         let result = read(sources.clone(), &previous).unwrap();
         assert_eq!(result.projects.len(), 2);
         assert_eq!(result.projects[0].id, "project-8");
         assert_eq!(result.projects[0].name, "shared");
+        assert_eq!(result.projects[0].generation, 7);
         assert_eq!(result.projects[1].name, "override");
         assert_ne!(result.projects[1].id, "project-8");
+        assert_eq!(result.projects[1].generation, 1);
         assert!(result.warnings.is_empty());
         assert_eq!(fs::read(&sources[0]).unwrap(), before);
         let again = read(sources, &result.projects).unwrap();

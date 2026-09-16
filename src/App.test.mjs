@@ -195,9 +195,9 @@ test('Settings keeps its compact contract, truthful detection copy, and broker c
 
 test('Service Status renders component icons, truthful actions and independent path copy feedback', async () => {
   const originals = { ...api };
-  const project = { id: 'status-workspace', name: 'Active status workspace', root: 'E:/status-workspace' };
+  const project = { id: 'status-workspace', name: 'Active status workspace', root: 'E:/status-workspace', generation: 1 };
   const installation = { state: 'standard', source: 'managed', version: 'serena-actual-1.8.2', path: 'C:/Serena/runtime/serena.exe', context: 'desktop-context', error: null };
-  const config = { agentEnabled: false, broker: { enabled: true, port: 9234, allowLan: false }, workspaces: [project], serenaPath: null, port: 9345, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+  const config = { agentEnabled: false, broker: { enabled: true, port: 9234, allowLan: false }, workspaces: [project], workspaceRegistryRevision: 1, serenaPath: null, port: 9345, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
   const snapshot = { config, git: { available: true, status: 'available', version: 'git-actual-2.51.3', path: 'C:/Git/cmd/git.exe', error: null }, serverStatus: 'running', installation, activeInstallation: installation, managedRuntimePresent: true, managedProcessPresent: true, activePort: 9345, endpoint: 'http://127.0.0.1:9345/mcp', dashboardEnabled: true, dashboardUrl: 'http://127.0.0.1:24283/dashboard/', autostartEnabled: false, codegraphVersion: 'codegraph-actual-1.9.4', lastError: null };
   const broker = { running: true, port: 9234, listenAddress: '127.0.0.1', lanEndpoints: [], projects: [project], projectSources: [], syncWarnings: [], activeWorkspace: project, codegraph: { status: 'ready', workspaceId: project.id, root: project.root, generation: 1 } };
   let probes = 0;

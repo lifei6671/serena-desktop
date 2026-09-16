@@ -6,6 +6,7 @@ fn workspace(root: &Path) -> Workspace {
         id: "fixture".into(),
         name: "Fixture".into(),
         root: root.canonicalize().unwrap(),
+        generation: 1,
     }
 }
 fn logs() -> Logs {

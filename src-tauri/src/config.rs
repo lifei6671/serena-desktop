@@ -55,6 +55,7 @@ pub struct ManagerConfig {
     pub agent_enabled: bool,
     pub broker: BrokerConfig,
     pub workspaces: Vec<Workspace>,
+    pub workspace_registry_revision: u64,
     pub serena_path: Option<PathBuf>,
     pub port: u16,
     pub dashboard_enabled: bool,
@@ -70,6 +71,7 @@ impl Default for ManagerConfig {
             remote_access: crate::remote::RemoteAccessConfig::default(),
             agent_enabled: false,
             workspaces: Vec::new(),
+            workspace_registry_revision: 1,
             serena_path: None,
             port: 9121,
             dashboard_enabled: true,
@@ -178,7 +180,59 @@ mod tests {
 
     #[test]
     fn default_config_is_valid() {
-        assert!(ManagerConfig::default().validate().is_ok());
+        let config = ManagerConfig::default();
+        assert_eq!(config.workspace_registry_revision, 1);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn legacy_workspace_registry_versions_migrate_and_round_trip_without_identity_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        fs::write(
+            &path,
+            r#"{
+                "workspaces": [
+                    {"id":"legacy-b","name":"Legacy B","root":"C:\\legacy\\b"},
+                    {"id":"legacy-a","name":"Legacy A","root":"C:\\legacy\\a"}
+                ]
+            }"#,
+        )
+        .unwrap();
+        let before = fs::read(&path).unwrap();
+
+        let expected_workspaces = vec![
+            Workspace {
+                id: "legacy-b".into(),
+                name: "Legacy B".into(),
+                root: PathBuf::from(r"C:\legacy\b"),
+                generation: 1,
+            },
+            Workspace {
+                id: "legacy-a".into(),
+                name: "Legacy A".into(),
+                root: PathBuf::from(r"C:\legacy\a"),
+                generation: 1,
+            },
+        ];
+
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.workspace_registry_revision, 1);
+        assert_eq!(loaded.workspaces, expected_workspaces);
+        assert_eq!(fs::read(&path).unwrap(), before);
+
+        save(&path, &loaded).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["workspaceRegistryRevision"], 1);
+        assert_eq!(
+            saved["workspaces"],
+            serde_json::json!([
+                {"id":"legacy-b","name":"Legacy B","root":"C:\\legacy\\b","generation":1},
+                {"id":"legacy-a","name":"Legacy A","root":"C:\\legacy\\a","generation":1}
+            ])
+        );
+        assert_eq!(load(&path).unwrap(), loaded);
     }
 
     #[test]
@@ -320,6 +374,12 @@ pub struct Workspace {
     pub id: String,
     pub name: String,
     pub root: PathBuf,
+    #[serde(default = "default_workspace_generation")]
+    pub generation: u64,
+}
+
+fn default_workspace_generation() -> u64 {
+    1
 }
 impl AppPaths {
     pub fn serena_home(&self) -> PathBuf {

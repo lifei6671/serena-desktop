@@ -36,6 +36,7 @@ export interface ManagerConfig {
   agentEnabled: boolean;
   broker: { enabled: boolean; port: number; allowLan: boolean };
   workspaces: Workspace[];
+  workspaceRegistryRevision: number;
   serenaPath: string | null;
   port: number;
   dashboardEnabled: boolean;
@@ -82,6 +83,7 @@ export interface Workspace {
   id: string;
   name: string;
   root: string;
+  generation: number;
 }
 export interface BrokerState {
   running: boolean;

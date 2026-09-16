@@ -72,6 +72,7 @@ async fn fixture(root: PathBuf) -> (Workspace, serena::Client, Fake, tokio::task
         id: "W".into(),
         name: "Fixture".into(),
         root: root.canonicalize().unwrap(),
+        generation: 1,
     };
     let fake = Fake {
         root: workspace.root.clone(),
