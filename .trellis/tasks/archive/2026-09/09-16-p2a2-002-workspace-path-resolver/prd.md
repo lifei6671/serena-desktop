@@ -20,11 +20,21 @@ and a Workspace-relative input.
 
 ## Acceptance Criteria
 
-- [ ] A valid relative path resolves below the Lease root.
-- [ ] Windows/Unix absolute paths, UNC paths, root paths, and parent traversal
+- [x] A valid relative path resolves below the Lease root.
+- [x] Windows/Unix absolute paths, UNC paths, root paths, and parent traversal
   are rejected.
-- [ ] Existing junction/reparse escapes and nonexistent descendants below an
+- [x] Existing junction/reparse escapes and nonexistent descendants below an
   escaping parent are rejected.
-- [ ] A nonexistent target below an in-root existing parent is accepted.
-- [ ] Focused tests, locked library check, scoped Rust formatting, diff checks,
+- [x] A nonexistent target below an in-root existing parent is accepted.
+- [x] Focused tests, locked library check, scoped Rust formatting, diff checks,
   and final review pass.
+
+## Verification Evidence
+
+- `cargo test --locked --lib workspace_path` — PASS, 3 passed, including the
+  Windows junction test for existing and nonexistent escape targets.
+- `cargo check --locked --lib` — PASS. Existing `replace_workspaces` dead-code
+  warning remains outside this task's ownership.
+- `rustfmt --edition 2024 --check --config skip_children=true
+  src/workspace_path.rs src/lib.rs` — PASS.
+- `git diff --check` and `git diff --cached --check` — PASS.
