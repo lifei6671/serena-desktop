@@ -39,4 +39,3 @@ reserved for P2A2-004 and must not expand this resolver's input type.
 - `rustfmt --edition 2024 --check --config skip_children=true
   src/workspace_resolver.rs` — PASS.
 - `git diff --check` and `git diff --cached --check` — PASS.
-
