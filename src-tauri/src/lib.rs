@@ -16,6 +16,7 @@ mod remote;
 mod serena;
 mod tray;
 mod workspace_inspection;
+mod workspace_picker;
 mod workspace_registry;
 
 use config::AppPaths;
@@ -232,6 +233,7 @@ pub fn run() {
             commands::workspace_list,
             commands::workspace_get,
             workspace_inspection::workspace_inspect_directory,
+            workspace_picker::workspace_pick_directory,
             commands::get_codex_version,
             commands::get_broker_state,
             commands::get_mcp_logs,

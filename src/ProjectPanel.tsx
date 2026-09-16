@@ -105,6 +105,8 @@ export function ProjectPanel({
     () => new Set(),
   );
   const [cancelling, setCancelling] = useState(false);
+  const [candidateRoot, setCandidateRoot] = useState<string | null>(null);
+  const [pickingDirectory, setPickingDirectory] = useState(false);
   const syncing = busy === "同步项目中";
   const [syncFeedback, setSyncFeedback] = useState<"idle" | "pending" | "success">("idle");
   const feedbackTimers = useRef(new Set<ReturnType<typeof window.setTimeout>>());
@@ -284,6 +286,17 @@ export function ProjectPanel({
     setSyncFeedback("success");
     resetAfterSuccess(() => setSyncFeedback("idle"));
   };
+  const pickDirectory = async () => {
+    setPickingDirectory(true);
+    try {
+      const root = await api.workspacePickDirectory();
+      if (root) setCandidateRoot(root);
+    } catch (reason) {
+      toast.error(String(reason));
+    } finally {
+      setPickingDirectory(false);
+    }
+  };
   const syncVisualState = syncFeedback === "success"
     ? "success"
     : syncing || syncFeedback === "pending"
@@ -297,6 +310,15 @@ export function ProjectPanel({
             <h1>开始使用</h1>
             <p>选择一个项目，连接本地代码能力。</p>
           </div>
+          <Button
+            variant="outline"
+            disabled={pickingDirectory}
+            aria-busy={pickingDirectory}
+            onClick={() => void pickDirectory()}
+          >
+            {pickingDirectory && <Spinner data-icon="inline-start" aria-hidden="true" />}
+            {pickingDirectory ? "选择目录中…" : "添加项目"}
+          </Button>
           <Button
             className="sync-project-button"
             disabled={pending || !broker || syncVisualState !== "idle"}
@@ -317,6 +339,11 @@ export function ProjectPanel({
                 : "同步项目"}
           </Button>
         </div>
+        {candidateRoot && (
+          <p className="helper" role="status">
+            待登记目录：<code className="project-path">{displayProjectPath(candidateRoot)}</code>
+          </p>
+        )}
         <section className="home-section" aria-labelledby="workspace-title">
           <h2 id="workspace-title">当前工作区</h2>
           <div className="workspace-summary">

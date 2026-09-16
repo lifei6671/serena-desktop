@@ -17,6 +17,7 @@ export const api = {
   downloadMcpLogs: () => invoke<boolean>("download_mcp_logs"),
   clearMcpLogs: () => invoke<void>("clear_mcp_logs"),
   broker: () => invoke<BrokerState>("get_broker_state"),
+  workspacePickDirectory: () => invoke<string | null>("workspace_pick_directory"),
   syncProjects: () => invoke<number>("sync_workspaces"),
   activateProject: (id: string) => invoke<void>("activate_workspace", { id }),
   deactivateProject: () => invoke<void>("deactivate_workspace"),
