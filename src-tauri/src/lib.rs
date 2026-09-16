@@ -15,6 +15,7 @@ mod oauth;
 mod remote;
 mod serena;
 mod tray;
+mod workspace_registry;
 
 use config::AppPaths;
 use serena::SupervisorState;
@@ -227,6 +228,8 @@ pub fn run() {
             commands::agent_operation,
             commands::agent_history,
             commands::get_app_state,
+            commands::workspace_list,
+            commands::workspace_get,
             commands::get_codex_version,
             commands::get_broker_state,
             commands::get_mcp_logs,

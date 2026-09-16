@@ -3,7 +3,7 @@ pub use crate::discovery::SerenaInstallation;
 pub(crate) mod remote_fixture;
 use crate::discovery::{self, GitInstallation, InstallationState};
 use crate::{
-    config::{self, AppPaths, ManagerConfig},
+    config::{self, AppPaths, ManagerConfig, Workspace},
     logs,
 };
 use serde::Serialize;
@@ -221,6 +221,43 @@ impl SupervisorState {
         config::save(&self.paths.config_file, &next)?;
         runtime.config = next;
         Ok(())
+    }
+
+    pub(crate) fn workspace_registry_config(&self) -> ManagerConfig {
+        self.runtime
+            .lock()
+            .expect("supervisor mutex poisoned")
+            .config
+            .clone()
+    }
+
+    pub(crate) fn mutate_workspace_registry(
+        &self,
+        mutation: impl FnOnce(&mut Vec<Workspace>) -> Result<(), String>,
+    ) -> Result<bool, String> {
+        let _operation = self.operation.lock().expect("operation mutex poisoned");
+        let current = self
+            .runtime
+            .lock()
+            .expect("supervisor mutex poisoned")
+            .config
+            .clone();
+        let mut next = current.clone();
+        mutation(&mut next.workspaces)?;
+        if next.workspaces == current.workspaces {
+            return Ok(false);
+        }
+        next.workspace_registry_revision = next
+            .workspace_registry_revision
+            .checked_add(1)
+            .ok_or("internal workspace registry revision overflow")?;
+        next.validate()?;
+        config::save(&self.paths.config_file, &next)?;
+        self.runtime
+            .lock()
+            .expect("supervisor mutex poisoned")
+            .config = next;
+        Ok(true)
     }
 
     /// Remote settings do not affect Serena discovery or its running process.

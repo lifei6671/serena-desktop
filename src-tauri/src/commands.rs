@@ -1,4 +1,8 @@
-use crate::{config::ManagerConfig, serena::SupervisorState};
+use crate::{
+    config::ManagerConfig,
+    serena::SupervisorState,
+    workspace_registry::{WorkspaceRegistry, WorkspaceRegistrySnapshot},
+};
 use serde::Serialize;
 use std::{path::Path, process::Stdio};
 use tauri::{AppHandle, Manager};
@@ -72,6 +76,18 @@ fn resolve_autostart(
 #[tauri::command]
 pub fn get_app_state(app: AppHandle) -> Result<AppState, String> {
     Ok(build_app_state(&app, None))
+}
+
+#[tauri::command]
+pub fn workspace_list(app: AppHandle) -> WorkspaceRegistrySnapshot {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    WorkspaceRegistry::new(&supervisor).list()
+}
+
+#[tauri::command]
+pub fn workspace_get(app: AppHandle, id: String) -> Result<crate::config::Workspace, String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    WorkspaceRegistry::new(&supervisor).get(&id)
 }
 
 #[tauri::command]
