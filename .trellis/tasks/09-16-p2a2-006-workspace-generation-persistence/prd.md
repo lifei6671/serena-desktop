@@ -1,4 +1,4 @@
-# P2A2-004 Workspace Generation Persistence
+# P2A2-006 Execution Workspace Generation Migration
 
 ## Goal
 

@@ -12,7 +12,6 @@ use crate::{
     config::{ManagerConfig, Workspace},
     serena::{ServerStatus, SupervisorState},
     workspace_registry::{WORKSPACE_NOT_FOUND, WorkspaceRegistry},
-    workspace_resolver::WorkspaceResolver,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -399,7 +398,7 @@ impl Broker {
             }
             "workspace_get" => {
                 let snapshot = WorkspaceRegistry::new(&self.supervisor).list();
-                let workspace_id: registry::WorkspaceGetArgs =
+                let workspace_id: registry::WorkspaceIdArgs =
                     serde_json::from_value(args).expect("validated workspaceId");
                 let workspace = snapshot
                     .workspaces
@@ -438,9 +437,9 @@ impl Broker {
             _ => {}
         }
         if registry::GITS.contains(&name) {
+            let lease = registry::resolve_workspace_lease(&self.supervisor, &args)?;
             let args: git::GitArgs =
                 serde_json::from_value(args).map_err(|e| format!("INVALID_PARAMS: {e}"))?;
-            let lease = WorkspaceResolver::new(&self.supervisor).resolve(&args.workspace_id)?;
             if cancel.is_cancelled() {
                 return Err("CANCELLED".into());
             }
@@ -659,6 +658,20 @@ mod integration_tests {
         };
         crate::config::save(&paths.config_file, &config).unwrap();
         Arc::new(Broker::new(Arc::new(SupervisorState::new(paths).unwrap())))
+    }
+
+    #[test]
+    fn workspace_id_foundation_routes_valid_unknown_ids_to_resolver() {
+        let directory = tempfile::tempdir().unwrap();
+        let broker = fixture(directory.path(), None);
+
+        assert_eq!(
+            registry::resolve_workspace_lease(
+                &broker.supervisor,
+                &json!({"workspaceId":"unknown"})
+            ),
+            Err(WORKSPACE_NOT_FOUND.into())
+        );
     }
 
     #[tokio::test]

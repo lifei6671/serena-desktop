@@ -16,6 +16,7 @@ mod remote;
 mod serena;
 mod tray;
 mod workspace_inspection;
+mod workspace_path;
 mod workspace_picker;
 mod workspace_registry;
 mod workspace_resolver;

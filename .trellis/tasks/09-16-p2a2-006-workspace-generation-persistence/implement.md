@@ -1,4 +1,4 @@
-# Implementation Plan — P2A2-004
+# Implementation Plan — P2A2-006 Execution Workspace Generation Migration
 
 1. Inspect existing v6 migrations, frozen identity, request hash, Work transaction, and focused test conventions; retain the supplied source hashes as pre-change reference.
 2. Add transactional v7 migration and store registration/tests, including migration matrix and raw SQL checks.

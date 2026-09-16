@@ -784,25 +784,25 @@ Risk: medium
 Estimated blast radius: small  
 Can run in parallel with: P2A2-002、P2A2-006
 
-## P2A2-004 — Workspace-scoped MCP Schema Migration
+## P2A2-004 — Workspace-scoped MCP Schema Foundation
 
-Phase: Phase 2A.2  
-Type: migration  
-Goal: 为 Source/Git/CodeGraph/Serena、新 Work start 增加必填 `workspaceId`。  
-Why now: 冻结公共请求级 Authority。  
+Phase: Phase 2A.2
+Type: implementation
+Goal: 建立可复用的 `workspaceId` 参数/DTO/Schema、Resolver 接线与 Workspace provenance Schema 基础；不向仍依赖 Global ActiveWorkspace 的 Tool 发布新的 `workspaceId` Schema。
+Why now: 固定公共请求级 Authority 的共同边界，供后续每个 Tool family 在安全路由同一原子变更中采用。
 Dependencies: P2A2-001、P0-002 (H)  
 Blocked by: None  
-Allowed scope: `mcp/registry.rs`、orchestration DTO/schema、contract tests。  
-Forbidden scope: path 字段 rename、query/cancel/continue 新增 workspaceId。  
+Allowed scope: 共享 MCP 参数/DTO/Schema helper、`WorkspaceResolver` 接线、Workspace provenance Schema、公共 contract helper/tests。
+Forbidden scope: Source/Git/CodeGraph/Serena semantic/Work 或 agent start 的公开 Schema 或 handler 路由迁移；Execution Workspace snapshot；path 字段 rename；query/cancel/continue 新增 `workspaceId`。
 Contract references: §10.4；§10.6；§50；§56.58～§67  
 Implementation requirements: missing→`WORKSPACE_CONTEXT_REQUIRED`；blank/type→`INVALID_PARAMS`；unknown→`WORKSPACE_NOT_FOUND`。  
-Non-goals: handler backend cutover。  
-Tests required: 每个 Tool family 的 required/error/schema tests。  
+Non-goals: 任何 handler backend cutover；P2A2-007 Work / agent start Schema+Resolver+Execution Workspace snapshot 原子迁移；P2A2-009 Git Schema+Lease-rooted route；P2A2-010 CodeGraph unavailable/停止 advertise；P2A3-010 Serena Semantic route；P2A3-011 Source compatibility facade。
+Tests required: 共享 missing/malformed/unknown 边界、Resolver 接线、provenance Schema 与未准备 Tool 不新增公开 Schema 的 contract tests。
 Evidence required: schema diff/hash。  
-Acceptance criteria: 所有新 Workspace-scoped public calls 显式 workspaceId。  
-Rollback / failure behavior: 无 Lease route 的 Tool 应禁用，不得 fallback。  
-Risk: high  
-Estimated blast radius: medium  
+Acceptance criteria: 共享 Foundation 可复用且已验证；本任务不让任何仍缺少同变更 Lease route 的 Tool family 对外生效 `workspaceId` Schema；不存在 Global ActiveWorkspace、DesktopSelectedWorkspace、session/last-request 或“仅校验 ID、不由 ID 决定 Root”的中间回退。
+Rollback / failure behavior: 后续 Tool family 无法在同一变更中建立安全 Lease route 时不得采用 Foundation 发布新 Schema；不得 fallback。
+Risk: medium
+Estimated blast radius: small
 Can run in parallel with: P2A2-005～P2A2-006
 
 ## P2A2-005 — Local Tauri IPC 显式 Workspace Authority

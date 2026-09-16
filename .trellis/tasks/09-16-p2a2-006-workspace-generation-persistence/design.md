@@ -1,4 +1,4 @@
-# Design — P2A2-004 Workspace Generation Persistence
+# Design — P2A2-006 Execution Workspace Generation Migration
 
 ## Boundary
 

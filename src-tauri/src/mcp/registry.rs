@@ -1,3 +1,7 @@
+use crate::{
+    serena::SupervisorState,
+    workspace_resolver::{WorkspaceLease, WorkspaceResolver},
+};
 use rmcp::{
     model::{Tool, ToolAnnotations},
     schemars::{self, JsonSchema},
@@ -37,7 +41,7 @@ pub struct ActivateArgs {
 }
 #[derive(Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WorkspaceGetArgs {
+pub struct WorkspaceIdArgs {
     pub workspace_id: String,
 }
 #[derive(Deserialize, JsonSchema)]
@@ -119,6 +123,30 @@ fn git_fields(name: &str) -> &[&str] {
 fn schema<T: JsonSchema>() -> Value {
     serde_json::to_value(schemars::schema_for!(T)).unwrap()
 }
+pub(crate) fn parse_workspace_id(args: &Value) -> Result<String, String> {
+    let object = args.as_object().ok_or("INVALID_PARAMS")?;
+    match object.get("workspaceId") {
+        None | Some(Value::Null) => Err("WORKSPACE_CONTEXT_REQUIRED".into()),
+        Some(Value::String(id)) if id.trim().is_empty() => {
+            Err("INVALID_PARAMS: workspaceId 不能为空".into())
+        }
+        Some(Value::String(id)) => Ok(id.clone()),
+        Some(_) => Err("INVALID_PARAMS: workspaceId 必须是字符串".into()),
+    }
+}
+pub(crate) fn resolve_workspace_lease(
+    supervisor: &SupervisorState,
+    args: &Value,
+) -> Result<WorkspaceLease, String> {
+    WorkspaceResolver::new(supervisor).resolve(&parse_workspace_id(args)?)
+}
+pub(crate) fn workspace_provenance_schema() -> Value {
+    json!({
+        "type":"object",
+        "properties":{"id":{"type":"string"},"generation":{"type":"integer","minimum":0}},
+        "required":["id","generation"]
+    })
+}
 fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
     let mut t = Tool::new(name, desc, value.as_object().unwrap().clone());
     t.annotations = Some(ToolAnnotations::default().read_only(!matches!(
@@ -141,11 +169,7 @@ fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
         output["properties"]["status"] = json!({"type":"string"});
         output["required"] = json!(["activeWorkspace", "truncated"]);
     } else if GITS.contains(&name) {
-        output["properties"]["workspace"] = json!({
-            "type":"object",
-            "properties":{"id":{"type":"string"},"generation":{"type":"integer","minimum":0}},
-            "required":["id","generation"]
-        });
+        output["properties"]["workspace"] = workspace_provenance_schema();
         output["properties"]["text"] = json!({"type":"string"});
         output["properties"]["hint"] = json!({"type":"string"});
         output["required"] = json!(["workspace", "text", "truncated"]);
@@ -608,7 +632,7 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
         tool(
             "workspace_get",
             "【做什么】\n按 workspaceId 查询 Serena Desktop Workspace Registry 中当前登记的单个 Workspace。\n\n【什么时候使用】\n已知 Workspace ID，需要读取其登记 catalog 信息时使用。\n\n【关键约束】\n纯 Discovery 查询：不验证 Root 当前存在性、不调用 Provider，也不建立 Binding 或改变任何选择/活动状态。registryRevision 仅表示 catalog freshness。",
-            schema::<WorkspaceGetArgs>(),
+            schema::<WorkspaceIdArgs>(),
         ),
         tool(
             "workspace_current",
@@ -705,14 +729,10 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
         serde_json::from_value::<SourceArgs>(args.clone())
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
     } else if GITS.contains(&name) {
-        let object = args.as_object().ok_or("INVALID_PARAMS")?;
-        match object.get("workspaceId") {
-            None | Some(Value::Null) => return Err("WORKSPACE_CONTEXT_REQUIRED".into()),
-            Some(Value::String(id)) if id.trim().is_empty() => {
-                return Err("INVALID_PARAMS: workspaceId 不能为空".into());
-            }
-            _ => {}
-        }
+        parse_workspace_id(args)?;
+        let object = args
+            .as_object()
+            .expect("parse_workspace_id verified object");
         if object
             .keys()
             .any(|k| !git_fields(name).contains(&k.as_str()))
@@ -737,15 +757,8 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
             return Err("INVALID_PARAMS: id 不能为空".into());
         }
     } else if name == "workspace_get" {
-        let object = args.as_object().ok_or("INVALID_PARAMS")?;
-        match object.get("workspaceId") {
-            None | Some(Value::Null) => return Err("WORKSPACE_CONTEXT_REQUIRED".into()),
-            Some(Value::String(id)) if id.trim().is_empty() => {
-                return Err("INVALID_PARAMS: workspaceId 不能为空".into());
-            }
-            _ => {}
-        }
-        serde_json::from_value::<WorkspaceGetArgs>(args.clone())
+        parse_workspace_id(args)?;
+        serde_json::from_value::<WorkspaceIdArgs>(args.clone())
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
     } else if matches!(
         name,
@@ -1165,6 +1178,64 @@ mod tests {
                 "{args}"
             );
         }
+    }
+
+    #[test]
+    fn workspace_id_foundation_preserves_parameter_and_provenance_contracts() {
+        assert_eq!(
+            parse_workspace_id(&json!({"workspaceId":"unknown"})),
+            Ok("unknown".into())
+        );
+        for args in [json!({}), json!({"workspaceId": null})] {
+            assert_eq!(
+                parse_workspace_id(&args),
+                Err("WORKSPACE_CONTEXT_REQUIRED".into())
+            );
+        }
+        for args in [
+            json!({"workspaceId": 3}),
+            json!({"workspaceId": ""}),
+            json!({"workspaceId": " \t"}),
+        ] {
+            assert!(
+                parse_workspace_id(&args)
+                    .unwrap_err()
+                    .starts_with("INVALID_PARAMS"),
+                "{args}"
+            );
+        }
+
+        let workspace_id = schema::<WorkspaceIdArgs>();
+        assert_eq!(workspace_id["required"], json!(["workspaceId"]));
+        assert_eq!(workspace_id["properties"]["workspaceId"]["type"], "string");
+        assert_eq!(workspace_id["additionalProperties"], false);
+
+        let provenance = workspace_provenance_schema();
+        assert_eq!(provenance["required"], json!(["id", "generation"]));
+        assert_eq!(provenance["properties"]["id"]["type"], "string");
+        assert_eq!(provenance["properties"]["generation"]["type"], "integer");
+        assert!(provenance["properties"].get("root").is_none());
+    }
+
+    #[test]
+    fn foundation_does_not_publish_unsafe_tool_family_workspace_schemas() {
+        let tools = list(&upstream(), true).unwrap();
+        for tool in tools.iter().filter(|tool| tool.name.starts_with("source_")) {
+            assert!(
+                tool.input_schema["properties"].get("workspaceId").is_none(),
+                "{} must wait for P2A3-011",
+                tool.name
+            );
+        }
+        let graph = tools
+            .iter()
+            .find(|tool| tool.name == "codegraph_explore")
+            .unwrap();
+        assert!(
+            graph.input_schema["properties"]
+                .get("workspaceId")
+                .is_none()
+        );
     }
 
     #[test]

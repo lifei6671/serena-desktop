@@ -1,8 +1,8 @@
 {
-  "id": "p2a2-004-workspace-generation-persistence",
-  "name": "p2a2-004-workspace-generation-persistence",
-  "title": "P2A2-004 Workspace Generation Persistence",
-  "description": "Persist frozen workspace generation for Work and Execution identity with schema v7 and request-key compatibility.",
+  "id": "p2a2-004-workspace-scoped-mcp-schema-foundation",
+  "name": "p2a2-004-workspace-scoped-mcp-schema-foundation",
+  "title": "P2A2-004 Workspace-scoped MCP Schema Foundation",
+  "description": "Build shared MCP workspaceId parameter, Resolver, and Workspace provenance Schema foundations without publishing unsafe Tool-family workspaceId schemas.",
   "status": "in_progress",
   "dev_type": null,
   "scope": null,
