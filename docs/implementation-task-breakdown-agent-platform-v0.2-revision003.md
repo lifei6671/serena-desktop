@@ -805,43 +805,43 @@ Risk: medium
 Estimated blast radius: small
 Can run in parallel with: P2A2-005～P2A2-006
 
-## P2A2-005 — Local Tauri IPC 显式 Workspace Authority
+## P2A2-005 — Local Tauri IPC Workspace Authority Foundation / Audit
+
+Phase: Phase 2A.2
+Type: contract-test
+Goal: 盘点 Local Tauri Workspace-scoped IPC surface，固定显式 `workspaceId` DTO/serialization contract，并建立每个 surface 到其原子 Authority cutover owner 的映射。
+Why now: 本地调用不能绕过 Remote 契约，但不应发布“仅校验 ID、实际 Root 仍由全局状态决定”的中间行为。
+Dependencies: P2A2-001、P2A2-004 (H)
+Blocked by: None
+Allowed scope: `commands.rs`/`api.ts`/调用方的 IPC surface audit、DTO/serialization contract tests、任务映射与证据。
+Forbidden scope: Agent Start/Git/CodeGraph/Serena Semantic/Source 的公开行为或 handler route；Execution Workspace snapshot；AgentTaskManager、StateStore、Claim、Provider Dispatch；从 DesktopSelectedWorkspace 自动补值。
+Contract references: §10.1；§10.4；§10.6；§52 Phase 2A.2
+Implementation requirements: UI 可把 selection 作为新任务默认输入，但请求 payload 必须显式；每个尚未安全 cutover 的 surface 仅记录 owner，不新增 validation-only 行为。
+Non-goals: 修改 selection 模型；执行 Agent Start 的 Resolver/Lease/snapshot 迁移（P2A2-007）。
+Tests required: DTO serialization、selection 仅作默认值、IPC surface→owner mapping；不得新增全局 fallback。
+Evidence required: IPC contract/audit tests。
+Acceptance criteria: Local IPC Foundation 已验证且不改变未完成 backend Authority cutover 的公开行为；映射明确为 Agent Start→P2A2-007、Git→P2A2-009、CodeGraph→P2A2-010/后续 Workspace Capability Adapter、Serena Semantic→P2A3-010、Source→P2A3-011。
+Rollback / failure behavior: 无安全 backend route 的 surface 只保留 audit/mapping，不得新增 Schema、validation-only 或 fallback。
+Risk: medium
+Estimated blast radius: small
+Can run in parallel with: P2A2-006
+
+## P2A2-006 — Execution Workspace Generation Persistence / Migration Compatibility
 
 Phase: Phase 2A.2  
 Type: migration  
-Goal: Local Workspace-scoped IPC 也显式传 workspaceId。  
-Why now: 本地调用不能绕过 Remote 契约。  
-Dependencies: P2A2-001 (H)  
-Blocked by: None  
-Allowed scope: `commands.rs`、`api.ts`、调用方 types/tests。  
-Forbidden scope: 从 DesktopSelectedWorkspace 自动补值。  
-Contract references: §10.1；§10.4；§52 Phase 2A.2  
-Implementation requirements: UI 可把 selection 作为新任务默认输入，但请求 payload 必须显式。  
-Non-goals: 修改 selection 模型。  
-Tests required: missing ID、explicit A/B、selection mismatch。  
-Evidence required: IPC tests。  
-Acceptance criteria: command handler 只信任 request ID + Resolver。  
-Rollback / failure behavior: 缺 ID 直接错误。  
-Risk: high  
-Estimated blast radius: medium  
-Can run in parallel with: P2A2-004、P2A2-006
-
-## P2A2-006 — Execution Workspace Generation Migration
-
-Phase: Phase 2A.2  
-Type: migration  
-Goal: 为 Execution 持久化 workspace generation snapshot。  
-Why now: 创建后需冻结完整 Workspace identity。  
+Goal: 验证已实现的 Execution `workspace_generation` 持久化、schema migration 与兼容性。  
+Why now: 持久化 generation 是 P2A2-007 原子 Start Authority cutover 的既有数据基础。  
 Dependencies: P2A2-001、P0-003 (H)  
 Blocked by: None  
-Allowed scope: Agent schema、`store.rs`、Execution record/fixtures。  
-Forbidden scope: 状态机、Claim、terminal/recovery 语义。  
+Allowed scope: StateStore/schema migration、Execution/WorkRun record 持久化读取、旧库/restart/fixture 与 hash compatibility tests。  
+Forbidden scope: Begin/Start/Continue Workspace snapshot 构造；Global ActiveWorkspace、DesktopSelectedWorkspace、session 或 last-request Authority；状态机、Claim、terminal/recovery 语义。  
 Contract references: §10.6；§54.1  
-Implementation requirements: 旧 nonterminal 只能从权威 Work/Execution/Claim 回填；不确定则 Unknown。  
-Non-goals: start/continue route。  
-Tests required: old DB migration、restart、ambiguous fail-closed。  
+Implementation requirements: 旧 nonterminal 只能从已有权威持久化事实回填；无法证明 generation 时 fail-closed。generation 参与冻结的持久化/hash 契约时，仅验证版本与兼容性 guard。  
+Non-goals: Start Authority route（P2A2-007）；Continue Workspace inheritance（P2A2-008）。  
+Tests required: old DB migration、restart、fixture、generation persistence/readback、hash compatibility、ambiguous fail-closed。  
 Evidence required: schema and migration tests。  
-Acceptance criteria: 每个新 Execution 可读取冻结 generation。  
+Acceptance criteria: 每个新 Execution 可读取冻结 generation；历史升级与兼容性不猜测环境 Workspace；本任务不新增或保留任何 ambient Workspace→Execution snapshot 路径。  
 Rollback / failure behavior: 无法证明的旧执行不得猜测 selection。  
 Risk: high  
 Estimated blast radius: medium  
@@ -851,19 +851,19 @@ Can run in parallel with: P2A2-002～P2A2-005
 
 Phase: Phase 2A.2  
 Type: implementation  
-Goal: start 经 Resolver 后原子保存 id/root/generation。  
-Why now: 新 Execution 的唯一 Workspace Authority。  
-Dependencies: P2A2-004、P2A2-006 (H)  
+Goal: 使 Local/Remote Agent Start 统一经 `request.workspaceId → WorkspaceResolver → WorkspaceLease`，并在 Execution/Claim 创建事务中原子冻结 id/root/generation。
+Why now: 新 Execution 的唯一 Workspace Authority；P2A2-005 仅审计 IPC 边界，不得单独完成或模拟该 cutover。
+Dependencies: P2A2-004、P2A2-005、P2A2-006 (H)
 Blocked by: None  
-Allowed scope: orchestration DTO/product/work/task manager/store transaction tests。  
-Forbidden scope: 修改 requestKey、Claim、dispatch、finalization。  
+Allowed scope: Local Tauri Agent Start command/API adapter、MCP orchestration DTO/route、product/work/task manager/store transaction、Claim 与 focused tests。
+Forbidden scope: 修改 requestKey 语义、Continue Workspace inheritance、global ActiveWorkspace/DesktopSelectedWorkspace/session/last-request fallback。
 Contract references: §5.8～§5.10；§10.6  
-Implementation requirements: caller 不提供 root；snapshot 与 create/claim 同一权威路径。  
+Implementation requirements: caller 不提供 root；Local/Remote request 使用同一 Resolver/Lease 路径；snapshot 与 Execution/Claim create 同一原子事务，成功后才允许 Provider Dispatch。
 Non-goals: Continue。  
 Tests required: A/B start、root/generation change、requestKey replay、Claim regressions。  
 Evidence required: Work/Execution persistence tests。  
-Acceptance criteria: start 后 UI/Registry 修改不能改变 Execution Root。  
-Rollback / failure behavior: resolve/create 任一步失败均不派发。  
+Acceptance criteria: Local/Remote Start 的 request ID 是唯一 Root authority；start 后 UI/Registry 修改不能改变 Execution Root。
+Rollback / failure behavior: resolve/create/claim 任一步失败均不派发，且不得回退全局、Desktop、session 或 last-request 状态。
 Risk: high  
 Estimated blast radius: medium  
 Can run in parallel with: P2A2-010
