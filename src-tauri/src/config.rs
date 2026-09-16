@@ -7,6 +7,71 @@ use std::{
 use tauri::{AppHandle, Manager};
 use tempfile::NamedTempFile;
 
+#[allow(
+    dead_code,
+    reason = "P2A1-002 provides the helper before P2A1-003 Registry integration."
+)]
+pub(crate) const WORKSPACE_ROOT_NOT_FOUND: &str = "WORKSPACE_ROOT_NOT_FOUND";
+#[allow(
+    dead_code,
+    reason = "P2A1-002 provides the helper before P2A1-003 Registry integration."
+)]
+pub(crate) const WORKSPACE_ROOT_NOT_DIRECTORY: &str = "WORKSPACE_ROOT_NOT_DIRECTORY";
+
+/// Validates a registration candidate and returns the filesystem's canonical root.
+///
+/// This does not persist or otherwise modify `root`; existing stored roots remain
+/// the caller's responsibility until an explicit registration operation uses it.
+#[allow(
+    dead_code,
+    reason = "P2A1-002 provides the helper before P2A1-003 Registry integration."
+)]
+pub(crate) fn canonicalize_workspace_root(root: &Path) -> Result<PathBuf, &'static str> {
+    let metadata = fs::metadata(root).map_err(|_| WORKSPACE_ROOT_NOT_FOUND)?;
+    if !metadata.is_dir() {
+        return Err(WORKSPACE_ROOT_NOT_DIRECTORY);
+    }
+
+    fs::canonicalize(root).map_err(|_| WORKSPACE_ROOT_NOT_FOUND)
+}
+
+/// Compares workspace roots as identities after callers canonicalize them.
+///
+/// Historical roots may not have been produced by `canonicalize_workspace_root`,
+/// so Windows does not rely on byte-for-byte `Path` equality.
+#[cfg(not(windows))]
+#[allow(
+    dead_code,
+    reason = "P2A1-002 provides the helper before P2A1-003 Registry integration."
+)]
+pub(crate) fn same_workspace_root_identity(left: &Path, right: &Path) -> bool {
+    left == right
+}
+
+/// Uses Windows' UTF-16 ordinal comparison instead of converting paths through
+/// a potentially lossy string representation.
+#[cfg(windows)]
+#[allow(
+    dead_code,
+    reason = "P2A1-002 provides the helper before P2A1-003 Registry integration."
+)]
+pub(crate) fn same_workspace_root_identity(left: &Path, right: &Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Globalization::{CSTR_EQUAL, CompareStringOrdinal};
+
+    let left = left.as_os_str().encode_wide().collect::<Vec<_>>();
+    let right = right.as_os_str().encode_wide().collect::<Vec<_>>();
+    let (Ok(left_len), Ok(right_len)) = (i32::try_from(left.len()), i32::try_from(right.len()))
+    else {
+        return false;
+    };
+
+    // The explicit lengths permit non-NUL-terminated UTF-16 path buffers.
+    unsafe {
+        CompareStringOrdinal(left.as_ptr(), left_len, right.as_ptr(), right_len, 1) == CSTR_EQUAL
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AppPaths {
     pub runtime_directory: PathBuf,
@@ -156,6 +221,132 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workspace_root_missing_returns_stable_error() {
+        let directory = tempfile::tempdir().unwrap();
+
+        assert_eq!(
+            canonicalize_workspace_root(&directory.path().join("missing")),
+            Err(WORKSPACE_ROOT_NOT_FOUND)
+        );
+    }
+
+    #[test]
+    fn workspace_root_file_returns_stable_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("not-a-directory");
+        fs::write(&file, "file").unwrap();
+
+        assert_eq!(
+            canonicalize_workspace_root(&file),
+            Err(WORKSPACE_ROOT_NOT_DIRECTORY)
+        );
+    }
+
+    #[test]
+    fn workspace_root_non_git_directory_canonicalizes_without_side_effects() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("ordinary-directory");
+        fs::create_dir(&root).unwrap();
+
+        let canonical = canonicalize_workspace_root(&root).unwrap();
+
+        assert!(canonical.is_dir());
+        assert!(!root.join(".git").exists());
+        assert!(!root.join(".serena").exists());
+        assert!(!root.join(".codegraph").exists());
+        assert!(fs::read_dir(&root).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn workspace_root_same_root_alias_has_the_same_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("root");
+        fs::create_dir(&root).unwrap();
+        let alias = root
+            .parent()
+            .unwrap()
+            .join(root.file_name().unwrap())
+            .join("..")
+            .join(root.file_name().unwrap());
+
+        let canonical = canonicalize_workspace_root(&root).unwrap();
+        let alias_canonical = canonicalize_workspace_root(&alias).unwrap();
+
+        assert!(same_workspace_root_identity(&canonical, &alias_canonical));
+    }
+
+    #[cfg(windows)]
+    fn windows_path_with_forward_separators(path: &Path) -> PathBuf {
+        use std::{
+            ffi::OsString,
+            os::windows::ffi::{OsStrExt, OsStringExt},
+        };
+
+        let wide = path
+            .as_os_str()
+            .encode_wide()
+            .map(|unit| {
+                if unit == u16::from(b'\\') {
+                    u16::from(b'/')
+                } else {
+                    unit
+                }
+            })
+            .collect::<Vec<_>>();
+        PathBuf::from(OsString::from_wide(&wide))
+    }
+
+    #[cfg(windows)]
+    fn windows_ascii_uppercase_path(path: &Path) -> PathBuf {
+        use std::{
+            ffi::OsString,
+            os::windows::ffi::{OsStrExt, OsStringExt},
+        };
+
+        let wide = path
+            .as_os_str()
+            .encode_wide()
+            .map(|unit| {
+                if (u16::from(b'a')..=u16::from(b'z')).contains(&unit) {
+                    unit - u16::from(b'a') + u16::from(b'A')
+                } else {
+                    unit
+                }
+            })
+            .collect::<Vec<_>>();
+        PathBuf::from(OsString::from_wide(&wide))
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_workspace_root_separator_alias_has_the_same_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("root");
+        fs::create_dir(&root).unwrap();
+        let separator_alias = windows_path_with_forward_separators(&root);
+
+        let canonical = canonicalize_workspace_root(&root).unwrap();
+        let alias_canonical = canonicalize_workspace_root(&separator_alias).unwrap();
+
+        assert!(same_workspace_root_identity(&canonical, &alias_canonical));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_workspace_root_casing_alias_has_the_same_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("RootIdentity");
+        fs::create_dir(&root).unwrap();
+
+        let canonical = canonicalize_workspace_root(&root).unwrap();
+        let casing_alias = windows_ascii_uppercase_path(&canonical);
+        let alias_canonical = canonicalize_workspace_root(&casing_alias).unwrap();
+
+        assert!(same_workspace_root_identity(&canonical, &casing_alias));
+        assert!(same_workspace_root_identity(&canonical, &alias_canonical));
+    }
 
     #[test]
     fn missing_saved_executable_can_be_loaded_for_repair_in_ui() {
