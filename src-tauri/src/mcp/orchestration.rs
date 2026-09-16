@@ -126,16 +126,13 @@ impl Broker {
             Ok(request) => request,
             Err(error) => return failure(name, &error),
         };
-        let needs_workspace = matches!(
-            &request,
-            Request::WorkUpdate(WorkUpdate::Begin { .. })
-                | Request::AgentExecute(AgentExecute::Start { .. })
-        );
+        let needs_workspace = matches!(&request, Request::WorkUpdate(WorkUpdate::Begin { .. }));
         let workspace = if needs_workspace {
             self.workspace.read().await.as_ref().map(|active| {
                 crate::agent::store::transactions::product::WorkspaceSnapshot {
                     id: active.workspace.id.clone(),
                     root: active.workspace.root.to_string_lossy().into_owned(),
+                    generation: active.workspace.generation,
                 }
             })
         } else {
@@ -244,6 +241,7 @@ impl Broker {
                 return query_response(result, observe);
             }
             Request::AgentExecute(action) => {
+                let resolve_start_workspace = matches!(&action, AgentExecute::Start { .. });
                 let context_json = |context: Option<Context>| {
                     context.map(|c| serde_json::to_string(&c).expect("typed context serialization"))
                 };
@@ -287,10 +285,19 @@ impl Broker {
                         execution_id,
                     },
                 };
-                product
-                    .agent_execute(action, workspace)
-                    .await
-                    .map(|view| ProductData::Execution(Box::new(view)))
+                let result = if resolve_start_workspace {
+                    product
+                        .agent_execute(action, self.supervisor.as_ref())
+                        .await
+                } else {
+                    product
+                        .agent_execute(
+                            action,
+                            None::<crate::agent::store::transactions::product::WorkspaceSnapshot>,
+                        )
+                        .await
+                };
+                result.map(|view| ProductData::Execution(Box::new(view)))
             }
         };
         match agent_result {

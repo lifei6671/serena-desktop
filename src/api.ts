@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, ExecutionView, RemoteState, RemoteAccessMode, SecurityDeclaration } from "./types";
+import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, ExecutionView, RemoteState, RemoteAccessMode, SecurityDeclaration, Workspace, WorkspaceInspection, WorkspaceRegistrySnapshot } from "./types";
 
 export const api = {
   remoteState: () => invoke<RemoteState>("remote_state"),
@@ -18,7 +18,14 @@ export const api = {
   clearMcpLogs: () => invoke<void>("clear_mcp_logs"),
   broker: () => invoke<BrokerState>("get_broker_state"),
   workspacePickDirectory: () => invoke<string | null>("workspace_pick_directory"),
+  workspaceInspectDirectory: (root: string) => invoke<WorkspaceInspection>("workspace_inspect_directory", { root }),
+  workspaceRegister: (root: string, name?: string) => invoke<Workspace>("workspace_register", { root, name }),
+  workspaceImportSerena: () => invoke<number>("workspace_import_serena"),
+  workspaceRename: (id: string, name: string) => invoke<Workspace>("workspace_rename", { id, name }),
+  workspaceRemove: (id: string) => invoke<Workspace>("workspace_remove", { id }),
+  workspaceReorder: (ids: string[]) => invoke<WorkspaceRegistrySnapshot>("workspace_reorder", { ids }),
   syncProjects: () => invoke<number>("sync_workspaces"),
+  workspaceSelect: (id: string) => invoke<Workspace>("workspace_select", { id }),
   activateProject: (id: string) => invoke<void>("activate_workspace", { id }),
   deactivateProject: () => invoke<void>("deactivate_workspace"),
   cancelProject: () => invoke<void>("cancel_workspace_operation"),

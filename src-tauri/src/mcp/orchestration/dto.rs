@@ -426,6 +426,7 @@ mod tests {
                 Some(WorkspaceSnapshot {
                     id: "W".into(),
                     root: dir.path().to_string_lossy().into(),
+                    generation: 1,
                 }),
                 1,
             )

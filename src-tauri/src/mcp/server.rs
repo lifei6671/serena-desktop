@@ -406,7 +406,7 @@ mod quick_tunnel_transport_tests {
                     (json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":protocol,"capabilities":{},"clientInfo":{"name":"transport-contract-test","version":"1"}}}), "initialize"),
                     (json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}), "backend_unavailable"),
                     (json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"workspace_list","arguments":{}}}), "workspace_list"),
-                    (json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"git_status","arguments":{}}}), "no_workspace"),
+                    (json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"git_status","arguments":{}}}), "workspace_context_required"),
                 ] {
                     let request_id = body["id"].clone();
                     let method = body["method"].as_str().unwrap();
@@ -432,7 +432,10 @@ mod quick_tunnel_transport_tests {
                             assert_ne!(value["result"]["isError"], true, "{value}");
                             assert_eq!(value["result"]["structuredContent"]["workspaces"], json!([]), "{value}");
                         },
-                        "no_workspace" => assert!(value["result"].to_string().contains("NO_ACTIVE_WORKSPACE")),
+                        "workspace_context_required" => {
+                            assert_eq!(value["error"]["code"], -32602, "{value}");
+                            assert_eq!(value["error"]["message"], "WORKSPACE_CONTEXT_REQUIRED");
+                        }
                         _ => unreachable!(),
                     }
                 }

@@ -1,5 +1,6 @@
 use super::*;
 use crate::agent::{product::AgentProductService, store::StateStore};
+use crate::workspace_registry::WorkspaceRegistry;
 use rmcp::{ServiceExt, model::CallToolRequestParams, transport::StreamableHttpClientTransport};
 
 pub(crate) fn fixture(root: &std::path::Path) -> Arc<Broker> {
@@ -134,6 +135,196 @@ async fn call(broker: &Broker, name: &str, args: Value) -> Value {
         .call_tool(name, args, CancellationToken::new())
         .await
         .unwrap()
+}
+
+#[tokio::test]
+async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace_authority() {
+    let dir = tempfile::tempdir().unwrap();
+    let root_a = dir.path().join("a");
+    let root_b = dir.path().join("b");
+    let root_a_replaced = dir.path().join("a-replaced");
+    std::fs::create_dir_all(&root_a).unwrap();
+    std::fs::create_dir_all(&root_b).unwrap();
+    std::fs::create_dir_all(&root_a_replaced).unwrap();
+    let root_a = std::fs::canonicalize(root_a).unwrap();
+    let root_b = std::fs::canonicalize(root_b).unwrap();
+    let root_a_replaced = std::fs::canonicalize(root_a_replaced).unwrap();
+    let broker = fixture(dir.path());
+    let store = StateStore::open(dir.path().join("state")).await.unwrap();
+    assert!(
+        broker
+            .product
+            .set(Arc::new(AgentProductService::new(store.clone())))
+            .is_ok()
+    );
+    let mut config = broker.config();
+    config.workspaces = vec![
+        Workspace {
+            id: "A".into(),
+            name: "A".into(),
+            root: root_a.clone(),
+            generation: 3,
+        },
+        Workspace {
+            id: "B".into(),
+            name: "B".into(),
+            root: root_b.clone(),
+            generation: 7,
+        },
+    ];
+    config.desktop_selected_workspace_id = Some("B".into());
+    broker.supervisor.replace_config(config).unwrap();
+    let server = active(&broker, &root_b).await;
+    {
+        let mut active = broker.workspace.write().await;
+        let active = active.as_mut().unwrap();
+        active.workspace.id = "B".into();
+        active.workspace.generation = 7;
+        active.generation = 7;
+        assert_eq!(active.workspace.id, "B");
+        assert_eq!(
+            broker.supervisor.desktop_selected_workspace().unwrap().id,
+            "B"
+        );
+    }
+    for (id, workspace_id, root, generation) in [
+        ("work-a", "A", root_a.clone(), 3),
+        ("work-b", "B", root_b.clone(), 7),
+        ("work-stale", "A", root_a.clone(), 3),
+        ("work-missing", "missing", root_a.clone(), 3),
+    ] {
+        store
+            .create_work_run(
+                id.into(),
+                workspace_id.into(),
+                root.to_string_lossy().into(),
+                generation,
+                id.into(),
+                None,
+                1,
+            )
+            .await
+            .unwrap();
+    }
+
+    // Global ActiveWorkspace and desktop selection are B; each start must use its Work.
+    for (work_run_id, workspace_id, root, generation) in [
+        ("work-a", "A", root_a.clone(), 3),
+        ("work-b", "B", root_b.clone(), 7),
+    ] {
+        let response = call(
+            &broker,
+            "agent_execute",
+            json!({"action":"start","workRunId":work_run_id,"requestKey":"key","prompt":"p"}),
+        )
+        .await;
+        // This fixture deliberately has no Provider; durable creation precedes its failed dispatch.
+        assert_eq!(response["error"]["code"], "AGENT_OPERATION_FAILED");
+        let link = store
+            .work_execution_links(work_run_id.into())
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        let execution = store.execution(link.execution_id).await.unwrap().unwrap();
+        assert_eq!(execution.workspace_id, workspace_id);
+        assert_eq!(execution.canonical_workspace_root, root.to_string_lossy());
+        assert_eq!(execution.workspace_generation, generation);
+    }
+
+    WorkspaceRegistry::new(&broker.supervisor)
+        .rename("A", "renamed A".into())
+        .unwrap();
+    WorkspaceRegistry::new(&broker.supervisor)
+        .reorder(vec!["B".into(), "A".into()])
+        .unwrap();
+    broker.supervisor.select_desktop_workspace("B").unwrap();
+    let before_retry = store.work_execution_links("work-a".into()).await.unwrap();
+    let retry = call(
+        &broker,
+        "agent_execute",
+        json!({"action":"start","workRunId":"work-a","requestKey":"key","prompt":"p"}),
+    )
+    .await;
+    assert_eq!(retry["ok"], true);
+    assert_eq!(
+        store.work_execution_links("work-a".into()).await.unwrap(),
+        before_retry
+    );
+    let frozen = store
+        .execution(before_retry[0].execution_id.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(frozen.canonical_workspace_root, root_a.to_string_lossy());
+    assert_eq!(frozen.workspace_generation, 3);
+
+    let mut changed = broker.config();
+    let workspace_a = changed
+        .workspaces
+        .iter_mut()
+        .find(|workspace| workspace.id == "A")
+        .unwrap();
+    workspace_a.root = root_a_replaced;
+    workspace_a.generation = 4;
+    broker.supervisor.replace_config(changed).unwrap();
+    let before_rejected = store
+        .product_read(None, None, None, 100)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|snapshot| snapshot.execution)
+        .collect::<Vec<_>>();
+    let stale = call(
+        &broker,
+        "agent_execute",
+        json!({"action":"start","workRunId":"work-stale","requestKey":"key","prompt":"p"}),
+    )
+    .await;
+    assert_eq!(stale["error"]["code"], "WORKSPACE_CONTEXT_MISMATCH");
+    assert_eq!(
+        store
+            .product_read(None, None, None, 100)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|snapshot| snapshot.execution)
+            .collect::<Vec<_>>(),
+        before_rejected
+    );
+    assert!(
+        store
+            .work_execution_links("work-stale".into())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let missing = call(
+        &broker,
+        "agent_execute",
+        json!({"action":"start","workRunId":"work-missing","requestKey":"key","prompt":"p"}),
+    )
+    .await;
+    assert_eq!(missing["error"]["code"], "WORKSPACE_NOT_FOUND");
+    assert_eq!(
+        store
+            .product_read(None, None, None, 100)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|snapshot| snapshot.execution)
+            .collect::<Vec<_>>(),
+        before_rejected
+    );
+    assert!(
+        store
+            .work_execution_links("work-missing".into())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    server.abort();
 }
 
 #[tokio::test]
@@ -522,6 +713,7 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
             "work".into(),
             "W".into(),
             root.clone(),
+            1,
             "query fixture".into(),
             None,
             1,
@@ -539,6 +731,7 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
             Some(WorkspaceSnapshot {
                 id: "W".into(),
                 root: root.clone(),
+                generation: 1,
             }),
             Some(WorkExecutionContext {
                 work_run_id: "work".into(),

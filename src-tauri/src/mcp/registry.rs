@@ -36,6 +36,11 @@ pub struct ActivateArgs {
     pub id: String,
 }
 #[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WorkspaceGetArgs {
+    pub workspace_id: String,
+}
+#[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Empty {}
 #[derive(Deserialize, JsonSchema)]
@@ -105,10 +110,10 @@ pub const GITS: &[&str] = &[
 ];
 fn git_fields(name: &str) -> &[&str] {
     match name {
-        "git_diff" => &["scope", "path", "max_bytes"],
-        "git_log" => &["reference", "path", "count", "max_bytes"],
-        "git_show" => &["reference", "path", "max_bytes"],
-        _ => &["max_bytes"],
+        "git_diff" => &["workspaceId", "scope", "path", "max_bytes"],
+        "git_log" => &["workspaceId", "reference", "path", "count", "max_bytes"],
+        "git_show" => &["workspaceId", "reference", "path", "max_bytes"],
+        _ => &["workspaceId", "max_bytes"],
     }
 }
 fn schema<T: JsonSchema>() -> Value {
@@ -121,14 +126,29 @@ fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
         "workspace_activate" | "workspace_deactivate"
     )));
     let workspace = json!({"type":"object", "properties":{"id":{"type":"string"},"name":{"type":"string"},"root":{"type":"string"}}, "required":["id","name","root"]});
+    let registry_workspace = json!({"type":"object", "properties":{"id":{"type":"string"},"name":{"type":"string"},"root":{"type":"string"},"generation":{"type":"integer","minimum":0}}, "required":["id","name","root","generation"]});
     let mut output = json!({"type":"object","properties":{"truncated":{"type":"boolean"}},"required":["truncated"]});
     if name == "workspace_list" {
-        output["properties"]["workspaces"] = json!({"type":"array","items":workspace});
-        output["required"] = json!(["workspaces", "truncated"]);
+        output["properties"]["workspaces"] = json!({"type":"array","items":registry_workspace});
+        output["properties"]["registryRevision"] = json!({"type":"integer","minimum":0});
+        output["required"] = json!(["registryRevision", "workspaces", "truncated"]);
+    } else if name == "workspace_get" {
+        output["properties"]["workspace"] = registry_workspace;
+        output["properties"]["registryRevision"] = json!({"type":"integer","minimum":0});
+        output["required"] = json!(["registryRevision", "workspace", "truncated"]);
     } else if name.starts_with("workspace_") {
         output["properties"]["activeWorkspace"] = json!({"anyOf":[workspace,{"type":"null"}]});
         output["properties"]["status"] = json!({"type":"string"});
         output["required"] = json!(["activeWorkspace", "truncated"]);
+    } else if GITS.contains(&name) {
+        output["properties"]["workspace"] = json!({
+            "type":"object",
+            "properties":{"id":{"type":"string"},"generation":{"type":"integer","minimum":0}},
+            "required":["id","generation"]
+        });
+        output["properties"]["text"] = json!({"type":"string"});
+        output["properties"]["hint"] = json!({"type":"string"});
+        output["required"] = json!(["workspace", "text", "truncated"]);
     } else {
         output["properties"]["workspace"] = workspace;
         output["properties"]["text"] = json!({"type":"string"});
@@ -582,22 +602,27 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
     let mut list = vec![
         tool(
             "workspace_list",
-            "【做什么】\n列出 Desktop 已从 Serena 同步的项目，返回项目 ID、名称和根目录。\n\n【什么时候使用】\n查找可激活的项目，或在调用 workspace_activate 前获取项目 ID。\n\n【关键约束】\n只读取已同步列表，不扫描目录、不初始化项目，也不切换当前活动项目。新项目需先在 Serena 初始化，再由 Desktop 同步。",
+            "【做什么】\n列出 Serena Desktop Workspace Registry 中登记的 Workspace catalog，返回 ID、名称、根目录和 generation。\n\n【什么时候使用】\n需要查看当前已登记的 Workspace catalog 时使用。\n\n【关键约束】\n纯 Discovery 查询：不扫描目录、不验证 Root、不调用 Provider，也不建立 Binding 或改变任何选择/活动状态。registryRevision 仅表示 catalog freshness。",
             schema::<Empty>(),
         ),
         tool(
+            "workspace_get",
+            "【做什么】\n按 workspaceId 查询 Serena Desktop Workspace Registry 中当前登记的单个 Workspace。\n\n【什么时候使用】\n已知 Workspace ID，需要读取其登记 catalog 信息时使用。\n\n【关键约束】\n纯 Discovery 查询：不验证 Root 当前存在性、不调用 Provider，也不建立 Binding 或改变任何选择/活动状态。registryRevision 仅表示 catalog freshness。",
+            schema::<WorkspaceGetArgs>(),
+        ),
+        tool(
             "workspace_current",
-            "【做什么】\n查询所有客户端共享的当前活动项目，返回其 ID、名称和根目录；没有有效活动绑定时返回 null。\n\n【什么时候使用】\n执行 source_* 或 git_* 操作前确认目标项目，或检查切换后的共享工作区。\n\n【关键约束】\n只读查询，不激活项目。活动状态由所有客户端共享，其他客户端可能切换或取消该绑定。",
+            "【做什么】\n查询所有客户端共享的当前活动项目，返回其 ID、名称和根目录；没有有效活动绑定时返回 null。\n\n【什么时候使用】\n执行 source_* 操作前确认目标项目，或检查切换后的共享工作区。\n\n【关键约束】\n只读查询，不激活项目。活动状态由所有客户端共享，其他客户端可能切换或取消该绑定。",
             schema::<Empty>(),
         ),
         tool(
             "workspace_activate",
-            "【做什么】\n激活一个已登记项目，并将其设置为所有客户端共享的当前活动项目。\n\n【什么时候使用】\n当后续 source_* 或 git_* 操作需要切换到指定项目时使用。\n\n【关键约束】\n这是全局共享状态变更，会影响所有连接到本服务的客户端。id 必须来自 workspace_list；项目须已初始化且 Serena 正在运行。切换失败可能清空活动绑定，应查询 workspace_current 后重新激活。",
+            "【做什么】\n激活一个已登记项目，并将其设置为所有客户端共享的当前活动项目。\n\n【什么时候使用】\n当后续 source_* 操作需要切换到指定项目时使用。\n\n【关键约束】\n这是全局共享状态变更，会影响所有连接到本服务的客户端。id 必须来自 workspace_list；项目须已初始化且 Serena 正在运行。切换失败可能清空活动绑定，应查询 workspace_current 后重新激活。",
             schema::<ActivateArgs>(),
         ),
         tool(
             "workspace_deactivate",
-            "【做什么】\n取消 Broker 中所有客户端共享的当前活动项目绑定。\n\n【什么时候使用】\n结束当前工作区的使用，或希望后续操作必须先明确激活项目时使用。\n\n【关键约束】\n影响所有客户端；取消后 source_* 和 git_* 不可用，直到重新激活。不会停止 Serena 或 Broker，也不会删除项目文件、配置或登记信息。",
+            "【做什么】\n取消 Broker 中所有客户端共享的当前活动项目绑定。\n\n【什么时候使用】\n结束当前工作区的使用，或希望后续 Source 操作必须先明确激活项目时使用。\n\n【关键约束】\n影响所有客户端；取消后 source_* 不可用，直到重新激活。不会停止 Serena 或 Broker，也不会删除项目文件、配置或登记信息。",
             schema::<Empty>(),
         ),
     ];
@@ -623,24 +648,25 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
             .as_object_mut()
             .unwrap()
             .retain(|key, _| git_fields(name).contains(&key.as_str()));
+        s["required"] = json!(["workspaceId"]);
         let description = match name {
             "git_status" => {
-                "【做什么】\n查看当前活动仓库的工作区状态，包括分支、已暂存、未暂存和未跟踪文件。\n\n【什么时候使用】\n开始修改前确认工作区状态，或检查哪些文件需要审查、暂存或提交。\n\n【关键约束】\n必须先激活项目；只读，不暂存或修改文件。返回 Git porcelain v1 格式。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
+                "【做什么】\n查看指定已登记 Workspace 的 Git 工作区状态，包括分支、已暂存、未暂存和未跟踪文件。\n\n【什么时候使用】\n开始修改前确认工作区状态，或检查哪些文件需要审查、暂存或提交。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读，不暂存或修改文件。返回 Git porcelain v1 格式。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
             }
             "git_diff" => {
-                "【做什么】\n查看当前活动仓库已跟踪文件的差异，可按相对路径过滤。\n\n【什么时候使用】\n审查未暂存修改、待提交修改，或比较整个工作区与 HEAD 的差异。\n\n【关键约束】\n必须先激活项目；只读。scope 为 unstaged（默认，工作区对暂存区）、staged（暂存区对 HEAD）或 all（工作区对 HEAD），不包含未跟踪文件内容。path 相对仓库根且不得越界。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
+                "【做什么】\n查看指定已登记 Workspace 中已跟踪文件的差异，可按相对路径过滤。\n\n【什么时候使用】\n审查未暂存修改、待提交修改，或比较整个工作区与 HEAD 的差异。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读。scope 为 unstaged（默认，工作区对暂存区）、staged（暂存区对 HEAD）或 all（工作区对 HEAD），不包含未跟踪文件内容。path 相对仓库根且不得越界。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
             }
             "git_log" => {
-                "【做什么】\n查看当前活动仓库的提交历史，返回提交哈希、时间和标题，可按引用和相对路径筛选。\n\n【什么时候使用】\n追踪某个文件的变更历史，寻找相关提交，或了解最近的开发记录。\n\n【关键约束】\n必须先激活项目；只读。reference 默认 HEAD；count 默认 20，范围 1–100。path 相对仓库根且不得越界。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
+                "【做什么】\n查看指定已登记 Workspace 的提交历史，返回提交哈希、时间和标题，可按引用和相对路径筛选。\n\n【什么时候使用】\n追踪某个文件的变更历史，寻找相关提交，或了解最近的开发记录。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读。reference 默认 HEAD；count 默认 20，范围 1–100。path 相对仓库根且不得越界。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
             }
             "git_show" => {
-                "【做什么】\n查看当前活动仓库指定 Git 引用的内容，例如提交详情和补丁，或通过 HEAD:相对路径读取历史文件。\n\n【什么时候使用】\n深入检查某次提交，或读取指定版本中的文件内容。\n\n【关键约束】\n必须先激活项目；只读。reference 默认 HEAD；path 可过滤提交涉及的路径，相对仓库根且不得越界。不会切换分支或检出文件。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
+                "【做什么】\n查看指定已登记 Workspace 中指定 Git 引用的内容，例如提交详情和补丁，或通过 HEAD:相对路径读取历史文件。\n\n【什么时候使用】\n深入检查某次提交，或读取指定版本中的文件内容。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读。reference 默认 HEAD；path 可过滤提交涉及的路径，相对仓库根且不得越界。不会切换分支或检出文件。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
             }
             "git_branch" => {
-                "【做什么】\n列出当前活动仓库的本地分支及 Git 的当前分支标记。\n\n【什么时候使用】\n确认当前分支，或查看仓库中已有的本地分支。\n\n【关键约束】\n必须先激活项目；只读，不创建、删除或切换分支，不列出远程跟踪分支。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
+                "【做什么】\n列出指定已登记 Workspace 的本地分支及 Git 的当前分支标记。\n\n【什么时候使用】\n确认当前分支，或查看仓库中已有的本地分支。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读，不创建、删除或切换分支，不列出远程跟踪分支。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
             }
             "git_worktree_list" => {
-                "【做什么】\n列出当前活动仓库关联的 Git 工作树及其路径、HEAD 和分支信息。\n\n【什么时候使用】\n确认同一仓库有哪些工作树，或检查分支与工作目录的对应关系。\n\n【关键约束】\n必须先激活项目；只读，返回 Git porcelain 格式。不创建、删除或切换工作树，也不将这些路径自动登记或激活。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
+                "【做什么】\n列出指定已登记 Workspace 关联的 Git 工作树及其路径、HEAD 和分支信息。\n\n【什么时候使用】\n确认同一仓库有哪些工作树，或检查分支与工作目录的对应关系。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读，返回 Git porcelain 格式。不创建、删除或切换工作树，也不将这些路径自动登记或激活。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
             }
             _ => unreachable!("GITS contains only locally implemented tools"),
         };
@@ -679,9 +705,15 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
         serde_json::from_value::<SourceArgs>(args.clone())
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
     } else if GITS.contains(&name) {
-        if args
-            .as_object()
-            .ok_or("INVALID_PARAMS")?
+        let object = args.as_object().ok_or("INVALID_PARAMS")?;
+        match object.get("workspaceId") {
+            None | Some(Value::Null) => return Err("WORKSPACE_CONTEXT_REQUIRED".into()),
+            Some(Value::String(id)) if id.trim().is_empty() => {
+                return Err("INVALID_PARAMS: workspaceId 不能为空".into());
+            }
+            _ => {}
+        }
+        if object
             .keys()
             .any(|k| !git_fields(name).contains(&k.as_str()))
         {
@@ -704,6 +736,17 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
         if parsed.id.is_empty() {
             return Err("INVALID_PARAMS: id 不能为空".into());
         }
+    } else if name == "workspace_get" {
+        let object = args.as_object().ok_or("INVALID_PARAMS")?;
+        match object.get("workspaceId") {
+            None | Some(Value::Null) => return Err("WORKSPACE_CONTEXT_REQUIRED".into()),
+            Some(Value::String(id)) if id.trim().is_empty() => {
+                return Err("INVALID_PARAMS: workspaceId 不能为空".into());
+            }
+            _ => {}
+        }
+        serde_json::from_value::<WorkspaceGetArgs>(args.clone())
+            .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
     } else if matches!(
         name,
         "workspace_list" | "workspace_current" | "workspace_deactivate"
@@ -894,8 +937,8 @@ mod tests {
                 .count(),
             4
         );
-        assert_eq!(disabled.len(), 19);
-        assert_eq!(enabled.len(), 23);
+        assert_eq!(disabled.len(), 20);
+        assert_eq!(enabled.len(), 24);
         assert_eq!(
             enabled
                 .iter()
@@ -962,13 +1005,14 @@ mod tests {
     #[test]
     fn fixed_surface() {
         let tools = list(&upstream(), true).unwrap();
-        assert_eq!(tools.len(), 23);
+        assert_eq!(tools.len(), 24);
         let mut expected = vec![
             "work_query",
             "work_update",
             "agent_query",
             "agent_execute",
             "workspace_list",
+            "workspace_get",
             "workspace_current",
             "workspace_activate",
             "workspace_deactivate",
@@ -979,6 +1023,12 @@ mod tests {
         expected.extend(GITS.iter().copied());
         let names: std::collections::HashSet<_> = tools.iter().map(|t| t.name.as_ref()).collect();
         assert_eq!(names, expected.into_iter().collect());
+        assert!(!names.contains("workspace_register"));
+        assert!(!names.contains("workspace_select"));
+        assert!(!names.contains("workspace_rename"));
+        assert!(!names.contains("workspace_reorder"));
+        assert!(!names.contains("workspace_remove"));
+        assert!(!names.contains("workspace_import_serena"));
         let media = tools.iter().find(|t| t.name == "media_read_image").unwrap();
         assert!(media.output_schema.is_none());
         assert_eq!(
@@ -1008,7 +1058,7 @@ mod tests {
                 .map(|t| &t.name)
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
-            23
+            24
         );
         assert!(
             validate(
@@ -1045,6 +1095,79 @@ mod tests {
     }
 
     #[test]
+    fn workspace_discovery_tools_expose_registry_contracts() {
+        let tools = list(&upstream(), true).unwrap();
+        let list = tools
+            .iter()
+            .find(|tool| tool.name == "workspace_list")
+            .unwrap();
+        let get = tools
+            .iter()
+            .find(|tool| tool.name == "workspace_get")
+            .unwrap();
+
+        for tool in [list, get] {
+            assert_eq!(
+                tool.annotations.as_ref().unwrap().read_only_hint,
+                Some(true)
+            );
+            let description = tool.description.as_deref().unwrap();
+            assert!(description.contains("Workspace Registry"));
+            assert!(!description.contains("从 Serena 同步"));
+            assert!(!description.contains("activate"));
+            assert!(!description.contains("当前活动项目"));
+        }
+
+        assert_eq!(get.input_schema["required"], json!(["workspaceId"]));
+        assert_eq!(
+            get.input_schema["properties"]["workspaceId"]["type"],
+            "string"
+        );
+        assert_eq!(get.input_schema["additionalProperties"], false);
+
+        for (tool, field) in [(list, "workspaces"), (get, "workspace")] {
+            let output = tool.output_schema.as_ref().unwrap();
+            assert_eq!(
+                output["required"],
+                json!(["registryRevision", field, "truncated"])
+            );
+            let workspace = if field == "workspaces" {
+                &output["properties"][field]["items"]
+            } else {
+                &output["properties"][field]
+            };
+            assert_eq!(
+                workspace["required"],
+                json!(["id", "name", "root", "generation"])
+            );
+            assert_eq!(workspace["properties"]["generation"]["type"], "integer");
+            assert_eq!(workspace["properties"]["generation"]["minimum"], 0);
+        }
+    }
+
+    #[test]
+    fn workspace_get_validates_required_context_before_registry_lookup() {
+        for args in [json!({}), json!({"workspaceId": null})] {
+            assert_eq!(
+                validate("workspace_get", &args),
+                Err("WORKSPACE_CONTEXT_REQUIRED".into())
+            );
+        }
+        for args in [
+            json!({"workspaceId": 3}),
+            json!({"workspaceId": ""}),
+            json!({"workspaceId": " \t"}),
+        ] {
+            assert!(
+                validate("workspace_get", &args)
+                    .unwrap_err()
+                    .starts_with("INVALID_PARAMS"),
+                "{args}"
+            );
+        }
+    }
+
+    #[test]
     fn source_read_file_alone_requires_local_file_version_output() {
         let tools = list(&upstream(), true).unwrap();
         for tool in tools
@@ -1073,6 +1196,62 @@ mod tests {
                 for field in ["relative_path", "start_line", "end_line", "max_bytes"] {
                     assert!(properties.contains_key(field));
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn git_tools_require_explicit_workspace_context_and_minimal_provenance() {
+        let tools = list(&upstream(), true).unwrap();
+        for &name in GITS {
+            let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+            let properties = tool.input_schema["properties"].as_object().unwrap();
+            assert_eq!(properties["workspaceId"]["type"], "string", "{name}");
+            assert!(
+                tool.input_schema["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("workspaceId")),
+                "{name}"
+            );
+            let description = tool.description.as_deref().unwrap();
+            assert!(description.contains("workspaceId 必填"), "{name}");
+            assert!(!description.contains("必须先激活"), "{name}");
+            assert!(!description.contains("当前活动仓库"), "{name}");
+
+            let output = tool.output_schema.as_ref().unwrap();
+            assert_eq!(
+                output["properties"]["workspace"]["required"],
+                json!(["id", "generation"])
+            );
+            assert!(
+                output["properties"]["workspace"]["properties"]
+                    .get("name")
+                    .is_none()
+            );
+            assert!(
+                output["properties"]["workspace"]["properties"]
+                    .get("root")
+                    .is_none()
+            );
+
+            for args in [json!({}), json!({"workspaceId":null})] {
+                assert_eq!(
+                    validate(name, &args),
+                    Err("WORKSPACE_CONTEXT_REQUIRED".into())
+                );
+            }
+            for args in [
+                json!({"workspaceId":3}),
+                json!({"workspaceId":""}),
+                json!({"workspaceId":" \t"}),
+            ] {
+                assert!(
+                    validate(name, &args)
+                        .unwrap_err()
+                        .starts_with("INVALID_PARAMS"),
+                    "{name} {args}"
+                );
             }
         }
     }

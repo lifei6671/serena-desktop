@@ -255,6 +255,7 @@ fn row(status: &str, completeness: &str, final_result_json: Option<String>) -> E
         execution_profile_json: "{}".into(),
         workspace_id: "workspace-1".into(),
         canonical_workspace_root: "C:/workspace".into(),
+        workspace_generation: 1,
         provider: "codex".into(),
         mode: "read_only".into(),
         parent_execution_id: None,

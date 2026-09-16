@@ -111,7 +111,11 @@ impl WorkProductService {
                     return Err("WORK_INVALID_ARGUMENT".into());
                 }
                 let workspace = workspace
-                    .filter(|current| current.id == workspace_id && !current.root.trim().is_empty())
+                    .filter(|current| {
+                        current.id == workspace_id
+                            && !current.root.trim().is_empty()
+                            && current.generation >= 1
+                    })
                     .ok_or("WORKSPACE_CONTEXT_MISMATCH")?;
                 let id = AgentTaskManager::id("work");
                 self.store
@@ -119,6 +123,7 @@ impl WorkProductService {
                         id.clone(),
                         workspace_id,
                         workspace.root,
+                        workspace.generation,
                         title.into(),
                         goal,
                         now(),

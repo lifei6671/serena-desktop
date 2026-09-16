@@ -2,7 +2,7 @@
 use super::*;
 use crate::agent::execution::{
     CreateExecutionInput, ExecutionMode, Provider, canonicalize_request,
-    legacy_pre_c2_continuation_hash,
+    legacy_pre_c2_continuation_hash, matches_current_or_legacy_workspace_generation_hash,
 };
 
 mod work;
@@ -13,6 +13,7 @@ use work::{create_with_work, require_membership, require_retry_context, validate
 pub struct WorkspaceSnapshot {
     pub id: String,
     pub root: String,
+    pub generation: u64,
 }
 #[derive(Debug)]
 pub struct ProductSnapshot {
@@ -91,6 +92,7 @@ fn input(
             .map_err(|e| e.to_string())?,
         workspace_id: row.workspace_id.clone(),
         canonical_workspace_root: row.canonical_workspace_root.clone(),
+        workspace_generation: row.workspace_generation,
         provider: serde_json::from_value(serde_json::json!(row.provider))
             .map_err(|e| e.to_string())?,
         mode: serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?,
@@ -102,7 +104,11 @@ fn prior_outcome(
     row: ExecutionRecord,
     request: &CanonicalRequest,
 ) -> Result<CreateOutcome, String> {
-    if row.request_hash != request.request_hash() {
+    if !matches_current_or_legacy_workspace_generation_hash(
+        &row.request_hash,
+        row.workspace_generation,
+        request,
+    )? {
         return Err("EXECUTION_REQUEST_KEY_CONFLICT".into());
     }
     Ok(CreateOutcome {
@@ -122,7 +128,10 @@ fn continuation_prior_outcome(
 ) -> Result<CreateOutcome, String> {
     match prior_outcome(prior.clone(), request) {
         Ok(outcome) => Ok(outcome),
-        Err(error) if prior.parent_execution_id.is_none() => {
+        Err(error)
+            if prior.parent_execution_id.is_none()
+                && prior.workspace_generation == request.input().workspace_generation =>
+        {
             if prior.request_hash
                 == legacy_pre_c2_continuation_hash(request.input(), &source.thread_id)?
             {
@@ -178,6 +187,7 @@ impl StateStore {
                         work,
                         &request.input().workspace_id,
                         Some(&request.input().canonical_workspace_root),
+                        Some(request.input().workspace_generation),
                     )?;
                 }
                 let claimed: bool = tx
@@ -313,7 +323,16 @@ impl StateStore {
                 if row.workspace_id != expected_workspace_id {
                     return Err("EXECUTION_REQUEST_KEY_CONFLICT".into());
                 }
-                let request = canonicalize_request(input(&row, request_key, prompt, None, None)?)?;
+                let mut retry = input(&row, request_key, prompt, None, None)?;
+                if let Some(workspace) = workspace
+                    .as_ref()
+                    .filter(|workspace| workspace.id == expected_workspace_id)
+                {
+                    retry.workspace_id = workspace.id.clone();
+                    retry.canonical_workspace_root = workspace.root.clone();
+                    retry.workspace_generation = workspace.generation;
+                }
+                let request = canonicalize_request(retry)?;
                 if let Some(work) = &work {
                     require_retry_context(tx, &row.id, work)?;
                 }
@@ -324,7 +343,11 @@ impl StateStore {
                     .as_ref()
                     .filter(|w| w.id == expected_workspace_id)
                     .map(|w| w.root.as_str());
-                validate_new_work(tx, work, &expected_workspace_id, root)?;
+                let generation = workspace
+                    .as_ref()
+                    .filter(|w| w.id == expected_workspace_id)
+                    .map(|w| w.generation);
+                validate_new_work(tx, work, &expected_workspace_id, root, generation)?;
             }
             let history: bool = tx
                 .query_row(
@@ -347,6 +370,7 @@ impl StateStore {
                 execution_profile: json!({}),
                 workspace_id: w.id,
                 canonical_workspace_root: w.root,
+                workspace_generation: w.generation,
                 provider: Provider::Codex,
                 mode: ExecutionMode::WorkspaceWrite,
                 parent_execution_id: None,
@@ -417,6 +441,7 @@ impl StateStore {
                     work,
                     &request.input().workspace_id,
                     Some(&request.input().canonical_workspace_root),
+                    Some(request.input().workspace_generation),
                 )?;
             }
             let claimed: bool = tx

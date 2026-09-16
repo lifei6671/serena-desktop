@@ -126,6 +126,7 @@ function App() {
               onSettings={() => setTab("settings")}
               onRemote={() => setTab("remote")}
               onSerena={() => setTab("serena")}
+              onSelectWorkspace={controller.selectWorkspace}
               onCopied={() => {
                 toast.success("复制成功");
               }}
@@ -143,7 +144,7 @@ function App() {
           <SettingsPage {...controller} state={state} />
         )}
         </Suspense>
-        <div hidden={tab !== "agent" && tab !== "task"}><AgentPanel detailView={tab === "task"} sidebarContainer={projectNavigation} onShowTask={() => setTab("task")} onShowAgent={() => setTab("agent")} workspace={brokerController.broker?.activeWorkspace ?? null} workspaces={brokerController.broker?.projects ?? state.config.workspaces} onSelectWorkspace={() => setTab("console")} /></div>
+        <div hidden={tab !== "agent" && tab !== "task"}><AgentPanel detailView={tab === "task"} sidebarContainer={projectNavigation} onShowTask={() => setTab("task")} onShowAgent={() => setTab("agent")} workspace={state.desktopSelectedWorkspace} workspaces={state.config.workspaces} onSelectWorkspace={() => setTab("console")} /></div>
         <RemoteApprovalDialog controller={remote} />
       </main>
 

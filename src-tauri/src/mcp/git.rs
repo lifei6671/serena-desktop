@@ -10,6 +10,9 @@ use tokio_util::sync::CancellationToken;
 #[derive(Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GitArgs {
+    #[serde(rename = "workspaceId")]
+    #[schemars(rename = "workspaceId")]
+    pub workspace_id: String,
     #[serde(default)]
     pub scope: Option<String>,
     #[serde(default)]

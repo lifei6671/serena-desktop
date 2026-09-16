@@ -433,6 +433,68 @@ h3 {
 .project-error p {
   white-space: pre-wrap;
 }
+.project-registration {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.project-registration h2,
+.project-registration p {
+  margin: 0;
+}
+.project-registration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.workspace-management {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.workspace-management h3 {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+}
+.workspace-management-row {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.workspace-management-identity,
+.workspace-rename-editor {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.workspace-management-identity strong {
+  color: #334155;
+  font-size: 13px;
+}
+.workspace-management-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.workspace-remove-confirmation {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+.workspace-remove-confirmation p {
+  margin: 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
+}
 .selection-action {
   display: flex;
   align-items: center;

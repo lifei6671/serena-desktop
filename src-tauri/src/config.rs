@@ -121,6 +121,7 @@ pub struct ManagerConfig {
     pub broker: BrokerConfig,
     pub workspaces: Vec<Workspace>,
     pub workspace_registry_revision: u64,
+    pub desktop_selected_workspace_id: Option<String>,
     pub serena_path: Option<PathBuf>,
     pub port: u16,
     pub dashboard_enabled: bool,
@@ -137,6 +138,7 @@ impl Default for ManagerConfig {
             agent_enabled: false,
             workspaces: Vec::new(),
             workspace_registry_revision: 1,
+            desktop_selected_workspace_id: None,
             serena_path: None,
             port: 9121,
             dashboard_enabled: true,
@@ -187,8 +189,20 @@ pub fn load(path: &Path) -> Result<ManagerConfig, String> {
     }
     let content = fs::read_to_string(path)
         .map_err(|error| format!("无法读取配置 {}：{error}", path.display()))?;
-    let config: ManagerConfig = serde_json::from_str(&content)
+    let mut config: ManagerConfig = serde_json::from_str(&content)
         .map_err(|error| format!("配置文件格式无效 {}：{error}", path.display()))?;
+    if config
+        .desktop_selected_workspace_id
+        .as_ref()
+        .is_some_and(|id| {
+            !config
+                .workspaces
+                .iter()
+                .any(|workspace| workspace.id == *id)
+        })
+    {
+        config.desktop_selected_workspace_id = None;
+    }
     config.validate()?;
     Ok(config)
 }
@@ -373,7 +387,26 @@ mod tests {
     fn default_config_is_valid() {
         let config = ManagerConfig::default();
         assert_eq!(config.workspace_registry_revision, 1);
+        assert_eq!(config.desktop_selected_workspace_id, None);
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn stale_desktop_selected_workspace_loads_as_unselected_without_rewriting_config() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        fs::write(
+            &path,
+            r#"{"desktopSelectedWorkspaceId":"missing","workspaces":[{"id":"known","name":"Known","root":"C:\\known","generation":4}]}"#,
+        )
+        .unwrap();
+        let bytes = fs::read(&path).unwrap();
+
+        let loaded = load(&path).unwrap();
+
+        assert_eq!(loaded.desktop_selected_workspace_id, None);
+        assert_eq!(loaded.workspaces[0].id, "known");
+        assert_eq!(fs::read(&path).unwrap(), bytes);
     }
 
     #[test]

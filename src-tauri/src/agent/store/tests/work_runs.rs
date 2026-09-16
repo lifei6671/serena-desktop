@@ -59,13 +59,14 @@ fn v4_upgrade_preserves_complete_execution_claim_and_existing_schema() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
                 .unwrap(),
-            6
+            7
         );
         for (index, (sql, expected)) in queries[..3].iter().zip(&before[..3]).enumerate() {
             let mut expected = expected.clone();
             if index == 0 {
                 for row in &mut expected {
                     row.push(Value::Null);
+                    row.push(Value::Integer(1));
                 }
             }
             assert_eq!(snapshot(&c, sql), expected, "{sql}");
@@ -117,6 +118,7 @@ fn create_get_list_work_runs_survive_reopen_with_exact_values_and_defaults() {
         id: "b".into(),
         workspace_id: "workspace '".into(),
         canonical_workspace_root: "C:/中文/root".into(),
+        workspace_generation: 1,
         title: title.into(),
         goal: Some("goal ' ; --".into()),
         status: "active".into(),
@@ -141,6 +143,7 @@ fn create_get_list_work_runs_survive_reopen_with_exact_values_and_defaults() {
                         id.into(),
                         workspace.into(),
                         expected.canonical_workspace_root.clone(),
+                        1,
                         title.into(),
                         goal,
                         now,
@@ -154,6 +157,7 @@ fn create_get_list_work_runs_survive_reopen_with_exact_values_and_defaults() {
                         "b".into(),
                         "replacement".into(),
                         "root".into(),
+                        1,
                         "replacement".into(),
                         None,
                         99
@@ -205,6 +209,7 @@ fn work_run_list_caps_large_limits_and_projects_nullable_values_as_stored() {
                     format!("w{i:03}"),
                     "workspace".into(),
                     "root".into(),
+                    1,
                     "title".into(),
                     None,
                     i,

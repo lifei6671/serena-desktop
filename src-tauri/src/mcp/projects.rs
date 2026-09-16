@@ -1,24 +1,22 @@
-use crate::config::Workspace;
-use serde::Serialize;
-use std::{collections::HashSet, fs, path::PathBuf};
+use crate::{
+    config::{canonicalize_workspace_root, same_workspace_root_identity},
+    workspace_registry::WorkspaceImportCandidate,
+};
+use std::{fs, path::PathBuf};
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SyncResult {
-    pub projects: Vec<Workspace>,
-    pub warnings: Vec<String>,
-    pub sources: Vec<PathBuf>,
+pub(crate) struct ImportCandidates {
+    pub(crate) candidates: Vec<WorkspaceImportCandidate>,
+    pub(crate) warnings: Vec<String>,
+    pub(crate) sources: Vec<PathBuf>,
 }
 
 // Read only registered roots and their configuration; never scan source trees or start LSPs.
-pub fn read(sources: Vec<PathBuf>, previous: &[Workspace]) -> Result<SyncResult, String> {
-    let mut result = SyncResult {
-        projects: Vec::new(),
+pub(crate) fn read(sources: Vec<PathBuf>) -> Result<ImportCandidates, String> {
+    let mut result = ImportCandidates {
+        candidates: Vec::new(),
         warnings: Vec::new(),
         sources,
     };
-    let mut seen = HashSet::new();
-    let mut ids: HashSet<String> = previous.iter().map(|w| w.id.clone()).collect();
     for source in &result.sources {
         let text = match fs::read_to_string(source) {
             Ok(text) => text,
@@ -41,7 +39,7 @@ pub fn read(sources: Vec<PathBuf>, previous: &[Workspace]) -> Result<SyncResult,
                 if !root.is_absolute() {
                     return Err("项目路径必须是绝对路径".into());
                 }
-                let root = root.canonicalize().map_err(|e| e.to_string())?;
+                let root = canonicalize_workspace_root(&root).map_err(str::to_owned)?;
                 let mut config: serde_yaml_ng::Value = serde_yaml_ng::from_str(
                     &fs::read_to_string(root.join(".serena/project.yml"))
                         .map_err(|e| e.to_string())?,
@@ -87,26 +85,16 @@ pub fn read(sources: Vec<PathBuf>, previous: &[Workspace]) -> Result<SyncResult,
                     continue;
                 }
             };
-            if !seen.insert(root.clone()) {
+            if result
+                .candidates
+                .iter()
+                .any(|candidate| same_workspace_root_identity(&candidate.root, &root))
+            {
                 continue;
             }
-            let (id, generation) = if let Some(w) = previous.iter().find(|w| w.root == root) {
-                (w.id.clone(), w.generation)
-            } else {
-                let mut n = 1;
-                while ids.contains(&format!("project-{n}")) {
-                    n += 1;
-                }
-                let id = format!("project-{n}");
-                ids.insert(id.clone());
-                (id, 1)
-            };
-            result.projects.push(Workspace {
-                id,
-                name,
-                root,
-                generation,
-            });
+            result
+                .candidates
+                .push(WorkspaceImportCandidate { name, root });
         }
     }
     Ok(result)
@@ -128,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_merges_registries_preserves_ids_and_reads_local_names_without_writes() {
+    fn read_collects_canonical_candidates_in_source_order_and_reads_local_names_without_writes() {
         let dir = tempfile::tempdir().unwrap();
         let one = project(dir.path(), "one");
         let two = project(dir.path(), "two");
@@ -153,28 +141,20 @@ mod tests {
         )
         .unwrap();
         let before = fs::read(&sources[0]).unwrap();
-        let previous = vec![Workspace {
-            id: "project-8".into(),
-            name: "old".into(),
-            root: one,
-            generation: 7,
-        }];
-        let result = read(sources.clone(), &previous).unwrap();
-        assert_eq!(result.projects.len(), 2);
-        assert_eq!(result.projects[0].id, "project-8");
-        assert_eq!(result.projects[0].name, "shared");
-        assert_eq!(result.projects[0].generation, 7);
-        assert_eq!(result.projects[1].name, "override");
-        assert_ne!(result.projects[1].id, "project-8");
-        assert_eq!(result.projects[1].generation, 1);
+        let result = read(sources.clone()).unwrap();
+        assert_eq!(result.candidates.len(), 2);
+        assert_eq!(result.candidates[0].root, one);
+        assert_eq!(result.candidates[0].name, "shared");
+        assert_eq!(result.candidates[1].root, two);
+        assert_eq!(result.candidates[1].name, "override");
         assert!(result.warnings.is_empty());
         assert_eq!(fs::read(&sources[0]).unwrap(), before);
-        let again = read(sources, &result.projects).unwrap();
-        assert_eq!(again.projects, result.projects);
+        let again = read(sources).unwrap();
+        assert_eq!(again.candidates, result.candidates);
     }
 
     #[test]
-    fn sync_skips_uninitialized_or_invalid_projects_and_does_not_discover_unregistered_roots() {
+    fn read_skips_uninitialized_or_invalid_projects_and_does_not_discover_unregistered_roots() {
         let dir = tempfile::tempdir().unwrap();
         let valid = project(dir.path(), "valid");
         let bad = project(dir.path(), "bad");
@@ -186,9 +166,9 @@ mod tests {
             serde_json::json!({"projects": [valid, bad, dir.path().join("missing")]}).to_string(),
         )
         .unwrap();
-        let result = read(vec![source], &[]).unwrap();
-        assert_eq!(result.projects.len(), 1);
-        assert_eq!(result.projects[0].root, valid);
+        let result = read(vec![source]).unwrap();
+        assert_eq!(result.candidates.len(), 1);
+        assert_eq!(result.candidates[0].root, valid);
         assert_eq!(result.warnings.len(), 2);
     }
 
@@ -196,10 +176,30 @@ mod tests {
     fn missing_registry_is_empty_but_malformed_registry_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("registry.yml");
-        assert!(read(vec![source.clone()], &[]).unwrap().projects.is_empty());
+        assert!(read(vec![source.clone()]).unwrap().candidates.is_empty());
         for text in ["[bad yaml", "projects: bad", "projects: [42]"] {
             fs::write(&source, text).unwrap();
-            assert!(read(vec![source.clone()], &[]).is_err());
+            assert!(read(vec![source.clone()]).is_err());
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn read_deduplicates_windows_casing_aliases_across_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = project(dir.path(), "project");
+        let casing_alias = PathBuf::from(root.to_string_lossy().to_ascii_uppercase());
+        let first = dir.path().join("first.yml");
+        let second = dir.path().join("second.yml");
+        fs::write(&first, serde_json::json!({"projects": [root]}).to_string()).unwrap();
+        fs::write(
+            &second,
+            serde_json::json!({"projects": [casing_alias]}).to_string(),
+        )
+        .unwrap();
+
+        let result = read(vec![first, second]).unwrap();
+
+        assert_eq!(result.candidates.len(), 1);
     }
 }

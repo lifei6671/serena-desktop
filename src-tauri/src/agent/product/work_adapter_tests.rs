@@ -27,6 +27,7 @@ async fn create_work(store: &StateStore, root: &std::path::Path, id: &str) {
             id.into(),
             "W".into(),
             root.to_string_lossy().into(),
+            1,
             "title".into(),
             None,
             1,

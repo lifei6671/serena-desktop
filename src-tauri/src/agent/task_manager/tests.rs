@@ -421,6 +421,7 @@ async fn receipt_precedes_provider_terminal_and_duplicate_acceptance() {
                 super::super::store::transactions::product::WorkspaceSnapshot {
                     id: "routing-workspace".into(),
                     root: directory.path().to_string_lossy().into(),
+                    generation: 1,
                 },
             ),
         ),

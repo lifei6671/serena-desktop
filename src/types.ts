@@ -37,6 +37,7 @@ export interface ManagerConfig {
   broker: { enabled: boolean; port: number; allowLan: boolean };
   workspaces: Workspace[];
   workspaceRegistryRevision: number;
+  desktopSelectedWorkspaceId: string | null;
   serenaPath: string | null;
   port: number;
   dashboardEnabled: boolean;
@@ -57,6 +58,7 @@ export interface SerenaInstallation {
 export interface AppState {
   codegraphVersion: string | null;
   config: ManagerConfig;
+  desktopSelectedWorkspace: Workspace | null;
   git: {
     status: "available" | "missing" | "error";
     available: boolean;
@@ -84,6 +86,16 @@ export interface Workspace {
   name: string;
   root: string;
   generation: number;
+}
+
+export interface WorkspaceInspection {
+  canonicalRoot: string;
+  folderBasename: string | null;
+}
+
+export interface WorkspaceRegistrySnapshot {
+  registryRevision: number;
+  workspaces: Workspace[];
 }
 export interface BrokerState {
   running: boolean;

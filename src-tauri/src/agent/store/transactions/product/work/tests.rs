@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::execution::legacy_pre_workspace_generation_hash;
 use rusqlite::types::Value;
 
 fn context(work: &str) -> WorkExecutionContext {
@@ -15,6 +16,7 @@ async fn work(store: &StateStore, id: &str) {
             id.into(),
             "W".into(),
             "root".into(),
+            1,
             "title".into(),
             None,
             1,
@@ -41,6 +43,7 @@ async fn fresh(
             Some(WorkspaceSnapshot {
                 id: "W".into(),
                 root: "root".into(),
+                generation: 1,
             }),
             work,
             now,
@@ -388,10 +391,12 @@ async fn fresh_work_guards_have_no_side_effects() {
         Some(WorkspaceSnapshot {
             id: "other".into(),
             root: "root".into(),
+            generation: 1,
         }),
         Some(WorkspaceSnapshot {
             id: "W".into(),
             root: "elsewhere".into(),
+            generation: 1,
         }),
     ] {
         let before = snapshot(&store);
@@ -623,6 +628,7 @@ async fn continuation_guards_keep_eligibility_claim_and_workspace_contracts() {
     for change in [
         "UPDATE work_runs SET workspace_id='other'",
         "UPDATE work_runs SET workspace_id='W',canonical_workspace_root='ROOT'",
+        "UPDATE work_runs SET workspace_generation=2",
     ] {
         sql(&store, change);
         let before = snapshot(&store);
@@ -634,6 +640,117 @@ async fn continuation_guards_keep_eligibility_claim_and_workspace_contracts() {
         );
         assert_eq!(snapshot(&store), before);
     }
+}
+
+#[tokio::test]
+async fn v2_request_retry_and_migrated_v1_retry_require_matching_generation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    let first = store
+        .product_create_fresh(
+            "E1".into(),
+            "A".into(),
+            "key".into(),
+            "prompt".into(),
+            "W".into(),
+            Some(WorkspaceSnapshot {
+                id: "W".into(),
+                root: "root".into(),
+                generation: 1,
+            }),
+            10,
+        )
+        .await
+        .unwrap();
+    let retry = store
+        .product_create_fresh(
+            "unused".into(),
+            "A".into(),
+            "key".into(),
+            "prompt".into(),
+            "W".into(),
+            Some(WorkspaceSnapshot {
+                id: "W".into(),
+                root: "root".into(),
+                generation: 1,
+            }),
+            11,
+        )
+        .await
+        .unwrap();
+    assert!(!retry.created);
+    assert_eq!(retry.execution_id, first.execution_id);
+    assert_eq!(
+        store
+            .product_create_fresh(
+                "unused".into(),
+                "A".into(),
+                "key".into(),
+                "prompt".into(),
+                "W".into(),
+                Some(WorkspaceSnapshot {
+                    id: "W".into(),
+                    root: "root".into(),
+                    generation: 2,
+                }),
+                12,
+            )
+            .await
+            .unwrap_err(),
+        "EXECUTION_REQUEST_KEY_CONFLICT"
+    );
+
+    let request = canonicalize_request(
+        input(&first.execution, "key".into(), "prompt".into(), None, None).unwrap(),
+    )
+    .unwrap();
+    let legacy = legacy_pre_workspace_generation_hash(request.input()).unwrap();
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET request_hash=?2 WHERE id=?1",
+            params![first.execution_id, legacy.clone()],
+        )
+        .unwrap();
+    let retry = store
+        .product_create_fresh(
+            "unused".into(),
+            "A".into(),
+            "key".into(),
+            "prompt".into(),
+            "W".into(),
+            Some(WorkspaceSnapshot {
+                id: "W".into(),
+                root: "root".into(),
+                generation: 1,
+            }),
+            13,
+        )
+        .await
+        .unwrap();
+    assert!(!retry.created);
+    assert_eq!(retry.execution.request_hash, legacy);
+    assert_eq!(
+        store
+            .product_create_fresh(
+                "unused".into(),
+                "A".into(),
+                "key".into(),
+                "prompt".into(),
+                "W".into(),
+                Some(WorkspaceSnapshot {
+                    id: "W".into(),
+                    root: "root".into(),
+                    generation: 2,
+                }),
+                14,
+            )
+            .await
+            .unwrap_err(),
+        "EXECUTION_REQUEST_KEY_CONFLICT"
+    );
 }
 
 #[tokio::test]
@@ -650,6 +767,7 @@ async fn original_no_work_entries_still_create_retry_and_continue_without_links(
             Some(WorkspaceSnapshot {
                 id: "W".into(),
                 root: "root".into(),
+                generation: 1,
             }),
             10,
         )

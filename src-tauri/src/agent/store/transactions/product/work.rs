@@ -31,6 +31,18 @@ pub(super) fn require_retry_context(
     {
         return Err("EXECUTION_REQUEST_KEY_CONFLICT".into());
     }
+    let work_row = work_run_record(tx, &work.work_run_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("WORK_NOT_FOUND")?;
+    let execution = execution_record(tx, execution_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("EXECUTION_NOT_FOUND")?;
+    if work_row.workspace_id != execution.workspace_id
+        || work_row.canonical_workspace_root != execution.canonical_workspace_root
+        || work_row.workspace_generation != execution.workspace_generation
+    {
+        return Err("WORKSPACE_CONTEXT_MISMATCH".into());
+    }
     Ok(())
 }
 
@@ -101,6 +113,7 @@ pub(super) fn validate_new_work(
     context: &WorkExecutionContext,
     workspace_id: &str,
     root: Option<&str>,
+    generation: Option<u64>,
 ) -> Result<(), String> {
     let work = work_run_record(tx, &context.work_run_id)
         .map_err(|e| e.to_string())?
@@ -108,7 +121,10 @@ pub(super) fn validate_new_work(
     if work.status != "active" {
         return Err("WORK_NOT_ACTIVE".into());
     }
-    if work.workspace_id != workspace_id || root != Some(work.canonical_workspace_root.as_str()) {
+    if work.workspace_id != workspace_id
+        || root != Some(work.canonical_workspace_root.as_str())
+        || generation != Some(work.workspace_generation)
+    {
         return Err("WORKSPACE_CONTEXT_MISMATCH".into());
     }
     Ok(())

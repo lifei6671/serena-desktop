@@ -231,6 +231,47 @@ impl SupervisorState {
             .clone()
     }
 
+    pub(crate) fn desktop_selected_workspace(&self) -> Option<Workspace> {
+        let config = self.workspace_registry_config();
+        config.desktop_selected_workspace_id.and_then(|id| {
+            config
+                .workspaces
+                .into_iter()
+                .find(|workspace| workspace.id == id)
+        })
+    }
+
+    pub(crate) fn select_desktop_workspace(&self, id: &str) -> Result<Workspace, String> {
+        let _operation = self.operation.lock().expect("operation mutex poisoned");
+        let currently_selected = self.desktop_selected_workspace();
+        let current = self
+            .runtime
+            .lock()
+            .expect("supervisor mutex poisoned")
+            .config
+            .clone();
+        let workspace = current
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == id)
+            .cloned()
+            .ok_or_else(|| String::from(crate::workspace_registry::WORKSPACE_NOT_FOUND))?;
+        if currently_selected
+            .as_ref()
+            .is_some_and(|selected| selected.id == id)
+        {
+            return Ok(workspace);
+        }
+        let mut next = current;
+        next.desktop_selected_workspace_id = Some(id.to_owned());
+        config::save(&self.paths.config_file, &next)?;
+        self.runtime
+            .lock()
+            .expect("supervisor mutex poisoned")
+            .config = next;
+        Ok(workspace)
+    }
+
     pub(crate) fn mutate_workspace_registry(
         &self,
         mutation: impl FnOnce(&mut Vec<Workspace>) -> Result<(), String>,
@@ -244,6 +285,13 @@ impl SupervisorState {
             .clone();
         let mut next = current.clone();
         mutation(&mut next.workspaces)?;
+        if next
+            .desktop_selected_workspace_id
+            .as_ref()
+            .is_some_and(|id| !next.workspaces.iter().any(|workspace| workspace.id == *id))
+        {
+            next.desktop_selected_workspace_id = None;
+        }
         if next.workspaces == current.workspaces {
             return Ok(false);
         }

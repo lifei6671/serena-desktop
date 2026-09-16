@@ -304,6 +304,9 @@ impl ProductError {
             "WORK_INVALID_ARGUMENT",
             "CONTEXT_STALE",
             "WORKSPACE_CONTEXT_MISMATCH",
+            "WORKSPACE_NOT_FOUND",
+            "WORKSPACE_ROOT_NOT_FOUND",
+            "WORKSPACE_ROOT_NOT_DIRECTORY",
             "AGENT_DISABLED",
             "AGENT_INVALID_ARGUMENT",
             "AGENT_NO_ACTIVE_WORKSPACE",
@@ -412,6 +415,9 @@ pub struct AgentProductService {
 impl AgentProductService {
     pub(crate) fn work_product(&self) -> super::work::WorkProductService {
         super::work::WorkProductService::new(self.store.clone())
+    }
+    pub(crate) async fn workspace_claim_exists(&self, root: String) -> Result<bool, String> {
+        Ok(self.store.workspace_claim(root).await?.is_some())
     }
     pub async fn shutdown(&self) -> Result<(), String> {
         self.manager.runtime_pool.shutdown().await

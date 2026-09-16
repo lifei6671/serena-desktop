@@ -17,6 +17,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import {
   Collapsible,
   CollapsibleTrigger,
@@ -87,6 +88,7 @@ export function ProjectPanel({
   onSettings,
   onRemote,
   onSerena,
+  onSelectWorkspace,
   onCopied,
 }: {
   state: AppState;
@@ -94,6 +96,7 @@ export function ProjectPanel({
   onSettings: () => void;
   onRemote: () => void;
   onSerena: () => void;
+  onSelectWorkspace: (id: string) => Promise<void>;
   onCopied: () => void;
 }) {
   const { broker, busy, perform } = controller;
@@ -105,23 +108,30 @@ export function ProjectPanel({
     () => new Set(),
   );
   const [cancelling, setCancelling] = useState(false);
-  const [candidateRoot, setCandidateRoot] = useState<string | null>(null);
+  const [candidate, setCandidate] = useState<{ root: string; name: string } | null>(null);
   const [pickingDirectory, setPickingDirectory] = useState(false);
-  const syncing = busy === "同步项目中";
-  const [syncFeedback, setSyncFeedback] = useState<"idle" | "pending" | "success">("idle");
+  const [registering, setRegistering] = useState(false);
+  const importing = busy === "从 Serena 导入中";
+  const [importFeedback, setImportFeedback] = useState<"idle" | "pending" | "success">("idle");
+  const [editingWorkspace, setEditingWorkspace] = useState<{ id: string; name: string } | null>(null);
+  const [renamingWorkspaceId, setRenamingWorkspaceId] = useState<string | null>(null);
+  const [removeConfirmation, setRemoveConfirmation] = useState<{ id: string; name: string; root: string } | null>(null);
+  const [removingWorkspaceId, setRemovingWorkspaceId] = useState<string | null>(null);
+  const [reorderingWorkspaceId, setReorderingWorkspaceId] = useState<string | null>(null);
   const feedbackTimers = useRef(new Set<ReturnType<typeof window.setTimeout>>());
   const mounted = useRef(true);
   const [selectorOpen, setSelectorOpen] = useState(false);
+  const [selecting, setSelecting] = useState(false);
   const [helpOpen, setHelpOpen] = useState<boolean | undefined>(undefined);
-  const project = broker?.projects.find((p) => p.id === selected);
+  const project = state.config.workspaces.find((workspace) => workspace.id === selected);
+  const selectedWorkspace = state.desktopSelectedWorkspace;
   const active = broker?.activeWorkspace;
-  const pending = !!busy || !!broker?.operation;
-  const activating = busy === "激活中" || busy === "切换中";
-  const deactivating = busy === "取消激活中";
-  const projectBusy = activating || deactivating;
-  const graph = active ? broker?.codegraph : null;
+  const pending = !!busy || !!broker?.operation || selecting;
+  const graph = active?.id === selectedWorkspace?.id ? broker?.codegraph : null;
   const graphState = !active
-    ? { label: "待激活", tone: "idle", detail: "激活项目后连接" }
+    ? { label: "未运行", tone: "idle", detail: "没有运行中的旧 Provider 工作区" }
+    : active.id !== selectedWorkspace?.id
+      ? { label: "独立运行中", tone: "idle", detail: `运行工作区：${active.name}` }
     : graph
       ? {
           ready: { label: "就绪", tone: "good", detail: "" },
@@ -152,7 +162,7 @@ export function ProjectPanel({
           },
         }[graph.status]
       : { label: "读取中", tone: "waiting", detail: "正在读取能力状态" };
-  const current = !!project && project.id === active?.id;
+  const current = !!project && project.id === selectedWorkspace?.id;
   const unavailable = state.activeInstallation?.state !== "standard";
   const serenaLabel =
     state.serverStatus === "running"
@@ -250,7 +260,17 @@ export function ProjectPanel({
     }
   };
   const openSelector = () => {
-    setSelected(active?.id ?? broker?.projects[0]?.id ?? "");
+    setSelected(selectedWorkspace?.id ?? "");
+  };
+  const selectWorkspace = async () => {
+    if (!project || selecting) return;
+    setSelecting(true);
+    try {
+      await onSelectWorkspace(project.id);
+      setSelectorOpen(false);
+    } finally {
+      setSelecting(false);
+    }
   };
   const executable = state.installation?.path;
   const registryHome = broker?.projectSources[0]?.replace(/[\\/][^\\/]+$/, "");
@@ -259,14 +279,14 @@ export function ProjectPanel({
     executable && registryHome
       ? `$env:SERENA_HOME = ${quote(registryHome)}\n& ${quote(executable)} project create --index`
       : null;
-  const sync = async () => {
-    if (syncFeedback !== "idle" || syncing) return;
+  const importSerena = async () => {
+    if (importFeedback !== "idle" || importing) return;
     const startedAt = Date.now();
-    let syncedCount: number | null = null;
-    setSyncFeedback("pending");
-    await perform("同步项目中", async () => {
+    let importedCount: number | null = null;
+    setImportFeedback("pending");
+    await perform("从 Serena 导入中", async () => {
       try {
-        syncedCount = await api.syncProjects();
+        importedCount = await api.workspaceImportSerena();
       } catch (reason) {
         await waitForFeedback(
           Math.max(0, SYNC_MIN_PENDING_MS - (Date.now() - startedAt)),
@@ -276,30 +296,91 @@ export function ProjectPanel({
       await waitForFeedback(
         Math.max(0, SYNC_MIN_PENDING_MS - (Date.now() - startedAt)),
       );
-      toast.success(`已同步 ${syncedCount} 个项目`);
+      toast.success(
+        importedCount > 0
+          ? `已导入 ${importedCount} 个项目`
+          : "没有新的 Serena 项目",
+      );
     });
     if (!mounted.current) return;
-    if (syncedCount === null) {
-      setSyncFeedback("idle");
+    if (importedCount === null) {
+      setImportFeedback("idle");
       return;
     }
-    setSyncFeedback("success");
-    resetAfterSuccess(() => setSyncFeedback("idle"));
+    setImportFeedback("success");
+    resetAfterSuccess(() => setImportFeedback("idle"));
   };
   const pickDirectory = async () => {
     setPickingDirectory(true);
     try {
       const root = await api.workspacePickDirectory();
-      if (root) setCandidateRoot(root);
+      if (!root) return;
+      const inspection = await api.workspaceInspectDirectory(root);
+      setCandidate({
+        root: inspection.canonicalRoot,
+        name: inspection.folderBasename ?? "",
+      });
     } catch (reason) {
       toast.error(String(reason));
     } finally {
       setPickingDirectory(false);
     }
   };
-  const syncVisualState = syncFeedback === "success"
+  const registerCandidate = async () => {
+    if (!candidate || registering || !candidate.name.trim()) return;
+    let registered = false;
+    setRegistering(true);
+    await perform("登记项目中", async () => {
+      await api.workspaceRegister(candidate.root, candidate.name.trim());
+      registered = true;
+    });
+    if (registered && mounted.current) setCandidate(null);
+    if (mounted.current) setRegistering(false);
+  };
+  const renameWorkspace = async () => {
+    if (!editingWorkspace || renamingWorkspaceId || !editingWorkspace.name.trim()) return;
+    let renamed = false;
+    setRenamingWorkspaceId(editingWorkspace.id);
+    await perform("重命名项目", async () => {
+      await api.workspaceRename(editingWorkspace.id, editingWorkspace.name.trim());
+      renamed = true;
+    });
+    if (renamed && mounted.current) setEditingWorkspace(null);
+    if (mounted.current) setRenamingWorkspaceId(null);
+  };
+  const removeWorkspace = async () => {
+    if (!removeConfirmation || removingWorkspaceId) return;
+    const workspace = removeConfirmation;
+    let removed = false;
+    setRemovingWorkspaceId(workspace.id);
+    await perform("移除项目", async () => {
+      try {
+        await api.workspaceRemove(workspace.id);
+        removed = true;
+      } catch (reason) {
+        if (String(reason).includes("WORKSPACE_IN_USE")) {
+          throw new Error("项目正在被 Agent 任务使用，当前不能移除");
+        }
+        throw reason;
+      }
+    });
+    if (removed && mounted.current) setRemoveConfirmation(null);
+    if (mounted.current) setRemovingWorkspaceId(null);
+  };
+  const reorderWorkspace = async (index: number, direction: -1 | 1) => {
+    if (reorderingWorkspaceId) return;
+    const targetIndex = index + direction;
+    const workspaces = state.config.workspaces;
+    if (targetIndex < 0 || targetIndex >= workspaces.length) return;
+    const ids = workspaces.map((workspace) => workspace.id);
+    [ids[index], ids[targetIndex]] = [ids[targetIndex], ids[index]];
+    setReorderingWorkspaceId(workspaces[index].id);
+    await perform("调整项目顺序", () => api.workspaceReorder(ids));
+    if (mounted.current) setReorderingWorkspaceId(null);
+  };
+  const importVisualState = importFeedback === "success"
     ? "success"
-    : syncing || syncFeedback === "pending"
+    : importing || importFeedback === "pending"
       ? "pending"
       : "idle";
   return (
@@ -308,86 +389,110 @@ export function ProjectPanel({
         <div className="page-heading">
           <div>
             <h1>开始使用</h1>
-            <p>选择一个项目，连接本地代码能力。</p>
+            <p>选择一个工作区，作为当前查看和新任务的默认项目。</p>
           </div>
           <Button
             variant="outline"
-            disabled={pickingDirectory}
+            disabled={pickingDirectory || registering}
             aria-busy={pickingDirectory}
             onClick={() => void pickDirectory()}
           >
             {pickingDirectory && <Spinner data-icon="inline-start" aria-hidden="true" />}
-            {pickingDirectory ? "选择目录中…" : "添加项目"}
+            {pickingDirectory ? "选择并检查目录中…" : "添加项目"}
           </Button>
           <Button
             className="sync-project-button"
-            disabled={pending || !broker || syncVisualState !== "idle"}
-            aria-busy={syncVisualState === "pending"}
-            onClick={() => void sync()}
+            disabled={importVisualState !== "idle"}
+            aria-busy={importVisualState === "pending"}
+            onClick={() => void importSerena()}
           >
-            {syncVisualState === "pending" ? (
+            {importVisualState === "pending" ? (
               <Spinner data-icon="inline-start" aria-hidden="true" />
-            ) : syncVisualState === "success" ? (
+            ) : importVisualState === "success" ? (
               <Check data-icon="inline-start" aria-hidden="true" />
             ) : (
               <RefreshCw data-icon="inline-start" aria-hidden="true" />
             )}
-            {syncVisualState === "pending"
-              ? "同步中…"
-              : syncVisualState === "success"
-                ? "已同步"
-                : "同步项目"}
+            {importVisualState === "pending"
+              ? "导入中…"
+              : importVisualState === "success"
+                ? "已导入"
+                : "从 Serena 导入"}
           </Button>
         </div>
-        {candidateRoot && (
-          <p className="helper" role="status">
-            待登记目录：<code className="project-path">{displayProjectPath(candidateRoot)}</code>
-          </p>
+        {candidate && (
+          <section className="project-registration" aria-labelledby="register-project-title">
+            <h2 id="register-project-title">待添加项目</h2>
+            <p>
+              <code className="project-path">{displayProjectPath(candidate.root)}</code>
+            </p>
+            <Field>
+              <FieldLabel htmlFor="workspace-register-name">项目名称</FieldLabel>
+              <Input
+                id="workspace-register-name"
+                value={candidate.name}
+                onChange={(event) => setCandidate({ ...candidate, name: event.target.value })}
+              />
+            </Field>
+            <div className="project-registration-actions">
+              <Button
+                disabled={registering || !candidate.name.trim()}
+                aria-busy={registering}
+                onClick={() => void registerCandidate()}
+              >
+                {registering && <Spinner data-icon="inline-start" aria-hidden="true" />}
+                {registering ? "登记中…" : "登记项目"}
+              </Button>
+              <Button variant="outline" disabled={registering} onClick={() => setCandidate(null)}>
+                取消
+              </Button>
+            </div>
+          </section>
         )}
         <section className="home-section" aria-labelledby="workspace-title">
           <h2 id="workspace-title">当前工作区</h2>
           <div className="workspace-summary">
             <div className="workspace-identity">
-              {active ? (
+              {selectedWorkspace ? (
                 <div className="workspace-active-identity">
                   <span className="workspace-folder-icon" aria-hidden="true">
                     <Folder />
                   </span>
                   <div className="workspace-active-details">
                     <div className="workspace-name">
-                      <strong>{active.name}</strong>
+                      <strong>{selectedWorkspace.name}</strong>
                       <Badge className="workspace-active-badge" variant="secondary">
-                        已激活
+                        已选择
                       </Badge>
                     </div>
                     <code className="project-path">
-                      {displayProjectPath(active.root)}
+                      {displayProjectPath(selectedWorkspace.root)}
                     </code>
                   </div>
                 </div>
               ) : (
                 <>
                   <div className="workspace-name">
-                    <strong>{broker ? "尚未激活项目" : "正在读取工作区…"}</strong>
+                    <strong>尚未选择工作区</strong>
                   </div>
-                  <p>选择一个项目开始使用 Serena。</p>
+                  <p>选择一个工作区后，新任务会默认使用它。</p>
                 </>
               )}
             </div>
             <DialogTrigger asChild>
               <Button
-                variant={active ? "outline" : "default"}
-                disabled={!broker || pending}
-                aria-busy={projectBusy}
+                variant={selectedWorkspace ? "outline" : "default"}
+                disabled={pending}
+                aria-busy={selecting}
                 onClick={openSelector}
               >
-                {projectBusy ? (
+                {selecting ? (
                   <>
                     <Spinner data-icon="inline-start" aria-hidden="true" />
-                    {busy}…
+                    选择中…
                   </>
-                ) : active ? (
-                  "切换项目"
+                ) : selectedWorkspace ? (
+                  "更换工作区"
                 ) : (
                   "选择项目"
                 )}
@@ -419,15 +524,14 @@ export function ProjectPanel({
           >
             <CollapsibleTrigger asChild>
               <Button variant="ghost" id="project-sync-title">
-                如何初始化并同步项目
+                如何添加或导入项目
                 <ChevronDownIcon data-icon="inline-end" />
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="flex flex-col gap-3 pt-3">
               <p>
-                在已有 Git 仓库的根目录打开
-                PowerShell，执行以下命令，为当前仓库创建 Serena
-                项目配置并建立索引。完成后点击“同步项目”。
+                “添加项目”支持普通本地目录，不要求 Git，也不要求已有 .serena。
+                如需为已有 Git 仓库创建 Serena 项目配置并建立索引，可在仓库根目录执行以下命令。
               </p>
               <CopyCommand
                 text="serena project create --index"
@@ -445,7 +549,7 @@ export function ProjectPanel({
                   <CollapsibleContent className="flex flex-col gap-3 pt-3">
                     <p>
                       仍在仓库根目录执行以下命令，使用 Desktop 检测到的 Serena
-                      和同步配置目录。
+                      和配置目录。
                     </p>
                     <CopyCommand
                       text={command}
@@ -464,19 +568,19 @@ export function ProjectPanel({
                 onCopied={onCopied}
               />
               <p className="helper">
-                大项目可在终端查看进度；等待命令执行完成后再同步。
+                大项目可在终端查看进度；等待命令执行完成后再从 Serena 导入。
               </p>
               <Collapsible>
                 <CollapsibleTrigger asChild>
                   <Button variant="ghost">
-                    同步来源
+                    Serena 导入说明
                     <ChevronDownIcon data-icon="inline-end" />
                   </Button>
                 </CollapsibleTrigger>
                 <CollapsibleContent className="flex flex-col gap-3 pt-3">
                   <p>
-                    读取 Serena
-                    的项目登记表及项目配置，不扫描磁盘。启动时自动同步，也可手动刷新；同步不切换当前工作区。
+                    从 Serena 项目登记表及项目配置显式追加缺失项目，不扫描磁盘。
+                    不会覆盖现有名称、排序或选择，也不会切换当前工作区。
                   </p>
                   {broker?.projectSources.map((source) => (
                     <p key={source}>
@@ -512,8 +616,8 @@ export function ProjectPanel({
                 {serenaLabel}
               </Badge>
               <span className="service-detail">
-                {state.serverStatus === "running" && !active
-                  ? "未绑定项目"
+              {state.serverStatus === "running" && !active
+                  ? "未绑定旧 Provider 工作区"
                   : state.activeInstallation?.version || "—"}
               </span>
             </div>
@@ -668,8 +772,8 @@ export function ProjectPanel({
           <DialogHeader>
             <DialogTitle>选择项目</DialogTitle>
             <DialogDescription>
-              当前工作区：{active?.name ?? "尚未激活"}
-              。选择列表项不会切换工作区。
+              当前选择：{selectedWorkspace?.name ?? "尚未选择"}
+              。确认后只更新 Desktop 选择，不会启动或切换 Provider。
             </DialogDescription>
           </DialogHeader>
           <Field>
@@ -684,18 +788,144 @@ export function ProjectPanel({
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {broker?.projects.map((p) => (
+                  {state.config.workspaces.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.name}
-                      {p.id === active?.id ? " · 已激活" : " · 已同步"}
+                      {p.id === selectedWorkspace?.id ? " · 已选择" : ""}
                     </SelectItem>
                   ))}
                 </SelectGroup>
               </SelectContent>
             </Select>
           </Field>
-          {!broker?.projects.length && (
-            <p>暂无可用项目，请先在终端初始化，然后点击首页的“同步项目”。</p>
+          {!state.config.workspaces.length && (
+            <p>暂无已登记工作区。</p>
+          )}
+          {!!state.config.workspaces.length && (
+            <section className="workspace-management" aria-labelledby="workspace-management-title">
+              <h3 id="workspace-management-title">项目管理</h3>
+              {state.config.workspaces.map((workspace, index) => {
+                const editor = editingWorkspace?.id === workspace.id
+                  ? editingWorkspace
+                  : null;
+                const removal = removeConfirmation?.id === workspace.id
+                  ? removeConfirmation
+                  : null;
+                const renaming = renamingWorkspaceId === workspace.id;
+                const removing = removingWorkspaceId === workspace.id;
+                const reordering = reorderingWorkspaceId === workspace.id;
+                const orderingLocked = !!reorderingWorkspaceId;
+                return (
+                  <div className="workspace-management-row" data-workspace-id={workspace.id} key={workspace.id}>
+                    {editor ? (
+                      <div className="workspace-rename-editor">
+                        <Input
+                          id={`workspace-rename-${workspace.id}`}
+                          value={editor.name}
+                          disabled={renaming}
+                          onChange={(event) => setEditingWorkspace({
+                            id: workspace.id,
+                            name: event.target.value,
+                          })}
+                        />
+                        <div className="workspace-management-actions">
+                          <Button
+                            disabled={renaming || !editor.name.trim()}
+                            aria-busy={renaming}
+                            onClick={() => void renameWorkspace()}
+                          >
+                            {renaming && <Spinner data-icon="inline-start" aria-hidden="true" />}
+                            {renaming ? "保存中…" : "保存"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            disabled={renaming}
+                            onClick={() => setEditingWorkspace(null)}
+                          >
+                            取消
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="workspace-management-identity">
+                          <strong>{workspace.name}</strong>
+                          <code className="project-path">{displayProjectPath(workspace.root)}</code>
+                        </div>
+                        <div className="workspace-management-actions">
+                          <Button
+                            variant="outline"
+                            disabled={index === 0 || orderingLocked}
+                            aria-busy={reordering}
+                            onClick={() => void reorderWorkspace(index, -1)}
+                          >
+                            {reordering && <Spinner data-icon="inline-start" aria-hidden="true" />}
+                            {reordering ? "调整中…" : "上移"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            disabled={index === state.config.workspaces.length - 1 || orderingLocked}
+                            aria-busy={reordering}
+                            onClick={() => void reorderWorkspace(index, 1)}
+                          >
+                            {reordering && <Spinner data-icon="inline-start" aria-hidden="true" />}
+                            {reordering ? "调整中…" : "下移"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            disabled={removing}
+                            onClick={() => setEditingWorkspace({
+                              id: workspace.id,
+                              name: workspace.name,
+                            })}
+                          >
+                            重命名
+                          </Button>
+                          <Button
+                            variant="outline"
+                            disabled={removing}
+                            onClick={() => setRemoveConfirmation({
+                              id: workspace.id,
+                              name: workspace.name,
+                              root: workspace.root,
+                            })}
+                          >
+                            移除
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                    {removal && (
+                      <div className="workspace-remove-confirmation" role="alertdialog" aria-label={`确认移除 ${workspace.name}`}>
+                        <p>
+                          确定移除“{removal.name}”吗？仅从 Serena Desktop 项目列表移除，
+                          不会删除本地目录、源码、Git 仓库、.serena 或 .codegraph 内容。
+                        </p>
+                        <code className="project-path">{displayProjectPath(removal.root)}</code>
+                        <div className="workspace-management-actions">
+                          <Button
+                            variant="destructive"
+                            disabled={removing}
+                            aria-busy={removing}
+                            onClick={() => void removeWorkspace()}
+                          >
+                            {removing && <Spinner data-icon="inline-start" aria-hidden="true" />}
+                            {removing ? "移除中…" : "确认移除"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            disabled={removing}
+                            onClick={() => setRemoveConfirmation(null)}
+                          >
+                            取消
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </section>
           )}
           {project && (
             <>
@@ -703,59 +933,24 @@ export function ProjectPanel({
                 {displayProjectPath(project.root)}
               </code>
               <div className="selection-action">
-                {(current && !activating) || deactivating ? (
+                {current ? (
                   <>
-                    <Badge variant="secondary">已激活</Badge>
-                    <Button
-                      variant="outline"
-                      disabled={pending}
-                      aria-busy={deactivating}
-                      onClick={() =>
-                        perform(
-                          "取消激活中",
-                          api.deactivateProject,
-                          "项目已取消激活",
-                        )
-                      }
-                    >
-                      {deactivating ? (
-                        <>
-                          <Spinner
-                            data-icon="inline-start"
-                            aria-hidden="true"
-                          />
-                          取消激活中…
-                        </>
-                      ) : (
-                        "取消激活"
-                      )}
-                    </Button>
+                    <Badge variant="secondary">已选择</Badge>
                   </>
                 ) : (
                   <Button
                     variant="default"
                     disabled={pending}
-                    aria-busy={activating}
-                    onClick={() =>
-                      perform(
-                        active ? "切换中" : "激活中",
-                        async () => {
-                          await api.activateProject(project.id);
-                          setSelectorOpen(false);
-                        },
-                        active ? "项目已切换" : "项目已激活",
-                      )
-                    }
+                    aria-busy={selecting}
+                    onClick={() => void selectWorkspace()}
                   >
-                    {activating ? (
+                    {selecting ? (
                       <>
                         <Spinner data-icon="inline-start" aria-hidden="true" />
-                        {busy}…
+                        选择中…
                       </>
-                    ) : active ? (
-                      "切换到此项目"
                     ) : (
-                      "激活"
+                      "选择此工作区"
                     )}
                   </Button>
                 )}

@@ -1,4 +1,7 @@
-use super::super::execution::{CreateExecutionInput, canonicalize_request};
+use super::super::execution::{
+    CreateExecutionInput, canonicalize_request, legacy_pre_workspace_generation_hash,
+};
+use super::work_runs::work_run_record;
 use super::*;
 use serde_json::json;
 
@@ -22,9 +25,10 @@ fn insert(c: &mut Connection, id: &str, agent: &str, root: &str) {
 }
 fn insert_pre_v6(c: &Connection, id: &str, agent: &str, root: &str, thread_id: Option<&str>) {
     let request = request(agent, root);
+    let request_hash = legacy_pre_workspace_generation_hash(request.input()).unwrap();
     c.execute(
         "INSERT INTO executions (id,agent_id,request_key,request_hash,prompt,execution_profile_json,workspace_id,canonical_workspace_root,provider,mode,thread_id,status,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'codex','workspace_write',?9,'dispatch_pending',123,123)",
-        params![id, agent, request.input().request_key, request.request_hash(), request.input().prompt, request.execution_profile_json(), request.input().workspace_id, root, thread_id],
+        params![id, agent, request.input().request_key, request_hash, request.input().prompt, request.execution_profile_json(), request.input().workspace_id, root, thread_id],
     ).unwrap();
 }
 fn runtime(c: &Connection, id: &str) {
@@ -38,7 +42,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
         let store = open(dir.path());
         let c = store.connection.lock().unwrap();
         for (pragma, expected) in [
-            ("user_version", 6),
+            ("user_version", 7),
             ("foreign_keys", 1),
             ("synchronous", 2),
             ("busy_timeout", 5000),
@@ -117,7 +121,7 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        6
+        7
     );
     assert_eq!(
         c.query_row(
@@ -232,7 +236,7 @@ fn v2_migration_preserves_history_and_adds_nullable_activity() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        6
+        7
     );
     let old = execution_record(&c, "old").unwrap().unwrap();
     assert_eq!(old.last_activity_at, None);
@@ -264,7 +268,7 @@ fn every_pre_v6_schema_preserves_history_and_reopens_with_null_parent() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            6
+            7
         );
         let after = execution_record(&c, "old").unwrap().unwrap();
         assert_eq!((after.request_hash, after.prompt, after.thread_id), before);
@@ -295,13 +299,218 @@ fn unsupported_or_unversioned_history_is_not_guessed_or_rewritten() {
             .unwrap(),
         0
     );
-    c.pragma_update(None, "user_version", 7).unwrap();
+    c.pragma_update(None, "user_version", 8).unwrap();
     assert!(migrate(&mut c).unwrap_err().contains("unsupported"));
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
+        8
+    );
+}
+
+#[test]
+fn v6_upgrade_preserves_rows_and_defines_generation_one_baseline() {
+    let mut c = Connection::open_in_memory().unwrap();
+    for schema in [
+        SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6,
+    ] {
+        c.execute_batch(schema).unwrap();
+    }
+    c.pragma_update(None, "user_version", 6).unwrap();
+    insert_pre_v6(&c, "old", "agent", "root", Some("legacy-thread"));
+    c.execute(
+        "INSERT INTO work_runs (id,workspace_id,canonical_workspace_root,title,status,created_at,updated_at)
+         VALUES ('work','workspace','root','title','active',1,1)",
+        [],
+    )
+    .unwrap();
+    let executions = c
+        .prepare("SELECT * FROM executions ORDER BY id")
+        .unwrap()
+        .query_map([], |row| {
+            (0..row.as_ref().column_count())
+                .map(|index| row.get(index))
+                .collect::<rusqlite::Result<Vec<rusqlite::types::Value>>>()
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    let work_runs = c
+        .prepare("SELECT * FROM work_runs ORDER BY id")
+        .unwrap()
+        .query_map([], |row| {
+            (0..row.as_ref().column_count())
+                .map(|index| row.get(index))
+                .collect::<rusqlite::Result<Vec<rusqlite::types::Value>>>()
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+
+    migrate(&mut c).unwrap();
+    migrate(&mut c).unwrap();
+    assert_eq!(
+        c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
         7
     );
+    let mut expected_executions = executions;
+    expected_executions[0].push(rusqlite::types::Value::Integer(1));
+    let mut expected_work_runs = work_runs;
+    expected_work_runs[0].push(rusqlite::types::Value::Integer(1));
+    let actual_executions = c
+        .prepare("SELECT * FROM executions ORDER BY id")
+        .unwrap()
+        .query_map([], |row| {
+            (0..row.as_ref().column_count())
+                .map(|index| row.get(index))
+                .collect::<rusqlite::Result<Vec<rusqlite::types::Value>>>()
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    let actual_work_runs = c
+        .prepare("SELECT * FROM work_runs ORDER BY id")
+        .unwrap()
+        .query_map([], |row| {
+            (0..row.as_ref().column_count())
+                .map(|index| row.get(index))
+                .collect::<rusqlite::Result<Vec<rusqlite::types::Value>>>()
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(actual_executions, expected_executions);
+    assert_eq!(actual_work_runs, expected_work_runs);
+    assert_eq!(
+        execution_record(&c, "old")
+            .unwrap()
+            .unwrap()
+            .workspace_generation,
+        1
+    );
+    assert_eq!(
+        work_run_record(&c, "work")
+            .unwrap()
+            .unwrap()
+            .workspace_generation,
+        1
+    );
+}
+
+#[test]
+fn v7_generation_columns_default_to_one_and_reject_nonpositive_raw_sql() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    let mut c = store.connection.lock().unwrap();
+    insert(&mut c, "execution", "agent", "root");
+    c.execute(
+        "INSERT INTO work_runs (id,workspace_id,canonical_workspace_root,title,status,created_at,updated_at)
+         VALUES ('work','workspace','root','title','active',1,1)",
+        [],
+    )
+    .unwrap();
+    for table in ["executions", "work_runs"] {
+        assert_eq!(
+            c.query_row(
+                &format!("SELECT workspace_generation FROM {table} LIMIT 1"),
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
+        );
+        for value in [0, -1] {
+            assert!(
+                c.execute(
+                    &format!("UPDATE {table} SET workspace_generation=?1"),
+                    [value],
+                )
+                .is_err()
+            );
+        }
+    }
+    for table in ["executions", "work_runs"] {
+        let sql: String = c
+            .query_row(
+                "SELECT sql FROM sqlite_schema WHERE type='table' AND name=?1",
+                [table],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(sql.contains(
+            "workspace_generation INTEGER NOT NULL DEFAULT 1 CHECK(workspace_generation >= 1)"
+        ));
+    }
+}
+
+#[test]
+fn migrated_v6_legacy_hash_retries_only_at_generation_one_without_rewrite() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("agent-state.db");
+    let c = Connection::open(&database).unwrap();
+    for schema in [
+        SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6,
+    ] {
+        c.execute_batch(schema).unwrap();
+    }
+    c.pragma_update(None, "user_version", 6).unwrap();
+    insert_pre_v6(&c, "legacy", "agent", "root", None);
+    let before: String = c
+        .query_row(
+            "SELECT request_hash FROM executions WHERE id='legacy'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    drop(c);
+
+    tauri::async_runtime::block_on(async {
+        let store = StateStore::open(dir.path().into()).await.unwrap();
+        let retry = store
+            .product_create_fresh(
+                "unused".into(),
+                "agent".into(),
+                "key".into(),
+                "中文 ' ; --".into(),
+                "w".into(),
+                Some(
+                    crate::agent::store::transactions::product::WorkspaceSnapshot {
+                        id: "w".into(),
+                        root: "root".into(),
+                        generation: 1,
+                    },
+                ),
+                2,
+            )
+            .await
+            .unwrap();
+        assert!(!retry.created);
+        assert_eq!(retry.execution_id, "legacy");
+        assert_eq!(retry.execution.workspace_generation, 1);
+        assert_eq!(retry.execution.request_hash, before);
+        assert_eq!(
+            store
+                .product_create_fresh(
+                    "unused".into(),
+                    "agent".into(),
+                    "key".into(),
+                    "中文 ' ; --".into(),
+                    "w".into(),
+                    Some(
+                        crate::agent::store::transactions::product::WorkspaceSnapshot {
+                            id: "w".into(),
+                            root: "root".into(),
+                            generation: 2,
+                        }
+                    ),
+                    3,
+                )
+                .await
+                .unwrap_err(),
+            "EXECUTION_REQUEST_KEY_CONFLICT"
+        );
+    });
 }
 
 #[test]

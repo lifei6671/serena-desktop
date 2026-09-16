@@ -2,6 +2,24 @@
 use super::work_context::VersionedContext;
 use super::*;
 use crate::agent::store::transactions::product::WorkExecutionContext;
+use crate::{serena::SupervisorState, workspace_resolver::WorkspaceResolver};
+
+pub(crate) enum WorkspaceAuthority<'a> {
+    Snapshot(Option<WorkspaceSnapshot>),
+    Resolver(&'a SupervisorState),
+}
+
+impl From<Option<WorkspaceSnapshot>> for WorkspaceAuthority<'_> {
+    fn from(workspace: Option<WorkspaceSnapshot>) -> Self {
+        Self::Snapshot(workspace)
+    }
+}
+
+impl<'a> From<&'a SupervisorState> for WorkspaceAuthority<'a> {
+    fn from(supervisor: &'a SupervisorState) -> Self {
+        Self::Resolver(supervisor)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum AgentQueryAction {
@@ -102,11 +120,16 @@ impl AgentProductService {
         }
     }
 
-    pub async fn agent_execute(
+    pub async fn agent_execute<'a>(
         &self,
         action: AgentExecuteAction,
-        workspace: Option<WorkspaceSnapshot>,
+        workspace: impl Into<WorkspaceAuthority<'a>>,
     ) -> Result<ExecutionView, ProductError> {
+        let workspace = workspace.into();
+        let mut snapshot = match &workspace {
+            WorkspaceAuthority::Snapshot(snapshot) => snapshot.clone(),
+            WorkspaceAuthority::Resolver(_) => None,
+        };
         let (mut action, mut work) = match action {
             AgentExecuteAction::Start {
                 work_run_id,
@@ -225,6 +248,16 @@ impl AgentProductService {
                     .map_err(|e| ProductError::accepted(e, id));
             }
             let current = self.active_work(&work.work_run_id).await?;
+            if let WorkspaceAuthority::Resolver(supervisor) = workspace {
+                let lease = WorkspaceResolver::new(supervisor)
+                    .resolve(&current.workspace_id)
+                    .map_err(ProductError::from)?;
+                snapshot = Some(WorkspaceSnapshot {
+                    id: lease.workspace_id,
+                    root: lease.canonical_root.to_string_lossy().into_owned(),
+                    generation: lease.generation,
+                });
+            }
             if let Some(context) = context {
                 context.verify(current.canonical_workspace_root).await?;
             }
@@ -233,7 +266,7 @@ impl AgentProductService {
         // dispatch. Dropping this adapter's wait does not drop that worker.
         let id = self
             .manager
-            .product_submit_with_work(action, workspace, work)
+            .product_submit_with_work(action, snapshot, work)
             .await
             .map_err(submission_error)?;
         self.observe(id.clone(), false)

@@ -11,6 +11,8 @@ mod source_read;
 use crate::{
     config::{ManagerConfig, Workspace},
     serena::{ServerStatus, SupervisorState},
+    workspace_registry::{WORKSPACE_NOT_FOUND, WorkspaceRegistry},
+    workspace_resolver::WorkspaceResolver,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -337,6 +339,7 @@ impl Broker {
                 crate::agent::store::transactions::product::WorkspaceSnapshot {
                     id: active.workspace.id.clone(),
                     root: active.workspace.root.to_string_lossy().into_owned(),
+                    generation: active.workspace.generation,
                 }
             })
         } else {
@@ -387,7 +390,27 @@ impl Broker {
         }
         match name {
             "workspace_list" => {
-                return Ok(json!({"workspaces":self.config().workspaces,"truncated":false}));
+                let snapshot = WorkspaceRegistry::new(&self.supervisor).list();
+                return Ok(json!({
+                    "registryRevision": snapshot.registry_revision,
+                    "workspaces": snapshot.workspaces,
+                    "truncated": false
+                }));
+            }
+            "workspace_get" => {
+                let snapshot = WorkspaceRegistry::new(&self.supervisor).list();
+                let workspace_id: registry::WorkspaceGetArgs =
+                    serde_json::from_value(args).expect("validated workspaceId");
+                let workspace = snapshot
+                    .workspaces
+                    .into_iter()
+                    .find(|workspace| workspace.id == workspace_id.workspace_id)
+                    .ok_or(WORKSPACE_NOT_FOUND)?;
+                return Ok(json!({
+                    "registryRevision": snapshot.registry_revision,
+                    "workspace": workspace,
+                    "truncated": false
+                }));
             }
             "workspace_current" => {
                 let slot = self.workspace.read().await;
@@ -414,6 +437,24 @@ impl Broker {
             }
             _ => {}
         }
+        if registry::GITS.contains(&name) {
+            let args: git::GitArgs =
+                serde_json::from_value(args).map_err(|e| format!("INVALID_PARAMS: {e}"))?;
+            let lease = WorkspaceResolver::new(&self.supervisor).resolve(&args.workspace_id)?;
+            if cancel.is_cancelled() {
+                return Err("CANCELLED".into());
+            }
+            let result = git::call(name, &lease.canonical_root, args, cancel).await?;
+            let mut response = json!({
+                "workspace":{"id":lease.workspace_id,"generation":lease.generation},
+                "text":result.text,
+                "truncated":result.truncated
+            });
+            if result.truncated {
+                response["hint"] = json!("请缩小路径、行范围或日志数量");
+            }
+            return Ok(response);
+        }
         let slot = self.workspace.read().await;
         if cancel.is_cancelled() {
             return Err("CANCELLED".into());
@@ -436,16 +477,7 @@ impl Broker {
             }
             return Err("NO_ACTIVE_WORKSPACE".into());
         }
-        let (text, truncated) = if name.starts_with("git_") {
-            let result = git::call(
-                name,
-                &active.workspace.root,
-                serde_json::from_value(args).map_err(|e| format!("INVALID_PARAMS: {e}"))?,
-                cancel,
-            )
-            .await?;
-            (result.text, result.truncated)
-        } else {
+        let (text, truncated) = {
             let a: registry::SourceArgs =
                 serde_json::from_value(args.clone()).map_err(|e| e.to_string())?;
             let limit = a.max_bytes.unwrap_or(if name == "source_read_file" {
@@ -565,17 +597,10 @@ impl Broker {
     pub async fn sync_projects(&self, sources: Vec<PathBuf>) -> Result<usize, String> {
         let _management = self.management.lock().await;
         *self.project_sources.lock().unwrap() = sources.clone();
-        let mut previous = self.config().workspaces;
-        if let Some((active, _, _)) = self.published.lock().unwrap().as_ref()
-            && !previous.iter().any(|w| w.id == active.id)
-        {
-            previous.push(active.clone());
-        }
-        let result = projects::read(sources, &previous)?;
-        let count = result.projects.len();
-        self.supervisor.replace_workspaces(result.projects)?;
+        let result = projects::read(sources)?;
+        let count = WorkspaceRegistry::new(&self.supervisor).import_serena(&result.candidates)?;
         *self.sync_warnings.lock().unwrap() = result.warnings;
-        self.log(&format!("已同步 {count} 个 Serena 项目"));
+        self.log(&format!("已从 Serena 导入 {count} 个项目"));
         Ok(count)
     }
 }
@@ -598,7 +623,10 @@ pub fn get(app: &AppHandle) -> Arc<Broker> {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use crate::config::{AppPaths, BrokerConfig};
+    use crate::{
+        config::{self, AppPaths, BrokerConfig, Workspace},
+        workspace_registry::{WorkspaceRegistry, WorkspaceRegistrySnapshot},
+    };
     use rmcp::{
         ServiceExt, model::CallToolRequestParams, transport::StreamableHttpClientTransport,
     };
@@ -631,6 +659,339 @@ mod integration_tests {
         };
         crate::config::save(&paths.config_file, &config).unwrap();
         Arc::new(Broker::new(Arc::new(SupervisorState::new(paths).unwrap())))
+    }
+
+    #[tokio::test]
+    async fn workspace_discovery_reads_registry_without_authority_or_root_validation() {
+        let directory = tempfile::tempdir().unwrap();
+        let broker = fixture(
+            directory.path(),
+            Some(directory.path().join("missing-serena.exe")),
+        );
+        let root_a = directory.path().join("workspace-a");
+        let root_b = directory.path().join("workspace-b");
+        std::fs::create_dir(&root_a).unwrap();
+        std::fs::create_dir(&root_b).unwrap();
+        let registry = WorkspaceRegistry::new(&broker.supervisor);
+        let initial_revision = registry.list().registry_revision;
+        let workspace_a = registry
+            .register(root_a.clone(), Some("Workspace A".into()))
+            .unwrap();
+        let workspace_b = registry
+            .register(root_b, Some("Workspace B".into()))
+            .unwrap();
+        let initial = registry.list();
+        assert_eq!(initial.registry_revision, initial_revision + 2);
+        assert_eq!(
+            initial.workspaces,
+            vec![workspace_a.clone(), workspace_b.clone()]
+        );
+        broker
+            .supervisor
+            .select_desktop_workspace(&workspace_b.id)
+            .unwrap();
+        assert!(broker.workspace.read().await.is_none());
+
+        let listed = broker
+            .dispatch("workspace_list", json!({}), CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(listed["registryRevision"], initial.registry_revision);
+        assert_eq!(
+            listed["workspaces"],
+            serde_json::to_value(&initial.workspaces).unwrap()
+        );
+        assert_eq!(listed["truncated"], false);
+
+        let fetched_b = broker
+            .dispatch(
+                "workspace_get",
+                json!({"workspaceId": workspace_b.id}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(fetched_b["registryRevision"], initial.registry_revision);
+        assert_eq!(
+            fetched_b["workspace"],
+            serde_json::to_value(&workspace_b).unwrap()
+        );
+        assert_eq!(fetched_b["truncated"], false);
+
+        let legacy_server = super::orchestration_tests::active(&broker, directory.path()).await;
+        assert_eq!(
+            broker.workspace.read().await.as_ref().unwrap().workspace.id,
+            "W"
+        );
+        std::fs::remove_dir(root_a).unwrap();
+        let fetched_a = broker
+            .dispatch(
+                "workspace_get",
+                json!({"workspaceId": workspace_a.id}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(fetched_a["registryRevision"], initial.registry_revision);
+        assert_eq!(
+            fetched_a["workspace"],
+            serde_json::to_value(&workspace_a).unwrap()
+        );
+        assert_eq!(
+            broker.supervisor.desktop_selected_workspace().unwrap(),
+            workspace_b
+        );
+        assert_eq!(
+            broker.workspace.read().await.as_ref().unwrap().workspace.id,
+            "W"
+        );
+        assert_eq!(
+            broker
+                .dispatch("git_status", json!({}), CancellationToken::new())
+                .await,
+            Err("WORKSPACE_CONTEXT_REQUIRED".into())
+        );
+        assert_eq!(
+            broker
+                .dispatch(
+                    "workspace_get",
+                    json!({"workspaceId": "unknown"}),
+                    CancellationToken::new(),
+                )
+                .await,
+            Err("WORKSPACE_NOT_FOUND".into())
+        );
+        assert_eq!(registry.list(), initial);
+
+        let root_c = directory.path().join("workspace-c");
+        std::fs::create_dir(root_c.clone()).unwrap();
+        let workspace_c = registry
+            .register(root_c, Some("Workspace C".into()))
+            .unwrap();
+        let updated = registry.list();
+        assert_eq!(updated.registry_revision, initial.registry_revision + 1);
+        assert_eq!(
+            broker
+                .dispatch("workspace_list", json!({}), CancellationToken::new())
+                .await
+                .unwrap()["registryRevision"],
+            updated.registry_revision
+        );
+        assert_eq!(
+            broker
+                .dispatch(
+                    "workspace_get",
+                    json!({"workspaceId": workspace_c.id}),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap()["registryRevision"],
+            updated.registry_revision
+        );
+        assert_eq!(registry.list(), updated);
+        legacy_server.abort();
+    }
+
+    #[tokio::test]
+    async fn git_dispatch_uses_only_each_explicit_workspace_lease() {
+        let directory = tempfile::tempdir().unwrap();
+        let broker = fixture(
+            directory.path(),
+            Some(directory.path().join("missing-serena.exe")),
+        );
+        let root_a = directory.path().join("repository-a");
+        let root_b = directory.path().join("repository-b");
+        for root in [&root_a, &root_b] {
+            let mut command = process::command("git");
+            command.arg("init").arg(root);
+            process::run(
+                command,
+                8192,
+                Duration::from_secs(10),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        }
+        std::fs::write(root_a.join("only-a.txt"), "A\n").unwrap();
+        std::fs::write(root_b.join("only-b.txt"), "B\n").unwrap();
+        let registry = WorkspaceRegistry::new(&broker.supervisor);
+        let workspace_a = registry
+            .register(root_a.clone(), Some("Workspace A".into()))
+            .unwrap();
+        let workspace_b = registry
+            .register(root_b.clone(), Some("Workspace B".into()))
+            .unwrap();
+        broker
+            .supervisor
+            .select_desktop_workspace(&workspace_b.id)
+            .unwrap();
+        assert!(broker.workspace.read().await.is_none());
+
+        let (status_a, status_b) = tokio::join!(
+            broker.dispatch(
+                "git_status",
+                json!({"workspaceId":workspace_a.id}),
+                CancellationToken::new(),
+            ),
+            broker.dispatch(
+                "git_status",
+                json!({"workspaceId":workspace_b.id}),
+                CancellationToken::new(),
+            )
+        );
+        let status_a = status_a.unwrap();
+        let status_b = status_b.unwrap();
+        assert!(status_a["text"].as_str().unwrap().contains("only-a.txt"));
+        assert!(!status_a["text"].as_str().unwrap().contains("only-b.txt"));
+        assert!(status_b["text"].as_str().unwrap().contains("only-b.txt"));
+        assert!(!status_b["text"].as_str().unwrap().contains("only-a.txt"));
+        assert_eq!(
+            status_a["workspace"],
+            json!({"id":workspace_a.id,"generation":workspace_a.generation})
+        );
+        assert_eq!(
+            status_b["workspace"],
+            json!({"id":workspace_b.id,"generation":workspace_b.generation})
+        );
+        for status in [&status_a, &status_b] {
+            assert!(status["workspace"].get("name").is_none());
+            assert!(status["workspace"].get("root").is_none());
+        }
+        assert!(broker.workspace.read().await.is_none());
+        assert_eq!(
+            broker.supervisor.desktop_selected_workspace().unwrap().id,
+            workspace_b.id
+        );
+
+        for args in [json!({}), json!({"workspaceId":null})] {
+            assert_eq!(
+                broker
+                    .dispatch("git_status", args, CancellationToken::new())
+                    .await,
+                Err("WORKSPACE_CONTEXT_REQUIRED".into())
+            );
+        }
+        for args in [
+            json!({"workspaceId":7}),
+            json!({"workspaceId":""}),
+            json!({"workspaceId":" \n"}),
+        ] {
+            assert!(
+                broker
+                    .dispatch("git_status", args, CancellationToken::new())
+                    .await
+                    .unwrap_err()
+                    .starts_with("INVALID_PARAMS")
+            );
+        }
+        assert_eq!(
+            broker
+                .dispatch(
+                    "git_status",
+                    json!({"workspaceId":"unknown"}),
+                    CancellationToken::new(),
+                )
+                .await,
+            Err("WORKSPACE_NOT_FOUND".into())
+        );
+
+        let ordinary_root = directory.path().join("ordinary-directory");
+        std::fs::create_dir(&ordinary_root).unwrap();
+        let ordinary = registry
+            .register(ordinary_root, Some("Ordinary".into()))
+            .unwrap();
+        let error = broker
+            .dispatch(
+                "git_status",
+                json!({"workspaceId":ordinary.id}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert_ne!(error, "WORKSPACE_NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn startup_and_restart_preserve_registry_despite_conflicting_serena_registry() {
+        let directory = tempfile::tempdir().unwrap();
+        let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
+            config_file: directory.path().join("config.json"),
+            log_directory: directory.path().join("logs"),
+            app_log: directory.path().join("logs/app.log"),
+            serena_log: directory.path().join("logs/serena.log"),
+        };
+        let config = ManagerConfig {
+            broker: BrokerConfig {
+                enabled: false,
+                port: port(),
+                allow_lan: false,
+            },
+            workspace_registry_revision: 42,
+            workspaces: vec![
+                Workspace {
+                    id: "first".into(),
+                    name: "First".into(),
+                    root: "C:/manager/first".into(),
+                    generation: 3,
+                },
+                Workspace {
+                    id: "second".into(),
+                    name: "Second".into(),
+                    root: "C:/manager/second".into(),
+                    generation: 9,
+                },
+            ],
+            ..ManagerConfig::default()
+        };
+        config::save(&paths.config_file, &config).unwrap();
+        let expected = WorkspaceRegistrySnapshot {
+            registry_revision: config.workspace_registry_revision,
+            workspaces: config.workspaces.clone(),
+        };
+        let bytes = std::fs::read(&paths.config_file).unwrap();
+
+        let conflicting_root = directory.path().join("serena-project");
+        std::fs::create_dir_all(conflicting_root.join(".serena")).unwrap();
+        std::fs::write(
+            conflicting_root.join(".serena/project.yml"),
+            "project_name: Replaces Manager Registry\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(paths.serena_home()).unwrap();
+        std::fs::write(
+            paths.serena_home().join("serena_config.yml"),
+            format!(
+                "projects:\n  - '{}'\n",
+                conflicting_root.display().to_string().replace('\\', "/")
+            ),
+        )
+        .unwrap();
+
+        let broker = Arc::new(Broker::new(Arc::new(
+            SupervisorState::new(paths.clone()).unwrap(),
+        )));
+        crate::finish_broker_startup(broker.clone(), tauri::async_runtime::spawn(async {}))
+            .await
+            .unwrap();
+        assert_eq!(WorkspaceRegistry::new(&broker.supervisor).list(), expected);
+        assert_eq!(broker.config(), config);
+        assert_eq!(std::fs::read(&paths.config_file).unwrap(), bytes);
+
+        drop(broker);
+        let restarted = Arc::new(Broker::new(Arc::new(
+            SupervisorState::new(paths.clone()).unwrap(),
+        )));
+        crate::finish_broker_startup(restarted.clone(), tauri::async_runtime::spawn(async {}))
+            .await
+            .unwrap();
+        assert_eq!(
+            WorkspaceRegistry::new(&restarted.supervisor).list(),
+            expected
+        );
+        assert_eq!(restarted.config(), config);
+        assert_eq!(std::fs::read(paths.config_file).unwrap(), bytes);
     }
     #[test]
     fn ipc_tool_future_fits_the_windows_ui_stack() {
@@ -711,29 +1072,90 @@ mod integration_tests {
         assert!(logs[0].ends_with("new entry"));
     }
     #[tokio::test]
-    async fn sync_updates_only_catalog_without_waiting_for_workspace_or_detecting_serena() {
+    async fn sync_compatibility_helper_is_additive_idempotent_and_does_not_activate_workspace() {
         let dir = tempfile::tempdir().unwrap();
-        // A nonexistent executable proves synchronization does not require a working installation.
+        // A nonexistent executable proves Import does not require a working installation.
         let b = fixture(dir.path(), Some(dir.path().join("missing-serena.exe")));
-        let root = dir.path().join("one");
-        std::fs::create_dir_all(root.join(".serena")).unwrap();
-        std::fs::write(root.join(".serena/project.yml"), "language: python\n").unwrap();
+        let local_a_root = dir.path().join("local-a");
+        let local_b_root = dir.path().join("local-b");
+        let imported_root = dir.path().join("imported");
+        let invalid_root = dir.path().join("invalid");
+        for root in [&local_a_root, &local_b_root, &imported_root, &invalid_root] {
+            std::fs::create_dir_all(root.join(".serena")).unwrap();
+        }
+        let registry = WorkspaceRegistry::new(&b.supervisor);
+        let local_a = registry
+            .register(local_a_root, Some("Local A".into()))
+            .unwrap();
+        let local_b = registry
+            .register(local_b_root.clone(), Some("Local B".into()))
+            .unwrap();
+        b.supervisor.select_desktop_workspace(&local_b.id).unwrap();
+        std::fs::write(
+            local_b_root.join(".serena/project.yml"),
+            "project_name: Serena must not rename Local B\n",
+        )
+        .unwrap();
+        std::fs::write(
+            imported_root.join(".serena/project.yml"),
+            "project_name: Imported C\n",
+        )
+        .unwrap();
+        std::fs::write(invalid_root.join(".serena/project.yml"), "[invalid").unwrap();
         let source = dir.path().join("registry.yml");
-        std::fs::write(&source, json!({"projects": [root]}).to_string()).unwrap();
+        std::fs::write(
+            &source,
+            json!({"projects": [local_b_root, imported_root, invalid_root]}).to_string(),
+        )
+        .unwrap();
         let before = b.config();
         *b.sync_warnings.lock().unwrap() = vec!["同步失败：此前的配置错误".into()];
         *b.error.lock().unwrap() = Some("listener error".into());
-        let guard = b.workspace.write().await;
         assert_eq!(b.sync_projects(vec![source.clone()]).await.unwrap(), 1);
-        assert!(b.sync_warnings.lock().unwrap().is_empty());
+        assert_eq!(b.sync_warnings.lock().unwrap().len(), 1);
         assert_eq!(b.error.lock().unwrap().as_deref(), Some("listener error"));
         assert_eq!(b.config().serena_path, before.serena_path);
         assert_eq!(b.config().broker, before.broker);
-        let saved = b.config().workspaces;
+        assert_eq!(
+            b.config().workspace_registry_revision,
+            before.workspace_registry_revision + 1
+        );
+        assert_eq!(b.config().workspaces[..2], [local_a, local_b]);
+        assert_eq!(b.config().workspaces[2].name, "Imported C");
+        assert_eq!(
+            b.supervisor
+                .desktop_selected_workspace()
+                .map(|workspace| workspace.id),
+            before.desktop_selected_workspace_id
+        );
+        assert!(b.workspace.read().await.is_none());
+        assert!(b.published.lock().unwrap().is_none());
+        let saved = b.config();
+        let bytes = std::fs::read(&b.supervisor.paths.config_file).unwrap();
+        assert_eq!(b.sync_projects(vec![source.clone()]).await.unwrap(), 0);
+        assert_eq!(b.config(), saved);
+        assert_eq!(
+            std::fs::read(&b.supervisor.paths.config_file).unwrap(),
+            bytes
+        );
+        assert_eq!(
+            b.sync_projects(vec![dir.path().join("missing-registry.yml")])
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(b.config(), saved);
+        assert_eq!(
+            std::fs::read(&b.supervisor.paths.config_file).unwrap(),
+            bytes
+        );
         std::fs::write(&source, "[broken yaml").unwrap();
         assert!(b.sync_projects(vec![source]).await.is_err());
-        assert_eq!(b.config().workspaces, saved);
-        drop(guard);
+        assert_eq!(b.config(), saved);
+        assert_eq!(
+            std::fs::read(&b.supervisor.paths.config_file).unwrap(),
+            bytes
+        );
     }
 
     #[test]
@@ -919,15 +1341,13 @@ mod integration_tests {
                 .to_string()
                 .contains("BACKEND_UNAVAILABLE")
         );
-        let r = client
-            .call_tool(CallToolRequestParams::new("git_status"))
-            .await
-            .unwrap();
         assert!(
-            serde_json::to_value(r)
-                .unwrap()
+            client
+                .call_tool(CallToolRequestParams::new("git_status"))
+                .await
+                .unwrap_err()
                 .to_string()
-                .contains("NO_ACTIVE_WORKSPACE")
+                .contains("WORKSPACE_CONTEXT_REQUIRED")
         );
         let graph = client
             .call_tool(
@@ -999,7 +1419,7 @@ mod integration_tests {
         assert!(logs.iter().any(|line| line.contains("HTTP POST")));
         assert!(logs.iter().any(|line| line.contains("tools/list")));
         for (tool, outcome) in [
-            ("git_status", "success=false"),
+            ("git_status", "error_code=INVALID_PARAMS"),
             ("workspace_deactivate", "success=true"),
             ("workspace_activate", "error_code=INVALID_PARAMS"),
         ] {
@@ -1158,6 +1578,7 @@ mod integration_tests {
                 "contract-work".into(),
                 "W".into(),
                 dir.path().to_string_lossy().into(),
+                1,
                 "title".into(),
                 None,
                 1,
@@ -1279,7 +1700,7 @@ mod integration_tests {
                     }
                 }
                 if enabled {
-                    store.product_create_fresh("contract-e".into(), "contract-a".into(), "key".into(), "contract-fixture".into(), (Some(crate::agent::store::transactions::product::WorkspaceSnapshot { id:"W".into(), root:dir.path().to_string_lossy().into() })).as_ref().unwrap().id.clone(), Some(crate::agent::store::transactions::product::WorkspaceSnapshot { id:"W".into(), root:dir.path().to_string_lossy().into() }), 1).await.unwrap();
+                    store.product_create_fresh("contract-e".into(), "contract-a".into(), "key".into(), "contract-fixture".into(), (Some(crate::agent::store::transactions::product::WorkspaceSnapshot { id:"W".into(), root:dir.path().to_string_lossy().into(), generation:1 })).as_ref().unwrap().id.clone(), Some(crate::agent::store::transactions::product::WorkspaceSnapshot { id:"W".into(), root:dir.path().to_string_lossy().into(), generation:1 }), 1).await.unwrap();
                     let observed = client.call_tool(CallToolRequestParams::new("agent_query").with_arguments(json!({"action":"observe","executionId":"contract-e","waitMs":0}).as_object().unwrap().clone())).await.unwrap();
                     let envelope = observed.structured_content.as_ref().unwrap();
                     assert_eq!(envelope["ok"], true);
@@ -1323,6 +1744,7 @@ mod integration_tests {
                     crate::agent::store::transactions::product::WorkspaceSnapshot {
                         id: "W".into(),
                         root: root.clone(),
+                        generation: 1,
                     },
                 ))
                 .as_ref()
@@ -1333,6 +1755,7 @@ mod integration_tests {
                     crate::agent::store::transactions::product::WorkspaceSnapshot {
                         id: "W".into(),
                         root: root.clone(),
+                        generation: 1,
                     },
                 ),
                 1,
@@ -1555,7 +1978,11 @@ mod integration_tests {
                 .await?;
             assert_eq!(starting["error"]["code"], "CODEGRAPH_STARTING");
             assert_eq!(
-                b.dispatch("git_status", json!({}), CancellationToken::new())
+                b.dispatch(
+                    "git_status",
+                    json!({"workspaceId":"project-1"}),
+                    CancellationToken::new()
+                )
                     .await?["workspace"]["id"],
                 "project-1"
             );
@@ -1928,7 +2355,7 @@ mod integration_tests {
                 b.dispatch("git_status", json!({}), CancellationToken::new())
                     .await
                     .unwrap_err()
-                    .contains("NO_ACTIVE_WORKSPACE")
+                    .contains("WORKSPACE_CONTEXT_REQUIRED")
             );
             assert!(
                 b.activate("missing", CancellationToken::new())

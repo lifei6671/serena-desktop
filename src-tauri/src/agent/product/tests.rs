@@ -26,7 +26,38 @@ fn w(root: &std::path::Path, id: &str) -> Option<WorkspaceSnapshot> {
     Some(WorkspaceSnapshot {
         id: id.into(),
         root: root.to_string_lossy().into(),
+        generation: 1,
     })
+}
+
+#[tokio::test]
+async fn workspace_claim_exists_forwards_the_authoritative_store_lookup() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("workspace");
+    std::fs::create_dir(&root).unwrap();
+    let root = root.to_string_lossy().into_owned();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let service = AgentProductService::new(store.clone());
+
+    assert!(!service.workspace_claim_exists(root.clone()).await.unwrap());
+    store
+        .product_create_fresh(
+            "execution".into(),
+            "agent".into(),
+            "key".into(),
+            "prompt".into(),
+            "workspace".into(),
+            Some(WorkspaceSnapshot {
+                id: "workspace".into(),
+                root: root.clone(),
+                generation: 1,
+            }),
+            1,
+        )
+        .await
+        .unwrap();
+
+    assert!(service.workspace_claim_exists(root).await.unwrap());
 }
 
 #[tokio::test]

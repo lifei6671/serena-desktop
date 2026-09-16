@@ -96,6 +96,7 @@ async fn slice_case(case: &'static str) {
                     crate::agent::store::transactions::product::WorkspaceSnapshot {
                         id: request.workspace_id.clone(),
                         root: request.canonical_workspace_root.clone(),
+                        generation: 1,
                     },
                 ),
                 1,
@@ -2016,6 +2017,7 @@ fn real_fixed_coding_skill_command_failure() {
                     crate::agent::store::transactions::product::WorkspaceSnapshot {
                         id: request.workspace_id,
                         root: request.canonical_workspace_root,
+                        generation: 1,
                     },
                 ),
             )
@@ -2098,6 +2100,7 @@ fn real_fixed_root_title_smoke() {
             prompt: "Use codex_app.set_thread_title to set this Root conversation title to exactly 'Root title smoke'. This exact title is my explicit request for this isolated regression. Do not edit files or delegate. Return ROOT_TITLE_SMOKE_OK only after the tool confirms success.".into(),
         }, Some(crate::agent::store::transactions::product::WorkspaceSnapshot {
             id: request.workspace_id, root: request.canonical_workspace_root,
+            generation: 1,
         })).await.unwrap();
         let row = tokio::time::timeout(Duration::from_secs(180), async {
             loop {

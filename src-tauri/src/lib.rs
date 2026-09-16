@@ -18,6 +18,7 @@ mod tray;
 mod workspace_inspection;
 mod workspace_picker;
 mod workspace_registry;
+mod workspace_resolver;
 
 use config::AppPaths;
 use serena::SupervisorState;
@@ -43,6 +44,13 @@ fn is_autostart_launch(arguments: impl IntoIterator<Item = impl AsRef<std::ffi::
     arguments
         .into_iter()
         .any(|argument| argument.as_ref() == "--autostart")
+}
+
+pub(crate) async fn finish_broker_startup(
+    broker: std::sync::Arc<mcp::Broker>,
+    serena_startup: tauri::async_runtime::JoinHandle<()>,
+) -> Result<(), String> {
+    broker.startup_after_serena(serena_startup).await
 }
 
 pub(crate) fn request_exit(app: &AppHandle) {
@@ -191,12 +199,8 @@ pub fn run() {
                     }
                 }
             });
-            let sync_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = commands::sync_workspaces(sync_app).await {
-                    *broker.sync_warnings.lock().unwrap() = vec![format!("同步失败：{e}")];
-                }
-                if let Err(e) = broker.startup_after_serena(serena_startup).await {
+                if let Err(e) = finish_broker_startup(broker.clone(), serena_startup).await {
                     *broker.error.lock().unwrap() = Some(e);
                 }
             });
@@ -232,6 +236,11 @@ pub fn run() {
             commands::get_app_state,
             commands::workspace_list,
             commands::workspace_get,
+            commands::workspace_select,
+            commands::workspace_register,
+            commands::workspace_rename,
+            commands::workspace_reorder,
+            commands::workspace_remove,
             workspace_inspection::workspace_inspect_directory,
             workspace_picker::workspace_pick_directory,
             commands::get_codex_version,
@@ -239,6 +248,7 @@ pub fn run() {
             commands::get_mcp_logs,
             commands::clear_mcp_logs,
             commands::download_mcp_logs,
+            commands::workspace_import_serena,
             commands::sync_workspaces,
             commands::activate_workspace,
             commands::deactivate_workspace,

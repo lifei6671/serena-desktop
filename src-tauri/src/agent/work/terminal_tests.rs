@@ -35,6 +35,7 @@ async fn create(store: &StateStore, id: &str) {
             id.into(),
             "W".into(),
             "root".into(),
+            1,
             "title".into(),
             None,
             1,
