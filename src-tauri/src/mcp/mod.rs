@@ -29,8 +29,6 @@ pub struct Active {
     pub workspace: Workspace,
     pub client: Arc<serena::Client>,
     pub pid: u32,
-    pub graph: codegraph::Binding,
-    pub generation: u64,
 }
 pub struct Listener {
     address: std::net::SocketAddr,
@@ -51,7 +49,6 @@ pub struct Broker {
     pub sync_warnings: Mutex<Vec<String>>,
     pub error: Mutex<Option<String>>,
     logs: Arc<Mutex<VecDeque<String>>>,
-    graph_generation: std::sync::atomic::AtomicU64,
     verified_configs: Mutex<HashMap<String, Vec<u8>>>,
     // Published binding for nonblocking UI reads while indexing owns the query lock.
     published: Mutex<Option<(Workspace, u32, std::sync::Weak<serena::Client>)>>,
@@ -111,7 +108,6 @@ impl Broker {
             sync_warnings: Mutex::new(Vec::new()),
             error: Mutex::new(None),
             logs: Arc::new(Mutex::new(VecDeque::new())),
-            graph_generation: std::sync::atomic::AtomicU64::new(0),
             verified_configs: Mutex::new(HashMap::new()),
             published: Mutex::new(None),
         }
@@ -148,16 +144,6 @@ impl Broker {
             })
             .map(|(workspace, _, _)| workspace.clone());
         let listener = self.listener.lock().await;
-        // UI polling must not queue behind activation or a pending workspace writer.
-        let codegraph = self.workspace.try_read().ok().and_then(|slot| {
-            slot.as_ref()
-                .filter(|active| {
-                    current.as_ref().is_some_and(|w| {
-                        w.id == active.workspace.id && w.root == active.workspace.root
-                    })
-                })
-                .map(|active| active.graph.status(&active.workspace, active.generation))
-        });
         Snapshot {
             running: listener.as_ref().is_some_and(|l| !l.handle.is_finished()),
             started_at: listener
@@ -180,7 +166,8 @@ impl Broker {
                 .map(|l| l.lan_endpoints.clone())
                 .unwrap_or_default(),
             active_workspace: current,
-            codegraph,
+            // 2D Adapter 前不再从 Global ActiveWorkspace 投影 CodeGraph 状态。
+            codegraph: None,
             projects: snapshot
                 .config
                 .workspaces
@@ -273,13 +260,6 @@ impl Broker {
             "项目激活耗时 · Serena 握手及工具校验={}ms",
             handshake.elapsed().as_millis()
         ));
-        // The task owns only this generation's runtime, never the Active slot.
-        // Slow graph startup cannot consume Serena's activation timeout budget.
-        let generation = self
-            .graph_generation
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            + 1;
-        let graph = codegraph::Binding::begin(&w, generation, self.logs.clone());
         if cancel.is_cancelled() {
             return Err("CANCELLED".into());
         }
@@ -301,26 +281,17 @@ impl Broker {
             return Err("BACKEND_UNAVAILABLE".into());
         }
         *self.published.lock().unwrap() = Some((w.clone(), pid, Arc::downgrade(&client)));
-        let graph_status = graph.status(&w, generation);
         *slot = Some(Active {
             workspace: w.clone(),
             client,
             pid,
-            graph,
-            generation,
         });
-        self.log(&format!(
-            "CodeGraph · binding switch · workspace={} generation={generation}",
-            w.id
-        ));
         drop(previous);
         self.log(&format!(
             "项目激活耗时 · 总计={}ms",
             started.elapsed().as_millis()
         ));
-        Ok(
-            json!({"activeWorkspace":w,"status":"active","codegraph":graph_status,"truncated":false}),
-        )
+        Ok(json!({"activeWorkspace":w,"status":"active","codegraph":null,"truncated":false}))
     }
     pub async fn deactivate(&self) -> Result<Value, String> {
         self.clear_workspace(&mut *self.workspace.write().await);
@@ -333,18 +304,17 @@ impl Broker {
                 None,
             );
         };
-        let workspace = if args["action"] == "start" {
-            self.workspace.read().await.as_ref().map(|active| {
-                crate::agent::store::transactions::product::WorkspaceSnapshot {
-                    id: active.workspace.id.clone(),
-                    root: active.workspace.root.to_string_lossy().into_owned(),
-                    generation: active.workspace.generation,
-                }
-            })
-        } else {
-            None
-        };
-        product.operation(args, workspace).await
+        if args["action"] == "start" {
+            // Local Start 只接受请求 workspaceId，并复用 Remote 的 operation-mutex 原子创建。
+            // 这里只做 DTO 错误分类；Resolver 仍只能在 Supervisor 的原子创建路径内调用。
+            if let Err(error) = registry::parse_workspace_id(&args) {
+                return crate::agent::product::failure(error, None);
+            }
+            return product
+                .operation_resolved_workspace_start(&self.supervisor, args)
+                .await;
+        }
+        product.operation(args, None).await
     }
     pub async fn call_tool(
         &self,
@@ -352,10 +322,6 @@ impl Broker {
         args: Value,
         request_cancel: CancellationToken,
     ) -> Result<Value, String> {
-        if name == "codegraph_explore" {
-            // Graph owns a single 50-second budget including queueing and recovery.
-            return Box::pin(self.dispatch(name, args, request_cancel)).await;
-        }
         let cancel = request_cancel.child_token();
         // Keep the large dispatch future off the Windows UI/IPC thread's stack.
         // This preserves polling, cancellation and the workspace lock lifetime.
@@ -383,10 +349,12 @@ impl Broker {
         if orchestration::contains(name) {
             return Ok(self.orchestration_operation(name, args).await);
         }
-        registry::validate(name, &args)?;
+        // 2D Workspace-scoped Adapter 就绪前，旧全局 active.graph 不再是公开 Authority。
+        // 必须在参数校验和任何 Active Workspace 读取之前拒绝，避免旧路由被直接调用恢复。
         if name == "codegraph_explore" {
-            return Ok(self.explore_graph(args, cancel).await);
+            return Err("UNKNOWN_TOOL".into());
         }
+        registry::validate(name, &args)?;
         match name {
             "workspace_list" => {
                 let snapshot = WorkspaceRegistry::new(&self.supervisor).list();
@@ -412,13 +380,8 @@ impl Broker {
                 }));
             }
             "workspace_current" => {
-                let slot = self.workspace.read().await;
                 let current = self.snapshot().await.active_workspace;
-                let graph = current
-                    .as_ref()
-                    .and_then(|_| slot.as_ref())
-                    .map(|a| a.graph.status(&a.workspace, a.generation));
-                return Ok(json!({"activeWorkspace":current,"codegraph":graph,"truncated":false}));
+                return Ok(json!({"activeWorkspace":current,"codegraph":null,"truncated":false}));
             }
             "workspace_activate" => {
                 let _management = self.management.lock().await;
@@ -443,7 +406,7 @@ impl Broker {
             if cancel.is_cancelled() {
                 return Err("CANCELLED".into());
             }
-            let result = git::call(name, &lease.canonical_root, args, cancel).await?;
+            let result = git::call(name, &lease, args, cancel).await?;
             let mut response = json!({
                 "workspace":{"id":lease.workspace_id,"generation":lease.generation},
                 "text":result.text,
@@ -540,58 +503,6 @@ impl Broker {
             result["hint"] = json!("请缩小路径、行范围或日志数量");
         }
         Ok(result)
-    }
-    async fn clear_invalid_graph_workspace(&self, observed: &Workspace, generation: u64, pid: u32) {
-        let mut slot = self.workspace.write().await;
-        if let Some(active) = slot.as_ref() {
-            if active.workspace.id != observed.id
-                || active.workspace.root != observed.root
-                || active.generation != generation
-                || active.pid != pid
-            {
-                return;
-            }
-            let s = self.supervisor.snapshot();
-            if s.server_status != ServerStatus::Running
-                || s.process_id != Some(active.pid)
-                || active.client.closed()
-            {
-                self.clear_workspace(&mut slot);
-            }
-        }
-    }
-    async fn explore_graph(&self, args: Value, cancel: CancellationToken) -> Value {
-        let mut queried_workspace = None;
-        let query = async {
-            let slot = self.workspace.read().await;
-            let active = slot.as_ref().ok_or(codegraph::Error::WorkspaceNotActive)?;
-            let s = self.supervisor.snapshot();
-            if s.server_status != ServerStatus::Running
-                || s.process_id != Some(active.pid)
-                || active.client.closed()
-            {
-                let observed = (active.workspace.clone(), active.generation, active.pid);
-                drop(slot);
-                self.clear_invalid_graph_workspace(&observed.0, observed.1, observed.2)
-                    .await;
-                return Err(codegraph::Error::WorkspaceNotActive);
-            }
-            queried_workspace = Some(active.workspace.clone());
-            match active
-                .graph
-                .explore(&active.workspace, active.generation, args, cancel.clone())
-                .await
-            {
-                Ok(text) => Ok(json!({"workspace":active.workspace,"text":text,"truncated":false})),
-                Err(error) => Ok(error.value(Some(&active.workspace))),
-            }
-        };
-        let result = tokio::select! {
-            biased;
-            _ = cancel.cancelled() => Err(codegraph::Error::Cancelled),
-            result = tokio::time::timeout(Duration::from_secs(50), query) => result.unwrap_or(Err(codegraph::Error::Timeout)),
-        };
-        result.unwrap_or_else(|error| error.value(queried_workspace.as_ref()))
     }
     pub async fn sync_projects(&self, sources: Vec<PathBuf>) -> Result<usize, String> {
         let _management = self.management.lock().await;
@@ -806,6 +717,64 @@ mod integration_tests {
     }
 
     #[tokio::test]
+    async fn legacy_codegraph_is_unavailable_before_any_active_workspace_read() {
+        let directory = tempfile::tempdir().unwrap();
+        let broker = fixture(directory.path(), None);
+        let root = directory.path().join("desktop-selected-workspace");
+        std::fs::create_dir(&root).unwrap();
+        let workspace = WorkspaceRegistry::new(&broker.supervisor)
+            .register(root.clone(), Some("Desktop selected".into()))
+            .unwrap();
+
+        // Desktop selection remains a UI default only and cannot republish the legacy tool.
+        broker
+            .supervisor
+            .select_desktop_workspace(&workspace.id)
+            .unwrap();
+        let active_guard = broker.workspace.write().await;
+        for result in [
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                broker.dispatch(
+                    "codegraph_explore",
+                    json!({"query":"symbol"}),
+                    CancellationToken::new(),
+                ),
+            )
+            .await,
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                broker.call_tool(
+                    "codegraph_explore",
+                    json!({"query":"symbol"}),
+                    CancellationToken::new(),
+                ),
+            )
+            .await,
+        ] {
+            assert_eq!(result.unwrap(), Err("UNKNOWN_TOOL".into()));
+        }
+        drop(active_guard);
+        // 即使旧 ActiveWorkspace 已存在，也不能重新连到 active.graph 或启动 CodeGraph 子进程。
+        let active_server = super::orchestration_tests::active(&broker, &root).await;
+        assert!(broker.workspace.read().await.is_some());
+        let logs_before_direct_call = broker.log_snapshot();
+        assert_eq!(
+            broker
+                .dispatch(
+                    "codegraph_explore",
+                    json!({"query":"symbol"}),
+                    CancellationToken::new(),
+                )
+                .await,
+            Err("UNKNOWN_TOOL".into())
+        );
+        active_server.abort();
+        assert!(!root.join(".codegraph").exists());
+        assert_eq!(broker.log_snapshot(), logs_before_direct_call);
+    }
+
+    #[tokio::test]
     async fn git_dispatch_uses_only_each_explicit_workspace_lease() {
         let directory = tempfile::tempdir().unwrap();
         let broker = fixture(
@@ -871,7 +840,51 @@ mod integration_tests {
             assert!(status["workspace"].get("name").is_none());
             assert!(status["workspace"].get("root").is_none());
         }
-        assert!(broker.workspace.read().await.is_none());
+        // 取消仍在 Git 的 stateless command 边界返回，且不会依赖 Serena。
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        assert_eq!(
+            broker
+                .dispatch(
+                    "git_status",
+                    json!({"workspaceId":workspace_a.id}),
+                    cancelled,
+                )
+                .await,
+            Err("CANCELLED".into())
+        );
+        // 将遗留 Global ActiveWorkspace 刻意设为 B；后续请求 A 仍只使用 A 的 Lease。
+        let active_b = super::orchestration_tests::active(&broker, &root_b).await;
+        {
+            let mut active = broker.workspace.write().await;
+            let active = active.as_mut().unwrap();
+            active.workspace.id = workspace_b.id.clone();
+            active.workspace.generation = workspace_b.generation;
+        }
+        assert_eq!(
+            broker.workspace.read().await.as_ref().unwrap().workspace.id,
+            workspace_b.id
+        );
+        let active_b_request_a = broker
+            .dispatch(
+                "git_status",
+                json!({"workspaceId":workspace_a.id}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            active_b_request_a["text"]
+                .as_str()
+                .unwrap()
+                .contains("only-a.txt")
+        );
+        assert!(
+            !active_b_request_a["text"]
+                .as_str()
+                .unwrap()
+                .contains("only-b.txt")
+        );
         assert_eq!(
             broker.supervisor.desktop_selected_workspace().unwrap().id,
             workspace_b.id
@@ -912,8 +925,19 @@ mod integration_tests {
         let ordinary_root = directory.path().join("ordinary-directory");
         std::fs::create_dir(&ordinary_root).unwrap();
         let ordinary = registry
-            .register(ordinary_root, Some("Ordinary".into()))
+            .register(ordinary_root.clone(), Some("Ordinary".into()))
             .unwrap();
+        // 普通目录同样先由 Registry 解析为 Lease；是否为 Git 仓库只能由后续 Git 命令决定。
+        let ordinary_lease = registry::resolve_workspace_lease(
+            &broker.supervisor,
+            &json!({"workspaceId": ordinary.id}),
+        )
+        .unwrap();
+        assert_eq!(ordinary_lease.workspace_id, ordinary.id);
+        assert_eq!(
+            ordinary_lease.canonical_root,
+            ordinary_root.canonicalize().unwrap()
+        );
         let error = broker
             .dispatch(
                 "git_status",
@@ -922,7 +946,20 @@ mod integration_tests {
             )
             .await
             .unwrap_err();
-        assert_ne!(error, "WORKSPACE_NOT_FOUND");
+        assert!(error.starts_with("BACKEND_ERROR:"), "{error}");
+        // 非 Git discovery 路由保持独立，不以 Git 的 Lease 作为隐式状态。
+        assert_eq!(
+            broker
+                .dispatch(
+                    "workspace_get",
+                    json!({"workspaceId":workspace_b.id}),
+                    CancellationToken::new()
+                )
+                .await
+                .unwrap()["workspace"]["id"],
+            workspace_b.id
+        );
+        active_b.abort();
     }
 
     #[tokio::test]
@@ -1368,12 +1405,8 @@ mod integration_tests {
                     .with_arguments(json!({"query":"x"}).as_object().unwrap().clone()),
             )
             .await
-            .unwrap();
-        assert_eq!(graph.is_error, Some(true));
-        assert_eq!(
-            graph.structured_content.unwrap()["error"]["code"],
-            "WORKSPACE_NOT_ACTIVE"
-        );
+            .unwrap_err();
+        assert!(graph.to_string().contains("UNKNOWN_TOOL"));
         let guard = broker.workspace.write().await;
         let (r, ()) = tokio::join!(
             client.call_tool(CallToolRequestParams::new("workspace_deactivate")),
@@ -1942,25 +1975,16 @@ mod integration_tests {
                 assert_eq!(result.is_error, Some(true));
                 assert!(serde_json::to_string(&result).unwrap().contains(code));
             }
-            let observed_a = {
-                let slot = b.workspace.read().await;
-                let active = slot.as_ref().unwrap();
-                (active.workspace.clone(), active.generation, active.pid)
-            };
-            assert_eq!(activated["codegraph"]["status"], "not_initialized");
-            assert_eq!(
-                b.snapshot().await.codegraph.unwrap()["status"],
-                "not_initialized"
-            );
+            assert!(activated["codegraph"].is_null());
+            assert!(b.snapshot().await.codegraph.is_none());
             assert_eq!(
                 b.dispatch(
                     "codegraph_explore",
                     json!({"query":"one"}),
                     CancellationToken::new()
                 )
-                .await
-                .unwrap()["error"]["code"],
-                "CODEGRAPH_NOT_INITIALIZED"
+                .await,
+                Err("UNKNOWN_TOOL".into())
             );
             assert!(
                 b.activate("missing", CancellationToken::new())
@@ -1968,28 +1992,15 @@ mod integration_tests {
                     .is_err()
             );
             assert_eq!(b.snapshot().await.active_workspace.unwrap().id, "project-1");
-            {
-                let mut slot = b.workspace.write().await;
-                let active = slot.as_mut().unwrap();
-                active.graph = codegraph::tests::fixture(
-                    &active.workspace,
-                    active.generation,
-                    "slow",
-                    b.logs.clone(),
-                );
-                assert_eq!(
-                    active.graph.status(&active.workspace, active.generation)["status"],
-                    "starting"
-                );
-            }
-            let starting = b
-                .dispatch(
+            assert_eq!(
+                b.dispatch(
                     "codegraph_explore",
                     json!({"query":"one"}),
                     CancellationToken::new(),
                 )
-                .await?;
-            assert_eq!(starting["error"]["code"], "CODEGRAPH_STARTING");
+                .await,
+                Err("UNKNOWN_TOOL".into())
+            );
             assert_eq!(
                 b.dispatch(
                     "git_status",
@@ -1999,23 +2010,9 @@ mod integration_tests {
                     .await?["workspace"]["id"],
                 "project-1"
             );
-            {
-                let mut slot = b.workspace.write().await;
-                let active = slot.as_mut().unwrap();
-                active.graph =
-                    codegraph::tests::mock(&active.workspace, active.generation, b.logs.clone())
-                        .await;
-                assert_eq!(
-                    active.graph.status(&active.workspace, active.generation)["status"],
-                    "ready"
-                );
-            }
             let ui = b.snapshot().await;
-            assert_eq!(ui.codegraph.as_ref().unwrap()["status"], "ready");
-            assert_eq!(
-                ui.codegraph.unwrap()["workspaceId"],
-                ui.active_workspace.unwrap().id
-            );
+            assert!(ui.codegraph.is_none());
+            assert_eq!(ui.active_workspace.unwrap().id, "project-1");
             // A UI refresh during a write must return promptly without exposing another binding.
             {
                 let _transition = b.workspace.write().await;
@@ -2035,24 +2032,16 @@ mod integration_tests {
             assert!(
                 serde_json::to_string(&crashed)
                     .unwrap()
-                    .contains("CODEGRAPH_RUNTIME_LOST")
+                    .contains("UNKNOWN_TOOL")
             );
-            let error = crashed.structured_content.unwrap();
-            assert_eq!(error["error"]["code"], "CODEGRAPH_RUNTIME_LOST");
-            assert_eq!(error["error"]["workspace"]["id"], "project-1");
-            assert!(error["error"].get("root").is_none());
             let current = discovery
                 .call_tool(CallToolRequestParams::new("workspace_current"))
                 .await
                 .map_err(|e| e.to_string())?;
             let current = current.structured_content.unwrap();
             assert_eq!(current["activeWorkspace"]["id"], "project-1");
-            assert_eq!(current["codegraph"]["workspaceId"], "project-1");
-            assert_eq!(current["codegraph"]["status"], "runtime_lost");
-            assert_eq!(
-                b.snapshot().await.codegraph.unwrap()["status"],
-                "runtime_lost"
-            );
+            assert!(current["codegraph"].is_null());
+            assert!(b.snapshot().await.codegraph.is_none());
             assert!(b.snapshot().await.running);
             assert_eq!(
                 b.dispatch("git_status", json!({}), CancellationToken::new())
@@ -2250,18 +2239,13 @@ mod integration_tests {
                 )
                 .await?;
             assert!(output["text"].as_str().unwrap().contains("def two"));
-            // Preferences save without stopping the running PID or releasing its binding.
-            // Restart then reactivates the same workspace using the new process/generation.
+            // Preferences save without stopping the running PID.
+            // Restart then reactivates the same workspace using the new process.
             for dashboard in [true, false] {
-                let (before_workspace, before_pid, before_generation, released) = {
+                let (before_workspace, before_pid) = {
                     let slot = b.workspace.read().await;
                     let active = slot.as_ref().unwrap();
-                    (
-                        active.workspace.clone(),
-                        active.pid,
-                        active.generation,
-                        codegraph::tests::release_signal(&active.graph),
-                    )
+                    (active.workspace.clone(), active.pid)
                 };
                 let mut next = b.config();
                 next.dashboard_enabled = dashboard;
@@ -2270,18 +2254,11 @@ mod integration_tests {
                 assert_eq!(b.supervisor.snapshot().process_id, Some(before_pid));
                 assert_eq!(b.supervisor.snapshot().server_status, ServerStatus::Running);
                 assert_eq!(b.supervisor.snapshot().active_dashboard_enabled, !dashboard);
-                assert!(!released.is_cancelled());
-                assert_eq!(
-                    b.workspace.read().await.as_ref().unwrap().generation,
-                    before_generation
-                );
                 crate::commands::restart_serena_impl(&b).await?;
                 let slot = b.workspace.read().await;
                 let restored = slot.as_ref().unwrap();
                 assert_eq!(restored.workspace, before_workspace);
                 assert_ne!(restored.pid, before_pid);
-                assert!(restored.generation > before_generation);
-                assert!(released.is_cancelled());
                 assert_eq!(b.supervisor.snapshot().active_dashboard_enabled, dashboard);
                 drop(slot);
                 let output = b
@@ -2298,52 +2275,19 @@ mod integration_tests {
                     "project-2"
                 );
             }
-            let (workspace_b, generation_b, pid_b, released) = {
-                let mut slot = b.workspace.write().await;
-                let active = slot.as_mut().unwrap();
-                active.graph =
-                    codegraph::tests::mock(&active.workspace, active.generation, b.logs.clone())
-                        .await;
-                (
-                    active.workspace.clone(),
-                    active.generation,
-                    active.pid,
-                    codegraph::tests::release_signal(&active.graph),
-                )
-            };
-            // B has committed before the stale A observer obtains the write lock.
-            // Make B invalid too, so only identity rechecking can protect it.
             let supervisor = b.supervisor.clone();
             tauri::async_runtime::spawn_blocking(move || supervisor.stop())
                 .await
                 .unwrap()?;
-            b.clear_invalid_graph_workspace(&observed_a.0, observed_a.1, observed_a.2)
-                .await;
-            b.clear_invalid_graph_workspace(&workspace_b, generation_b - 1, pid_b)
-                .await;
-            {
-                let slot = b.workspace.read().await;
-                let active = slot.as_ref().unwrap();
-                assert_eq!(active.workspace.id, workspace_b.id);
-                assert_eq!(
-                    active.graph.status(&workspace_b, generation_b)["status"],
-                    "ready"
-                );
-                assert!(!released.is_cancelled());
-            }
             assert_eq!(
                 b.dispatch(
                     "codegraph_explore",
                     json!({"query":"x"}),
                     CancellationToken::new()
                 )
-                .await?["error"]["code"],
-                "WORKSPACE_NOT_ACTIVE"
+                .await,
+                Err("UNKNOWN_TOOL".into())
             );
-            assert!(b.workspace.read().await.is_none());
-            assert!(b.published.lock().unwrap().is_none());
-            assert!(released.is_cancelled());
-            assert!(b.snapshot().await.codegraph.is_none());
             assert!(
                 b.dispatch(
                     "source_read_file",
@@ -2354,6 +2298,9 @@ mod integration_tests {
                 .unwrap_err()
                 .contains("NO_ACTIVE_WORKSPACE")
             );
+            assert!(b.workspace.read().await.is_none());
+            assert!(b.published.lock().unwrap().is_none());
+            assert!(b.snapshot().await.codegraph.is_none());
             b.deactivate().await?;
             assert_eq!(
                 b.dispatch(
@@ -2361,8 +2308,8 @@ mod integration_tests {
                     json!({"query":"one"}),
                     CancellationToken::new()
                 )
-                .await?["error"]["code"],
-                "WORKSPACE_NOT_ACTIVE"
+                .await,
+                Err("UNKNOWN_TOOL".into())
             );
             assert!(
                 b.dispatch("git_status", json!({}), CancellationToken::new())

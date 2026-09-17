@@ -2,8 +2,9 @@
 use super::work_context::VersionedContext;
 use super::*;
 use crate::agent::store::transactions::product::WorkExecutionContext;
-use crate::{serena::SupervisorState, workspace_resolver::WorkspaceResolver};
+use crate::serena::SupervisorState;
 
+// Start 仅可从显式快照或 Registry Resolver 获得 Workspace 输入。
 pub(crate) enum WorkspaceAuthority<'a> {
     Snapshot(Option<WorkspaceSnapshot>),
     Resolver(&'a SupervisorState),
@@ -43,6 +44,7 @@ pub enum AgentQueryAction {
 pub enum AgentExecuteAction {
     Start {
         work_run_id: String,
+        workspace_id: String,
         request_key: String,
         prompt: String,
         delegation_context_json: Option<String>,
@@ -126,28 +128,34 @@ impl AgentProductService {
         workspace: impl Into<WorkspaceAuthority<'a>>,
     ) -> Result<ExecutionView, ProductError> {
         let workspace = workspace.into();
-        let mut snapshot = match &workspace {
+        let snapshot = match &workspace {
             WorkspaceAuthority::Snapshot(snapshot) => snapshot.clone(),
             WorkspaceAuthority::Resolver(_) => None,
         };
         let (mut action, mut work) = match action {
             AgentExecuteAction::Start {
                 work_run_id,
+                workspace_id,
                 request_key,
                 prompt,
                 delegation_context_json,
             } => {
                 validate_id(&work_run_id)?;
+                validate_id(&workspace_id)?;
                 validate_submission(&request_key, &prompt)?;
                 let work = self
                     .store
                     .work_run(work_run_id.clone())
                     .await?
                     .ok_or_else(|| ProductError::from("WORK_NOT_FOUND".to_string()))?;
+                // WorkRun 只校验 Start 已明确声明的 Workspace，绝不补齐该输入。
+                if work.workspace_id != workspace_id {
+                    return Err("WORKSPACE_CONTEXT_MISMATCH".to_string().into());
+                }
                 (
                     Action::Start {
                         agent_id: work_run_id.clone(),
-                        workspace_id: work.workspace_id,
+                        workspace_id,
                         request_key,
                         prompt,
                     },
@@ -248,18 +256,20 @@ impl AgentProductService {
                     .map_err(|e| ProductError::accepted(e, id));
             }
             let current = self.active_work(&work.work_run_id).await?;
-            if let WorkspaceAuthority::Resolver(supervisor) = workspace {
-                let lease = WorkspaceResolver::new(supervisor)
-                    .resolve(&current.workspace_id)
-                    .map_err(ProductError::from)?;
-                snapshot = Some(WorkspaceSnapshot {
-                    id: lease.workspace_id,
-                    root: lease.canonical_root.to_string_lossy().into_owned(),
-                    generation: lease.generation,
-                });
-            }
             if let Some(context) = context {
                 context.verify(current.canonical_workspace_root).await?;
+            }
+            if let WorkspaceAuthority::Resolver(supervisor) = workspace {
+                // Lease 解析与 Execution+Claim 创建必须在同一 Supervisor operation mutex 内线性化。
+                let id = self
+                    .manager
+                    .product_submit_resolved_workspace_start(supervisor, action, Some(work.clone()))
+                    .await
+                    .map_err(submission_error)?;
+                return self
+                    .observe(id.clone(), false)
+                    .await
+                    .map_err(|error| ProductError::accepted(error, id));
             }
         }
         // The existing owned submit worker handles durable creation, handoff and

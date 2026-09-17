@@ -116,7 +116,6 @@ async fn active_fixture(
         root: root.into(),
         generation: 1,
     };
-    let graph = codegraph::Binding::begin(&workspace, 1, broker.logs.clone());
     *broker.workspace.write().await = Some(Active {
         workspace,
         client,
@@ -125,8 +124,6 @@ async fn active_fixture(
         } else {
             1
         },
-        graph,
-        generation: 1,
     });
     server
 }
@@ -180,7 +177,6 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
         let active = active.as_mut().unwrap();
         active.workspace.id = "B".into();
         active.workspace.generation = 7;
-        active.generation = 7;
         assert_eq!(active.workspace.id, "B");
         assert_eq!(
             broker.supervisor.desktop_selected_workspace().unwrap().id,
@@ -191,7 +187,9 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
         ("work-a", "A", root_a.clone(), 3),
         ("work-b", "B", root_b.clone(), 7),
         ("work-stale", "A", root_a.clone(), 3),
-        ("work-missing", "missing", root_a.clone(), 3),
+        ("work-unknown", "unknown", root_a.clone(), 3),
+        ("work-mismatch", "A", root_a.clone(), 3),
+        ("work-no-context", "A", root_a.clone(), 3),
     ] {
         store
             .create_work_run(
@@ -207,7 +205,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
             .unwrap();
     }
 
-    // Global ActiveWorkspace and desktop selection are B; each start must use its Work.
+    // Global ActiveWorkspace 和 Desktop selection 均为 B，Start 仍只服从显式 workspaceId。
     for (work_run_id, workspace_id, root, generation) in [
         ("work-a", "A", root_a.clone(), 3),
         ("work-b", "B", root_b.clone(), 7),
@@ -215,7 +213,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
         let response = call(
             &broker,
             "agent_execute",
-            json!({"action":"start","workRunId":work_run_id,"requestKey":"key","prompt":"p"}),
+            json!({"action":"start","workRunId":work_run_id,"workspaceId":workspace_id,"requestKey":"key","prompt":"p"}),
         )
         .await;
         // This fixture deliberately has no Provider; durable creation precedes its failed dispatch.
@@ -243,7 +241,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     let retry = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-a","requestKey":"key","prompt":"p"}),
+        json!({"action":"start","workRunId":"work-a","workspaceId":"A","requestKey":"key","prompt":"p"}),
     )
     .await;
     assert_eq!(retry["ok"], true);
@@ -278,7 +276,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     let stale = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-stale","requestKey":"key","prompt":"p"}),
+        json!({"action":"start","workRunId":"work-stale","workspaceId":"A","requestKey":"key","prompt":"p"}),
     )
     .await;
     assert_eq!(stale["error"]["code"], "WORKSPACE_CONTEXT_MISMATCH");
@@ -300,13 +298,13 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
             .is_empty()
     );
 
-    let missing = call(
+    let unknown = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-missing","requestKey":"key","prompt":"p"}),
+        json!({"action":"start","workRunId":"work-unknown","workspaceId":"unknown","requestKey":"key","prompt":"p"}),
     )
     .await;
-    assert_eq!(missing["error"]["code"], "WORKSPACE_NOT_FOUND");
+    assert_eq!(unknown["error"]["code"], "WORKSPACE_NOT_FOUND");
     assert_eq!(
         store
             .product_read(None, None, None, 100)
@@ -319,12 +317,241 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     );
     assert!(
         store
-            .work_execution_links("work-missing".into())
+            .work_execution_links("work-unknown".into())
             .await
             .unwrap()
             .is_empty()
     );
+
+    let mismatch = call(
+        &broker,
+        "agent_execute",
+        json!({"action":"start","workRunId":"work-mismatch","workspaceId":"B","requestKey":"key","prompt":"p"}),
+    )
+    .await;
+    assert_eq!(mismatch["error"]["code"], "WORKSPACE_CONTEXT_MISMATCH");
+    assert_eq!(
+        store
+            .work_execution_links("work-mismatch".into())
+            .await
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(
+        store
+            .product_read(None, None, None, 100)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|snapshot| snapshot.execution)
+            .collect::<Vec<_>>(),
+        before_rejected
+    );
+
+    // 省略字段不得回退到 WorkRun、ActiveWorkspace 或 Desktop selection。
+    let missing_context = call(
+        &broker,
+        "agent_execute",
+        json!({"action":"start","workRunId":"work-no-context","requestKey":"key","prompt":"p"}),
+    )
+    .await;
+    assert_eq!(
+        missing_context["error"]["code"],
+        "WORKSPACE_CONTEXT_REQUIRED"
+    );
+    assert!(
+        store
+            .work_execution_links("work-no-context".into())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    for workspace_id in [json!(" \n"), json!(7)] {
+        let invalid = call(
+            &broker,
+            "agent_execute",
+            json!({"action":"start","workRunId":"work-no-context","workspaceId":workspace_id,"requestKey":"key","prompt":"p"}),
+        )
+        .await;
+        assert_eq!(invalid["error"]["code"], "INVALID_PARAMS");
+        assert!(
+            store
+                .work_execution_links("work-no-context".into())
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
     server.abort();
+}
+
+#[tokio::test]
+/// 验证 Local Start 仅信任显式 workspaceId，且重试保持单一执行记录。
+async fn local_agent_start_resolves_explicit_workspace_without_global_active_workspace() {
+    let dir = tempfile::tempdir().unwrap();
+    let root_a = dir.path().join("a");
+    let root_b = dir.path().join("b");
+    std::fs::create_dir_all(&root_a).unwrap();
+    std::fs::create_dir_all(&root_b).unwrap();
+    let root_a = std::fs::canonicalize(root_a).unwrap();
+    let root_b = std::fs::canonicalize(root_b).unwrap();
+    let broker = fixture(dir.path());
+    let store = StateStore::open(dir.path().join("state")).await.unwrap();
+    assert!(
+        broker
+            .product
+            .set(Arc::new(AgentProductService::new(store.clone())))
+            .is_ok()
+    );
+    let mut config = broker.config();
+    config.workspaces = vec![
+        Workspace {
+            id: "A".into(),
+            name: "A".into(),
+            root: root_a.clone(),
+            generation: 3,
+        },
+        Workspace {
+            id: "B".into(),
+            name: "B".into(),
+            root: root_b.clone(),
+            generation: 7,
+        },
+    ];
+    config.desktop_selected_workspace_id = Some("B".into());
+    broker.supervisor.replace_config(config).unwrap();
+    let server = active(&broker, &root_b).await;
+    {
+        let mut active = broker.workspace.write().await;
+        let active = active.as_mut().unwrap();
+        active.workspace.id = "B".into();
+        active.workspace.generation = 7;
+    }
+
+    // Local Start 缺少 ID 时不能从 Workstation 的全局或 Desktop 状态补齐。
+    let missing = broker
+        .agent_operation(
+            json!({"action":"start","agentId":"local","requestKey":"missing","prompt":"p"}),
+        )
+        .await;
+    assert_eq!(missing["error"]["code"], "WORKSPACE_CONTEXT_REQUIRED");
+    assert_eq!(missing["control"]["providerInvoked"], false);
+    let unknown = broker
+        .agent_operation(json!({"action":"start","workspaceId":"unknown","agentId":"local","requestKey":"unknown","prompt":"p"}))
+        .await;
+    assert_eq!(unknown["error"]["code"], "WORKSPACE_NOT_FOUND");
+    assert_eq!(unknown["control"]["providerInvoked"], false);
+    assert!(
+        store
+            .product_read(None, None, None, 100)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    let response = broker
+        .agent_operation(json!({"action":"start","workspaceId":"A","agentId":"local","requestKey":"key","prompt":"p"}))
+        .await;
+    // 此 fixture 没有 Provider；创建已冻结后，派发失败是预期边界。
+    assert_eq!(response["error"]["code"], "AGENT_OPERATION_FAILED");
+    let execution = store
+        .product_read(None, None, None, 100)
+        .await
+        .unwrap()
+        .pop()
+        .unwrap()
+        .execution;
+    assert_eq!(execution.workspace_id, "A");
+    assert_eq!(execution.canonical_workspace_root, root_a.to_string_lossy());
+    assert_eq!(execution.workspace_generation, 3);
+    let replay = broker
+        .agent_operation(json!({"action":"start","workspaceId":"A","agentId":"local","requestKey":"key","prompt":"p"}))
+        .await;
+    assert_eq!(replay["data"]["executionId"], execution.id);
+    let executions = store.product_read(None, None, None, 100).await.unwrap();
+    assert_eq!(executions.len(), 1);
+    assert_eq!(executions[0].execution.id, execution.id);
+    server.abort();
+}
+
+#[tokio::test]
+/// 验证 Local Start 从 Lease 解析到执行创建始终受同一 Supervisor 操作锁线性化保护。
+async fn local_agent_start_holds_supervisor_operation_mutex_from_lease_to_create() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("workspace");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = std::fs::canonicalize(root).unwrap();
+    let broker = fixture(dir.path());
+    let store = StateStore::open(dir.path().join("state")).await.unwrap();
+    let product = Arc::new(AgentProductService::new(store.clone()));
+    assert!(broker.product.set(product.clone()).is_ok());
+    let mut config = broker.config();
+    config.workspaces = vec![Workspace {
+        id: "W".into(),
+        name: "Workspace".into(),
+        root: root.clone(),
+        generation: 9,
+    }];
+    broker.supervisor.replace_config(config).unwrap();
+
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Arc::new(std::sync::Mutex::new(release_rx));
+    let hook_release = release_rx.clone();
+    *broker.supervisor.workspace_start_hook.lock().unwrap() = Some(Arc::new(move || {
+        entered_tx.send(()).unwrap();
+        hook_release.lock().unwrap().recv().unwrap();
+    }));
+
+    let start_broker = broker.clone();
+    let start = std::thread::spawn(move || {
+        tokio::runtime::Runtime::new().unwrap().block_on(async move {
+            start_broker
+                .agent_operation(json!({"action":"start","workspaceId":"W","agentId":"local","requestKey":"linear","prompt":"p"}))
+                .await
+        })
+    });
+    tokio::task::spawn_blocking(move || entered_rx.recv().unwrap())
+        .await
+        .unwrap();
+
+    let remove_supervisor = broker.supervisor.clone();
+    let remove_product = product.clone();
+    let mut remove = tokio::task::spawn_blocking(move || {
+        remove_supervisor.remove_workspace_coordinated(remove_product.as_ref(), "W")
+    });
+    // Hook is after Resolver and before the Store transaction; Remove must not mutate Registry here.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), &mut remove)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        WorkspaceRegistry::new(&broker.supervisor)
+            .get("W")
+            .unwrap()
+            .generation,
+        9
+    );
+
+    release_tx.send(()).unwrap();
+    let response = tokio::task::spawn_blocking(move || start.join().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response["error"]["code"], "AGENT_OPERATION_FAILED");
+    let execution = store
+        .product_read(None, None, None, 10)
+        .await
+        .unwrap()
+        .pop()
+        .unwrap()
+        .execution;
+    assert_eq!(execution.workspace_id, "W");
+    assert_eq!(execution.canonical_workspace_root, root.to_string_lossy());
+    assert_eq!(execution.workspace_generation, 9);
+    // Remove may proceed only after the frozen execution exists, then sees its Claim or a terminal release.
+    let _ = remove.await.unwrap();
 }
 
 #[tokio::test]
@@ -366,15 +593,21 @@ async fn four_tools_enforce_disabled_and_uninitialized_policy_and_legacy_is_unkn
     for request in [
         json!({"action":"list"}),
         json!({"action":"observe","executionId":"missing"}),
-        json!({"action":"start","agentId":"a","requestKey":"k","prompt":"p"}),
         json!({"action":"list","limit":101}),
     ] {
-        // Internal Tauri/legacy entry still uses the same internal Product contract.
+        // 非 Start 的 Local 兼容入口仍只透传既有 Product 契约。
         assert_eq!(
             broker.agent_operation(request.clone()).await,
             broker.product.get().unwrap().operation(request, None).await
         );
     }
+    // Local 兼容 DTO 同样不接受 Continue workspaceId，避免形成双 Authority。
+    assert_eq!(
+        broker
+            .agent_operation(json!({"action":"continue","executionId":"missing","workspaceId":"W","requestKey":"k","prompt":"p"}))
+            .await["error"]["code"],
+        "AGENT_INVALID_ARGUMENT"
+    );
     let mut config = broker.config();
     config.agent_enabled = false;
     broker.supervisor.replace_config(config).unwrap();
@@ -446,7 +679,7 @@ async fn http_work_projection_guards_errors_and_reopen_preserve_public_contract(
         ),
         (
             "agent_execute",
-            json!({"action":"start","workRunId":"missing","requestKey":"k","prompt":"p"}),
+            json!({"action":"start","workRunId":"missing","workspaceId":"W","requestKey":"k","prompt":"p"}),
             "WORK_NOT_FOUND",
         ),
     ] {
@@ -987,7 +1220,7 @@ fn typed_registry_validation_rejects_cross_action_fields_and_preserves_context_a
         ),
         (
             "agent_execute",
-            json!({"action":"start","workRunId":"w","requestKey":"k","prompt":"p","delegationContextJson":"{}"}),
+            json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","delegationContextJson":"{}"}),
         ),
         (
             "agent_execute",
@@ -995,7 +1228,7 @@ fn typed_registry_validation_rejects_cross_action_fields_and_preserves_context_a
         ),
         (
             "agent_execute",
-            json!({"action":"start","workRunId":"w","requestKey":"k","prompt":"p","context":{"unknown":true}}),
+            json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"unknown":true}}),
         ),
     ] {
         assert!(registry::validate(name, &args).is_err(), "{name} {args}");
@@ -1025,9 +1258,26 @@ fn typed_registry_validation_rejects_cross_action_fields_and_preserves_context_a
         execute.input_schema["$defs"]["Context"]["properties"]["summary"]["type"],
         "string"
     );
-    assert!(registry::validate("agent_execute",&json!({"action":"start","workRunId":"w","requestKey":"k","prompt":"p","context":{"summary":null}})).is_err());
+    assert_eq!(
+        registry::validate(
+            "agent_execute",
+            &json!({"action":"start","workRunId":"w","requestKey":"k","prompt":"p"})
+        )
+        .unwrap_err(),
+        "WORKSPACE_CONTEXT_REQUIRED"
+    );
+    for workspace_id in [json!(""), json!(false)] {
+        assert!(
+            registry::validate("agent_execute", &json!({"action":"start","workRunId":"w","workspaceId":workspace_id,"requestKey":"k","prompt":"p"}))
+                .unwrap_err()
+                .starts_with("INVALID_PARAMS")
+        );
+    }
+    // Continue 的 Authority 仅来自 parentExecutionId；公共 DTO 不接受第二个 Workspace 输入。
+    assert!(registry::validate("agent_execute", &json!({"action":"continue","workRunId":"w","parentExecutionId":"e","workspaceId":"W","requestKey":"k","prompt":"p"})).is_err());
+    assert!(registry::validate("agent_execute",&json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"summary":null}})).is_err());
     // This is structurally valid transport input. Phase 6 must reject its values.
-    assert!(registry::validate("agent_execute",&json!({"action":"start","workRunId":"w","requestKey":"k","prompt":"p","context":{"files":[{"path":"../escape","sha256":"bad"}]}})).is_ok());
+    assert!(registry::validate("agent_execute",&json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"files":[{"path":"../escape","sha256":"bad"}]}})).is_ok());
     assert_eq!(
         registry::validate("agent", &json!({"action":"list"})).unwrap_err(),
         "UNKNOWN_TOOL"

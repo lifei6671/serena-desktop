@@ -102,6 +102,28 @@ pub struct WorkspaceClaimRecord {
     pub acquired_at: i64,
 }
 
+/// 统一 Claim 查询 SQL，供异步读取与受 Supervisor 排他保护的同步读取复用。
+fn workspace_claim_at(
+    connection: &Connection,
+    root: &str,
+) -> rusqlite::Result<Option<WorkspaceClaimRecord>> {
+    connection
+        .query_row(
+            "SELECT canonical_workspace_root, execution_id, claim_type, acquired_at
+             FROM workspace_claims WHERE canonical_workspace_root = ?1",
+            [root],
+            |row| {
+                Ok(WorkspaceClaimRecord {
+                    canonical_workspace_root: row.get(0)?,
+                    execution_id: row.get(1)?,
+                    claim_type: row.get(2)?,
+                    acquired_at: row.get(3)?,
+                })
+            },
+        )
+        .optional()
+}
+
 impl StateStore {
     /// Resolve exactly the application's data directory, not its workspace/config directory.
     pub async fn open_for_app(app: &tauri::AppHandle) -> Result<Self, String> {
@@ -196,23 +218,17 @@ impl StateStore {
         &self,
         root: String,
     ) -> Result<Option<WorkspaceClaimRecord>, String> {
-        self.read(move |c| {
-            c.query_row(
-                "SELECT canonical_workspace_root, execution_id, claim_type, acquired_at
-             FROM workspace_claims WHERE canonical_workspace_root = ?1",
-                [&root],
-                |r| {
-                    Ok(WorkspaceClaimRecord {
-                        canonical_workspace_root: r.get(0)?,
-                        execution_id: r.get(1)?,
-                        claim_type: r.get(2)?,
-                        acquired_at: r.get(3)?,
-                    })
-                },
-            )
-            .optional()
-        })
-        .await
+        self.read(move |connection| workspace_claim_at(connection, &root))
+            .await
+    }
+
+    /// 仅供持有 Supervisor operation mutex 的短管理临界区读取 Claim，期间不得 await。
+    pub(crate) fn workspace_claim_blocking(
+        &self,
+        root: &str,
+    ) -> Result<Option<WorkspaceClaimRecord>, String> {
+        let connection = self.connection.lock().map_err(|error| error.to_string())?;
+        workspace_claim_at(&connection, root).map_err(|error| error.to_string())
     }
 
     #[cfg(test)]

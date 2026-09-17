@@ -1,3 +1,6 @@
+// P2A2-010 后仅保留供 2D Adapter 接入的内部生命周期，当前不从任何公开路由调用。
+#![allow(dead_code)]
+
 use crate::config::Workspace;
 use rmcp::{
     RoleClient, ServiceExt,
@@ -5,6 +8,7 @@ use rmcp::{
     service::RunningService,
     transport::{TokioChildProcess, which_command},
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     collections::VecDeque,
@@ -24,13 +28,20 @@ const START_TIMEOUT: Duration = Duration::from_secs(25);
 const QUERY_TIMEOUT: Duration = Duration::from_secs(20);
 type Logs = Arc<Mutex<VecDeque<String>>>;
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphArgs {
+    query: String,
+    #[serde(rename = "maxFiles")]
+    max_files: Option<u32>,
+}
+
 #[cfg(test)]
 #[path = "codegraph_tests.rs"]
 pub(super) mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Error {
-    WorkspaceNotActive,
     NotInitialized,
     Starting,
     StartFailed,
@@ -44,7 +55,6 @@ pub(super) enum Error {
 impl Error {
     fn code(self) -> &'static str {
         match self {
-            Self::WorkspaceNotActive => "WORKSPACE_NOT_ACTIVE",
             Self::NotInitialized => "CODEGRAPH_NOT_INITIALIZED",
             Self::Starting => "CODEGRAPH_STARTING",
             Self::StartFailed => "CODEGRAPH_START_FAILED",
@@ -58,7 +68,6 @@ impl Error {
     }
     fn message(self) -> &'static str {
         match self {
-            Self::WorkspaceNotActive => "Activate a workspace before querying CodeGraph.",
             Self::NotInitialized => "The active workspace has no initialized CodeGraph index.",
             Self::Starting => "CodeGraph is starting for the active workspace.",
             Self::StartFailed => "CodeGraph failed to start for the active workspace.",
@@ -497,8 +506,7 @@ impl Runtime {
         Ok(client)
     }
     async fn call(&self, client: &Arc<Client>, args: Value) -> Result<String, Error> {
-        let args: super::registry::GraphArgs =
-            serde_json::from_value(args).map_err(|_| Error::Upstream)?;
+        let args: GraphArgs = serde_json::from_value(args).map_err(|_| Error::Upstream)?;
         let args = json!({"query":args.query,"maxFiles":args.max_files.unwrap_or(12)});
         let mut flight = Flight(Some(client.clone()));
         let result = tokio::time::timeout(

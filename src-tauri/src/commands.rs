@@ -2,7 +2,7 @@ use crate::{
     agent::product::AgentProductService,
     config::ManagerConfig,
     serena::SupervisorState,
-    workspace_registry::{WORKSPACE_IN_USE, WorkspaceRegistry, WorkspaceRegistrySnapshot},
+    workspace_registry::{WorkspaceRegistry, WorkspaceRegistrySnapshot},
 };
 use serde::Serialize;
 use std::{path::Path, process::Stdio};
@@ -142,20 +142,13 @@ pub fn workspace_reorder(
     WorkspaceRegistry::new(&supervisor).reorder(ids)
 }
 
-pub(crate) async fn remove_workspace(
+/// 所有本地 Workspace Remove 请求统一进入 Supervisor 的 typed coordination point。
+pub(crate) fn remove_workspace(
     supervisor: &SupervisorState,
     product: &AgentProductService,
     id: &str,
 ) -> Result<crate::config::Workspace, String> {
-    let registry = WorkspaceRegistry::new(supervisor);
-    let workspace = registry.get(id)?;
-    if product
-        .workspace_claim_exists(workspace.root.to_string_lossy().into_owned())
-        .await?
-    {
-        return Err(WORKSPACE_IN_USE.into());
-    }
-    registry.remove(id)
+    supervisor.remove_workspace_coordinated(product, id)
 }
 
 #[tauri::command]
@@ -165,7 +158,7 @@ pub async fn workspace_remove(
 ) -> Result<crate::config::Workspace, String> {
     let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
     let product = app.state::<std::sync::Arc<AgentProductService>>();
-    remove_workspace(&supervisor, &product, &id).await
+    remove_workspace(&supervisor, &product, &id)
 }
 
 #[tauri::command]
@@ -390,8 +383,15 @@ mod tests {
             store::{StateStore, transactions::product::WorkspaceSnapshot},
         },
         config::{self, AppPaths, ManagerConfig, Workspace},
+        serena::WorkspaceRemoveTestOwnerCounts,
+        workspace_registry::WORKSPACE_IN_USE,
     };
-    use std::fs;
+    use std::{
+        fs,
+        path::Path,
+        sync::{Arc, Mutex, mpsc},
+        time::Duration,
+    };
 
     fn remove_fixture() -> (tempfile::TempDir, AppPaths, SupervisorState, Workspace) {
         let directory = tempfile::tempdir().unwrap();
@@ -424,6 +424,28 @@ mod tests {
         (directory, paths, supervisor, workspace)
     }
 
+    /// 所有 busy owner 都必须在 Registry mutation 前失败，并保留 Registry 与磁盘。
+    fn assert_remove_in_use_preserves_entry(
+        supervisor: &SupervisorState,
+        product: &AgentProductService,
+        workspace: &Workspace,
+        config_file: &Path,
+    ) {
+        let before = WorkspaceRegistry::new(supervisor).list();
+        let bytes = fs::read(config_file).unwrap();
+        assert_eq!(
+            remove_workspace(supervisor, product, &workspace.id),
+            Err(WORKSPACE_IN_USE.into())
+        );
+        assert_eq!(WorkspaceRegistry::new(supervisor).list(), before);
+        assert_eq!(fs::read(config_file).unwrap(), bytes);
+        assert_eq!(
+            fs::read(workspace.root.join("marker.txt")).unwrap(),
+            b"preserve"
+        );
+        assert!(workspace.root.join(".git").is_dir());
+    }
+
     #[tokio::test]
     async fn remove_workspace_rejects_any_claim_without_changing_registry_or_files() {
         let (directory, paths, supervisor, workspace) = remove_fixture();
@@ -447,24 +469,41 @@ mod tests {
             )
             .await
             .unwrap();
-        let before = WorkspaceRegistry::new(&supervisor).list();
-        let bytes = fs::read(&paths.config_file).unwrap();
-
-        assert_eq!(
-            remove_workspace(&supervisor, &product, &workspace.id).await,
-            Err(WORKSPACE_IN_USE.into())
-        );
-        assert_eq!(WorkspaceRegistry::new(&supervisor).list(), before);
-        assert_eq!(fs::read(paths.config_file).unwrap(), bytes);
-        assert_eq!(
-            fs::read(workspace.root.join("marker.txt")).unwrap(),
-            b"preserve"
-        );
-        assert!(workspace.root.join(".git").is_dir());
+        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file);
     }
 
     #[tokio::test]
-    async fn remove_workspace_propagates_claim_query_errors_without_removing() {
+    async fn remove_workspace_rejects_simulated_future_write_guard_without_removing() {
+        let (directory, paths, supervisor, workspace) = remove_fixture();
+        let store = StateStore::open(directory.path().join("agent-state"))
+            .await
+            .unwrap();
+        let product = AgentProductService::new(store);
+        *supervisor.workspace_remove_test_owners.lock().unwrap() = WorkspaceRemoveTestOwnerCounts {
+            future_write_guard_count: 1,
+            future_runtime_slot_ref_count: 0,
+        };
+
+        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file);
+    }
+
+    #[tokio::test]
+    async fn remove_workspace_rejects_simulated_future_runtime_slot_ref_without_removing() {
+        let (directory, paths, supervisor, workspace) = remove_fixture();
+        let store = StateStore::open(directory.path().join("agent-state"))
+            .await
+            .unwrap();
+        let product = AgentProductService::new(store);
+        *supervisor.workspace_remove_test_owners.lock().unwrap() = WorkspaceRemoveTestOwnerCounts {
+            future_write_guard_count: 0,
+            future_runtime_slot_ref_count: 1,
+        };
+
+        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file);
+    }
+
+    #[tokio::test]
+    async fn remove_workspace_rejects_typed_check_errors_without_removing() {
         let (directory, paths, supervisor, workspace) = remove_fixture();
         let store = StateStore::open(directory.path().join("agent-state"))
             .await
@@ -477,9 +516,7 @@ mod tests {
             .execute_batch("DROP TABLE workspace_claims")
             .unwrap();
 
-        let error = remove_workspace(&supervisor, &product, &workspace.id)
-            .await
-            .unwrap_err();
+        let error = remove_workspace(&supervisor, &product, &workspace.id).unwrap_err();
         assert_ne!(error, WORKSPACE_IN_USE);
         assert_eq!(WorkspaceRegistry::new(&supervisor).list(), before);
         assert_eq!(fs::read(paths.config_file).unwrap(), bytes);
@@ -488,6 +525,90 @@ mod tests {
             b"preserve"
         );
         assert!(workspace.root.join(".git").is_dir());
+    }
+
+    #[tokio::test]
+    async fn remove_workspace_removes_idle_registry_entry_without_removing_files() {
+        let (directory, _paths, supervisor, workspace) = remove_fixture();
+        let store = StateStore::open(directory.path().join("agent-state"))
+            .await
+            .unwrap();
+        let product = AgentProductService::new(store);
+
+        assert_eq!(
+            remove_workspace(&supervisor, &product, &workspace.id).unwrap(),
+            workspace
+        );
+        assert_eq!(
+            WorkspaceRegistry::new(&supervisor).get("workspace"),
+            Err(crate::workspace_registry::WORKSPACE_NOT_FOUND.into())
+        );
+        assert_eq!(
+            fs::read(workspace.root.join("marker.txt")).unwrap(),
+            b"preserve"
+        );
+        assert!(workspace.root.join(".git").is_dir());
+    }
+
+    #[tokio::test]
+    async fn remove_workspace_holds_operation_mutex_across_typed_check_and_registry_delete() {
+        let (directory, _paths, supervisor, workspace) = remove_fixture();
+        let store = StateStore::open(directory.path().join("agent-state"))
+            .await
+            .unwrap();
+        let product = AgentProductService::new(store);
+        let supervisor = Arc::new(supervisor);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release = Arc::new(Mutex::new(release_rx));
+        let release_for_hook = release.clone();
+        *supervisor.workspace_remove_hook.lock().unwrap() = Some(Arc::new(move || {
+            entered_tx.send(()).unwrap();
+            release_for_hook.lock().unwrap().recv().unwrap();
+        }));
+        let (remove_done, remove_result) = mpsc::channel();
+        let (rename_done, rename_result) = mpsc::channel();
+
+        std::thread::scope(|scope| {
+            let removal_supervisor = supervisor.clone();
+            let removal_id = workspace.id.clone();
+            let removal_product = &product;
+            scope.spawn(move || {
+                remove_done
+                    .send(remove_workspace(
+                        &removal_supervisor,
+                        removal_product,
+                        &removal_id,
+                    ))
+                    .unwrap();
+            });
+            entered_rx.recv().unwrap();
+            let rename_supervisor = supervisor.clone();
+            let rename_id = workspace.id.clone();
+            scope.spawn(move || {
+                rename_done
+                    .send(
+                        WorkspaceRegistry::new(&rename_supervisor)
+                            .rename(&rename_id, "Renamed".into()),
+                    )
+                    .unwrap();
+            });
+            assert!(
+                rename_result
+                    .recv_timeout(Duration::from_millis(50))
+                    .is_err()
+            );
+            release_tx.send(()).unwrap();
+            assert_eq!(remove_result.recv().unwrap().unwrap().id, workspace.id);
+            assert_eq!(
+                rename_result.recv().unwrap(),
+                Err(crate::workspace_registry::WORKSPACE_NOT_FOUND.into())
+            );
+        });
+        assert_eq!(
+            WorkspaceRegistry::new(&supervisor).get("workspace"),
+            Err(crate::workspace_registry::WORKSPACE_NOT_FOUND.into())
+        );
     }
 
     #[test]

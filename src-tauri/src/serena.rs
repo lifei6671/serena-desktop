@@ -3,8 +3,19 @@ pub use crate::discovery::SerenaInstallation;
 pub(crate) mod remote_fixture;
 use crate::discovery::{self, GitInstallation, InstallationState};
 use crate::{
+    agent::{
+        product::AgentProductService,
+        store::{
+            StateStore,
+            transactions::{
+                CreateOutcome,
+                product::{WorkExecutionContext, WorkspaceSnapshot},
+            },
+        },
+    },
     config::{self, AppPaths, ManagerConfig, Workspace},
     logs,
+    workspace_resolver::WorkspaceResolver,
 };
 use serde::Serialize;
 use std::{
@@ -56,6 +67,46 @@ struct Runtime {
 
 #[cfg(test)]
 type RemoteSaveHook = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
+#[cfg(test)]
+type WorkspaceStartHook = Arc<dyn Fn() + Send + Sync>;
+#[cfg(test)]
+type WorkspaceRemoveHook = Arc<dyn Fn() + Send + Sync>;
+
+/// Remove 在既有 operation mutex 内汇总的固定三类 Workspace owner。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WorkspaceRemoveOwners {
+    agent_claim_present: bool,
+    future_write_guard_count: u32,
+    future_runtime_slot_ref_count: u32,
+}
+
+impl WorkspaceRemoveOwners {
+    /// 任一明确 owner 存在即拒绝 Remove，绝不执行 best-effort 删除。
+    fn is_busy(self) -> bool {
+        self.agent_claim_present
+            || self.future_write_guard_count != 0
+            || self.future_runtime_slot_ref_count != 0
+    }
+}
+
+/// 仅测试模拟未来 owner；不会编译进生产状态或形成动态注册机制。
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct WorkspaceRemoveTestOwnerCounts {
+    pub(crate) future_write_guard_count: u32,
+    pub(crate) future_runtime_slot_ref_count: u32,
+}
+
+/// 已通过普通异步 preflight 的 Start 持久化输入；Workspace 快照仅在 operation mutex 内解析。
+pub(crate) struct WorkspaceStartCreation {
+    pub(crate) execution_id: String,
+    pub(crate) agent_id: String,
+    pub(crate) request_key: String,
+    pub(crate) prompt: String,
+    pub(crate) workspace_id: String,
+    pub(crate) work: Option<WorkExecutionContext>,
+    pub(crate) now: i64,
+}
 
 pub struct SupervisorState {
     runtime: Mutex<Runtime>,
@@ -64,6 +115,12 @@ pub struct SupervisorState {
     pub paths: AppPaths,
     #[cfg(test)]
     pub(crate) remote_save_hook: Mutex<Option<RemoteSaveHook>>,
+    #[cfg(test)]
+    pub(crate) workspace_start_hook: Mutex<Option<WorkspaceStartHook>>,
+    #[cfg(test)]
+    pub(crate) workspace_remove_hook: Mutex<Option<WorkspaceRemoveHook>>,
+    #[cfg(test)]
+    pub(crate) workspace_remove_test_owners: Mutex<WorkspaceRemoveTestOwnerCounts>,
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +165,12 @@ impl SupervisorState {
             paths,
             #[cfg(test)]
             remote_save_hook: Mutex::new(None),
+            #[cfg(test)]
+            workspace_start_hook: Mutex::new(None),
+            #[cfg(test)]
+            workspace_remove_hook: Mutex::new(None),
+            #[cfg(test)]
+            workspace_remove_test_owners: Mutex::new(WorkspaceRemoveTestOwnerCounts::default()),
         })
     }
 
@@ -277,6 +340,14 @@ impl SupervisorState {
         mutation: impl FnOnce(&mut Vec<Workspace>) -> Result<(), String>,
     ) -> Result<bool, String> {
         let _operation = self.operation.lock().expect("operation mutex poisoned");
+        self.mutate_workspace_registry_locked(mutation)
+    }
+
+    /// 调用方已持有 operation mutex 时复用 Registry 的原子配置提交逻辑。
+    fn mutate_workspace_registry_locked(
+        &self,
+        mutation: impl FnOnce(&mut Vec<Workspace>) -> Result<(), String>,
+    ) -> Result<bool, String> {
         let current = self
             .runtime
             .lock()
@@ -306,6 +377,91 @@ impl SupervisorState {
             .expect("supervisor mutex poisoned")
             .config = next;
         Ok(true)
+    }
+
+    /// 只聚合冻结的 owner 类型；未来两类在生产固定为零，当前不查询进程、表或 Provider。
+    fn workspace_remove_owners(
+        &self,
+        product: &AgentProductService,
+        workspace: &Workspace,
+    ) -> Result<WorkspaceRemoveOwners, String> {
+        let agent_claim_present =
+            product.workspace_claim_exists_blocking(&workspace.root.to_string_lossy())?;
+        let (future_write_guard_count, future_runtime_slot_ref_count) = {
+            #[cfg(test)]
+            {
+                let fixture = *self.workspace_remove_test_owners.lock().unwrap();
+                (
+                    fixture.future_write_guard_count,
+                    fixture.future_runtime_slot_ref_count,
+                )
+            }
+            #[cfg(not(test))]
+            {
+                (0, 0)
+            }
+        };
+        Ok(WorkspaceRemoveOwners {
+            agent_claim_present,
+            future_write_guard_count,
+            future_runtime_slot_ref_count,
+        })
+    }
+
+    /// Remove 的单一 typed coordination point：Claim 检查与 Registry 删除共用 operation mutex。
+    pub(crate) fn remove_workspace_coordinated(
+        &self,
+        product: &AgentProductService,
+        id: &str,
+    ) -> Result<Workspace, String> {
+        let _operation = self.operation.lock().expect("operation mutex poisoned");
+        let workspace = crate::workspace_registry::WorkspaceRegistry::new(self).get(id)?;
+        #[cfg(test)]
+        if let Some(hook) = self.workspace_remove_hook.lock().unwrap().clone() {
+            hook();
+        }
+        if self.workspace_remove_owners(product, &workspace)?.is_busy() {
+            return Err(crate::workspace_registry::WORKSPACE_IN_USE.into());
+        }
+        let mut removed = None;
+        self.mutate_workspace_registry_locked(|workspaces| {
+            let index = workspaces
+                .iter()
+                .position(|workspace| workspace.id == id)
+                .ok_or_else(|| String::from(crate::workspace_registry::WORKSPACE_NOT_FOUND))?;
+            removed = Some(workspaces.remove(index));
+            Ok(())
+        })?;
+        removed.ok_or_else(|| "workspace removal made no entry".into())
+    }
+
+    /// Start 的线性化点：在同一 operation mutex 内解析 Lease，并原子提交 Execution 与 Claim。
+    pub(crate) fn create_workspace_start(
+        &self,
+        store: &StateStore,
+        creation: WorkspaceStartCreation,
+    ) -> Result<CreateOutcome, String> {
+        let _operation = self.operation.lock().expect("operation mutex poisoned");
+        let lease = WorkspaceResolver::new(self).resolve(&creation.workspace_id)?;
+        let snapshot = WorkspaceSnapshot {
+            id: lease.workspace_id,
+            root: lease.canonical_root.to_string_lossy().into_owned(),
+            generation: lease.generation,
+        };
+        #[cfg(test)]
+        if let Some(hook) = self.workspace_start_hook.lock().unwrap().clone() {
+            hook();
+        }
+        store.product_create_fresh_with_work_blocking(
+            creation.execution_id,
+            creation.agent_id,
+            creation.request_key,
+            creation.prompt,
+            creation.workspace_id,
+            snapshot,
+            creation.work,
+            creation.now,
+        )
     }
 
     /// Remote settings do not affect Serena discovery or its running process.

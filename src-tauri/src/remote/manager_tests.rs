@@ -2714,7 +2714,9 @@ async fn startup_probe_failure_keeps_quick_tunnel_verifying() {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
     );
-    remote.set_probe_hook(Arc::new(|| Box::pin(async { Err("STARTUP_PROBE_FAILED".into()) })));
+    remote.set_probe_hook(Arc::new(|| {
+        Box::pin(async { Err("STARTUP_PROBE_FAILED".into()) })
+    }));
     {
         let mut inner = remote.inner.lock().unwrap();
         inner.mode = RemoteAccessMode::QuickTunnel;
@@ -2748,7 +2750,9 @@ async fn public_probe_failure_publishes_error() {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
     );
-    remote.set_probe_hook(Arc::new(|| Box::pin(async { Err("PUBLIC_PROBE_FAILED".into()) })));
+    remote.set_probe_hook(Arc::new(|| {
+        Box::pin(async { Err("PUBLIC_PROBE_FAILED".into()) })
+    }));
     {
         let mut inner = remote.inner.lock().unwrap();
         inner.mode = RemoteAccessMode::SelfHostedOAuth;

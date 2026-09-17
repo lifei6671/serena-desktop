@@ -106,7 +106,7 @@ pub fn descriptors() -> Vec<Tool> {
         ("work_query", "【做什么】\n只查询 Work 业务容器，不执行任务。\n\n【什么时候使用】\nget 查询单个 Work；list 查询列表。\n\n【关键约束】\n只读；不要求当前活动 Workspace。", schema::<WorkQuery>(), work_output.clone(), true, false),
         ("work_update", "【做什么】\nbegin 创建 Work，finish 提交 Host Acceptance，cancel 关闭 Work。\n\n【什么时候使用】\n管理业务任务容器。\n\n【关键约束】\nWork 不拥有 Workspace Claim；cancel 不等于取消 Execution。finish/cancel 不可逆。", schema::<WorkUpdate>(), work_output, false, false),
         ("agent_query", "【做什么】\n只读查询或 observe Work 内 Execution。\n\n【什么时候使用】\n耗时任务用 bounded observe；结果按需 includeResult，可重复读取。\n\n【关键约束】\nobserve 默认 15000ms、最大 20000ms，只等待 control 变化，不执行 Provider。", schema::<AgentQuery>(), query_output_schema(), true, false),
-        ("agent_execute", "【做什么】\n执行已确定的修改或测试。\n\n【什么时候使用】\nChatGPT 负责 source/git/codegraph 分析与 Review；实际工程执行交给 Agent。\n\n【关键约束】\ncontinue 创建新 Execution，可复用 Thread；context 传递 Host 验证的 path+sha256 引用。start/continue 重试保留原 requestKey 和请求；cancel 取消指定 Execution，resume_pending 仅显式恢复允许首次派发的原 Execution。", schema::<AgentExecute>(), super::registry::agent_output_schema(), false, true),
+        ("agent_execute", "【做什么】\n执行已确定的修改或测试。\n\n【什么时候使用】\nChatGPT 负责 source/git/codegraph 分析与 Review；实际工程执行交给 Agent。\n\n【关键约束】\nstart 必须显式携带 workspaceId，并由 Registry 解析后冻结；WorkRun 仅校验其一致性。continue 创建新 Execution，可复用 Thread；context 传递 Host 验证的 path+sha256 引用。start/continue 重试保留原 requestKey 和请求；cancel 取消指定 Execution，resume_pending 仅显式恢复允许首次派发的原 Execution。", schema::<AgentExecute>(), super::registry::agent_output_schema(), false, true),
     ].into_iter().map(|(name, description, input, output, read_only, open_world)| {
         let mut tool=Tool::new(name, description, input.as_object().unwrap().clone());
         tool.annotations=Some(ToolAnnotations::default().read_only(read_only).destructive(!read_only).idempotent(read_only).open_world(open_world));
@@ -248,11 +248,13 @@ impl Broker {
                 let action = match action {
                     AgentExecute::Start {
                         work_run_id,
+                        workspace_id,
                         request_key,
                         prompt,
                         context,
                     } => AgentExecuteAction::Start {
                         work_run_id,
+                        workspace_id,
                         request_key,
                         prompt,
                         delegation_context_json: context_json(context),

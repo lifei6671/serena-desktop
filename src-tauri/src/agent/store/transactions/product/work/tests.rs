@@ -542,6 +542,16 @@ async fn continuation_preserves_terminal_parent_and_retry_after_work_completion(
     assert!(child.created);
     assert_eq!(child.execution.status, "dispatch_pending");
     assert_eq!(child.execution.parent_execution_id.as_deref(), Some("E1"));
+    // Continue 精确继承父 Execution 的持久化 Workspace snapshot。
+    assert_eq!(child.execution.workspace_id, parent.workspace_id);
+    assert_eq!(
+        child.execution.canonical_workspace_root,
+        parent.canonical_workspace_root
+    );
+    assert_eq!(
+        child.execution.workspace_generation,
+        parent.workspace_generation
+    );
     // C2B leaves current child runtime identity to the Provider adapter.
     assert_eq!(child.execution.thread_id, None);
     assert_eq!(store.execution("E1".into()).await.unwrap(), Some(parent));
@@ -640,6 +650,35 @@ async fn continuation_guards_keep_eligibility_claim_and_workspace_contracts() {
         );
         assert_eq!(snapshot(&store), before);
     }
+}
+
+#[tokio::test]
+async fn continuation_rejects_incomplete_parent_workspace_snapshot_without_fallback() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    fresh(&store, "E1", "A", "key", None, 10).await.unwrap();
+    terminal_parent(&store, "E1").await;
+    // 模拟旧数据损坏：Continue 必须 fail closed，不能从 Registry 或当前选择补齐 root。
+    sql(
+        &store,
+        "UPDATE executions SET canonical_workspace_root='' WHERE id='E1'",
+    );
+    let before = snapshot(&store);
+    assert_eq!(
+        continuation(&store, "E2", "E1", "next", None)
+            .await
+            .unwrap_err(),
+        "AGENT_CONTINUE_NOT_ALLOWED"
+    );
+    assert_eq!(snapshot(&store), before);
+    assert!(store.execution("E2".into()).await.unwrap().is_none());
+    assert!(
+        store
+            .workspace_claim("root".into())
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[tokio::test]

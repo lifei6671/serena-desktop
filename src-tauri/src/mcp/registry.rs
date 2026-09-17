@@ -47,13 +47,6 @@ pub struct WorkspaceIdArgs {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Empty {}
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct GraphArgs {
-    pub query: String,
-    #[serde(rename = "maxFiles")]
-    pub max_files: Option<u32>,
-}
 pub const SOURCES: &[(&str, &str, &[&str], &[&str])] = &[
     (
         "source_read_file",
@@ -678,13 +671,13 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
                 "【做什么】\n查看指定已登记 Workspace 的 Git 工作区状态，包括分支、已暂存、未暂存和未跟踪文件。\n\n【什么时候使用】\n开始修改前确认工作区状态，或检查哪些文件需要审查、暂存或提交。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读，不暂存或修改文件。返回 Git porcelain v1 格式。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
             }
             "git_diff" => {
-                "【做什么】\n查看指定已登记 Workspace 中已跟踪文件的差异，可按相对路径过滤。\n\n【什么时候使用】\n审查未暂存修改、待提交修改，或比较整个工作区与 HEAD 的差异。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读。scope 为 unstaged（默认，工作区对暂存区）、staged（暂存区对 HEAD）或 all（工作区对 HEAD），不包含未跟踪文件内容。path 相对仓库根且不得越界。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
+                "【做什么】\n查看指定已登记 Workspace 中已跟踪文件的差异，可按相对路径过滤。\n\n【什么时候使用】\n审查未暂存修改、待提交修改，或比较整个工作区与 HEAD 的差异。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读。scope 为 unstaged（默认，工作区对暂存区）、staged（暂存区对 HEAD）或 all（工作区对 HEAD），不包含未跟踪文件内容。path 必须相对 Workspace 根目录且不得越界。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
             }
             "git_log" => {
-                "【做什么】\n查看指定已登记 Workspace 的提交历史，返回提交哈希、时间和标题，可按引用和相对路径筛选。\n\n【什么时候使用】\n追踪某个文件的变更历史，寻找相关提交，或了解最近的开发记录。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读。reference 默认 HEAD；count 默认 20，范围 1–100。path 相对仓库根且不得越界。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
+                "【做什么】\n查看指定已登记 Workspace 的提交历史，返回提交哈希、时间和标题，可按引用和相对路径筛选。\n\n【什么时候使用】\n追踪某个文件的变更历史，寻找相关提交，或了解最近的开发记录。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读。reference 默认 HEAD；count 默认 20，范围 1–100。path 必须相对 Workspace 根目录且不得越界。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
             }
             "git_show" => {
-                "【做什么】\n查看指定已登记 Workspace 中指定 Git 引用的内容，例如提交详情和补丁，或通过 HEAD:相对路径读取历史文件。\n\n【什么时候使用】\n深入检查某次提交，或读取指定版本中的文件内容。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读。reference 默认 HEAD；path 可过滤提交涉及的路径，相对仓库根且不得越界。不会切换分支或检出文件。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
+                "【做什么】\n查看指定已登记 Workspace 中指定 Git 引用的内容，例如提交详情和补丁，或通过 HEAD:相对路径读取历史文件。\n\n【什么时候使用】\n深入检查某次提交，或读取指定版本中的文件内容。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读。reference 默认 HEAD；path 可过滤提交涉及的路径，必须相对 Workspace 根目录且不得越界。不会切换分支或检出文件。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
             }
             "git_branch" => {
                 "【做什么】\n列出指定已登记 Workspace 的本地分支及 Git 的当前分支标记。\n\n【什么时候使用】\n确认当前分支，或查看仓库中已有的本地分支。\n\n【关键约束】\nworkspaceId 必填，且必须是已登记 Workspace；只读，不创建、删除或切换分支，不列出远程跟踪分支。max_bytes 默认 65536，范围 1–262144；超限时返回截断标记。"
@@ -696,11 +689,6 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
         };
         list.push(tool(name, description, s));
     }
-    list.push(tool(
-        "codegraph_explore",
-        "【做什么】\n探索当前活动 Workspace 的代码结构、跨函数/文件/模块调用路径、依赖关系和潜在影响范围。\n\n【什么时候使用】\n理解功能或模块如何工作、追踪完整调用链、分析修改影响或探索架构。已知文件路径、Symbol 名称，或只需读文件、直接 references 时优先使用 source_*。\n\n【关键约束】\n只查询当前活动项目；query 必填，maxFiles 默认 12。不接受 projectPath，不跨项目回退，不自动初始化索引。保留索引陈旧提示。启动中返回 CODEGRAPH_STARTING；运行故障每次调用最多恢复一次、查询最多重试一次，恢复有 30 秒冷却。错误以 error.code/message/workspace/recoverable 返回。",
-        schema::<GraphArgs>(),
-    ));
     let mut media = tool(
         "media_read_image",
         "【做什么】\nRead an image from the active workspace and return it as MCP image content for visual inspection.\n\n【什么时候使用】\n查看当前项目中的截图或图片。\n\n【关键约束】\n仅支持 Workspace 相对路径；只读 PNG/JPEG/WebP。输入最多 20 MiB、40 MP，最长边缩至 2560 px，重编码并剥离原始 metadata；输出最多 6 MiB。WebP 返回 PNG。",
@@ -744,12 +732,6 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
     } else if name == "media_read_image" {
         serde_json::from_value::<super::media::MediaReadImageArgs>(args.clone())
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
-    } else if name == "codegraph_explore" {
-        let parsed = serde_json::from_value::<GraphArgs>(args.clone())
-            .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
-        if parsed.query.trim().is_empty() || parsed.max_files == Some(0) {
-            return Err("INVALID_PARAMS: query 不能为空，maxFiles 必须为正整数".into());
-        }
     } else if name == "workspace_activate" {
         let parsed = serde_json::from_value::<ActivateArgs>(args.clone())
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
@@ -950,8 +932,8 @@ mod tests {
                 .count(),
             4
         );
-        assert_eq!(disabled.len(), 20);
-        assert_eq!(enabled.len(), 24);
+        assert_eq!(disabled.len(), 19);
+        assert_eq!(enabled.len(), 23);
         assert_eq!(
             enabled
                 .iter()
@@ -996,7 +978,6 @@ mod tests {
         assert_eq!(
             findings,
             [
-                "codegraph_explore output oneOf",
                 "work_query input oneOf",
                 "work_query output anyOf",
                 "work_query output $defs",
@@ -1018,7 +999,7 @@ mod tests {
     #[test]
     fn fixed_surface() {
         let tools = list(&upstream(), true).unwrap();
-        assert_eq!(tools.len(), 24);
+        assert_eq!(tools.len(), 23);
         let mut expected = vec![
             "work_query",
             "work_update",
@@ -1029,7 +1010,6 @@ mod tests {
             "workspace_current",
             "workspace_activate",
             "workspace_deactivate",
-            "codegraph_explore",
             "media_read_image",
         ];
         expected.extend(SOURCES.iter().map(|s| s.0));
@@ -1071,7 +1051,7 @@ mod tests {
                 .map(|t| &t.name)
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
-            24
+            23
         );
         assert!(
             validate(
@@ -1081,30 +1061,14 @@ mod tests {
             .is_err()
         );
         assert!(validate("workspace_deactivate", &json!({})).is_ok());
-        let graph = tools
-            .iter()
-            .find(|t| t.name == "codegraph_explore")
-            .unwrap();
-        assert!(
-            graph.input_schema["properties"]
-                .get("projectPath")
-                .is_none()
-        );
-        assert!(
+        assert!(!names.contains("codegraph_explore"));
+        assert_eq!(
             validate(
                 "codegraph_explore",
                 &json!({"query":"symbol", "maxFiles":2})
-            )
-            .is_ok()
+            ),
+            Err("UNKNOWN_TOOL".into())
         );
-        for args in [
-            json!({}),
-            json!({"query":" "}),
-            json!({"query":"x","maxFiles":0}),
-            json!({"query":"x","projectPath":"elsewhere"}),
-        ] {
-            assert!(validate("codegraph_explore", &args).is_err());
-        }
     }
 
     #[test]
@@ -1227,15 +1191,8 @@ mod tests {
                 tool.name
             );
         }
-        let graph = tools
-            .iter()
-            .find(|tool| tool.name == "codegraph_explore")
-            .unwrap();
-        assert!(
-            graph.input_schema["properties"]
-                .get("workspaceId")
-                .is_none()
-        );
+        // 2D Adapter 完成前，旧 Global Active CodeGraph 工具不得以任何 Schema 公开。
+        assert!(!tools.iter().any(|tool| tool.name == "codegraph_explore"));
     }
 
     #[test]

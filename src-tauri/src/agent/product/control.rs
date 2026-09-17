@@ -192,9 +192,11 @@ impl AgentProductService {
 
 pub(crate) fn adapter_rejection(mut error: ProductError) -> Value {
     let next = match error.code.as_str() {
-        "WORK_INVALID_ARGUMENT" | "CONTEXT_STALE" | "EXECUTION_REQUEST_KEY_CONFLICT" => {
-            Some(NextAction::CorrectInput)
-        }
+        "WORK_INVALID_ARGUMENT"
+        | "WORKSPACE_CONTEXT_REQUIRED"
+        | "INVALID_PARAMS"
+        | "CONTEXT_STALE"
+        | "EXECUTION_REQUEST_KEY_CONFLICT" => Some(NextAction::CorrectInput),
         "WORKSPACE_CONTEXT_MISMATCH" | "AGENT_NO_ACTIVE_WORKSPACE" | "AGENT_WORKSPACE_CHANGED" => {
             Some(NextAction::ActivateWorkspace)
         }

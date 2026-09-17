@@ -372,7 +372,8 @@ fn tls_subtype(error: &(dyn std::error::Error + 'static)) -> &'static str {
         {
             return "credential";
         }
-        if text.contains("unexpected eof") || text.contains("eof") || text.contains("close_notify") {
+        if text.contains("unexpected eof") || text.contains("eof") || text.contains("close_notify")
+        {
             return "eof";
         }
         if text.contains("handshake") || text.contains("tls") || text.contains("ssl") {

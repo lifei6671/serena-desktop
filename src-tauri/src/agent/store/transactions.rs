@@ -257,24 +257,30 @@ impl StateStore {
         }).await
     }
 
+    /// 在已持有外层同步管理排他权时完成短 SQLite 写事务；调用方不得在该期间 await。
+    pub(crate) fn write_blocking<T>(
+        &self,
+        operation: impl FnOnce(&Transaction<'_>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut connection = self.connection.lock().map_err(|error| error.to_string())?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let result = operation(&tx)?;
+        tx.commit().map_err(|error| error.to_string())?;
+        #[cfg(test)]
+        crash_checkpoint("after_commit");
+        Ok(result)
+    }
+
     pub(super) async fn write<T: Send + 'static>(
         &self,
         operation: impl FnOnce(&Transaction<'_>) -> Result<T, String> + Send + 'static,
     ) -> Result<T, String> {
-        let connection = self.connection.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            let mut connection = connection.lock().map_err(|e| e.to_string())?;
-            let tx = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|e| e.to_string())?;
-            let result = operation(&tx)?;
-            tx.commit().map_err(|e| e.to_string())?;
-            #[cfg(test)]
-            crash_checkpoint("after_commit");
-            Ok(result)
-        })
-        .await
-        .map_err(|e| e.to_string())?
+        let store = self.clone();
+        tauri::async_runtime::spawn_blocking(move || store.write_blocking(operation))
+            .await
+            .map_err(|e| e.to_string())?
     }
 
     pub async fn create_execution(

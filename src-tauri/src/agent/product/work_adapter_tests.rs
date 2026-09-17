@@ -1,5 +1,12 @@
 use super::*;
 use crate::agent::store::transactions::product::WorkExecutionContext;
+use crate::{
+    commands::remove_workspace,
+    config::{self, AppPaths, ManagerConfig, Workspace},
+    serena::SupervisorState,
+    workspace_registry::WORKSPACE_IN_USE,
+};
+use std::sync::{Mutex, mpsc};
 
 #[path = "work_context_tests.rs"]
 mod work_context_tests;
@@ -7,6 +14,7 @@ mod work_context_tests;
 fn start_work(work: &str, key: &str) -> AgentExecuteAction {
     AgentExecuteAction::Start {
         work_run_id: work.into(),
+        workspace_id: "W".into(),
         request_key: key.into(),
         prompt: "hello".into(),
         delegation_context_json: None,
@@ -161,6 +169,18 @@ async fn start_durable_receipt_retry_lineage_and_continuation_reuse_existing_wor
     assert_eq!(retry.unwrap().execution_id, next.execution_id);
     assert_ne!(next.execution_id, id);
     assert_eq!(next.thread_id, terminal.thread_id);
+    let child = store
+        .execution(next.execution_id.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    // Continue 只继承父 Execution 的冻结快照，不接受调用端 Workspace。
+    assert_eq!(child.workspace_id, parent.workspace_id);
+    assert_eq!(
+        child.canonical_workspace_root,
+        parent.canonical_workspace_root
+    );
+    assert_eq!(child.workspace_generation, parent.workspace_generation);
     assert_eq!(
         s.agent_execute(continue_work("work", &id, "other-key"), None)
             .await
@@ -660,6 +680,23 @@ async fn adapter_validation_and_start_work_guards_create_nothing() {
             .code,
         "WORK_NOT_FOUND"
     );
+    // WorkRun 与请求 Workspace 不一致时，不能创建 Claim 或触发 Provider。
+    assert_eq!(
+        s.agent_execute(
+            AgentExecuteAction::Start {
+                work_run_id: "work".into(),
+                workspace_id: "wrong".into(),
+                request_key: "key".into(),
+                prompt: "hello".into(),
+                delegation_context_json: None,
+            },
+            w(dir.path(), "wrong"),
+        )
+        .await
+        .unwrap_err()
+        .code,
+        "WORKSPACE_CONTEXT_MISMATCH"
+    );
     for current in [
         None,
         w(dir.path(), "wrong"),
@@ -678,6 +715,7 @@ async fn adapter_validation_and_start_work_guards_create_nothing() {
         start_work("work", " "),
         AgentExecuteAction::Start {
             work_run_id: "work".into(),
+            workspace_id: "W".into(),
             request_key: "key".into(),
             prompt: " \n".into(),
             delegation_context_json: None,
@@ -975,4 +1013,214 @@ async fn cancel_transaction_failure_remains_rejected_without_mutation() {
     }
     drop(s);
     assert!(fake.await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn resolver_start_and_remove_share_supervisor_operation_exclusion() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("workspace");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = std::fs::canonicalize(root).unwrap();
+    let paths = AppPaths {
+        runtime_directory: directory.path().join("runtime"),
+        config_file: directory.path().join("config.json"),
+        log_directory: directory.path().join("logs"),
+        app_log: directory.path().join("logs/app.log"),
+        serena_log: directory.path().join("logs/serena.log"),
+    };
+    config::save(
+        &paths.config_file,
+        &ManagerConfig {
+            workspace_registry_revision: 1,
+            workspaces: vec![Workspace {
+                id: "W".into(),
+                name: "Workspace".into(),
+                root: root.clone(),
+                generation: 1,
+            }],
+            ..ManagerConfig::default()
+        },
+    )
+    .unwrap();
+    let supervisor = Arc::new(SupervisorState::new(paths).unwrap());
+    let store = StateStore::open(directory.path().join("agent-state"))
+        .await
+        .unwrap();
+    create_work(&store, &root, "work").await;
+    let (service, release, fake) = fake_service(
+        store.clone(),
+        directory.path().join("agent-state").join("agent-state.db"),
+        "REMOVE_RACE",
+        "T",
+        false,
+        "paginated",
+    )
+    .await;
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Arc::new(std::sync::Mutex::new(release_rx));
+    let hook_release = release_rx.clone();
+    *supervisor.workspace_start_hook.lock().unwrap() = Some(Arc::new(move || {
+        entered_tx.send(()).unwrap();
+        hook_release.lock().unwrap().recv().unwrap();
+    }));
+    let service = Arc::new(service);
+    let start_service = service.clone();
+    let start_supervisor = supervisor.clone();
+    // 同步测试钩子必须在独立 runtime 中阻塞，避免占住当前测试 runtime 而无法释放同步点。
+    let start = std::thread::spawn(move || {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async move {
+                start_service
+                    .agent_execute(start_work("work", "key"), start_supervisor.as_ref())
+                    .await
+            })
+    });
+    tokio::task::spawn_blocking(move || entered_rx.recv().unwrap())
+        .await
+        .unwrap();
+    let remove_supervisor = supervisor.clone();
+    let remove_service = service.clone();
+    let mut remove = tokio::task::spawn_blocking(move || {
+        remove_workspace(&remove_supervisor, &remove_service, "W")
+    });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), &mut remove)
+            .await
+            .is_err()
+    );
+    release_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while store
+            .workspace_claim(root.to_string_lossy().into_owned())
+            .await
+            .unwrap()
+            .is_none()
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(remove.await.unwrap(), Err(WORKSPACE_IN_USE.into()));
+    release.send(()).unwrap();
+    assert!(
+        tokio::task::spawn_blocking(move || start.join().unwrap())
+            .await
+            .unwrap()
+            .is_ok()
+    );
+    drop(service);
+    assert!(
+        fake.await
+            .unwrap()
+            .iter()
+            .any(|method| method == "turn/start")
+    );
+}
+
+#[tokio::test]
+async fn resolver_start_after_remove_linearizes_to_workspace_not_found() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("workspace");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = std::fs::canonicalize(root).unwrap();
+    let paths = AppPaths {
+        runtime_directory: directory.path().join("runtime"),
+        config_file: directory.path().join("config.json"),
+        log_directory: directory.path().join("logs"),
+        app_log: directory.path().join("logs/app.log"),
+        serena_log: directory.path().join("logs/serena.log"),
+    };
+    config::save(
+        &paths.config_file,
+        &ManagerConfig {
+            workspace_registry_revision: 1,
+            workspaces: vec![Workspace {
+                id: "W".into(),
+                name: "Workspace".into(),
+                root: root.clone(),
+                generation: 1,
+            }],
+            ..ManagerConfig::default()
+        },
+    )
+    .unwrap();
+    let supervisor = Arc::new(SupervisorState::new(paths).unwrap());
+    let store = StateStore::open(directory.path().join("agent-state"))
+        .await
+        .unwrap();
+    create_work(&store, &root, "work").await;
+    let service = Arc::new(AgentProductService::new(store.clone()));
+    let (remove_entered_tx, remove_entered_rx) = mpsc::channel();
+    let (remove_release_tx, remove_release_rx) = mpsc::channel();
+    let remove_release_rx = Arc::new(Mutex::new(remove_release_rx));
+    let hook_release = remove_release_rx.clone();
+    *supervisor.workspace_remove_hook.lock().unwrap() = Some(Arc::new(move || {
+        remove_entered_tx.send(()).unwrap();
+        hook_release.lock().unwrap().recv().unwrap();
+    }));
+    let (start_entered_tx, start_entered_rx) = mpsc::channel();
+    *supervisor.workspace_start_hook.lock().unwrap() = Some(Arc::new(move || {
+        start_entered_tx.send(()).unwrap();
+    }));
+    let remove_supervisor = supervisor.clone();
+    let remove_service = service.clone();
+    let remove =
+        std::thread::spawn(move || remove_workspace(&remove_supervisor, &remove_service, "W"));
+    tokio::task::spawn_blocking(move || remove_entered_rx.recv().unwrap())
+        .await
+        .unwrap();
+    let start_service = service.clone();
+    let start_supervisor = supervisor.clone();
+    let start = std::thread::spawn(move || {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async move {
+                start_service
+                    .agent_execute(start_work("work", "key"), start_supervisor.as_ref())
+                    .await
+            })
+    });
+    // Remove 持锁时 Resolver Start 无法越过，因而不会到达其 Start 同步点。
+    assert!(
+        start_entered_rx
+            .recv_timeout(Duration::from_millis(50))
+            .is_err()
+    );
+    remove_release_tx.send(()).unwrap();
+    assert_eq!(
+        tokio::task::spawn_blocking(move || remove.join().unwrap())
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        "W"
+    );
+    assert_eq!(
+        tokio::task::spawn_blocking(move || start.join().unwrap())
+            .await
+            .unwrap()
+            .unwrap_err()
+            .code,
+        "WORKSPACE_NOT_FOUND"
+    );
+    assert!(
+        store
+            .workspace_claim(root.to_string_lossy().into_owned())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let connection =
+        rusqlite::Connection::open(directory.path().join("agent-state").join("agent-state.db"))
+            .unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM executions", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
 }

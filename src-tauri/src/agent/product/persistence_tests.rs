@@ -109,6 +109,18 @@ fn actual_host_restart_converges_idle_orphan_and_cold_continuation() {
             .unwrap();
         let next = submit(&s, continuation(id, "after-restart"), dir.path()).await;
         assert_eq!(next.thread_id, original.thread_id);
+        let child = store
+            .execution(next.execution_id.clone())
+            .await
+            .unwrap()
+            .unwrap();
+        // Restart 后 Continue 仍只继承持久化父 Execution 的完整 Workspace snapshot。
+        assert_eq!(child.workspace_id, original.workspace_id);
+        assert_eq!(
+            child.canonical_workspace_root,
+            original.canonical_workspace_root
+        );
+        assert_eq!(child.workspace_generation, original.workspace_generation);
         assert_ne!(next.runtime_instance_id, original.runtime_instance_id);
         assert_eq!(
             counts(&evidence, next.runtime_instance_id.as_ref().unwrap()),
@@ -532,6 +544,7 @@ fn work_adapter_queries_are_passive_and_inactive_work_cancels_running_execution(
             .agent_execute(
                 AgentExecuteAction::Start {
                     work_run_id: "work".into(),
+                    workspace_id: "W".into(),
                     request_key: "key".into(),
                     prompt: "hello".into(),
                     delegation_context_json: None,

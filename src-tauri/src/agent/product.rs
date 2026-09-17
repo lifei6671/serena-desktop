@@ -302,6 +302,8 @@ impl ProductError {
             "WORK_ACCEPTANCE_REQUIRED",
             "EXECUTION_NOT_IN_WORK",
             "WORK_INVALID_ARGUMENT",
+            "WORKSPACE_CONTEXT_REQUIRED",
+            "INVALID_PARAMS",
             "CONTEXT_STALE",
             "WORKSPACE_CONTEXT_MISMATCH",
             "WORKSPACE_NOT_FOUND",
@@ -349,8 +351,12 @@ pub fn failure(message: String, execution_id: Option<String>) -> Value {
     let error = ProductError::new(message, execution_id);
     let control = Some(ControlReceipt::rejected(
         match error.code.as_str() {
-            "AGENT_INVALID_ARGUMENT" => Some(NextAction::CorrectInput),
-            "AGENT_NO_ACTIVE_WORKSPACE" => Some(NextAction::ActivateWorkspace),
+            "AGENT_INVALID_ARGUMENT" | "WORKSPACE_CONTEXT_REQUIRED" | "INVALID_PARAMS" => {
+                Some(NextAction::CorrectInput)
+            }
+            "AGENT_NO_ACTIVE_WORKSPACE" | "WORKSPACE_NOT_FOUND" => {
+                Some(NextAction::ActivateWorkspace)
+            }
             "AGENT_RUNTIME_QUARANTINED" => Some(NextAction::ManualResolution),
             _ => None,
         },
@@ -419,6 +425,12 @@ impl AgentProductService {
     pub(crate) async fn workspace_claim_exists(&self, root: String) -> Result<bool, String> {
         Ok(self.store.workspace_claim(root).await?.is_some())
     }
+
+    /// 仅供 Supervisor operation mutex 内的 Workspace Remove typed check 同步读取。
+    pub(crate) fn workspace_claim_exists_blocking(&self, root: &str) -> Result<bool, String> {
+        Ok(self.store.workspace_claim_blocking(root)?.is_some())
+    }
+
     pub async fn shutdown(&self) -> Result<(), String> {
         self.manager.runtime_pool.shutdown().await
     }
@@ -506,6 +518,33 @@ impl AgentProductService {
                 }
                 self.error_response(action, workspace, e).await
             }
+        }
+    }
+
+    /// Local Start 复用 Remote 的 Supervisor 线性化创建路径，禁止在兼容入口预先冻结快照。
+    pub(crate) async fn operation_resolved_workspace_start(
+        &self,
+        supervisor: &crate::serena::SupervisorState,
+        value: Value,
+    ) -> Value {
+        let action = match parse(value) {
+            Ok(action @ Action::Start { .. }) => action,
+            Ok(_) => return failure("AGENT_INVALID_ARGUMENT".into(), None),
+            Err(error) => return failure(error, None),
+        };
+        match self
+            .manager
+            .product_submit_resolved_workspace_start(supervisor, action.clone(), None)
+            .await
+        {
+            Ok(id) => match self.observe(id.clone(), false).await {
+                Ok(execution) => success(ProductData::Execution(Box::new(execution))),
+                Err(error) => {
+                    self.error_response(action, None, ProductError::accepted(error, id))
+                        .await
+                }
+            },
+            Err(error) => self.error_response(action, None, error).await,
         }
     }
     async fn perform(

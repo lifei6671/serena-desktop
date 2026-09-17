@@ -3,7 +3,7 @@
   "name": "p2a2-006-workspace-generation-persistence",
   "title": "P2A2-006 Execution Workspace Generation Persistence / Migration Compatibility",
   "description": "Validate frozen workspace_generation persistence, schema migration, and request-key compatibility without owning Workspace Authority routing.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

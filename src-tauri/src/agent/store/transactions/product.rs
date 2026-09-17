@@ -15,6 +15,108 @@ pub struct WorkspaceSnapshot {
     pub root: String,
     pub generation: u64,
 }
+
+/// Start 的持久化输入；同步管理协调与普通异步提交共用同一事务逻辑。
+struct FreshProductCreate {
+    id: String,
+    agent: String,
+    request_key: String,
+    prompt: String,
+    expected_workspace_id: String,
+    workspace: Option<WorkspaceSnapshot>,
+    work: Option<WorkExecutionContext>,
+    now: i64,
+}
+
+/// 在一个 SQLite 事务中创建 Execution、Workspace Claim 与可选 Work link。
+fn create_fresh_with_work(
+    tx: &Transaction<'_>,
+    creation: &FreshProductCreate,
+) -> Result<CreateOutcome, String> {
+    if creation
+        .work
+        .as_ref()
+        .is_some_and(|work| work.parent_execution_id.is_some())
+    {
+        return Err("WORK_INVALID_ARGUMENT".into());
+    }
+    if let Some(row) = key(tx, &creation.agent, &creation.request_key)? {
+        if row.workspace_id != creation.expected_workspace_id {
+            return Err("EXECUTION_REQUEST_KEY_CONFLICT".into());
+        }
+        let mut retry = input(
+            &row,
+            creation.request_key.clone(),
+            creation.prompt.clone(),
+            None,
+            None,
+        )?;
+        if let Some(workspace) = creation
+            .workspace
+            .as_ref()
+            .filter(|workspace| workspace.id == creation.expected_workspace_id)
+        {
+            retry.workspace_id = workspace.id.clone();
+            retry.canonical_workspace_root = workspace.root.clone();
+            retry.workspace_generation = workspace.generation;
+        }
+        let request = canonicalize_request(retry)?;
+        if let Some(work) = &creation.work {
+            require_retry_context(tx, &row.id, work)?;
+        }
+        return prior_outcome(row, &request);
+    }
+    if let Some(work) = &creation.work {
+        let root = creation
+            .workspace
+            .as_ref()
+            .filter(|workspace| workspace.id == creation.expected_workspace_id)
+            .map(|workspace| workspace.root.as_str());
+        let generation = creation
+            .workspace
+            .as_ref()
+            .filter(|workspace| workspace.id == creation.expected_workspace_id)
+            .map(|workspace| workspace.generation);
+        validate_new_work(tx, work, &creation.expected_workspace_id, root, generation)?;
+    }
+    let history: bool = tx
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM executions WHERE agent_id=?1)",
+            [&creation.agent],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if history {
+        return Err("AGENT_LINEAGE_CONFLICT".into());
+    }
+    let workspace = creation
+        .workspace
+        .as_ref()
+        .ok_or("AGENT_NO_ACTIVE_WORKSPACE")?;
+    if workspace.id != creation.expected_workspace_id {
+        return Err("AGENT_WORKSPACE_CHANGED".into());
+    }
+    let request = canonicalize_request(CreateExecutionInput {
+        agent_id: creation.agent.clone(),
+        request_key: creation.request_key.clone(),
+        prompt: creation.prompt.clone(),
+        execution_profile: json!({}),
+        workspace_id: workspace.id.clone(),
+        canonical_workspace_root: workspace.root.clone(),
+        workspace_generation: workspace.generation,
+        provider: Provider::Codex,
+        mode: ExecutionMode::WorkspaceWrite,
+        parent_execution_id: None,
+        thread_id: None,
+    })?;
+    create_with_work(
+        tx,
+        &creation.id,
+        &request,
+        creation.work.as_ref(),
+        creation.now,
+    )
+}
 #[derive(Debug)]
 pub struct ProductSnapshot {
     pub execution: ExecutionRecord,
@@ -42,6 +144,10 @@ pub fn continuation_core_eligible(row: &ExecutionRecord) -> bool {
     ) || row.release_evidence_state != "complete"
         || row.mode != "workspace_write"
         || row.execution_profile_json != "{}"
+        // Continue 只能继承父 Execution 已冻结的完整快照，绝不猜测当前 Workspace。
+        || row.workspace_id.trim().is_empty()
+        || row.canonical_workspace_root.trim().is_empty()
+        || row.workspace_generation == 0
     {
         return false;
     }
@@ -312,73 +418,44 @@ impl StateStore {
         work: Option<WorkExecutionContext>,
         now: i64,
     ) -> Result<CreateOutcome, String> {
-        self.write(move |tx| {
-            if work
-                .as_ref()
-                .is_some_and(|w| w.parent_execution_id.is_some())
-            {
-                return Err("WORK_INVALID_ARGUMENT".into());
-            }
-            if let Some(row) = key(tx, &agent, &request_key)? {
-                if row.workspace_id != expected_workspace_id {
-                    return Err("EXECUTION_REQUEST_KEY_CONFLICT".into());
-                }
-                let mut retry = input(&row, request_key, prompt, None, None)?;
-                if let Some(workspace) = workspace
-                    .as_ref()
-                    .filter(|workspace| workspace.id == expected_workspace_id)
-                {
-                    retry.workspace_id = workspace.id.clone();
-                    retry.canonical_workspace_root = workspace.root.clone();
-                    retry.workspace_generation = workspace.generation;
-                }
-                let request = canonicalize_request(retry)?;
-                if let Some(work) = &work {
-                    require_retry_context(tx, &row.id, work)?;
-                }
-                return prior_outcome(row, &request);
-            }
-            if let Some(work) = &work {
-                let root = workspace
-                    .as_ref()
-                    .filter(|w| w.id == expected_workspace_id)
-                    .map(|w| w.root.as_str());
-                let generation = workspace
-                    .as_ref()
-                    .filter(|w| w.id == expected_workspace_id)
-                    .map(|w| w.generation);
-                validate_new_work(tx, work, &expected_workspace_id, root, generation)?;
-            }
-            let history: bool = tx
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM executions WHERE agent_id=?1)",
-                    [&agent],
-                    |r| r.get(0),
-                )
-                .map_err(|e| e.to_string())?;
-            if history {
-                return Err("AGENT_LINEAGE_CONFLICT".into());
-            }
-            let w = workspace.ok_or("AGENT_NO_ACTIVE_WORKSPACE")?;
-            if w.id != expected_workspace_id {
-                return Err("AGENT_WORKSPACE_CHANGED".into());
-            }
-            let request = canonicalize_request(CreateExecutionInput {
-                agent_id: agent,
-                request_key,
-                prompt,
-                execution_profile: json!({}),
-                workspace_id: w.id,
-                canonical_workspace_root: w.root,
-                workspace_generation: w.generation,
-                provider: Provider::Codex,
-                mode: ExecutionMode::WorkspaceWrite,
-                parent_execution_id: None,
-                thread_id: None,
-            })?;
-            create_with_work(tx, &id, &request, work.as_ref(), now)
-        })
-        .await
+        let creation = FreshProductCreate {
+            id,
+            agent,
+            request_key,
+            prompt,
+            expected_workspace_id,
+            workspace,
+            work,
+            now,
+        };
+        self.write(move |tx| create_fresh_with_work(tx, &creation))
+            .await
+    }
+
+    /// 仅供 Supervisor operation mutex 持有期间的 Workspace Start 线性化调用。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn product_create_fresh_with_work_blocking(
+        &self,
+        id: String,
+        agent: String,
+        request_key: String,
+        prompt: String,
+        expected_workspace_id: String,
+        workspace: WorkspaceSnapshot,
+        work: Option<WorkExecutionContext>,
+        now: i64,
+    ) -> Result<CreateOutcome, String> {
+        let creation = FreshProductCreate {
+            id,
+            agent,
+            request_key,
+            prompt,
+            expected_workspace_id,
+            workspace: Some(workspace),
+            work,
+            now,
+        };
+        self.write_blocking(|tx| create_fresh_with_work(tx, &creation))
     }
     #[cfg(test)]
     pub(crate) async fn product_create_continuation(

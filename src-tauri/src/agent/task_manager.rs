@@ -23,6 +23,7 @@ use super::{
     },
     telemetry_projector::ExecutionTelemetryProjector,
 };
+use crate::serena::{SupervisorState, WorkspaceStartCreation};
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -339,6 +340,41 @@ impl AgentTaskManager {
         self.product_submit_with_work(action, workspace, None).await
     }
 
+    /// Resolver Start 将 Lease 解析与 Execution+Claim 提交放入 Supervisor operation mutex 后再交接 dispatch。
+    pub(crate) async fn product_submit_resolved_workspace_start(
+        &self,
+        supervisor: &SupervisorState,
+        action: super::product::Action,
+        work: Option<super::store::transactions::product::WorkExecutionContext>,
+    ) -> Result<String, super::product::ProductError> {
+        use super::product::Action;
+        if self.runtime_pool.stop.is_cancelled() {
+            return Err("AGENT_SHUTTING_DOWN".to_string().into());
+        }
+        let Action::Start {
+            workspace_id,
+            agent_id,
+            request_key,
+            prompt,
+        } = action
+        else {
+            return Err("AGENT_INVALID_ARGUMENT".to_string().into());
+        };
+        let outcome = supervisor.create_workspace_start(
+            &self.store,
+            WorkspaceStartCreation {
+                execution_id: Self::id("execution"),
+                agent_id,
+                request_key,
+                prompt,
+                workspace_id,
+                work,
+                now: super::coordinator::now(),
+            },
+        )?;
+        self.handoff_created_outcome(outcome, false).await
+    }
+
     pub(crate) async fn product_submit_with_work(
         &self,
         action: super::product::Action,
@@ -446,6 +482,20 @@ impl AgentTaskManager {
                 _ => return Err("AGENT_INVALID_ARGUMENT".to_string().into()),
             }
             .unwrap();
+            manager.handoff_created_outcome(outcome, continuation).await
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    /// 交接后的 dispatch 继续由 Host 拥有，调用方丢弃等待不会取消已创建的 Execution。
+    async fn handoff_created_outcome(
+        &self,
+        outcome: CreateOutcome,
+        continuation: bool,
+    ) -> Result<String, super::product::ProductError> {
+        let manager = self.clone();
+        tokio::spawn(async move {
             if outcome.created {
                 #[cfg(test)]
                 if let Some(hook) = &manager.test_handoff {
@@ -460,20 +510,20 @@ impl AgentTaskManager {
                         .await
                 });
                 rx.await
-                    .map_err(|e| {
+                    .map_err(|error| {
                         super::product::ProductError::accepted(
-                            e.to_string(),
+                            error.to_string(),
                             outcome.execution_id.clone(),
                         )
                     })?
-                    .map_err(|e| {
-                        super::product::ProductError::accepted(e, outcome.execution_id.clone())
+                    .map_err(|error| {
+                        super::product::ProductError::accepted(error, outcome.execution_id.clone())
                     })?;
             }
             Ok(outcome.execution_id)
         })
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|error| error.to_string())?
     }
     async fn dispatch_pending_execution(
         &self,

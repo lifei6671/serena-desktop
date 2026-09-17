@@ -1416,7 +1416,7 @@ pub trait WorkspaceCapabilityProvider: Send + Sync {
     fn stop(
         &self,
         runtime: CapabilityRuntimeHandle,
-    ) -> BoxFuture<'_, Result<StopEvidence, CapabilityProviderError>>;
+    ) -> CapabilityFuture<'_, Result<StopEvidence, CapabilityStopFailure>>;
 }
 ```
 
@@ -1440,7 +1440,7 @@ runtimePolicy = maxInstances / idleTimeout / perSlotConcurrency
 
 Source/Git Adapter 对 `prepare/start/stop` 使用无准备、无 Runtime 语义；只有声明准备动作的 Provider 才能写入自己的受管工件，只有 `workspace_scoped_process` Provider 创建 Runtime Slot。`WorkspaceCapabilityManager` 和 Workspace UI 只能按 Descriptor/trait 调用，不得出现 `if providerId == "serena"` 或 `if providerId == "codegraph"` 的核心分支。Provider-specific readiness、准备命令、启动参数、阶段状态和上游协议全部封装在 Adapter 内。
 
-`CapabilityRuntimeHandle` 是带 `providerId` 的 Manager-owned opaque handle，只能交回创建它的 Provider；普通 Tool call 在 in-flight guard 内借用 handle，只有安全 stop 才转移所有权。Manager 不 downcast 或解释内部 Client/Process/Protocol。Registry 启动时验证 Provider ID、Tool name、Runtime policy 和 compatibility error mapper 唯一且完整，失败则 fail-fast，不部分发布 Tool surface。
+`CapabilityRuntimeHandle` 是带 `providerId` 的 Manager-owned opaque handle，只能交回创建它的 Provider；普通 Tool call 在 in-flight guard 内借用 handle，只有安全 stop 才转移所有权。`stop` 成功时 Provider 完成安全停止并消费 handle；失败时必须通过非 wire 的 `CapabilityStopFailure { runtime, error }` 返还同一 handle 和安全 `CapabilityProviderError`，Manager/Slot 继续持有清理责任和容量。该 carrier 不 Serialize，不含 PID、port、root 或 raw error；Manager 不 downcast、重建或 Clone handle，也不解释内部 Client/Process/Protocol。Registry 启动时验证 Provider ID、Tool name、Runtime policy 和 compatibility error mapper 唯一且完整，失败则 fail-fast，不部分发布 Tool surface。
 
 外部 binary Provider 必须声明 Version Contract：`detectedVersion`、支持范围和 machine-readable contract probe。版本缺失或不兼容时只把该 Capability 标为 unavailable/error；Serena/CodeGraph 不参与 Agent Claim/Recovery Safety，因此 V0.2 不要求像 Codex 一样 pin binary hash。
 
@@ -1631,7 +1631,7 @@ Idle sweeper 只停止超过 timeout 且 `in_flight == 0` 的 Slot。驱逐/空�
 
 一个 Provider process 的启动失败、连接丢失、超时或退出只把对应 Slot 置为 `error`，并向该请求返回稳定 safe error；不得清空 Workspace、切换其他 Slot、使 Broker 退出或污染其他 Workspace Health。后续显式请求可以重新触发该 Slot 的启动，Manager 不做无界后台自动重试。
 
-Process 一旦创建即由 Slot 持有清理责任。进入稳定 `error` 前必须确认进程已经退出或仍由该 Slot 明确持有；stop 失败不得丢弃 handle、释放容量后启动替代进程或留下无人管理的 orphan。该 Slot 继续计入容量，直到清理证据成立。
+Process 一旦创建即由 Slot 持有清理责任。进入稳定 `error` 前必须确认进程已经退出或仍由该 Slot 明确持有；stop 失败必须通过 `CapabilityStopFailure` 返还原 handle，且不得丢弃 handle、释放容量后启动替代进程或留下无人管理的 orphan。该 Slot 继续计入容量，直到清理证据成立。
 
 Host shutdown 必须停止全部 live Slot 并复用现有受管进程清理语义。Idle eviction、Workspace Remove 与 Host shutdown 都必须对同一 Slot 的 stop 操作 single-flight，禁止重复 kill 或遗留 orphan process。
 

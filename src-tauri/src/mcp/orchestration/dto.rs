@@ -239,6 +239,7 @@ pub(super) enum AgentQuery {
 pub(super) enum AgentExecute {
     Start {
         work_run_id: String,
+        workspace_id: String,
         request_key: String,
         prompt: String,
         context: Option<Context>,
@@ -290,6 +291,12 @@ pub(super) enum Request {
     AgentExecute(AgentExecute),
 }
 pub(super) fn parse(name: &str, args: Value) -> Result<Request, String> {
+    // Start 的 Workspace 由请求显式授权；先保留缺失、空值和类型的稳定错误语义。
+    if name == "agent_execute"
+        && matches!(args.get("action").and_then(Value::as_str), Some("start"))
+    {
+        crate::mcp::registry::parse_workspace_id(&args)?;
+    }
     let result = match name {
         "work_query" => serde_json::from_value(args).map(Request::WorkQuery),
         "work_update" => serde_json::from_value(args).map(Request::WorkUpdate),

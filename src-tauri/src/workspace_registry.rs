@@ -153,6 +153,8 @@ impl<'a> WorkspaceRegistry<'a> {
         renamed.ok_or_else(|| "workspace rename made no entry".into())
     }
 
+    /// 保留 Registry-only 删除语义供兼容回归；生产 Remove 必须经 Supervisor typed coordination。
+    #[allow(dead_code)]
     pub(crate) fn remove(&self, id: &str) -> Result<Workspace, String> {
         let mut removed = None;
         self.mutate(|workspaces| {

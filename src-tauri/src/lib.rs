@@ -15,6 +15,7 @@ mod oauth;
 mod remote;
 mod serena;
 mod tray;
+mod workspace_capability;
 mod workspace_inspection;
 mod workspace_path;
 mod workspace_picker;
