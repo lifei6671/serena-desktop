@@ -83,8 +83,12 @@ async fn insert_lines_input(
     .map_err(snapshot_error)?;
     let newline_style = detect_newline_style(&snapshot.text);
     let normalized = normalize_newlines(&input.content, newline_style);
-    let (candidate, inserted_count) =
-        insert_normalized_lines(&snapshot.text, &normalized, input.before_line)?;
+    let (candidate, inserted_count) = insert_normalized_lines(
+        &snapshot.text,
+        &normalized,
+        input.before_line,
+        newline_style,
+    )?;
     validate_result_text_file_size(candidate.len()).map_err(source_error)?;
     let after_sha256 = candidate_sha256(candidate.as_bytes());
 
@@ -130,10 +134,11 @@ async fn insert_lines_input(
 }
 
 /// 在文本行边界插入已规范化正文，保留原文件的 bytes、final newline 与 mixed newline 内容。
-fn insert_normalized_lines(
+pub(crate) fn insert_normalized_lines(
     existing: &str,
     content: &str,
     before_line: u32,
+    newline_style: super::source_write_text::NewlineStyle,
 ) -> Result<(String, u32), String> {
     let existing_count = existing.lines().count();
     let maximum_before_line = existing_count
@@ -148,7 +153,7 @@ fn insert_normalized_lines(
         .filter(|count| *count > 0)
         .ok_or_else(|| source_error(SourceWriteError::InvalidArgument))?;
     let insertion_offset = line_start_offset(existing, before_line, maximum_before_line);
-    let newline = normalize_newlines("\n", detect_newline_style(existing));
+    let newline = normalize_newlines("\n", newline_style);
     let mut candidate = String::with_capacity(existing.len() + content.len() + newline.len() * 2);
     let prefix = &existing[..insertion_offset];
     let suffix = &existing[insertion_offset..];

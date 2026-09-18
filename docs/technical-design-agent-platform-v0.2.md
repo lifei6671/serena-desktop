@@ -2108,6 +2108,8 @@ delete_lines(3,5)
 
 `content=""` 合法，等价于删除目标 Range。
 
+`source_replace_lines(range, content)` 冻结为组合语义：先按 `delete_lines` 移除目标闭区间及其 trailing separator（如存在），再在原 `startLine` 按 `insert_lines` 的 separator ownership 插入 replacement。非空 replacement 必须使用修改前原始 snapshot 检测出的 newline style 规范化；不得在删除后重新检测。
+
 ---
 
 ## 13.8 create_text_file
@@ -2236,6 +2238,8 @@ LF
 ```
 
 插入/替换内容转换为该文件风格。
+
+对 `replace_lines`，range 到达 EOF 时不额外保留原 range 的 trailing separator：原文件即使有 final newline，replacement 没有 terminal newline 时结果可以没有 final newline；replacement 有 terminal newline 时按修改前 snapshot 的目标风格保留。range 后仍有未替换 suffix 时，insert 语义负责补齐恰好需要的分隔符，未替换区域 raw bytes 不重写。
 
 ---
 

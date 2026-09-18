@@ -1,58 +1,63 @@
-//! P2C-009 的本地按行删除 Source Write adapter；本模块绝不注册 Remote MCP Tool。
+//! P2C-010 仅实现本地 `source_replace_lines`；Remote registry 与 Broker dispatch 保持关闭。
 #![allow(
     dead_code,
-    reason = "P2C-009 implements the local handler before a later task explicitly advertises Remote Source Write."
+    reason = "P2C-010 implements the local handler before a later task explicitly advertises Remote Source Write."
 )]
 
 use super::{
     registry,
     source_write_atomic_replace::replace_existing_file,
     source_write_commit::{TargetCommitError, lock_existing_target},
+    source_write_delete::delete_closed_line_range,
     source_write_domain::{
         SourceLineRange, SourceWriteError, SourceWriteSuccess, VersionedSourceWriteTarget,
-        validate_result_text_file_size,
+        validate_inline_mutation_content, validate_result_text_file_size,
     },
+    source_write_insert::insert_normalized_lines,
     source_write_support::{
         ExistingTextSnapshotError, candidate_sha256, read_existing_text_snapshot,
         workspace_relative_path,
     },
+    source_write_text::{detect_newline_style, normalize_newlines},
 };
 use crate::{serena::SupervisorState, workspace_path::WorkspacePathResolver};
 use serde::Deserialize;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-/// `source_delete_lines` 的严格本地输入；relative_path 保持冻结 snake_case wire 名。
+/// `source_replace_lines` 的严格本地输入；relative_path 保持冻结 snake_case wire 名。
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct SourceDeleteLinesInput {
+pub(crate) struct SourceReplaceLinesInput {
     #[serde(flatten)]
     target: VersionedSourceWriteTarget,
     start_line: u32,
     end_line: u32,
+    content: String,
 }
 
-/// 在显式 Workspace Lease 中按 1-based inclusive closed range 删除既有 UTF-8 文本行。
-pub(crate) async fn delete_lines(
+/// 在显式 Workspace Lease 中按 1-based inclusive closed range 替换既有 UTF-8 文本行。
+pub(crate) async fn replace_lines(
     supervisor: &SupervisorState,
     arguments: Value,
     cancel: CancellationToken,
 ) -> Result<SourceWriteSuccess, String> {
     // Workspace taxonomy 先由既有 adapter 统一判定，serde 不得改变 missing/null 的稳定分类。
     let workspace_id = registry::parse_workspace_id(&arguments)?;
-    let input: SourceDeleteLinesInput =
+    let input: SourceReplaceLinesInput =
         serde_json::from_value(arguments).map_err(|error| format!("INVALID_PARAMS: {error}"))?;
     debug_assert_eq!(input.target.workspace_id, workspace_id);
-    delete_lines_input(supervisor, input, cancel).await
+    replace_lines_input(supervisor, input, cancel).await
 }
 
-/// schema 解析后的 handler；range 与 version 均在 Guard 和 filesystem access 前完成纯校验。
-async fn delete_lines_input(
+/// schema 解析后的 handler；所有纯输入校验在 Guard 与 filesystem access 前完成。
+async fn replace_lines_input(
     supervisor: &SupervisorState,
-    input: SourceDeleteLinesInput,
+    input: SourceReplaceLinesInput,
     cancel: CancellationToken,
 ) -> Result<SourceWriteSuccess, String> {
     input.target.validate().map_err(source_error)?;
+    validate_inline_mutation_content(&input.content).map_err(source_error)?;
     let changed_range = SourceLineRange {
         start_line: input.start_line,
         end_line: input.end_line,
@@ -69,7 +74,7 @@ async fn delete_lines_input(
         .resolve(&input.target.relative_path)
         .map_err(|_| source_error(SourceWriteError::PathOutsideWorkspace))?;
 
-    // pre-read 只产生与 expected version 匹配的 bounded snapshot；删除 candidate 直接从其原始 bytes 边界切出。
+    // pre-read 只产生与 expected version 匹配的 bounded snapshot；range 边界与目标 newline policy 均只从此 snapshot 取得。
     let snapshot = read_existing_text_snapshot(
         lease.clone(),
         input.target.relative_path.clone(),
@@ -78,7 +83,16 @@ async fn delete_lines_input(
     )
     .await
     .map_err(snapshot_error)?;
-    let candidate = delete_closed_line_range(&snapshot.text, changed_range)?;
+    let deleted = delete_closed_line_range(&snapshot.text, changed_range)?;
+    let candidate = if input.content.is_empty() {
+        // 空 replacement 的公开语义固定等价于同一 range 的 source_delete_lines。
+        deleted
+    } else {
+        let newline_style = detect_newline_style(&snapshot.text);
+        let normalized = normalize_newlines(&input.content, newline_style);
+        // 复用 insert 的 separator ownership：range 的 trailing separator 已由 delete 消耗，bridge 仅在两侧均有文本时插入。
+        insert_normalized_lines(&deleted, &normalized, input.start_line, newline_style)?.0
+    };
     validate_result_text_file_size(candidate.len()).map_err(source_error)?;
     let after_sha256 = candidate_sha256(candidate.as_bytes());
 
@@ -120,42 +134,6 @@ async fn delete_lines_input(
     Ok(success)
 }
 
-/// 删除闭区间内每行及其 trailing line separator，保留其余区域的原始 bytes、mixed newline 与末尾换行。
-pub(crate) fn delete_closed_line_range(
-    existing: &str,
-    range: SourceLineRange,
-) -> Result<String, String> {
-    range.validate().map_err(source_error)?;
-    let line_count = u32::try_from(existing.lines().count())
-        .map_err(|_| source_error(SourceWriteError::RangeInvalid))?;
-    if range.end_line > line_count {
-        return Err(source_error(SourceWriteError::RangeInvalid));
-    }
-    // endLine < N 时，下一个行首就是最后一个删除行 trailing separator 之后的 raw byte boundary。
-    let delete_start = line_start_offset(existing, range.start_line);
-    let delete_end = if range.end_line == line_count {
-        existing.len()
-    } else {
-        line_start_offset(existing, range.end_line + 1)
-    };
-    let mut candidate = String::with_capacity(existing.len() - (delete_end - delete_start));
-    candidate.push_str(&existing[..delete_start]);
-    candidate.push_str(&existing[delete_end..]);
-    Ok(candidate)
-}
-
-/// 返回既有 1-based 行号的 UTF-8 byte offset；调用方已验证行号位于 `1..=N`。
-fn line_start_offset(existing: &str, line: u32) -> usize {
-    if line == 1 {
-        return 0;
-    }
-    existing
-        .match_indices('\n')
-        .nth((line - 2) as usize)
-        .map(|(offset, _)| offset + 1)
-        .expect("validated line must name an existing line")
-}
-
 /// 保持 P2C-001 Source Write taxonomy，snapshot 内不泄露 filesystem 错误文字。
 fn snapshot_error(error: ExistingTextSnapshotError) -> String {
     match error {
@@ -183,6 +161,7 @@ mod tests {
         mcp::{
             Broker,
             source_write_commit::{LockedTargetCommit, lock_existing_target},
+            source_write_delete::delete_lines,
             source_write_support::{candidate_sha256, set_snapshot_ready_hook_for_test},
         },
         serena::SupervisorState,
@@ -193,9 +172,16 @@ mod tests {
     use std::{
         fs,
         path::PathBuf,
-        sync::{Arc, mpsc},
+        sync::{Arc, Mutex, MutexGuard, OnceLock, mpsc},
         time::Duration,
     };
+
+    static TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
+
+    /// 获取 P2C-010 handler 测试的唯一 hook ownership，释放后才允许下一条测试安装 hook。
+    fn test_guard() -> MutexGuard<'static, ()> {
+        TEST_SERIAL.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     /// 构造注册但未选择的 Workspace，证明 handler 只使用显式 workspaceId。
     fn fixture() -> (tempfile::TempDir, Arc<SupervisorState>, Workspace, PathBuf) {
@@ -238,15 +224,16 @@ mod tests {
     }
 
     /// 以冻结 local DTO 调用 handler；测试不经由 Remote registry 或 Broker dispatch 进入 write 路径。
-    async fn delete(
+    async fn replace(
         supervisor: &SupervisorState,
         relative_path: &str,
         expected_sha256: String,
         start_line: u32,
         end_line: u32,
+        content: &str,
         cancel: CancellationToken,
     ) -> Result<SourceWriteSuccess, String> {
-        delete_lines(
+        replace_lines(
             supervisor,
             json!({
                 "workspaceId":"workspace",
@@ -254,6 +241,7 @@ mod tests {
                 "expectedSha256":expected_sha256,
                 "startLine":start_line,
                 "endLine":end_line,
+                "content":content,
             }),
             cancel,
         )
@@ -281,41 +269,52 @@ mod tests {
         .unwrap()
     }
 
-    /// 删除中间闭区间、首行、尾行与单行均保留正确 bytes 和成功 provenance。
+    /// 首段、中段、末段、单行与多行 replacement 都保留 range provenance 与冻结 final-newline 归属。
     #[tokio::test]
-    async fn deletes_closed_ranges_with_provenance() {
+    async fn replaces_closed_ranges_with_provenance() {
         let (_directory, supervisor, _workspace, root) = fixture();
-        for (path, existing, start_line, end_line, expected_bytes) in [
-            (
-                "middle.txt",
-                b"one\ntwo\nthree\nfour\nfive\nsix\n".as_slice(),
-                3,
-                5,
-                b"one\ntwo\nsix\n".as_slice(),
-            ),
+        for (path, existing, start_line, end_line, content, expected_bytes) in [
             (
                 "first.txt",
                 b"one\ntwo\n".as_slice(),
                 1,
                 1,
-                b"two\n".as_slice(),
+                "first",
+                b"first\ntwo\n".as_slice(),
+            ),
+            (
+                "middle.txt",
+                b"one\ntwo\nthree\nfour\n".as_slice(),
+                2,
+                3,
+                "two\nand three",
+                b"one\ntwo\nand three\nfour\n".as_slice(),
             ),
             (
                 "last.txt",
                 b"one\ntwo\n".as_slice(),
                 2,
                 2,
-                b"one\n".as_slice(),
+                "last",
+                b"one\nlast".as_slice(),
             ),
-            ("single.txt", b"only".as_slice(), 1, 1, b"".as_slice()),
+            (
+                "single.txt",
+                b"only".as_slice(),
+                1,
+                1,
+                "next",
+                b"next".as_slice(),
+            ),
         ] {
             fs::write(root.join(path), existing).unwrap();
-            let result = delete(
+            let result = replace(
                 supervisor.as_ref(),
                 path,
                 expected(existing),
                 start_line,
                 end_line,
+                content,
                 CancellationToken::new(),
             )
             .await
@@ -330,70 +329,116 @@ mod tests {
                 result.changed_range,
                 Some(SourceLineRange {
                     start_line,
-                    end_line,
+                    end_line
                 })
             );
             assert_eq!(result.changed_count, Some(end_line - start_line + 1));
         }
     }
 
-    /// `delete_lines(1, N)` 产生精确空文件，而不是删除 target path 本身。
+    /// EOF 替换严格采用 delete 加 insert 的 final-newline ownership，不隐式保留原 range 的末尾分隔符。
     #[tokio::test]
-    async fn deletes_all_lines_to_an_existing_empty_file() {
+    async fn eof_final_newline_ownership_is_compositional() {
         let (_directory, supervisor, _workspace, root) = fixture();
-        let target = root.join("all.txt");
-        let existing = b"one\r\ntwo\nthree";
-        fs::write(&target, existing).unwrap();
+        for (path, existing, content, expected_bytes) in [
+            (
+                "original-final-replacement-plain.txt",
+                b"one\ntwo\n".as_slice(),
+                "last",
+                b"one\nlast".as_slice(),
+            ),
+            (
+                "original-final-replacement-terminal.txt",
+                b"one\ntwo\n".as_slice(),
+                "last\n",
+                b"one\nlast\n".as_slice(),
+            ),
+            (
+                "original-plain-replacement-plain.txt",
+                b"one\ntwo".as_slice(),
+                "last",
+                b"one\nlast".as_slice(),
+            ),
+            (
+                "original-plain-replacement-terminal.txt",
+                b"one\ntwo".as_slice(),
+                "last\n",
+                b"one\nlast\n".as_slice(),
+            ),
+        ] {
+            fs::write(root.join(path), existing).unwrap();
+            replace(
+                supervisor.as_ref(),
+                path,
+                expected(existing),
+                2,
+                2,
+                content,
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(fs::read(root.join(path)).unwrap(), expected_bytes);
+        }
+    }
 
-        delete(
+    /// 空 replacement 必须与同一 range 的 source_delete_lines 产生逐字节一致的结果。
+    #[tokio::test]
+    async fn empty_replacement_is_byte_equivalent_to_delete_lines() {
+        let (_directory, supervisor, _workspace, root) = fixture();
+        let existing = b"one\r\ntwo\nthree\r\nfour";
+        fs::write(root.join("replace.txt"), existing).unwrap();
+        fs::write(root.join("delete.txt"), existing).unwrap();
+        replace(
             supervisor.as_ref(),
-            "all.txt",
+            "replace.txt",
             expected(existing),
-            1,
+            2,
             3,
+            "",
             CancellationToken::new(),
         )
         .await
         .unwrap();
-
-        assert!(target.is_file());
-        assert_eq!(fs::read(target).unwrap(), b"");
+        delete_lines(supervisor.as_ref(), json!({"workspaceId":"workspace", "relative_path":"delete.txt", "expectedSha256":expected(existing), "startLine":2, "endLine":3}), CancellationToken::new()).await.unwrap();
+        assert_eq!(
+            fs::read(root.join("replace.txt")).unwrap(),
+            fs::read(root.join("delete.txt")).unwrap()
+        );
     }
 
-    /// LF、CRLF 与 mixed newline 仅移除目标行的 raw bytes 与其分隔符，未删除区域不得被重写。
+    /// LF、CRLF 与 mixed target 均只规范化 replacement；未替换区域 raw bytes 与 target policy 保持不变。
     #[tokio::test]
-    async fn preserves_lf_crlf_and_mixed_newline_bytes() {
+    async fn normalizes_replacement_without_rewriting_untouched_bytes() {
         let (_directory, supervisor, _workspace, root) = fixture();
-        for (path, existing, start_line, end_line, expected_bytes) in [
+        for (path, existing, content, expected_bytes) in [
             (
                 "lf.txt",
                 b"one\ntwo\nthree\n".as_slice(),
-                2,
-                2,
-                b"one\nthree\n".as_slice(),
+                "a\r\nb",
+                b"one\na\nb\nthree\n".as_slice(),
             ),
             (
                 "crlf.txt",
                 b"one\r\ntwo\r\nthree\r\n".as_slice(),
-                2,
-                2,
-                b"one\r\nthree\r\n".as_slice(),
+                "a\nb",
+                b"one\r\na\r\nb\r\nthree\r\n".as_slice(),
             ),
             (
                 "mixed.txt",
                 b"one\r\ntwo\nthree\r\nfour".as_slice(),
-                2,
-                3,
-                b"one\r\nfour".as_slice(),
+                "a\nb",
+                b"one\r\na\r\nb\r\nthree\r\nfour".as_slice(),
             ),
         ] {
             fs::write(root.join(path), existing).unwrap();
-            delete(
+            replace(
                 supervisor.as_ref(),
                 path,
                 expected(existing),
-                start_line,
-                end_line,
+                2,
+                2,
+                content,
                 CancellationToken::new(),
             )
             .await
@@ -408,94 +453,122 @@ mod tests {
         let (_directory, supervisor, _workspace, root) = fixture();
         for (start_line, end_line) in [(0, 1), (1, 0), (2, 1)] {
             assert_eq!(
-                delete(
+                replace(
                     supervisor.as_ref(),
                     "missing.txt",
                     expected(b"irrelevant"),
                     start_line,
                     end_line,
-                    CancellationToken::new(),
+                    "x",
+                    CancellationToken::new()
                 )
                 .await,
                 Err("SOURCE_RANGE_INVALID".into())
             );
         }
         assert!(!root.join("missing.txt").exists());
-        let target = root.join("lines.txt");
         let existing = b"one\ntwo";
-        fs::write(&target, existing).unwrap();
+        fs::write(root.join("lines.txt"), existing).unwrap();
         assert_eq!(
-            delete(
+            replace(
                 supervisor.as_ref(),
                 "lines.txt",
                 expected(existing),
                 1,
                 3,
-                CancellationToken::new(),
+                "x",
+                CancellationToken::new()
             )
             .await,
             Err("SOURCE_RANGE_INVALID".into())
         );
-        assert_eq!(fs::read(target).unwrap(), existing);
+        assert_eq!(fs::read(root.join("lines.txt")).unwrap(), existing);
     }
 
-    /// stale SHA、NUL/非 UTF-8 target 与 8 MiB target limit 均不得进入 replace。
+    /// stale SHA、NUL、inline input、target 与 result hard limit 均不得进入 replace。
     #[tokio::test]
-    async fn rejects_stale_binary_and_oversized_targets_without_commit() {
+    async fn rejects_stale_nul_and_all_size_limits_without_commit() {
         let (_directory, supervisor, _workspace, root) = fixture();
-        let stale = root.join("stale.txt");
-        fs::write(&stale, b"current\n").unwrap();
+        fs::write(root.join("stale.txt"), b"current\n").unwrap();
         assert_eq!(
-            delete(
+            replace(
                 supervisor.as_ref(),
                 "stale.txt",
                 expected(b"old\n"),
                 1,
                 1,
-                CancellationToken::new(),
+                "new",
+                CancellationToken::new()
             )
             .await,
             Err("SOURCE_VERSION_CONFLICT".into())
         );
-        assert_eq!(fs::read(&stale).unwrap(), b"current\n");
-        for (path, bytes) in [
-            ("nul.txt", b"one\0two\n".as_slice()),
-            ("invalid-utf8.txt", b"one\xfftwo\n".as_slice()),
-        ] {
-            fs::write(root.join(path), bytes).unwrap();
-            assert_eq!(
-                delete(
-                    supervisor.as_ref(),
-                    path,
-                    expected(bytes),
-                    1,
-                    1,
-                    CancellationToken::new(),
-                )
-                .await,
-                Err("SOURCE_BINARY_REJECTED".into())
-            );
-            assert_eq!(fs::read(root.join(path)).unwrap(), bytes);
-        }
+        assert_eq!(
+            replace(
+                supervisor.as_ref(),
+                "missing.txt",
+                expected(b"unused"),
+                1,
+                1,
+                "bad\0content",
+                CancellationToken::new()
+            )
+            .await,
+            Err("SOURCE_BINARY_REJECTED".into())
+        );
+        assert_eq!(
+            replace(
+                supervisor.as_ref(),
+                "missing.txt",
+                expected(b"unused"),
+                1,
+                1,
+                &"x".repeat(1024 * 1024 + 1),
+                CancellationToken::new()
+            )
+            .await,
+            Err("SOURCE_INPUT_LIMIT_EXCEEDED".into())
+        );
         let oversized = vec![b'x'; 8 * 1024 * 1024 + 1];
         fs::write(root.join("oversized.txt"), &oversized).unwrap();
         assert_eq!(
-            delete(
+            replace(
                 supervisor.as_ref(),
                 "oversized.txt",
                 expected(&oversized),
                 1,
                 1,
-                CancellationToken::new(),
+                "new",
+                CancellationToken::new()
             )
             .await,
             Err("SOURCE_FILE_TOO_LARGE".into())
+        );
+        let result_source = format!("a\n{}", "x".repeat(8 * 1024 * 1024 - 2));
+        fs::write(root.join("result.txt"), &result_source).unwrap();
+        assert_eq!(
+            replace(
+                supervisor.as_ref(),
+                "result.txt",
+                expected(result_source.as_bytes()),
+                1,
+                1,
+                &"y".repeat(1024 * 1024),
+                CancellationToken::new()
+            )
+            .await,
+            Err("SOURCE_FILE_TOO_LARGE".into())
+        );
+        assert_eq!(
+            fs::read(root.join("result.txt")).unwrap(),
+            result_source.as_bytes()
         );
     }
 
     /// pre-read 后的 external edit 必须由 P2C-003 locked revalidation 拒绝，不能覆盖外部 bytes。
     #[tokio::test]
     async fn external_edit_after_preread_is_not_overwritten() {
+        let _guard = test_guard();
         let (_directory, supervisor, workspace, root) = fixture();
         let target = root.join("race.txt");
         fs::write(&target, b"one\ntwo\n").unwrap();
@@ -505,12 +578,13 @@ mod tests {
         set_snapshot_ready_hook_for_test(Arc::new(move || ready_tx.send(()).unwrap()));
         let task_supervisor = Arc::clone(&supervisor);
         let task = tokio::spawn(async move {
-            delete(
+            replace(
                 task_supervisor.as_ref(),
                 "race.txt",
                 expected(b"one\ntwo\n"),
                 1,
                 1,
+                "candidate",
                 CancellationToken::new(),
             )
             .await
@@ -528,6 +602,7 @@ mod tests {
     /// pre-read 后的 Workspace generation 漂移必须在 commit lock 内 fail closed，原文件保持不变。
     #[tokio::test]
     async fn workspace_authority_drift_after_preread_does_not_commit() {
+        let _guard = test_guard();
         let (_directory, supervisor, workspace, root) = fixture();
         let target = root.join("drift.txt");
         let existing = b"one\ntwo\n";
@@ -538,16 +613,17 @@ mod tests {
         set_snapshot_ready_hook_for_test(Arc::new(move || {
             changed_supervisor
                 .replace_workspaces(vec![changed_workspace.clone()])
-                .unwrap();
+                .unwrap()
         }));
         assert_eq!(
-            delete(
+            replace(
                 supervisor.as_ref(),
                 "drift.txt",
                 expected(existing),
                 1,
                 1,
-                CancellationToken::new(),
+                "candidate",
+                CancellationToken::new()
             )
             .await,
             Err("WORKSPACE_CHANGED".into())
@@ -565,25 +641,27 @@ mod tests {
         let pre_cancel = CancellationToken::new();
         pre_cancel.cancel();
         assert_eq!(
-            delete(
+            replace(
                 supervisor.as_ref(),
                 "held.txt",
                 expected(existing),
                 1,
                 1,
-                pre_cancel,
+                "new",
+                pre_cancel
             )
             .await,
             Err("CANCELLED".into())
         );
         let holder = existing_lock(supervisor.as_ref(), &workspace, "held.txt", existing).await;
         let cancel = CancellationToken::new();
-        let waiting = delete(
+        let waiting = replace(
             supervisor.as_ref(),
             "held.txt",
             expected(existing),
             1,
             1,
+            "new",
             cancel.clone(),
         );
         tokio::pin!(waiting);
@@ -594,7 +672,7 @@ mod tests {
         assert_eq!(fs::read(target).unwrap(), existing);
     }
 
-    /// Windows 真实 junction 不能成为 delete target，shared resolver 必须在 snapshot 前拒绝。
+    /// Windows 真实 junction 不能成为 replace target，shared resolver 必须在 snapshot 前拒绝。
     #[cfg(windows)]
     #[tokio::test]
     async fn rejects_actual_windows_junction_escape() {
@@ -610,13 +688,14 @@ mod tests {
             .unwrap();
         assert!(status.success());
         assert_eq!(
-            delete(
+            replace(
                 supervisor.as_ref(),
                 "escape/target.txt",
                 expected(b"outside\n"),
                 1,
                 1,
-                CancellationToken::new(),
+                "inside",
+                CancellationToken::new()
             )
             .await,
             Err("SOURCE_PATH_OUTSIDE_WORKSPACE".into())
@@ -626,25 +705,24 @@ mod tests {
 
     /// strict DTO 与 Remote registry/dispatch 均不能把本地 handler 暴露成 MCP Tool。
     #[tokio::test]
-    async fn local_dto_is_strict_and_remote_does_not_advertise_or_dispatch_delete() {
+    async fn local_dto_is_strict_and_remote_does_not_advertise_or_dispatch_replace() {
         let (_directory, supervisor, _workspace, root) = fixture();
         for arguments in [
-            json!({"workspaceId":"workspace", "relativePath":"never.txt", "expectedSha256":"a".repeat(64), "startLine":1, "endLine":1}),
-            json!({"workspaceId":"workspace", "relative_path":"never.txt", "expectedSha256":"a".repeat(64), "startLine":1, "endLine":1, "root":"forbidden"}),
+            json!({"workspaceId":"workspace", "relativePath":"never.txt", "expectedSha256":"a".repeat(64), "startLine":1, "endLine":1, "content":"x"}),
+            json!({"workspaceId":"workspace", "relative_path":"never.txt", "expectedSha256":"a".repeat(64), "startLine":1, "endLine":1, "content":"x", "root":"forbidden"}),
         ] {
-            assert!(matches!(
-                delete_lines(supervisor.as_ref(), arguments, CancellationToken::new()).await,
-                Err(error) if error.starts_with("INVALID_PARAMS:")
-            ));
+            assert!(
+                matches!(replace_lines(supervisor.as_ref(), arguments, CancellationToken::new()).await, Err(error) if error.starts_with("INVALID_PARAMS:"))
+            );
         }
         assert!(
             !registry::list(false)
                 .iter()
-                .any(|tool| tool.name == "source_delete_lines")
+                .any(|tool| tool.name == "source_replace_lines")
         );
         assert_eq!(
             Broker::new(Arc::clone(&supervisor))
-                .dispatch("source_delete_lines", json!({}), CancellationToken::new())
+                .dispatch("source_replace_lines", json!({}), CancellationToken::new())
                 .await,
             Err("UNKNOWN_TOOL".into())
         );

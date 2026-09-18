@@ -1663,11 +1663,11 @@ Blocked by: None
 Allowed scope: replace-lines handler/tests。  
 Forbidden scope: content match 模式。  
 Contract references: §13.7；§13.11～§13.15  
-Implementation requirements: empty content=删除 range；OCC/atomic replace。  
+Implementation requirements: 先按 `delete_lines` 移除闭区间及其 trailing separator，再在原 `startLine` 按 `insert_lines` separator ownership 插入；非空 replacement 使用修改前 snapshot newline style 规范化，empty content=同 range 删除；OCC/atomic replace。range 到 EOF 时不隐式保留原 final newline。
 Non-goals: formatter。  
-Tests required: first/middle/end/empty/invalid/stale。  
+Tests required: first/middle/end/empty/invalid/stale；empty 与 delete byte-equivalent；LF/CRLF/mixed；EOF 四组（原文件有/无 final newline × replacement 有/无 terminal newline）。
 Evidence required: focused tests。  
-Acceptance criteria: 只修改指定闭区间。  
+Acceptance criteria: 只修改指定闭区间；EOF 结果严格遵循 delete+insert 组合，不隐式保留 final newline。
 Rollback / failure behavior: 失败不提交。  
 Risk: medium  
 Estimated blast radius: small  

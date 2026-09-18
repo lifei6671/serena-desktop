@@ -19,6 +19,7 @@ mod source_write_delete;
 mod source_write_domain;
 mod source_write_file;
 mod source_write_insert;
+mod source_write_replace;
 mod source_write_support;
 pub(crate) mod source_write_text;
 use crate::{
