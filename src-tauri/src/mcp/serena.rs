@@ -107,13 +107,7 @@ impl Client {
             .call("activate_project", json!({"project":display(root)}))
             .await?;
         // v1.7.0 activation header contains the actual root, unlike get_current_config (name only).
-        let expected = format!(" at {} is activated.", display(root));
-        let first = result.lines().next().unwrap_or_default().replace('\\', "/");
-        let known = first.starts_with("The project with name '")
-            && first.ends_with(&expected.replace('\\', "/"));
-        let created = first.starts_with("Created and activated a new project with name '")
-            && first.ends_with(&format!(" at {}.", display(root)).replace('\\', "/"));
-        if !known && !created {
+        if !activation_header_matches_root(result.lines().next().unwrap_or_default(), root) {
             return Err(format!(
                 "BACKEND_INCOMPATIBLE: 无法验证 Serena 激活 root: {result}"
             ));
@@ -125,7 +119,120 @@ impl Client {
         self.service.is_closed()
     }
 }
+
+/// 将 Windows verbatim 路径和普通路径统一为 Serena 回执可比较的形式。
+fn normalized_root(path: &str) -> String {
+    let path = path.replace('\\', "/");
+    path.strip_prefix("//?/").unwrap_or(&path).to_owned()
+}
+
+/// 按目标平台的文件系统语义比较已统一格式的 Root；Windows 仅放宽 ASCII 大小写。
+fn normalized_roots_match(actual: &str, expected: &str, windows_semantics: bool) -> bool {
+    if windows_semantics {
+        actual.eq_ignore_ascii_case(expected)
+    } else {
+        actual == expected
+    }
+}
+
+/// 仅接受 Serena 两种完整成功回执，并逐字比较其中的实际 root。
+fn activation_header_matches_root(header: &str, root: &Path) -> bool {
+    const EXISTING_PREFIX: &str = "The project with name '";
+    const EXISTING_SUFFIX: &str = " is activated.";
+    const CREATED_PREFIX: &str = "Created and activated a new project with name '";
+    const CREATED_SUFFIX: &str = ".";
+
+    let actual_root = [
+        (EXISTING_PREFIX, EXISTING_SUFFIX),
+        (CREATED_PREFIX, CREATED_SUFFIX),
+    ]
+    .into_iter()
+    .find_map(|(prefix, suffix)| {
+        header
+            .strip_prefix(prefix)?
+            .strip_suffix(suffix)?
+            .rsplit_once("' at ")
+            .map(|(_, path)| path)
+    });
+    actual_root.is_some_and(|actual| {
+        normalized_roots_match(
+            &normalized_root(actual),
+            &normalized_root(&display(root)),
+            cfg!(windows),
+        )
+    })
+}
+
 pub fn display(path: &Path) -> String {
     let s = path.to_string_lossy();
     s.strip_prefix("\\\\?\\").unwrap_or(&s).to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn activation_header_accepts_normal_windows_root() {
+        let root = Path::new(r"C:\workspace\project");
+        assert!(activation_header_matches_root(
+            "The project with name 'project' at C:/workspace/project is activated.",
+            root
+        ));
+    }
+
+    #[test]
+    fn activation_header_normalizes_verbatim_actual_and_expected_roots() {
+        let root = Path::new(r"\\?\C:\workspace\project");
+        assert!(activation_header_matches_root(
+            r"The project with name 'project' at \\?\C:\workspace\project is activated.",
+            root
+        ));
+    }
+
+    #[test]
+    fn activation_header_normalizes_slash_verbatim_root_in_header_middle() {
+        let root = Path::new(r"C:\workspace\project");
+        assert!(activation_header_matches_root(
+            "The project with name 'project' at //?/C:/workspace/project is activated.",
+            root
+        ));
+    }
+
+    #[test]
+    fn windows_root_identity_ignores_case_after_verbatim_and_slash_normalization() {
+        assert!(normalized_roots_match(
+            &normalized_root("c:/workspace/project"),
+            &normalized_root(r"\\?\C:\Workspace\Project"),
+            true,
+        ));
+        assert!(!normalized_roots_match(
+            &normalized_root("c:/workspace/other"),
+            &normalized_root(r"C:\Workspace\Project"),
+            true,
+        ));
+        assert!(!normalized_roots_match(
+            &normalized_root("c:/workspace/project"),
+            &normalized_root(r"C:\Workspace\Project"),
+            false,
+        ));
+    }
+
+    #[test]
+    fn activation_header_accepts_created_project() {
+        let root = Path::new(r"C:\workspace\project");
+        assert!(activation_header_matches_root(
+            "Created and activated a new project with name 'project' at C:/workspace/project.",
+            root
+        ));
+    }
+
+    #[test]
+    fn activation_header_rejects_different_root() {
+        let root = Path::new(r"C:\workspace\project");
+        assert!(!activation_header_matches_root(
+            "The project with name 'project' at C:/workspace/other is activated.",
+            root
+        ));
+    }
 }

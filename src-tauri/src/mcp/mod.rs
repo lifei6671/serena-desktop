@@ -11,6 +11,9 @@ mod source_read;
 use crate::{
     config::{ManagerConfig, Workspace},
     serena::{ServerStatus, SupervisorState},
+    workspace_capability::{
+        WorkspaceCapabilityError, WorkspaceCapabilityErrorCode, WorkspaceToolCall,
+    },
     workspace_registry::{WORKSPACE_NOT_FOUND, WorkspaceRegistry},
 };
 use serde::Serialize;
@@ -417,92 +420,71 @@ impl Broker {
             }
             return Ok(response);
         }
-        let slot = self.workspace.read().await;
-        if cancel.is_cancelled() {
-            return Err("CANCELLED".into());
-        }
-        let active = slot.as_ref().ok_or("NO_ACTIVE_WORKSPACE")?;
-        let s = self.supervisor.snapshot();
-        if s.server_status != ServerStatus::Running
-            || s.process_id != Some(active.pid)
-            || active.client.closed()
-        {
-            drop(slot);
-            let mut current = self.workspace.write().await;
-            let now = self.supervisor.snapshot();
-            if current.as_ref().is_some_and(|a| {
-                now.server_status != ServerStatus::Running
-                    || now.process_id != Some(a.pid)
-                    || a.client.closed()
-            }) {
-                self.clear_workspace(&mut current);
+        if registry::is_workspace_scoped_source(name) {
+            // 全部 Source Authority 只来自本次请求解析出的 Lease，绝不读取 legacy active Workspace。
+            let lease = registry::resolve_workspace_lease(&self.supervisor, &args)?;
+            if cancel.is_cancelled() {
+                return Err("CANCELLED".into());
             }
-            return Err("NO_ACTIVE_WORKSPACE".into());
-        }
-        let (text, truncated) = {
-            let a: registry::SourceArgs =
-                serde_json::from_value(args.clone()).map_err(|e| e.to_string())?;
-            let limit = a.max_bytes.unwrap_or(if name == "source_read_file" {
-                32768
-            } else {
-                65536
-            });
-            let max = if name == "source_read_file" {
-                131072
-            } else {
-                262144
-            };
-            if limit == 0 || limit > max {
-                return Err("INVALID_PARAMS: max_bytes 超出范围".into());
-            }
-            let rel = a.relative_path.as_deref().unwrap_or("");
-            if name != "source_read_file" {
-                let checked = process::safe_relative(&active.workspace.root, rel)?;
-                let checked = if name == "source_find_references" {
-                    active.workspace.root.clone()
-                } else {
-                    checked
+            let mut arguments = args
+                .as_object()
+                .expect("registry validation verified Semantic arguments as an object")
+                .clone();
+            arguments.remove("workspaceId");
+            let arguments = Value::Object(arguments);
+            if registry::COMPATIBILITY_SOURCES.contains(&name) {
+                let source_args: registry::SourceArgs = serde_json::from_value(arguments.clone())
+                    .expect("registry validation verified compatibility Source arguments");
+                let limit = compatibility_source_limit(name, &source_args)?;
+                if name == "source_read_file" {
+                    let manager = self.supervisor.workspace_capability_manager();
+                    let call_lease = lease.clone();
+                    let tool_name = name.to_owned();
+                    return source_read::read(
+                        &lease,
+                        arguments,
+                        limit,
+                        cancel,
+                        move |arguments| async move {
+                            call_workspace_source(manager, call_lease, tool_name, arguments).await
+                        },
+                    )
+                    .await;
+                }
+                validate_compatibility_source_path(&lease, &source_args, cancel.clone()).await?;
+                // 取消时 drop Manager.call future，让既有 in-flight guard 的 RAII 立即归还 Slot。
+                let text = tokio::select! {
+                    result = call_workspace_source(
+                        self.supervisor.workspace_capability_manager(),
+                        lease.clone(),
+                        name.to_owned(),
+                        arguments,
+                    ) => result?,
+                    _ = cancel.cancelled() => return Err("CANCELLED".into()),
                 };
-                let tree_root = active.workspace.root.clone();
-                tokio::task::spawn_blocking(move || process::check_subtree(&tree_root, &checked))
-                    .await
-                    .map_err(|e| e.to_string())??;
+                if text.len() > limit {
+                    return Err("OUTPUT_LIMIT_EXCEEDED: 缩小路径、行范围或匹配条件".into());
+                }
+                return Ok(json!({
+                    "workspace":{"id":lease.workspace_id,"generation":lease.generation},
+                    "text":text,
+                    "truncated":false
+                }));
             }
-            let mut remote = args.as_object().unwrap().clone();
-            remote.remove("max_bytes");
-            remote.retain(|_, v| !v.is_null());
-            remote.insert("relative_path".into(), json!(rel));
-            let remote_name = registry::SOURCES.iter().find(|t| t.0 == name).unwrap().1;
-            if name != "source_find_file" {
-                remote.insert("max_answer_chars".into(), json!(limit));
-            }
-            if name == "source_list_dir" {
-                remote.entry("recursive").or_insert(json!(false));
-            }
-            if name == "source_read_file" {
-                return source_read::read(
-                    &active.workspace,
-                    &active.client,
-                    Value::Object(remote),
-                    limit,
-                    cancel,
-                )
-                .await;
-            }
-            let text = tokio::select! {
-                result = active.client.call(remote_name, Value::Object(remote)) => result?,
-                _ = cancel.cancelled() => return Err("CANCELLED".into()),
-            };
-            if text.len() > limit {
-                return Err("OUTPUT_LIMIT_EXCEEDED: 缩小路径、行范围或匹配条件".into());
-            }
-            (text, false)
-        };
-        let mut result = json!({"workspace":active.workspace,"text":text,"truncated":truncated});
-        if truncated {
-            result["hint"] = json!("请缩小路径、行范围或日志数量");
+            let text = call_workspace_source(
+                self.supervisor.workspace_capability_manager(),
+                lease.clone(),
+                name.to_owned(),
+                arguments,
+            )
+            .await?;
+            return Ok(json!({
+                "workspace":{"id":lease.workspace_id,"generation":lease.generation},
+                "text":text,
+                "truncated":false
+            }));
         }
-        Ok(result)
+        Err("UNKNOWN_TOOL".into())
     }
     pub async fn sync_projects(&self, sources: Vec<PathBuf>) -> Result<usize, String> {
         let _management = self.management.lock().await;
@@ -514,6 +496,109 @@ impl Broker {
         Ok(count)
     }
 }
+
+/// 将 Manager 的安全错误投影到冻结的 Semantic MCP error surface，不传播 Provider 原始错误。
+fn map_semantic_capability_error(error: WorkspaceCapabilityError) -> String {
+    match error.code {
+        WorkspaceCapabilityErrorCode::Busy => "SEMANTIC_PROVIDER_BUSY".into(),
+        WorkspaceCapabilityErrorCode::StartFailed => "SEMANTIC_RUNTIME_START_FAILED".into(),
+        WorkspaceCapabilityErrorCode::RuntimeLost => "SEMANTIC_RUNTIME_LOST".into(),
+        WorkspaceCapabilityErrorCode::NotFound => "SEMANTIC_PROVIDER_UNAVAILABLE".into(),
+        // Runtime/Lease identity mismatch 是契约 fail-closed，不可伪装成 Provider 不可用。
+        WorkspaceCapabilityErrorCode::ContractError => "WORKSPACE_CAPABILITY_CONTRACT_ERROR".into(),
+        code => serde_json::to_value(code)
+            .expect("WorkspaceCapabilityErrorCode must serialize")
+            .as_str()
+            .expect("WorkspaceCapabilityErrorCode must serialize as a string")
+            .into(),
+    }
+}
+
+/// Compatibility Source 不伪装为 Semantic surface；Capability operational error 保留冻结安全分类。
+fn map_compatibility_source_capability_error(error: WorkspaceCapabilityError) -> String {
+    serde_json::to_value(error.code)
+        .expect("WorkspaceCapabilityErrorCode must serialize")
+        .as_str()
+        .expect("WorkspaceCapabilityErrorCode must serialize as a string")
+        .into()
+}
+
+/// 将 Source 正文唯一地交给 request Lease 对应的 Serena Slot，并拒绝非文本 Provider 结果。
+async fn call_workspace_source(
+    manager: Arc<crate::workspace_capability::WorkspaceCapabilityManager>,
+    lease: crate::workspace_resolver::WorkspaceLease,
+    tool_name: String,
+    arguments: Value,
+) -> Result<String, String> {
+    let semantic = registry::is_semantic_source(&tool_name);
+    let result = manager
+        .call(
+            "serena",
+            lease,
+            WorkspaceToolCall {
+                tool_name,
+                arguments,
+            },
+        )
+        .await
+        .map_err(|error| {
+            if semantic {
+                map_semantic_capability_error(error)
+            } else {
+                map_compatibility_source_capability_error(error)
+            }
+        })?;
+    result
+        .result
+        .as_str()
+        .map(str::to_owned)
+        .ok_or("WORKSPACE_CAPABILITY_CONTRACT_ERROR".into())
+}
+
+/// 复刻基础 Source 的既有 output budget；Provider 只负责把该预算映射给 Serena。
+fn compatibility_source_limit(
+    name: &str,
+    arguments: &registry::SourceArgs,
+) -> Result<usize, String> {
+    let limit = arguments
+        .max_bytes
+        .unwrap_or(if name == "source_read_file" {
+            32_768
+        } else {
+            65_536
+        });
+    let maximum = if name == "source_read_file" {
+        131_072
+    } else {
+        262_144
+    };
+    if limit == 0 || limit > maximum {
+        return Err("INVALID_PARAMS: max_bytes 超出范围".into());
+    }
+    Ok(limit)
+}
+
+/// 基础 Source 在进入 Provider 前以 Lease root 检查路径及链接子树，保留旧 INVALID_PATH 语义。
+async fn validate_compatibility_source_path(
+    lease: &crate::workspace_resolver::WorkspaceLease,
+    arguments: &registry::SourceArgs,
+    cancel: CancellationToken,
+) -> Result<(), String> {
+    if cancel.is_cancelled() {
+        return Err("CANCELLED".into());
+    }
+    let root = lease.canonical_root.clone();
+    let relative_path = arguments.relative_path.clone().unwrap_or_default();
+    let checked = process::safe_relative(&root, &relative_path)?;
+    let worker_root = root.clone();
+    tokio::select! {
+        result = tokio::task::spawn_blocking(move || process::check_subtree(&worker_root, &checked)) => {
+            result.map_err(|error| error.to_string())?
+        }
+        _ = cancel.cancelled() => Err("CANCELLED".into()),
+    }
+}
+
 fn append_log(logs: &Mutex<VecDeque<String>>, message: &str) {
     append_log_level(logs, "INFO", "MCP", message);
 }
@@ -535,7 +620,19 @@ mod integration_tests {
     use super::*;
     use crate::{
         config::{self, AppPaths, BrokerConfig, Workspace},
+        workspace_capability::{
+            CapabilityActionAuthority, CapabilityActionDescriptor, CapabilityActionExecution,
+            CapabilityActivitySink, CapabilityFuture, CapabilityPreparationPolicy,
+            CapabilityPrepareAction, CapabilityPrepareResult, CapabilityProviderError,
+            CapabilityProviderErrorCode, CapabilityReadinessProbe, CapabilityRuntimeHandle,
+            CapabilityRuntimeModel, CapabilityRuntimePolicy, CapabilityRuntimeState,
+            CapabilityStageDescriptor, CapabilityStageRequirement, CapabilityStopFailure,
+            StopEvidence, WorkspaceCapabilityDescriptor, WorkspaceCapabilityManager,
+            WorkspaceCapabilityProvider, WorkspaceCapabilityProviderId,
+            WorkspaceCapabilityRegistry, WorkspaceToolCall, WorkspaceToolResult,
+        },
         workspace_registry::{WorkspaceRegistry, WorkspaceRegistrySnapshot},
+        workspace_resolver::WorkspaceLease,
     };
     use rmcp::{
         ServiceExt, model::CallToolRequestParams, transport::StreamableHttpClientTransport,
@@ -571,6 +668,212 @@ mod integration_tests {
         Arc::new(Broker::new(Arc::new(SupervisorState::new(paths).unwrap())))
     }
 
+    /// 仅用于 Broker Semantic 路由测试的 Provider，记录 server-resolved Lease 和已净化参数。
+    struct SemanticRoutingProvider {
+        descriptor: WorkspaceCapabilityDescriptor,
+        calls: std::sync::Mutex<Vec<(WorkspaceLease, WorkspaceToolCall)>>,
+        call_entered: Arc<tokio::sync::Notify>,
+        call_release: std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+        call_hold: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        wrong_runtime: std::sync::atomic::AtomicBool,
+        fail_call: std::sync::atomic::AtomicBool,
+        probes: std::sync::atomic::AtomicUsize,
+        observations: std::sync::atomic::AtomicUsize,
+        stops: std::sync::atomic::AtomicUsize,
+    }
+
+    impl SemanticRoutingProvider {
+        /// 创建保留 Serena provider identity 的确定性路由 fixture。
+        fn new() -> Self {
+            Self {
+                descriptor: WorkspaceCapabilityDescriptor {
+                    provider_id: WorkspaceCapabilityProviderId::new("serena"),
+                    display_name: "Semantic routing fixture".into(),
+                    tool_names: registry::SOURCES
+                        .iter()
+                        .map(|source| source.0.into())
+                        .collect(),
+                    runtime_model: CapabilityRuntimeModel::WorkspaceScopedProcess,
+                    readiness_probe: CapabilityReadinessProbe::Required,
+                    preparation_policy: CapabilityPreparationPolicy::AutoOnFirstToolCall,
+                    stage_descriptors: vec![CapabilityStageDescriptor {
+                        id: "project_configuration".into(),
+                        display_name: "项目配置".into(),
+                        requirement: CapabilityStageRequirement::AutoPreparable,
+                    }],
+                    action_descriptors: vec![CapabilityActionDescriptor {
+                        action_id: "prepare".into(),
+                        display_name: "准备".into(),
+                        authority: CapabilityActionAuthority::LocalHuman,
+                        execution: CapabilityActionExecution::ManagerEnsureRuntime,
+                        warm_runtime: true,
+                    }],
+                    runtime_policy: CapabilityRuntimePolicy {
+                        max_instances: 2,
+                        idle_timeout_ms: 0,
+                        per_slot_concurrency: 1,
+                    },
+                },
+                calls: std::sync::Mutex::new(Vec::new()),
+                call_entered: Arc::new(tokio::sync::Notify::new()),
+                call_release: std::sync::Mutex::new(None),
+                call_hold: std::sync::Mutex::new(None),
+                wrong_runtime: std::sync::atomic::AtomicBool::new(false),
+                fail_call: std::sync::atomic::AtomicBool::new(false),
+                probes: std::sync::atomic::AtomicUsize::new(0),
+                observations: std::sync::atomic::AtomicUsize::new(0),
+                stops: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        /// 阻塞下一次 Provider call，供 drop/cancel 组合测试精确控制时序。
+        fn block_next_call(&self) {
+            let (release, wait) = tokio::sync::oneshot::channel();
+            *self.call_release.lock().unwrap() = Some(wait);
+            *self.call_hold.lock().unwrap() = Some(release);
+        }
+    }
+
+    impl WorkspaceCapabilityProvider for SemanticRoutingProvider {
+        fn descriptor(&self) -> &WorkspaceCapabilityDescriptor {
+            &self.descriptor
+        }
+
+        fn probe_installation(
+            &self,
+        ) -> CapabilityFuture<
+            '_,
+            Result<crate::workspace_capability::CapabilityInstallation, CapabilityProviderError>,
+        > {
+            self.probes
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async {
+                Err(CapabilityProviderError {
+                    code: CapabilityProviderErrorCode::OperationFailed,
+                })
+            })
+        }
+
+        fn observe_readiness(
+            &self,
+            _lease: WorkspaceLease,
+        ) -> CapabilityFuture<
+            '_,
+            Result<crate::workspace_capability::CapabilityObservation, CapabilityProviderError>,
+        > {
+            self.observations
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async {
+                Err(CapabilityProviderError {
+                    code: CapabilityProviderErrorCode::OperationFailed,
+                })
+            })
+        }
+
+        fn prepare<'a>(
+            &'a self,
+            _lease: WorkspaceLease,
+            _action: CapabilityPrepareAction,
+            _activity: &'a dyn CapabilityActivitySink,
+        ) -> CapabilityFuture<'a, Result<CapabilityPrepareResult, CapabilityProviderError>>
+        {
+            Box::pin(async {
+                Err(CapabilityProviderError {
+                    code: CapabilityProviderErrorCode::OperationFailed,
+                })
+            })
+        }
+
+        fn start(
+            &self,
+            lease: WorkspaceLease,
+        ) -> CapabilityFuture<'_, Result<CapabilityRuntimeHandle, CapabilityProviderError>>
+        {
+            let provider_id = self.descriptor.provider_id.clone();
+            let wrong_runtime = self.wrong_runtime.load(std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async move {
+                let provider_id = if wrong_runtime {
+                    WorkspaceCapabilityProviderId::new("wrong-provider")
+                } else {
+                    provider_id
+                };
+                Ok(CapabilityRuntimeHandle::new(provider_id, &lease))
+            })
+        }
+
+        fn call<'a>(
+            &'a self,
+            lease: &'a WorkspaceLease,
+            _runtime: Option<&'a CapabilityRuntimeHandle>,
+            tool: WorkspaceToolCall,
+        ) -> CapabilityFuture<'a, Result<WorkspaceToolResult, CapabilityProviderError>> {
+            let call_release = self.call_release.lock().unwrap().take();
+            let fail_call = self.fail_call.load(std::sync::atomic::Ordering::SeqCst);
+            let calls = &self.calls;
+            let call_entered = Arc::clone(&self.call_entered);
+            let lease = lease.clone();
+            Box::pin(async move {
+                calls.lock().unwrap().push((lease.clone(), tool.clone()));
+                call_entered.notify_one();
+                if let Some(wait) = call_release {
+                    let _ = wait.await;
+                }
+                if fail_call {
+                    return Err(CapabilityProviderError {
+                        code: CapabilityProviderErrorCode::OperationFailed,
+                    });
+                }
+                Ok(WorkspaceToolResult {
+                    result: json!(format!("semantic:{}", lease.workspace_id)),
+                })
+            })
+        }
+
+        fn stop(
+            &self,
+            _runtime: CapabilityRuntimeHandle,
+        ) -> CapabilityFuture<'_, Result<StopEvidence, CapabilityStopFailure>> {
+            self.stops.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async {
+                Ok(StopEvidence {
+                    runtime_state: CapabilityRuntimeState::Stopped,
+                })
+            })
+        }
+    }
+
+    /// 构造替换为 deterministic Semantic Manager 的 Broker，不触发 Serena Runtime 或全局 active 路径。
+    fn semantic_fixture(
+        dir: &std::path::Path,
+        provider: Arc<SemanticRoutingProvider>,
+    ) -> (Arc<Broker>, Arc<WorkspaceCapabilityManager>) {
+        let paths = AppPaths {
+            runtime_directory: dir.join("runtime"),
+            config_file: dir.join("config.json"),
+            log_directory: dir.join("logs"),
+            app_log: dir.join("logs/app.log"),
+            serena_log: dir.join("logs/serena.log"),
+        };
+        let config = ManagerConfig {
+            port: port(),
+            broker: BrokerConfig {
+                enabled: false,
+                port: port(),
+                allow_lan: false,
+            },
+            auto_start_server: false,
+            ..Default::default()
+        };
+        crate::config::save(&paths.config_file, &config).unwrap();
+        let provider_port: Arc<dyn WorkspaceCapabilityProvider> = provider;
+        let manager = Arc::new(WorkspaceCapabilityManager::new(Arc::new(
+            WorkspaceCapabilityRegistry::new(vec![provider_port]).unwrap(),
+        )));
+        let mut supervisor = SupervisorState::new(paths).unwrap();
+        supervisor.replace_workspace_capability_manager_for_test(Arc::clone(&manager));
+        (Arc::new(Broker::new(Arc::new(supervisor))), manager)
+    }
+
     #[test]
     fn workspace_id_foundation_routes_valid_unknown_ids_to_resolver() {
         let directory = tempfile::tempdir().unwrap();
@@ -582,6 +885,413 @@ mod integration_tests {
                 &json!({"workspaceId":"unknown"})
             ),
             Err(WORKSPACE_NOT_FOUND.into())
+        );
+    }
+
+    #[tokio::test]
+    async fn semantic_sources_route_each_explicit_lease_without_legacy_active_authority() {
+        let directory = tempfile::tempdir().unwrap();
+        let provider = Arc::new(SemanticRoutingProvider::new());
+        let (broker, _manager) = semantic_fixture(directory.path(), Arc::clone(&provider));
+        let root_a = directory.path().join("workspace-a");
+        let root_b = directory.path().join("workspace-b");
+        std::fs::create_dir(&root_a).unwrap();
+        std::fs::create_dir(&root_b).unwrap();
+        std::fs::create_dir(root_a.join("src")).unwrap();
+        std::fs::create_dir(root_b.join("src")).unwrap();
+        std::fs::write(root_a.join("src/lib.rs"), "workspace_a").unwrap();
+        std::fs::write(root_b.join("src/lib.rs"), "workspace_b").unwrap();
+        let registry = WorkspaceRegistry::new(&broker.supervisor);
+        let workspace_a = registry
+            .register(root_a, Some("Workspace A".into()))
+            .unwrap();
+        let workspace_b = registry
+            .register(root_b, Some("Workspace B".into()))
+            .unwrap();
+        // Desktop selection 故意固定到 B；后续请求仍必须严格使用各自 workspaceId。
+        broker
+            .supervisor
+            .select_desktop_workspace(&workspace_b.id)
+            .unwrap();
+
+        // 持有 legacy active 写锁仍可完成调用，证明 Semantic route 不读取该全局 Authority。
+        let legacy_active_lock = broker.workspace.write().await;
+        let result_a = broker
+            .dispatch(
+                "source_symbols_overview",
+                json!({
+                    "workspaceId":workspace_a.id,
+                    "relative_path":"src/lib.rs",
+                    "depth":null,
+                    "max_bytes":123
+                }),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let result_b = broker
+            .dispatch(
+                "source_find_symbol",
+                json!({
+                    "workspaceId":workspace_b.id,
+                    "name_path_pattern":"Widget",
+                    "relative_path":null,
+                    "include_body":null
+                }),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        drop(legacy_active_lock);
+
+        assert_eq!(result_a["workspace"]["id"], workspace_a.id);
+        assert_eq!(result_a["workspace"]["generation"], workspace_a.generation);
+        assert_eq!(result_b["workspace"]["id"], workspace_b.id);
+        assert_eq!(result_b["workspace"]["generation"], workspace_b.generation);
+        let calls = provider.calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].0.workspace_id, workspace_a.id);
+        assert_eq!(calls[1].0.workspace_id, workspace_b.id);
+        for (_, tool) in calls.iter() {
+            let arguments = tool.arguments.as_object().unwrap();
+            assert!(arguments.get("workspaceId").is_none());
+            for forbidden in ["root", "canonicalRoot", "projectPath"] {
+                assert!(arguments.get(forbidden).is_none(), "{forbidden}");
+            }
+        }
+        drop(calls);
+        for arguments in [
+            json!({
+                "workspaceId":workspace_a.id,
+                "relative_path":"src/lib.rs",
+                "root":"caller-supplied"
+            }),
+            json!({
+                "workspaceId":workspace_a.id,
+                "relative_path":"src/lib.rs",
+                "canonicalRoot":"caller-supplied"
+            }),
+            json!({
+                "workspaceId":workspace_a.id,
+                "relative_path":"src/lib.rs",
+                "projectPath":"caller-supplied"
+            }),
+        ] {
+            assert!(
+                broker
+                    .dispatch(
+                        "source_symbols_overview",
+                        arguments,
+                        CancellationToken::new(),
+                    )
+                    .await
+                    .unwrap_err()
+                    .starts_with("INVALID_PARAMS")
+            );
+        }
+        assert_eq!(provider.calls.lock().unwrap().len(), 2);
+        // 持有 legacy active 写锁仍可完成四项基础 Source，证明它们同样不读取全局 Authority。
+        let legacy_active_lock = broker.workspace.write().await;
+        for (name, arguments, workspace) in [
+            (
+                "source_read_file",
+                json!({"relative_path":"src/lib.rs"}),
+                &workspace_a,
+            ),
+            // A/B 均读取同名相对路径，验证 read 的根目录和 Slot 仍完全由请求 Lease 决定。
+            (
+                "source_read_file",
+                json!({"relative_path":"src/lib.rs"}),
+                &workspace_b,
+            ),
+            (
+                "source_list_dir",
+                json!({"relative_path":"src"}),
+                &workspace_b,
+            ),
+            (
+                "source_find_file",
+                json!({"file_mask":"*.rs"}),
+                &workspace_a,
+            ),
+            (
+                "source_search_pattern",
+                json!({"substring_pattern":"Workspace"}),
+                &workspace_b,
+            ),
+        ] {
+            let mut arguments = arguments.as_object().unwrap().clone();
+            arguments.insert("workspaceId".into(), json!(workspace.id));
+            let result = broker
+                .dispatch(name, Value::Object(arguments), CancellationToken::new())
+                .await
+                .unwrap();
+            assert_eq!(result["workspace"]["id"], workspace.id, "{name}");
+            assert_eq!(
+                result["workspace"]["generation"], workspace.generation,
+                "{name}"
+            );
+        }
+        drop(legacy_active_lock);
+        let calls = provider.calls.lock().unwrap();
+        assert_eq!(calls.len(), 7);
+        assert_eq!(calls[2].0.workspace_id, workspace_a.id);
+        assert_eq!(calls[3].0.workspace_id, workspace_b.id);
+        assert_eq!(calls[4].0.workspace_id, workspace_b.id);
+        assert_eq!(calls[5].0.workspace_id, workspace_a.id);
+        assert_eq!(calls[6].0.workspace_id, workspace_b.id);
+        drop(calls);
+        for relative_path in ["../outside", "C:/outside", "\\\\server\\share"] {
+            assert!(
+                broker
+                    .dispatch(
+                        "source_list_dir",
+                        json!({"workspaceId":workspace_a.id,"relative_path":relative_path}),
+                        CancellationToken::new(),
+                    )
+                    .await
+                    .unwrap_err()
+                    .starts_with("INVALID_PATH")
+            );
+        }
+        assert_eq!(provider.calls.lock().unwrap().len(), 7);
+    }
+
+    #[tokio::test]
+    async fn semantic_sources_preserve_workspace_context_and_contract_errors() {
+        let directory = tempfile::tempdir().unwrap();
+        let provider = Arc::new(SemanticRoutingProvider::new());
+        let (broker, _manager) = semantic_fixture(directory.path(), Arc::clone(&provider));
+        let root = directory.path().join("workspace");
+        std::fs::create_dir(&root).unwrap();
+        let workspace = WorkspaceRegistry::new(&broker.supervisor)
+            .register(root, Some("Workspace".into()))
+            .unwrap();
+
+        for args in [json!({}), json!({"workspaceId":null})] {
+            assert_eq!(
+                broker
+                    .dispatch("source_find_references", args, CancellationToken::new())
+                    .await,
+                Err("WORKSPACE_CONTEXT_REQUIRED".into())
+            );
+        }
+        for args in [json!({"workspaceId":3}), json!({"workspaceId":" \t"})] {
+            assert!(
+                broker
+                    .dispatch("source_find_references", args, CancellationToken::new())
+                    .await
+                    .unwrap_err()
+                    .starts_with("INVALID_PARAMS")
+            );
+        }
+        assert_eq!(
+            broker
+                .dispatch(
+                    "source_find_references",
+                    json!({"workspaceId":"unknown","relative_path":"src/lib.rs","name_path":"Widget"}),
+                    CancellationToken::new(),
+                )
+                .await,
+            Err(WORKSPACE_NOT_FOUND.into())
+        );
+
+        provider
+            .wrong_runtime
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(
+            broker
+                .dispatch(
+                    "source_find_references",
+                    json!({"workspaceId":workspace.id,"relative_path":"src/lib.rs","name_path":"Widget"}),
+                    CancellationToken::new(),
+                )
+                .await,
+            Err("WORKSPACE_CAPABILITY_CONTRACT_ERROR".into())
+        );
+        assert!(provider.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn compatibility_sources_keep_workspace_errors_and_safe_provider_failures() {
+        let directory = tempfile::tempdir().unwrap();
+        let provider = Arc::new(SemanticRoutingProvider::new());
+        let (broker, _manager) = semantic_fixture(directory.path(), Arc::clone(&provider));
+        let root = directory.path().join("workspace");
+        std::fs::create_dir(&root).unwrap();
+        let workspace = WorkspaceRegistry::new(&broker.supervisor)
+            .register(root, Some("Workspace".into()))
+            .unwrap();
+
+        for (name, valid_arguments) in [
+            ("source_read_file", json!({"relative_path":"file.txt"})),
+            ("source_list_dir", json!({"relative_path":"src"})),
+            ("source_find_file", json!({"file_mask":"*.rs"})),
+            (
+                "source_search_pattern",
+                json!({"substring_pattern":"Workspace"}),
+            ),
+        ] {
+            for arguments in [json!({}), json!({"workspaceId":null})] {
+                assert_eq!(
+                    broker
+                        .dispatch(name, arguments, CancellationToken::new())
+                        .await,
+                    Err("WORKSPACE_CONTEXT_REQUIRED".into()),
+                    "{name}"
+                );
+            }
+            for workspace_id in [json!(3), json!(" \t")] {
+                let mut arguments = valid_arguments.as_object().unwrap().clone();
+                arguments.insert("workspaceId".into(), workspace_id);
+                assert!(
+                    broker
+                        .dispatch(name, Value::Object(arguments), CancellationToken::new())
+                        .await
+                        .unwrap_err()
+                        .starts_with("INVALID_PARAMS"),
+                    "{name}"
+                );
+            }
+            let mut unknown = valid_arguments.as_object().unwrap().clone();
+            unknown.insert("workspaceId".into(), json!("unknown"));
+            assert_eq!(
+                broker
+                    .dispatch(name, Value::Object(unknown), CancellationToken::new())
+                    .await,
+                Err(WORKSPACE_NOT_FOUND.into()),
+                "{name}"
+            );
+        }
+
+        provider
+            .fail_call
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        let error = broker
+            .dispatch(
+                "source_list_dir",
+                json!({"workspaceId":workspace.id,"relative_path":""}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error, "WORKSPACE_CAPABILITY_RUNTIME_LOST");
+        assert!(!error.contains(&workspace.root.to_string_lossy().to_string()));
+    }
+
+    #[tokio::test]
+    async fn dropped_compatibility_source_request_releases_manager_guard_for_stop_and_reacquire() {
+        let directory = tempfile::tempdir().unwrap();
+        let provider = Arc::new(SemanticRoutingProvider::new());
+        provider.block_next_call();
+        let (broker, manager) = semantic_fixture(directory.path(), Arc::clone(&provider));
+        let root = directory.path().join("workspace");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("file.txt"), "fixture").unwrap();
+        let workspace = WorkspaceRegistry::new(&broker.supervisor)
+            .register(root, Some("Workspace".into()))
+            .unwrap();
+        let lease = registry::resolve_workspace_lease(
+            &broker.supervisor,
+            &json!({"workspaceId":workspace.id}),
+        )
+        .unwrap();
+        let entered = provider.call_entered.notified();
+        let calling = {
+            let broker = Arc::clone(&broker);
+            let workspace_id = workspace.id.clone();
+            tokio::spawn(async move {
+                broker
+                    .dispatch(
+                        "source_read_file",
+                        json!({"workspaceId":workspace_id,"relative_path":"file.txt"}),
+                        CancellationToken::new(),
+                    )
+                    .await
+            })
+        };
+        entered.await;
+        calling.abort();
+        assert!(calling.await.unwrap_err().is_cancelled());
+        manager.stop_idle_runtimes().await.unwrap();
+        assert_eq!(provider.stops.load(std::sync::atomic::Ordering::SeqCst), 1);
+        drop(manager.acquire_runtime("serena", lease).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn cancelled_nonread_compatibility_source_drops_manager_guard_before_provider_returns() {
+        let directory = tempfile::tempdir().unwrap();
+        let provider = Arc::new(SemanticRoutingProvider::new());
+        provider.block_next_call();
+        let (broker, manager) = semantic_fixture(directory.path(), Arc::clone(&provider));
+        let root = directory.path().join("workspace");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let workspace = WorkspaceRegistry::new(&broker.supervisor)
+            .register(root, Some("Workspace".into()))
+            .unwrap();
+        let lease = registry::resolve_workspace_lease(
+            &broker.supervisor,
+            &json!({"workspaceId":workspace.id}),
+        )
+        .unwrap();
+        let cancel = CancellationToken::new();
+        let entered = provider.call_entered.notified();
+        let calling = {
+            let broker = Arc::clone(&broker);
+            let workspace_id = workspace.id.clone();
+            let cancel = cancel.clone();
+            tokio::spawn(async move {
+                broker
+                    .dispatch(
+                        "source_list_dir",
+                        json!({"workspaceId":workspace_id,"relative_path":"src"}),
+                        cancel,
+                    )
+                    .await
+            })
+        };
+        entered.await;
+        cancel.cancel();
+        let result = tokio::time::timeout(Duration::from_secs(1), calling)
+            .await
+            .expect("cancelled compatibility Source must not wait for Provider")
+            .expect("dispatch task must not panic");
+        assert_eq!(result, Err("CANCELLED".into()));
+        manager.stop_idle_runtimes().await.unwrap();
+        assert_eq!(provider.stops.load(std::sync::atomic::Ordering::SeqCst), 1);
+        drop(manager.acquire_runtime("serena", lease).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn workspace_discovery_never_observes_registered_providers() {
+        let directory = tempfile::tempdir().unwrap();
+        let provider = Arc::new(SemanticRoutingProvider::new());
+        let (broker, _) = semantic_fixture(directory.path(), Arc::clone(&provider));
+        let root = directory.path().join("workspace");
+        std::fs::create_dir(&root).unwrap();
+        let workspace = WorkspaceRegistry::new(&broker.supervisor)
+            .register(root, Some("Workspace".into()))
+            .unwrap();
+
+        broker
+            .dispatch("workspace_list", json!({}), CancellationToken::new())
+            .await
+            .unwrap();
+        broker
+            .dispatch(
+                "workspace_get",
+                json!({"workspaceId": workspace.id}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(provider.probes.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(
+            provider
+                .observations
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0
         );
     }
 
@@ -2052,29 +2762,23 @@ mod integration_tests {
             let output = b
                 .dispatch(
                     "source_read_file",
-                    json!({"relative_path":"example.py"}),
+                    json!({"workspaceId":"project-1","relative_path":"example.py"}),
                     CancellationToken::new(),
                 )
                 .await?;
             assert!(output["text"].as_str().unwrap().contains("def one"));
             for (name, args) in [
-                ("source_list_dir", json!({"relative_path":""})),
-                ("source_find_file", json!({"file_mask":"*.py"})),
+                (
+                    "source_list_dir",
+                    json!({"workspaceId":"project-1","relative_path":""}),
+                ),
+                (
+                    "source_find_file",
+                    json!({"workspaceId":"project-1","file_mask":"*.py"}),
+                ),
                 (
                     "source_search_pattern",
-                    json!({"substring_pattern":"def one"}),
-                ),
-                (
-                    "source_symbols_overview",
-                    json!({"relative_path":"example.py"}),
-                ),
-                (
-                    "source_find_symbol",
-                    json!({"name_path_pattern":"one", "relative_path":"example.py"}),
-                ),
-                (
-                    "source_find_references",
-                    json!({"name_path":"one", "relative_path":"example.py"}),
+                    json!({"workspaceId":"project-1","substring_pattern":"def one"}),
                 ),
             ] {
                 let result = b
@@ -2085,11 +2789,17 @@ mod integration_tests {
                 assert_eq!(result["truncated"], false);
             }
             for (name, args) in [
-                ("source_read_file", json!({"relative_path":"../outside"})),
-                ("source_read_file", json!({"relative_path":"missing.py"})),
                 (
                     "source_read_file",
-                    json!({"relative_path":"example.py", "max_bytes":1}),
+                    json!({"workspaceId":"project-1","relative_path":"../outside"}),
+                ),
+                (
+                    "source_read_file",
+                    json!({"workspaceId":"project-1","relative_path":"missing.py"}),
+                ),
+                (
+                    "source_read_file",
+                    json!({"workspaceId":"project-1","relative_path":"example.py", "max_bytes":1}),
                 ),
             ] {
                 assert!(
@@ -2213,7 +2923,7 @@ mod integration_tests {
             let output = client2
                 .call_tool(
                     CallToolRequestParams::new("source_read_file").with_arguments(
-                        json!({"relative_path":"example.py"})
+                        json!({"workspaceId":"project-2","relative_path":"example.py"})
                             .as_object()
                             .unwrap()
                             .clone(),
@@ -2234,7 +2944,7 @@ mod integration_tests {
             let output = b
                 .dispatch(
                     "source_read_file",
-                    json!({"relative_path":"example.py"}),
+                    json!({"workspaceId":"project-2","relative_path":"example.py"}),
                     CancellationToken::new(),
                 )
                 .await?;
@@ -2264,7 +2974,7 @@ mod integration_tests {
                 let output = b
                     .dispatch(
                         "source_read_file",
-                        json!({"relative_path":"example.py"}),
+                        json!({"workspaceId":"project-2","relative_path":"example.py"}),
                         CancellationToken::new(),
                     )
                     .await?;

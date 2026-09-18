@@ -143,12 +143,12 @@ pub fn workspace_reorder(
 }
 
 /// 所有本地 Workspace Remove 请求统一进入 Supervisor 的 typed coordination point。
-pub(crate) fn remove_workspace(
+pub(crate) async fn remove_workspace(
     supervisor: &SupervisorState,
     product: &AgentProductService,
     id: &str,
 ) -> Result<crate::config::Workspace, String> {
-    supervisor.remove_workspace_coordinated(product, id)
+    supervisor.remove_workspace_coordinated(product, id).await
 }
 
 #[tauri::command]
@@ -158,7 +158,115 @@ pub async fn workspace_remove(
 ) -> Result<crate::config::Workspace, String> {
     let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
     let product = app.state::<std::sync::Arc<AgentProductService>>();
-    remove_workspace(&supervisor, &product, &id)
+    remove_workspace(&supervisor, &product, &id).await
+}
+
+/// Preparation Activity 仅发给本地 Tauri；不进入 Agent EventSink 或 Remote MCP。
+struct LocalCapabilityActivitySink(AppHandle);
+
+impl crate::workspace_capability::CapabilityActivitySink for LocalCapabilityActivitySink {
+    /// 仅序列化 Capability Manager 的安全投影。
+    fn publish<'a>(
+        &'a self,
+        activity: crate::workspace_capability::CapabilityActivity,
+    ) -> crate::workspace_capability::CapabilityFuture<'a, ()> {
+        Box::pin(async move {
+            use tauri::Emitter;
+            let _ = self.0.emit("workspace-capability-activity", activity);
+        })
+    }
+}
+
+/// 本地入口只通过 WorkspaceResolver 取得 Lease，不读取 Desktop selection。
+pub(crate) async fn prepare_workspace_capability(
+    supervisor: &SupervisorState,
+    workspace_id: &str,
+    provider_id: &str,
+    action_id: &str,
+    sink: std::sync::Arc<dyn crate::workspace_capability::CapabilityActivitySink>,
+) -> Result<crate::workspace_capability::CapabilityActionResult, String> {
+    let lease =
+        crate::workspace_resolver::WorkspaceResolver::new(supervisor).resolve(workspace_id)?;
+    supervisor
+        .workspace_capability_manager()
+        .prepare_action(lease, provider_id, action_id, sink)
+        .await
+        .map_err(|error| {
+            serde_json::to_value(error.code)
+                .expect("capability error code is serializable")
+                .as_str()
+                .expect("capability error code is a string")
+                .to_owned()
+        })
+}
+
+/// 本地 health 入口只按显式 workspaceId 解析 Lease，不读取 Desktop selection 或 Remote 会话。
+pub(crate) async fn observe_workspace_capability(
+    supervisor: &SupervisorState,
+    workspace_id: &str,
+) -> Result<crate::workspace_capability::WorkspaceCapabilityHealth, String> {
+    let lease =
+        crate::workspace_resolver::WorkspaceResolver::new(supervisor).resolve(workspace_id)?;
+    Ok(supervisor
+        .workspace_capability_manager()
+        .observe_health(lease)
+        .await)
+}
+
+/// Local-only capability health 查询；不会注册为 Remote MCP Tool。
+#[tauri::command]
+pub(crate) async fn workspace_capability_observe(
+    app: AppHandle,
+    workspace_id: String,
+) -> Result<crate::workspace_capability::WorkspaceCapabilityHealth, String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    observe_workspace_capability(&supervisor, &workspace_id).await
+}
+
+/// Local Human Authority：只注册 Tauri IPC，绝不 advertise 为 MCP Tool。
+#[tauri::command]
+pub(crate) async fn workspace_capability_prepare(
+    app: AppHandle,
+    workspace_id: String,
+    provider_id: String,
+    action_id: String,
+) -> Result<crate::workspace_capability::CapabilityActionResult, String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    prepare_workspace_capability(
+        &supervisor,
+        &workspace_id,
+        &provider_id,
+        &action_id,
+        std::sync::Arc::new(LocalCapabilityActivitySink(app.clone())),
+    )
+    .await
+}
+
+/// 本地取消只接受 Manager 的 opaque operationId，错误不附带任何 Workspace 或进程信息。
+pub(crate) fn cancel_workspace_capability(
+    supervisor: &SupervisorState,
+    operation_id: &str,
+) -> Result<(), String> {
+    supervisor
+        .workspace_capability_manager()
+        .cancel_action(operation_id)
+        .map_err(|error| {
+            serde_json::to_value(error.code)
+                .expect("capability error code is serializable")
+                .as_str()
+                .expect("capability error code is a string")
+                .to_owned()
+        })
+}
+
+/// Local Human 的显式 operation cancellation；共享 flight 的结果仍由 prepare caller 观察。
+#[tauri::command]
+pub(crate) fn workspace_capability_cancel(
+    app: AppHandle,
+    operation_id: String,
+) -> Result<(), String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    cancel_workspace_capability(&supervisor, &operation_id)
 }
 
 #[tauri::command]
@@ -384,7 +492,7 @@ mod tests {
         },
         config::{self, AppPaths, ManagerConfig, Workspace},
         serena::WorkspaceRemoveTestOwnerCounts,
-        workspace_registry::WORKSPACE_IN_USE,
+        workspace_registry::{WORKSPACE_IN_USE, WORKSPACE_NOT_FOUND},
     };
     use std::{
         fs,
@@ -425,7 +533,7 @@ mod tests {
     }
 
     /// 所有 busy owner 都必须在 Registry mutation 前失败，并保留 Registry 与磁盘。
-    fn assert_remove_in_use_preserves_entry(
+    async fn assert_remove_in_use_preserves_entry(
         supervisor: &SupervisorState,
         product: &AgentProductService,
         workspace: &Workspace,
@@ -434,7 +542,7 @@ mod tests {
         let before = WorkspaceRegistry::new(supervisor).list();
         let bytes = fs::read(config_file).unwrap();
         assert_eq!(
-            remove_workspace(supervisor, product, &workspace.id),
+            remove_workspace(supervisor, product, &workspace.id).await,
             Err(WORKSPACE_IN_USE.into())
         );
         assert_eq!(WorkspaceRegistry::new(supervisor).list(), before);
@@ -469,7 +577,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file);
+        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file)
+            .await;
     }
 
     #[tokio::test]
@@ -484,7 +593,8 @@ mod tests {
             future_runtime_slot_ref_count: 0,
         };
 
-        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file);
+        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file)
+            .await;
     }
 
     #[tokio::test]
@@ -499,7 +609,8 @@ mod tests {
             future_runtime_slot_ref_count: 1,
         };
 
-        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file);
+        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file)
+            .await;
     }
 
     #[tokio::test]
@@ -516,7 +627,9 @@ mod tests {
             .execute_batch("DROP TABLE workspace_claims")
             .unwrap();
 
-        let error = remove_workspace(&supervisor, &product, &workspace.id).unwrap_err();
+        let error = remove_workspace(&supervisor, &product, &workspace.id)
+            .await
+            .unwrap_err();
         assert_ne!(error, WORKSPACE_IN_USE);
         assert_eq!(WorkspaceRegistry::new(&supervisor).list(), before);
         assert_eq!(fs::read(paths.config_file).unwrap(), bytes);
@@ -536,7 +649,9 @@ mod tests {
         let product = AgentProductService::new(store);
 
         assert_eq!(
-            remove_workspace(&supervisor, &product, &workspace.id).unwrap(),
+            remove_workspace(&supervisor, &product, &workspace.id)
+                .await
+                .unwrap(),
             workspace
         );
         assert_eq!(
@@ -574,13 +689,14 @@ mod tests {
             let removal_id = workspace.id.clone();
             let removal_product = &product;
             scope.spawn(move || {
-                remove_done
-                    .send(remove_workspace(
+                let result = tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(remove_workspace(
                         &removal_supervisor,
                         removal_product,
                         &removal_id,
-                    ))
-                    .unwrap();
+                    ));
+                remove_done.send(result).unwrap();
             });
             entered_rx.recv().unwrap();
             let rename_supervisor = supervisor.clone();
@@ -643,6 +759,53 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn capability_observe_uses_only_explicit_workspace_id_and_preserves_not_found() {
+        let directory = tempfile::tempdir().unwrap();
+        let root_a = directory.path().join("workspace-a");
+        let root_b = directory.path().join("workspace-b");
+        fs::create_dir_all(&root_a).unwrap();
+        fs::create_dir_all(&root_b).unwrap();
+        let workspace_a = Workspace {
+            id: "a".into(),
+            name: "A".into(),
+            root: fs::canonicalize(&root_a).unwrap(),
+            generation: 3,
+        };
+        let workspace_b = Workspace {
+            id: "b".into(),
+            name: "B".into(),
+            root: fs::canonicalize(&root_b).unwrap(),
+            generation: 5,
+        };
+        let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
+            config_file: directory.path().join("config.json"),
+            log_directory: directory.path().join("logs"),
+            app_log: directory.path().join("logs/app.log"),
+            serena_log: directory.path().join("logs/serena.log"),
+        };
+        config::save(
+            &paths.config_file,
+            &ManagerConfig {
+                desktop_selected_workspace_id: Some(workspace_b.id.clone()),
+                workspaces: vec![workspace_a.clone(), workspace_b],
+                ..ManagerConfig::default()
+            },
+        )
+        .unwrap();
+        let supervisor = SupervisorState::new(paths).unwrap();
+
+        let health = observe_workspace_capability(&supervisor, &workspace_a.id)
+            .await
+            .unwrap();
+        assert_eq!(health.workspace_id, workspace_a.id);
+        assert_eq!(
+            observe_workspace_capability(&supervisor, "unknown").await,
+            Err(WORKSPACE_NOT_FOUND.into())
+        );
+    }
+
     #[test]
     fn known_autostart_value_does_not_read_registry_again() {
         let (enabled, error) = resolve_autostart(Some(true), || {
@@ -694,6 +857,9 @@ pub fn shutdown_impl(app: &AppHandle) -> Result<(), String> {
         token.cancel();
     }
     tauri::async_runtime::block_on(async {
+        app.state::<std::sync::Arc<SupervisorState>>()
+            .shutdown_capability_runtimes()
+            .await?;
         app.state::<std::sync::Arc<crate::agent::product::AgentProductService>>()
             .shutdown()
             .await?;

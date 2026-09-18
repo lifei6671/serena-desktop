@@ -13,8 +13,21 @@ use std::{
     path::PathBuf,
     pin::Pin,
     sync::{Arc, Mutex, MutexGuard},
+    time::{Duration, Instant},
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
+
+mod actions;
+mod health;
+pub(crate) use actions::CapabilityActionResult;
+pub(crate) use health::WorkspaceCapabilityHealth;
+
+/// Provider stop 的最大等待时间；超时后后台 single-flight 仍保有 handle 并继续完成清理。
+#[cfg(not(test))]
+const CAPABILITY_STOP_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+/// 测试使用较短上界验证超时语义，避免把生产超时纳入单元测试时长。
+#[cfg(test)]
+const CAPABILITY_STOP_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// Capability 异步接口使用的标准库 boxed future，避免新增 futures 依赖。
 pub(crate) type CapabilityFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -76,6 +89,7 @@ pub(crate) enum CapabilityStageRequirement {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CapabilityStageDescriptor {
     pub(crate) id: String,
+    pub(crate) display_name: String,
     pub(crate) requirement: CapabilityStageRequirement,
 }
 
@@ -242,7 +256,14 @@ pub(crate) struct CapabilityPrepareResult {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CapabilityActivity {
-    pub(crate) phase: String,
+    pub(crate) operation_id: String,
+    pub(crate) workspace_id: String,
+    pub(crate) provider_id: WorkspaceCapabilityProviderId,
+    pub(crate) action_id: String,
+    pub(crate) stage_code: &'static str,
+    pub(crate) state: &'static str,
+    pub(crate) revision: u64,
+    pub(crate) message_code: &'static str,
 }
 
 /// Provider 向后续统一 activity 投影发布状态的 object-safe port。
@@ -269,6 +290,18 @@ impl CapabilityRuntimeHandle {
             workspace_id: lease.workspace_id.clone(),
             workspace_generation: lease.generation,
         }
+    }
+
+    /// 仅供 Provider 在 stop 时定位自己的私有 Runtime，不暴露进程或端点细节。
+    pub(crate) fn matches_identity(
+        &self,
+        provider_id: &WorkspaceCapabilityProviderId,
+        workspace_id: &str,
+        workspace_generation: u64,
+    ) -> bool {
+        self.provider_id == *provider_id
+            && self.workspace_id == workspace_id
+            && self.workspace_generation == workspace_generation
     }
 }
 
@@ -357,7 +390,7 @@ impl WorkspaceCapabilityError {
         }
     }
 
-    /// 返回尚未实现 stop 流程时的统一忙碌错误。
+    /// 返回容量不足或 Slot 正在停止时的统一忙碌错误。
     fn busy() -> Self {
         Self {
             code: WorkspaceCapabilityErrorCode::Busy,
@@ -368,6 +401,13 @@ impl WorkspaceCapabilityError {
     fn start_failed() -> Self {
         Self {
             code: WorkspaceCapabilityErrorCode::StartFailed,
+        }
+    }
+
+    /// 返回 Provider stop 失败但 Slot 已安全保留 Runtime ownership 的错误。
+    fn stop_failed() -> Self {
+        Self {
+            code: WorkspaceCapabilityErrorCode::StopFailed,
         }
     }
 
@@ -571,7 +611,11 @@ struct RuntimeSlotState {
     epoch: u64,
     runtime: Option<Arc<CapabilityRuntimeHandle>>,
     startup_flight: Option<Arc<StartupFlight>>,
+    stop_flight: Option<Arc<StopFlight>>,
     in_flight: usize,
+    pending_acquires: usize,
+    last_used_sequence: u64,
+    idle_since: Option<Instant>,
 }
 
 /// 单次 startup epoch 专属的 completion，不与后续 retry 共用状态。
@@ -579,6 +623,28 @@ struct StartupFlight {
     epoch: u64,
     completion:
         watch::Sender<Option<Result<Arc<CapabilityRuntimeHandle>, WorkspaceCapabilityError>>>,
+}
+
+/// 单次 stop epoch 的完成信号；Remove 与 shutdown 只能加入同一结果，不能重复调用 Provider。
+struct StopFlight {
+    completion: watch::Sender<Option<Result<(), WorkspaceCapabilityError>>>,
+    deadline: Instant,
+}
+
+impl StopFlight {
+    /// 创建仅服务于本次 stop 的 completion channel。
+    fn new() -> Self {
+        let (completion, _) = watch::channel(None);
+        Self {
+            completion,
+            deadline: Instant::now() + CAPABILITY_STOP_WAIT_TIMEOUT,
+        }
+    }
+
+    /// 返回同一 stop epoch 剩余的等待预算，确保所有加入者共享同一个有界结果。
+    fn remaining(&self) -> Duration {
+        self.deadline.saturating_duration_since(Instant::now())
+    }
 }
 
 impl StartupFlight {
@@ -594,24 +660,33 @@ struct RuntimeSlot {
     canonical_root: PathBuf,
     state: Mutex<RuntimeSlotState>,
     permits: Arc<Semaphore>,
+    state_revision: watch::Sender<u64>,
     #[cfg(test)]
     startup_waiter_registered: tokio::sync::Notify,
+    #[cfg(test)]
+    stop_completion_published: tokio::sync::Notify,
 }
 
 /// acquire 对 Slot 当前状态的无 await 决策。
 enum RuntimeAcquireDecision {
-    Ready(Arc<CapabilityRuntimeHandle>),
-    Start(Arc<StartupFlight>),
+    Ready(RuntimeAcquireReservation),
+    Start {
+        flight: Arc<StartupFlight>,
+        reservation: RuntimeAcquireReservation,
+    },
     Wait {
         completion:
             watch::Receiver<Option<Result<Arc<CapabilityRuntimeHandle>, WorkspaceCapabilityError>>>,
+        reservation: RuntimeAcquireReservation,
     },
     Busy,
+    Evict(RuntimeStop),
 }
 
 impl RuntimeSlot {
     /// 为首次 acquire 创建 stopped Slot，未启动任何 Provider Runtime。
     fn new(canonical_root: PathBuf, per_slot_concurrency: usize) -> Self {
+        let (state_revision, _) = watch::channel(0_u64);
         Self {
             canonical_root,
             state: Mutex::new(RuntimeSlotState {
@@ -619,45 +694,18 @@ impl RuntimeSlot {
                 epoch: 0,
                 runtime: None,
                 startup_flight: None,
+                stop_flight: None,
                 in_flight: 0,
+                pending_acquires: 0,
+                last_used_sequence: 0,
+                idle_since: None,
             }),
             permits: Arc::new(Semaphore::new(per_slot_concurrency)),
+            state_revision,
             #[cfg(test)]
             startup_waiter_registered: tokio::sync::Notify::new(),
-        }
-    }
-
-    /// 在短锁内选择 ready、leader startup 或同轮等待，不跨 await 持有 MutexGuard。
-    fn begin_acquire(&self) -> RuntimeAcquireDecision {
-        let mut state = lock_unpoisoned(&self.state);
-        match state.lifecycle {
-            CapabilityRuntimeState::Ready => RuntimeAcquireDecision::Ready(Arc::clone(
-                state
-                    .runtime
-                    .as_ref()
-                    .expect("ready RuntimeSlot must retain its runtime"),
-            )),
-            CapabilityRuntimeState::Starting => {
-                #[cfg(test)]
-                self.startup_waiter_registered.notify_one();
-                RuntimeAcquireDecision::Wait {
-                    completion: state
-                        .startup_flight
-                        .as_ref()
-                        .expect("starting RuntimeSlot must retain its startup flight")
-                        .completion
-                        .subscribe(),
-                }
-            }
-            CapabilityRuntimeState::Stopping => RuntimeAcquireDecision::Busy,
-            CapabilityRuntimeState::Stopped | CapabilityRuntimeState::Error => {
-                state.epoch = state.epoch.wrapping_add(1);
-                state.lifecycle = CapabilityRuntimeState::Starting;
-                state.runtime = None;
-                let flight = Arc::new(StartupFlight::new(state.epoch));
-                state.startup_flight = Some(Arc::clone(&flight));
-                RuntimeAcquireDecision::Start(flight)
-            }
+            #[cfg(test)]
+            stop_completion_published: tokio::sync::Notify::new(),
         }
     }
 
@@ -691,23 +739,55 @@ impl RuntimeSlot {
             }
             state.startup_flight = None;
         }
+        self.publish_state_change();
     }
 
-    /// 在返回 guard 前取得 permit，再精确记录 in-flight。
-    async fn acquire_guard(
+    /// 仅供测试绑定当前 startup flight，验证旧 wave 不会读取后续 retry 的结果。
+    #[cfg(test)]
+    fn startup_completion(
+        &self,
+    ) -> watch::Receiver<Option<Result<Arc<CapabilityRuntimeHandle>, WorkspaceCapabilityError>>>
+    {
+        lock_unpoisoned(&self.state)
+            .startup_flight
+            .as_ref()
+            .expect("starting RuntimeSlot must retain its startup flight")
+            .completion
+            .subscribe()
+    }
+
+    /// 在拿到 permit 后把已线性化的 acquire reservation 转为 in-flight guard。
+    async fn acquire_reserved_guard(
         self: &Arc<Self>,
-        runtime: Arc<CapabilityRuntimeHandle>,
-    ) -> RuntimeInFlightGuard {
+        mut reservation: RuntimeAcquireReservation,
+    ) -> Result<RuntimeInFlightGuard, WorkspaceCapabilityError> {
         let permit = Arc::clone(&self.permits)
             .acquire_owned()
             .await
             .expect("RuntimeSlot semaphore is owned by the Slot");
-        lock_unpoisoned(&self.state).in_flight += 1;
-        RuntimeInFlightGuard {
-            runtime,
+        let runtime = {
+            let mut state = lock_unpoisoned(&self.state);
+            if state.lifecycle != CapabilityRuntimeState::Ready {
+                return Err(WorkspaceCapabilityError::busy());
+            }
+            state.pending_acquires = state
+                .pending_acquires
+                .checked_sub(1)
+                .expect("Runtime acquire reservation must be registered");
+            state.in_flight += 1;
+            Arc::clone(
+                state
+                    .runtime
+                    .as_ref()
+                    .expect("ready RuntimeSlot must retain its runtime"),
+            )
+        };
+        reservation.disarm();
+        Ok(RuntimeInFlightGuard {
+            runtime: Some(runtime),
             slot: Arc::clone(self),
             _permit: permit,
-        }
+        })
     }
 
     /// 由 guard Drop 调用，保证 cancellation/panic 展开时归还 in-flight。
@@ -717,6 +797,54 @@ impl RuntimeSlot {
             .in_flight
             .checked_sub(1)
             .expect("RuntimeInFlightGuard must correspond to one in-flight acquisition");
+        if state.in_flight == 0 {
+            state.idle_since = Some(Instant::now());
+        }
+        drop(state);
+        self.publish_state_change();
+    }
+
+    /// 取消尚未取得 permit 的 acquire reservation，重新允许 idle eviction。
+    fn release_pending_acquire(&self) {
+        let mut state = lock_unpoisoned(&self.state);
+        state.pending_acquires = state
+            .pending_acquires
+            .checked_sub(1)
+            .expect("Runtime acquire reservation must correspond to one pending acquire");
+        drop(state);
+        self.publish_state_change();
+    }
+
+    /// 发布会影响 shutdown drain 判断的 Slot 状态变更，避免 Notify 注册窗口丢失唤醒。
+    fn publish_state_change(&self) {
+        self.state_revision
+            .send_modify(|revision| *revision = revision.wrapping_add(1));
+    }
+}
+
+/// 已经在 Manager 调度边界登记、但尚未成为 in-flight guard 的 acquire。
+struct RuntimeAcquireReservation {
+    slot: Arc<RuntimeSlot>,
+    active: bool,
+}
+
+impl RuntimeAcquireReservation {
+    /// 创建与单一 Slot 绑定的 pending acquire reservation。
+    fn new(slot: Arc<RuntimeSlot>) -> Self {
+        Self { slot, active: true }
+    }
+
+    /// 成功转为 guard 后，Drop 不再归还 pending 计数。
+    fn disarm(&mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for RuntimeAcquireReservation {
+    fn drop(&mut self) {
+        if self.active {
+            self.slot.release_pending_acquire();
+        }
     }
 }
 
@@ -754,7 +882,7 @@ impl Drop for StartupCompletionGuard {
 
 /// Tool 层只可借用 opaque Runtime handle；guard 不可 Clone，Drop 自动释放计数与许可。
 pub(crate) struct RuntimeInFlightGuard {
-    runtime: Arc<CapabilityRuntimeHandle>,
+    runtime: Option<Arc<CapabilityRuntimeHandle>>,
     slot: Arc<RuntimeSlot>,
     _permit: OwnedSemaphorePermit,
 }
@@ -762,12 +890,16 @@ pub(crate) struct RuntimeInFlightGuard {
 impl RuntimeInFlightGuard {
     /// 返回受 guard 生命周期约束的 Runtime handle 借用，不暴露进程内部信息。
     pub(crate) fn runtime(&self) -> &CapabilityRuntimeHandle {
-        &self.runtime
+        self.runtime
+            .as_deref()
+            .expect("RuntimeInFlightGuard must retain its runtime until Drop")
     }
 }
 
 impl Drop for RuntimeInFlightGuard {
     fn drop(&mut self) {
+        // 必须先释放额外 Arc，再让 Slot 变为可驱逐，保证 stop 可取得唯一 handle。
+        drop(self.runtime.take());
         self.slot.release_in_flight();
     }
 }
@@ -779,10 +911,65 @@ fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Manager 内部的 Slot 表与全局单调使用序号，共同构成容量调度线性化边界。
+struct RuntimeSlotTable {
+    slots: HashMap<RuntimeSlotKey, Arc<RuntimeSlot>>,
+    operations: HashMap<(RuntimeSlotKey, String), Arc<actions::ActionFlight>>,
+    next_used_sequence: u64,
+    removing_workspaces: HashSet<(String, u64)>,
+    shutting_down: bool,
+}
+
+/// Workspace Remove 完成前持续持有 capability admission exclusion 的 guard。
+pub(crate) struct WorkspaceRuntimeRemoval<'a> {
+    manager: &'a WorkspaceCapabilityManager,
+    workspace_id: String,
+    generation: u64,
+}
+
+impl Drop for WorkspaceRuntimeRemoval<'_> {
+    fn drop(&mut self) {
+        let mut table = lock_unpoisoned(&self.manager.runtime_slots);
+        table
+            .removing_workspaces
+            .remove(&(self.workspace_id.clone(), self.generation));
+    }
+}
+
+/// 已在调度边界内完成 ownership 转移、等待 Provider stop 的单 Slot 操作。
+struct RuntimeStop {
+    key: RuntimeSlotKey,
+    slot: Arc<RuntimeSlot>,
+    runtime: CapabilityRuntimeHandle,
+    flight: Arc<StopFlight>,
+}
+
+/// stop 成功后由同一调度边界执行的后续动作，避免容量交接出现可见窗口。
+enum StopCompletion {
+    /// idle timeout 仅将 Slot 收敛为 stopped，不产生 replacement。
+    Idle,
+    /// capacity eviction 在释放 victim 容量后立即为原请求继续 acquire。
+    Eviction {
+        provider_id: WorkspaceCapabilityProviderId,
+        lease: WorkspaceLease,
+        max_instances: usize,
+        per_slot_concurrency: usize,
+        operation_id: Option<String>,
+    },
+}
+
+/// 单 Slot stop 完成后的内部结果；仅 eviction 会交付新的 acquire 决策。
+enum StopResult {
+    /// idle stop 已完成，没有后续 acquire。
+    IdleStopped,
+    /// capacity eviction 已在同一 Manager 锁内完成 replacement admission。
+    ResumeAcquire(RuntimeAcquireDecision),
+}
+
 /// 具备 workspace-scoped Runtime Slot 的 Registry lookup 与 acquire Manager。
 pub(crate) struct WorkspaceCapabilityManager {
     registry: Arc<WorkspaceCapabilityRegistry>,
-    runtime_slots: Mutex<HashMap<RuntimeSlotKey, Arc<RuntimeSlot>>>,
+    runtime_slots: Arc<Mutex<RuntimeSlotTable>>,
 }
 
 impl WorkspaceCapabilityManager {
@@ -790,7 +977,13 @@ impl WorkspaceCapabilityManager {
     pub(crate) fn new(registry: Arc<WorkspaceCapabilityRegistry>) -> Self {
         Self {
             registry,
-            runtime_slots: Mutex::new(HashMap::new()),
+            runtime_slots: Arc::new(Mutex::new(RuntimeSlotTable {
+                slots: HashMap::new(),
+                operations: HashMap::new(),
+                next_used_sequence: 0,
+                removing_workspaces: HashSet::new(),
+                shutting_down: false,
+            })),
         }
     }
 
@@ -840,52 +1033,550 @@ impl WorkspaceCapabilityManager {
         provider_id: &str,
         lease: WorkspaceLease,
     ) -> Result<RuntimeInFlightGuard, WorkspaceCapabilityError> {
+        self.acquire_action_runtime(provider_id, lease, None).await
+    }
+
+    /// action 自身可在 exclusive claim 内 warm；外部 acquire 永远不持有此 operation identity。
+    async fn acquire_action_runtime(
+        &self,
+        provider_id: &str,
+        lease: WorkspaceLease,
+        operation_id: Option<&str>,
+    ) -> Result<RuntimeInFlightGuard, WorkspaceCapabilityError> {
         let provider = self.provider(provider_id)?;
         let descriptor = provider.descriptor();
         if descriptor.runtime_model != CapabilityRuntimeModel::WorkspaceScopedProcess {
             return Err(WorkspaceCapabilityError::contract_error());
         }
 
-        let slot = self.runtime_slot(
+        let mut decision = self.begin_capacity_acquire(
             &descriptor.provider_id,
             &lease,
+            descriptor.runtime_policy.max_instances,
             descriptor.runtime_policy.per_slot_concurrency,
+            operation_id,
         )?;
-        let runtime = match slot.begin_acquire() {
-            RuntimeAcquireDecision::Ready(runtime) => runtime,
-            RuntimeAcquireDecision::Busy => return Err(WorkspaceCapabilityError::busy()),
-            RuntimeAcquireDecision::Start(flight) => {
-                Self::start_runtime(Arc::clone(&slot), flight, provider, lease.clone()).await?
+        loop {
+            match decision {
+                RuntimeAcquireDecision::Ready(reservation) => {
+                    let slot = Arc::clone(&reservation.slot);
+                    return slot.acquire_reserved_guard(reservation).await;
+                }
+                RuntimeAcquireDecision::Start {
+                    flight,
+                    reservation,
+                } => {
+                    Self::start_runtime(
+                        Arc::clone(&reservation.slot),
+                        flight,
+                        Arc::clone(&provider),
+                        lease.clone(),
+                    )
+                    .await?;
+                    let slot = Arc::clone(&reservation.slot);
+                    return slot.acquire_reserved_guard(reservation).await;
+                }
+                RuntimeAcquireDecision::Wait {
+                    completion,
+                    reservation,
+                } => {
+                    Self::wait_for_startup(completion).await?;
+                    let slot = Arc::clone(&reservation.slot);
+                    return slot.acquire_reserved_guard(reservation).await;
+                }
+                RuntimeAcquireDecision::Busy => return Err(WorkspaceCapabilityError::busy()),
+                RuntimeAcquireDecision::Evict(eviction) => {
+                    decision = self
+                        .stop_lru_and_resume_acquire(
+                            eviction,
+                            Arc::clone(&provider),
+                            &lease,
+                            operation_id,
+                        )
+                        .await?;
+                }
             }
-            RuntimeAcquireDecision::Wait { completion } => {
-                Self::wait_for_startup(completion).await?
-            }
-        };
-
-        Ok(slot.acquire_guard(runtime).await)
+        }
     }
 
-    /// 只为 workspace_scoped_process 在第一次 acquire 时创建并验证 Slot。
-    fn runtime_slot(
+    /// 在单个 in-flight guard 的完整生命周期内，将 Tool 交给指定的 workspace-scoped Provider。
+    ///
+    /// 入口只接受服务端已解析的 Lease；guard 会跨 Provider await 保持 Slot 不可停止，取消或
+    /// future Drop 时则由其 Drop 自动归还 in-flight 计数与 permit。
+    pub(crate) async fn call(
+        &self,
+        provider_id: &str,
+        lease: WorkspaceLease,
+        tool: WorkspaceToolCall,
+    ) -> Result<WorkspaceToolResult, WorkspaceCapabilityError> {
+        let provider = self.provider(provider_id)?;
+        let tool_owner = self.tool_owner(&tool.tool_name)?;
+        if tool_owner != provider.descriptor().provider_id {
+            return Err(WorkspaceCapabilityError::contract_error());
+        }
+        let guard = self.acquire_runtime(provider_id, lease.clone()).await?;
+        call_with_checked_runtime(provider.as_ref(), &lease, Some(guard.runtime()), tool)
+            .await
+            .map_err(Self::map_provider_call_error)
+    }
+
+    /// 在 Manager 锁内创建或读取目标 Slot，并将本次 acquire 线性化到容量调度。
+    fn begin_capacity_acquire(
         &self,
         provider_id: &WorkspaceCapabilityProviderId,
         lease: &WorkspaceLease,
+        max_instances: usize,
         per_slot_concurrency: usize,
-    ) -> Result<Arc<RuntimeSlot>, WorkspaceCapabilityError> {
+        operation_id: Option<&str>,
+    ) -> Result<RuntimeAcquireDecision, WorkspaceCapabilityError> {
         let key = RuntimeSlotKey::new(provider_id.clone(), lease);
-        let mut slots = lock_unpoisoned(&self.runtime_slots);
-        if let Some(slot) = slots.get(&key) {
-            return (slot.canonical_root == lease.canonical_root)
-                .then(|| Arc::clone(slot))
-                .ok_or_else(WorkspaceCapabilityError::contract_error);
-        }
-
-        let slot = Arc::new(RuntimeSlot::new(
-            lease.canonical_root.clone(),
+        let mut table = lock_unpoisoned(&self.runtime_slots);
+        Self::begin_capacity_acquire_locked(
+            &mut table,
+            key,
+            lease,
+            max_instances,
             per_slot_concurrency,
-        ));
-        slots.insert(key, Arc::clone(&slot));
-        Ok(slot)
+            operation_id,
+        )
+    }
+
+    /// 在已持有 Manager 锁时执行容量检查、LRU 选择及 Slot 状态切换。
+    fn begin_capacity_acquire_locked(
+        table: &mut RuntimeSlotTable,
+        key: RuntimeSlotKey,
+        lease: &WorkspaceLease,
+        max_instances: usize,
+        per_slot_concurrency: usize,
+        operation_id: Option<&str>,
+    ) -> Result<RuntimeAcquireDecision, WorkspaceCapabilityError> {
+        if table.shutting_down
+            || table.operations.iter().any(|((operation_key, _), flight)| {
+                operation_key == &key
+                    && flight.exclusive
+                    && Some(flight.operation_id.as_str()) != operation_id
+            })
+            || table
+                .removing_workspaces
+                .contains(&(key.workspace_id.clone(), key.generation))
+        {
+            return Ok(RuntimeAcquireDecision::Busy);
+        }
+        let target = if let Some(slot) = table.slots.get(&key) {
+            (slot.canonical_root == lease.canonical_root)
+                .then(|| Arc::clone(slot))
+                .ok_or_else(WorkspaceCapabilityError::contract_error)?
+        } else {
+            let slot = Arc::new(RuntimeSlot::new(
+                lease.canonical_root.clone(),
+                per_slot_concurrency,
+            ));
+            table.slots.insert(key.clone(), Arc::clone(&slot));
+            slot
+        };
+
+        let state = lock_unpoisoned(&target.state);
+        match state.lifecycle {
+            CapabilityRuntimeState::Ready => {
+                drop(state);
+                Ok(Self::reserve_ready_acquire(table, target))
+            }
+            CapabilityRuntimeState::Starting => {
+                #[cfg(test)]
+                target.startup_waiter_registered.notify_one();
+                let completion = state
+                    .startup_flight
+                    .as_ref()
+                    .expect("starting RuntimeSlot must retain its startup flight")
+                    .completion
+                    .subscribe();
+                drop(state);
+                Ok(RuntimeAcquireDecision::Wait {
+                    completion,
+                    reservation: Self::reserve_acquire(table, target),
+                })
+            }
+            CapabilityRuntimeState::Stopping => {
+                drop(state);
+                Ok(RuntimeAcquireDecision::Busy)
+            }
+            CapabilityRuntimeState::Error if state.runtime.is_some() => {
+                // stop failure 返还的 handle 仍由 Slot 持有；不得在后续 acquire 中清空或替代。
+                drop(state);
+                Ok(RuntimeAcquireDecision::Busy)
+            }
+            CapabilityRuntimeState::Stopped | CapabilityRuntimeState::Error => {
+                drop(state);
+                if Self::allocated_capacity(table, &key.provider_id) < max_instances {
+                    let flight = {
+                        let mut state = lock_unpoisoned(&target.state);
+                        state.epoch = state.epoch.wrapping_add(1);
+                        state.lifecycle = CapabilityRuntimeState::Starting;
+                        state.runtime = None;
+                        let flight = Arc::new(StartupFlight::new(state.epoch));
+                        state.startup_flight = Some(Arc::clone(&flight));
+                        flight
+                    };
+                    Ok(RuntimeAcquireDecision::Start {
+                        flight,
+                        reservation: Self::reserve_acquire(table, target),
+                    })
+                } else {
+                    Self::select_lru_eviction(table, &key.provider_id)
+                        .map(RuntimeAcquireDecision::Evict)
+                        .ok_or_else(WorkspaceCapabilityError::busy)
+                }
+            }
+        }
+    }
+
+    /// 为本次 acquire 分配稳定的使用序号，并防止 permit 等待期间被误判为 idle。
+    fn reserve_acquire(
+        table: &mut RuntimeSlotTable,
+        slot: Arc<RuntimeSlot>,
+    ) -> RuntimeAcquireReservation {
+        table.next_used_sequence = table
+            .next_used_sequence
+            .checked_add(1)
+            .expect("Runtime LRU usage sequence must not overflow");
+        let mut state = lock_unpoisoned(&slot.state);
+        state.pending_acquires += 1;
+        state.last_used_sequence = table.next_used_sequence;
+        state.idle_since = None;
+        drop(state);
+        RuntimeAcquireReservation::new(slot)
+    }
+
+    /// Ready Slot 的 acquire 也必须走 reservation，避免 eviction 在 await permit 时夺走 handle。
+    fn reserve_ready_acquire(
+        table: &mut RuntimeSlotTable,
+        slot: Arc<RuntimeSlot>,
+    ) -> RuntimeAcquireDecision {
+        RuntimeAcquireDecision::Ready(Self::reserve_acquire(table, slot))
+    }
+
+    /// 仅统计同一 Provider 的 live/allocated Slot，以及仍持有 stop-failure handle 的 error Slot。
+    fn allocated_capacity(
+        table: &RuntimeSlotTable,
+        provider_id: &WorkspaceCapabilityProviderId,
+    ) -> usize {
+        table
+            .slots
+            .iter()
+            .filter(|(key, slot)| {
+                if key.provider_id != *provider_id {
+                    return false;
+                }
+                let state = lock_unpoisoned(&slot.state);
+                matches!(
+                    state.lifecycle,
+                    CapabilityRuntimeState::Starting
+                        | CapabilityRuntimeState::Ready
+                        | CapabilityRuntimeState::Stopping
+                ) || (state.lifecycle == CapabilityRuntimeState::Error && state.runtime.is_some())
+            })
+            .count()
+    }
+
+    /// 选中唯一最小使用序号的 idle Ready Slot，并在同一同步边界内转移 stop ownership。
+    fn select_lru_eviction(
+        table: &RuntimeSlotTable,
+        provider_id: &WorkspaceCapabilityProviderId,
+    ) -> Option<RuntimeStop> {
+        let victim = table
+            .slots
+            .iter()
+            .filter_map(|(key, slot)| {
+                if key.provider_id != *provider_id {
+                    return None;
+                }
+                if table
+                    .operations
+                    .keys()
+                    .any(|(operation_key, _)| operation_key == key)
+                {
+                    return None;
+                }
+                let state = lock_unpoisoned(&slot.state);
+                (state.lifecycle == CapabilityRuntimeState::Ready
+                    && state.in_flight == 0
+                    && state.pending_acquires == 0)
+                    .then(|| (state.last_used_sequence, key.clone(), Arc::clone(slot)))
+            })
+            .min_by_key(|(last_used_sequence, _, _)| *last_used_sequence)?;
+        let (_, key, slot) = victim;
+        Self::begin_slot_stop(key, slot)
+    }
+
+    /// 在 Manager 调度边界内转移唯一 handle，令同一 Slot 后续 stop 请求只能加入既有结果。
+    fn begin_slot_stop(key: RuntimeSlotKey, slot: Arc<RuntimeSlot>) -> Option<RuntimeStop> {
+        let mut state = lock_unpoisoned(&slot.state);
+        if !matches!(
+            state.lifecycle,
+            CapabilityRuntimeState::Ready | CapabilityRuntimeState::Error
+        ) || state.in_flight != 0
+            || state.pending_acquires != 0
+            || state.runtime.is_none()
+        {
+            return None;
+        }
+        let runtime = state
+            .runtime
+            .take()
+            .expect("eligible Ready RuntimeSlot must retain its runtime");
+        let runtime = Arc::try_unwrap(runtime)
+            .expect("idle RuntimeSlot must have no Runtime handle outside Manager ownership");
+        state.lifecycle = CapabilityRuntimeState::Stopping;
+        state.idle_since = None;
+        let flight = Arc::new(StopFlight::new());
+        state.stop_flight = Some(Arc::clone(&flight));
+        drop(state);
+        slot.publish_state_change();
+        Some(RuntimeStop {
+            key,
+            slot,
+            runtime,
+            flight,
+        })
+    }
+
+    /// 扫描并停止超过 Descriptor idle timeout 的 Slot；不接入后台 sweeper、Remove 或 shutdown。
+    pub(crate) async fn stop_idle_runtimes(&self) -> Result<(), WorkspaceCapabilityError> {
+        while let Some((stop, provider)) = self.begin_idle_stop()? {
+            match self
+                .stop_runtime(stop, provider, StopCompletion::Idle)
+                .await?
+            {
+                StopResult::IdleStopped => {}
+                StopResult::ResumeAcquire(_) => {
+                    return Err(WorkspaceCapabilityError::contract_error());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// 在 Manager 锁内选中一个已超过 timeout 的 idle Slot，并原子转移其 stop ownership。
+    fn begin_idle_stop(
+        &self,
+    ) -> Result<Option<(RuntimeStop, Arc<dyn WorkspaceCapabilityProvider>)>, WorkspaceCapabilityError>
+    {
+        let now = Instant::now();
+        let table = lock_unpoisoned(&self.runtime_slots);
+        let mut candidate = None;
+        for (key, slot) in &table.slots {
+            if table
+                .operations
+                .keys()
+                .any(|(operation_key, _)| operation_key == key)
+            {
+                continue;
+            }
+            let provider = self
+                .registry
+                .provider(key.provider_id.as_str())
+                .map_err(Self::map_registry_error)?;
+            let state = lock_unpoisoned(&slot.state);
+            let timed_out = state.idle_since.is_some_and(|idle_since| {
+                now.saturating_duration_since(idle_since)
+                    >= Duration::from_millis(provider.descriptor().runtime_policy.idle_timeout_ms)
+            });
+            if state.lifecycle == CapabilityRuntimeState::Ready
+                && state.in_flight == 0
+                && state.pending_acquires == 0
+                && timed_out
+            {
+                candidate = Some((key.clone(), Arc::clone(slot), provider));
+                break;
+            }
+        }
+        let Some((key, slot, provider)) = candidate else {
+            return Ok(None);
+        };
+        let stop = Self::begin_slot_stop(key, slot)
+            .expect("idle RuntimeSlot selected under Manager lock must remain stoppable");
+        Ok(Some((stop, provider)))
+    }
+
+    /// capacity eviction 复用通用 stop primitive，并在 stop success 后原子恢复原 acquire。
+    async fn stop_lru_and_resume_acquire(
+        &self,
+        eviction: RuntimeStop,
+        provider: Arc<dyn WorkspaceCapabilityProvider>,
+        lease: &WorkspaceLease,
+        operation_id: Option<&str>,
+    ) -> Result<RuntimeAcquireDecision, WorkspaceCapabilityError> {
+        let descriptor = provider.descriptor();
+        let completion = StopCompletion::Eviction {
+            provider_id: descriptor.provider_id.clone(),
+            lease: lease.clone(),
+            max_instances: descriptor.runtime_policy.max_instances,
+            per_slot_concurrency: descriptor.runtime_policy.per_slot_concurrency,
+            operation_id: operation_id.map(str::to_owned),
+        };
+        match self.stop_runtime(eviction, provider, completion).await? {
+            StopResult::ResumeAcquire(decision) => Ok(decision),
+            StopResult::IdleStopped => Err(WorkspaceCapabilityError::contract_error()),
+        }
+    }
+
+    /// 启动取消安全的 per-Slot stop single-flight；Provider stop 从不持有 Manager 锁。
+    async fn stop_runtime(
+        &self,
+        stop: RuntimeStop,
+        provider: Arc<dyn WorkspaceCapabilityProvider>,
+        completion: StopCompletion,
+    ) -> Result<StopResult, WorkspaceCapabilityError> {
+        let (completion_sender, completion_receiver) = tokio::sync::oneshot::channel();
+        let runtime_slots = Arc::clone(&self.runtime_slots);
+        let flight = Arc::clone(&stop.flight);
+        tokio::spawn(async move {
+            let result = Self::complete_slot_stop(runtime_slots, stop, provider, completion).await;
+            if let Err(result) = completion_sender.send(result) {
+                if let Ok(StopResult::ResumeAcquire(decision)) = result {
+                    Self::cancel_unclaimed_acquire(decision);
+                }
+            }
+        });
+        tokio::time::timeout(flight.remaining(), completion_receiver)
+            .await
+            .map_err(|_| WorkspaceCapabilityError::stop_failed())?
+            .map_err(|_| WorkspaceCapabilityError::contract_error())?
+    }
+
+    /// 完成单 Slot stop，并在成功时于同一 Manager 锁内执行可选的 eviction replacement admission。
+    async fn complete_slot_stop(
+        runtime_slots: Arc<Mutex<RuntimeSlotTable>>,
+        stop: RuntimeStop,
+        provider: Arc<dyn WorkspaceCapabilityProvider>,
+        completion: StopCompletion,
+    ) -> Result<StopResult, WorkspaceCapabilityError> {
+        match provider.stop(stop.runtime).await {
+            Ok(evidence) if evidence.runtime_state == CapabilityRuntimeState::Stopped => {
+                let mut table = lock_unpoisoned(&runtime_slots);
+                let mut state = lock_unpoisoned(&stop.slot.state);
+                if state.lifecycle != CapabilityRuntimeState::Stopping
+                    || state.runtime.is_some()
+                    || !state
+                        .stop_flight
+                        .as_ref()
+                        .is_some_and(|flight| Arc::ptr_eq(flight, &stop.flight))
+                {
+                    stop.flight
+                        .completion
+                        .send_replace(Some(Err(WorkspaceCapabilityError::contract_error())));
+                    return Err(WorkspaceCapabilityError::contract_error());
+                }
+                state.lifecycle = CapabilityRuntimeState::Stopped;
+                state.idle_since = None;
+                state.stop_flight = None;
+                drop(state);
+                stop.flight.completion.send_replace(Some(Ok(())));
+                stop.slot.publish_state_change();
+                let result = match completion {
+                    StopCompletion::Idle => StopResult::IdleStopped,
+                    StopCompletion::Eviction {
+                        provider_id,
+                        lease,
+                        max_instances,
+                        per_slot_concurrency,
+                        operation_id,
+                    } => StopResult::ResumeAcquire(Self::begin_capacity_acquire_locked(
+                        &mut table,
+                        RuntimeSlotKey::new(provider_id, &lease),
+                        &lease,
+                        max_instances,
+                        per_slot_concurrency,
+                        operation_id.as_deref(),
+                    )?),
+                };
+                drop(table);
+                #[cfg(test)]
+                stop.slot.stop_completion_published.notify_waiters();
+                Ok(result)
+            }
+            Ok(_) => {
+                let _table = lock_unpoisoned(&runtime_slots);
+                let mut state = lock_unpoisoned(&stop.slot.state);
+                if state.lifecycle != CapabilityRuntimeState::Stopping
+                    || state.runtime.is_some()
+                    || !state
+                        .stop_flight
+                        .as_ref()
+                        .is_some_and(|flight| Arc::ptr_eq(flight, &stop.flight))
+                {
+                    stop.flight
+                        .completion
+                        .send_replace(Some(Err(WorkspaceCapabilityError::contract_error())));
+                    return Err(WorkspaceCapabilityError::contract_error());
+                }
+                state.lifecycle = CapabilityRuntimeState::Error;
+                state.stop_flight = None;
+                drop(state);
+                stop.flight
+                    .completion
+                    .send_replace(Some(Err(WorkspaceCapabilityError::contract_error())));
+                stop.slot.publish_state_change();
+                #[cfg(test)]
+                stop.slot.stop_completion_published.notify_waiters();
+                Err(WorkspaceCapabilityError::contract_error())
+            }
+            Err(failure) => {
+                let _table = lock_unpoisoned(&runtime_slots);
+                let mut state = lock_unpoisoned(&stop.slot.state);
+                if failure.runtime.provider_id != stop.key.provider_id
+                    || failure.runtime.workspace_id != stop.key.workspace_id
+                    || failure.runtime.workspace_generation != stop.key.generation
+                    || state.lifecycle != CapabilityRuntimeState::Stopping
+                    || state.runtime.is_some()
+                    || !state
+                        .stop_flight
+                        .as_ref()
+                        .is_some_and(|flight| Arc::ptr_eq(flight, &stop.flight))
+                {
+                    stop.flight
+                        .completion
+                        .send_replace(Some(Err(WorkspaceCapabilityError::contract_error())));
+                    return Err(WorkspaceCapabilityError::contract_error());
+                }
+                state.runtime = Some(Arc::new(failure.runtime));
+                state.lifecycle = CapabilityRuntimeState::Error;
+                state.idle_since = None;
+                state.stop_flight = None;
+                drop(state);
+                stop.flight
+                    .completion
+                    .send_replace(Some(Err(WorkspaceCapabilityError::stop_failed())));
+                stop.slot.publish_state_change();
+                #[cfg(test)]
+                stop.slot.stop_completion_published.notify_waiters();
+                Err(WorkspaceCapabilityError::stop_failed())
+            }
+        }
+    }
+
+    /// 回滚接收方取消后尚未执行的 admission，避免遗留 pending acquire 或无 leader startup。
+    fn cancel_unclaimed_acquire(decision: RuntimeAcquireDecision) {
+        match decision {
+            RuntimeAcquireDecision::Start {
+                flight,
+                reservation,
+            } => {
+                reservation
+                    .slot
+                    .complete_startup(&flight, Err(WorkspaceCapabilityError::start_failed()));
+            }
+            RuntimeAcquireDecision::Evict(eviction) => {
+                let mut state = lock_unpoisoned(&eviction.slot.state);
+                if state.lifecycle == CapabilityRuntimeState::Stopping && state.runtime.is_none() {
+                    state.runtime = Some(Arc::new(eviction.runtime));
+                    state.lifecycle = CapabilityRuntimeState::Ready;
+                }
+            }
+            RuntimeAcquireDecision::Ready(_)
+            | RuntimeAcquireDecision::Wait { .. }
+            | RuntimeAcquireDecision::Busy => {}
+        }
     }
 
     /// 由单一 leader 执行 Provider start，所有错误均映射为 Manager 安全错误。
@@ -929,11 +1620,335 @@ impl WorkspaceCapabilityManager {
         }
     }
 
+    /// 为目标 Workspace 关闭新的 capability admission，并在 Registry 删除前收敛全部 RuntimeSlot。
+    pub(crate) async fn begin_workspace_remove(
+        &self,
+        lease: &WorkspaceLease,
+    ) -> Result<WorkspaceRuntimeRemoval<'_>, WorkspaceCapabilityError> {
+        let removal = self.begin_workspace_remove_admission(lease)?;
+        if let Err(error) = self.drain_workspace_remove(lease).await {
+            drop(removal);
+            return Err(error);
+        }
+        Ok(removal)
+    }
+
+    /// 同步建立 Remove admission；Supervisor 必须在其 operation 临界区内调用它。
+    pub(crate) fn begin_workspace_remove_admission(
+        &self,
+        lease: &WorkspaceLease,
+    ) -> Result<WorkspaceRuntimeRemoval<'_>, WorkspaceCapabilityError> {
+        self.mark_workspace_removing(lease)
+    }
+
+    /// 在 admission 已建立后异步 drain Runtime；调用期间不持有 Supervisor operation mutex。
+    pub(crate) async fn drain_workspace_remove(
+        &self,
+        lease: &WorkspaceLease,
+    ) -> Result<(), WorkspaceCapabilityError> {
+        let keys = {
+            let table = lock_unpoisoned(&self.runtime_slots);
+            if !table
+                .removing_workspaces
+                .contains(&(lease.workspace_id.clone(), lease.generation))
+            {
+                return Err(WorkspaceCapabilityError::contract_error());
+            }
+            table
+                .slots
+                .keys()
+                .filter(|key| {
+                    key.workspace_id == lease.workspace_id && key.generation == lease.generation
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        for key in keys {
+            self.drain_workspace_remove_slot(&key).await?;
+        }
+        Ok(())
+    }
+
+    /// 在 Supervisor operation 临界区内查询同一 admission，阻止 Agent Start 创建新的 Claim。
+    pub(crate) fn workspace_remove_admission_active(&self, lease: &WorkspaceLease) -> bool {
+        lock_unpoisoned(&self.runtime_slots)
+            .removing_workspaces
+            .contains(&(lease.workspace_id.clone(), lease.generation))
+    }
+
+    /// 在同一 Slot 表线性化边界登记 Remove，并拒绝已有 startup、调用或 admission 的 Workspace。
+    fn mark_workspace_removing(
+        &self,
+        lease: &WorkspaceLease,
+    ) -> Result<WorkspaceRuntimeRemoval<'_>, WorkspaceCapabilityError> {
+        let mut table = lock_unpoisoned(&self.runtime_slots);
+        let identity = (lease.workspace_id.clone(), lease.generation);
+        if table.shutting_down || table.removing_workspaces.contains(&identity) {
+            return Err(WorkspaceCapabilityError::busy());
+        }
+        if table.operations.keys().any(|(key, _)| {
+            key.workspace_id == lease.workspace_id && key.generation == lease.generation
+        }) {
+            return Err(WorkspaceCapabilityError::busy());
+        }
+        for (key, slot) in &table.slots {
+            if key.workspace_id != lease.workspace_id || key.generation != lease.generation {
+                continue;
+            }
+            if slot.canonical_root != lease.canonical_root {
+                return Err(WorkspaceCapabilityError::contract_error());
+            }
+            let state = lock_unpoisoned(&slot.state);
+            if state.lifecycle == CapabilityRuntimeState::Starting
+                || state.in_flight != 0
+                || state.pending_acquires != 0
+            {
+                return Err(WorkspaceCapabilityError::busy());
+            }
+        }
+        table.removing_workspaces.insert(identity.clone());
+        Ok(WorkspaceRuntimeRemoval {
+            manager: self,
+            workspace_id: identity.0,
+            generation: identity.1,
+        })
+    }
+
+    /// 收敛 Remove 已排他的单个 Slot；已 Stopping 的调用方只等待其既有完成结果。
+    async fn drain_workspace_remove_slot(
+        &self,
+        key: &RuntimeSlotKey,
+    ) -> Result<(), WorkspaceCapabilityError> {
+        loop {
+            enum Next {
+                Done,
+                WaitStop(Arc<StopFlight>),
+                Stop(RuntimeStop, Arc<dyn WorkspaceCapabilityProvider>),
+            }
+            let next = {
+                let table = lock_unpoisoned(&self.runtime_slots);
+                let slot = Arc::clone(
+                    table
+                        .slots
+                        .get(key)
+                        .expect("workspace remove Slot must remain in its Manager table"),
+                );
+                let state = lock_unpoisoned(&slot.state);
+                match state.lifecycle {
+                    CapabilityRuntimeState::Stopped | CapabilityRuntimeState::Error
+                        if state.runtime.is_none() =>
+                    {
+                        Next::Done
+                    }
+                    CapabilityRuntimeState::Stopping => Next::WaitStop(Arc::clone(
+                        state
+                            .stop_flight
+                            .as_ref()
+                            .expect("stopping RuntimeSlot must retain its stop flight"),
+                    )),
+                    CapabilityRuntimeState::Ready | CapabilityRuntimeState::Error
+                        if state.runtime.is_some() =>
+                    {
+                        if state.in_flight != 0 || state.pending_acquires != 0 {
+                            return Err(WorkspaceCapabilityError::busy());
+                        }
+                        drop(state);
+                        let stop = Self::begin_slot_stop(key.clone(), Arc::clone(&slot))
+                            .expect("idle remove RuntimeSlot must transfer its stop ownership");
+                        let provider = self
+                            .registry
+                            .provider(key.provider_id.as_str())
+                            .map_err(Self::map_registry_error)?;
+                        Next::Stop(stop, provider)
+                    }
+                    CapabilityRuntimeState::Starting => {
+                        return Err(WorkspaceCapabilityError::busy());
+                    }
+                    CapabilityRuntimeState::Stopped
+                    | CapabilityRuntimeState::Ready
+                    | CapabilityRuntimeState::Error => {
+                        return Err(WorkspaceCapabilityError::contract_error());
+                    }
+                }
+            };
+            match next {
+                Next::Done => return Ok(()),
+                Next::WaitStop(flight) => Self::wait_for_stop(flight).await?,
+                Next::Stop(stop, provider) => match self
+                    .stop_runtime(stop, provider, StopCompletion::Idle)
+                    .await?
+                {
+                    StopResult::IdleStopped => return Ok(()),
+                    StopResult::ResumeAcquire(_) => {
+                        return Err(WorkspaceCapabilityError::contract_error());
+                    }
+                },
+            }
+        }
+    }
+
+    /// 等待指定 stop epoch 的结果；后续 retry 不能伪造本次完成。
+    async fn wait_for_stop(flight: Arc<StopFlight>) -> Result<(), WorkspaceCapabilityError> {
+        let mut completion = flight.completion.subscribe();
+        loop {
+            if let Some(result) = completion.borrow_and_update().clone() {
+                return result;
+            }
+            tokio::time::timeout(flight.remaining(), completion.changed())
+                .await
+                .map_err(|_| WorkspaceCapabilityError::stop_failed())?
+                .map_err(|_| WorkspaceCapabilityError::contract_error())?;
+        }
+    }
+
+    /// Host shutdown 先封闭新的 admission，再逐一停止所有 live 或 retained-handle Slot。
+    pub(crate) async fn shutdown_runtimes(&self) -> Result<(), WorkspaceCapabilityError> {
+        let operations = {
+            let mut table = lock_unpoisoned(&self.runtime_slots);
+            table.shutting_down = true;
+            table
+                .operations
+                .values()
+                .map(|operation| operation.completion.subscribe())
+                .collect::<Vec<_>>()
+        };
+        // 已获授权的 bounded operation 先完成并归还 claim，随后统一停止 warm Runtime。
+        for mut completion in operations {
+            while completion.borrow_and_update().is_none() {
+                if completion.changed().await.is_err() {
+                    break;
+                }
+            }
+        }
+        let keys = {
+            let mut table = lock_unpoisoned(&self.runtime_slots);
+            table.shutting_down = true;
+            table.slots.keys().cloned().collect::<Vec<_>>()
+        };
+        let mut failure = None;
+        for key in keys {
+            if let Err(error) = self.drain_shutdown_slot(&key).await {
+                failure.get_or_insert(error);
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
+
+    /// shutdown 等待既有 guard、startup 或 stop 结束，但从不在 MutexGuard 存活时 await。
+    async fn drain_shutdown_slot(
+        &self,
+        key: &RuntimeSlotKey,
+    ) -> Result<(), WorkspaceCapabilityError> {
+        loop {
+            enum Next {
+                Done,
+                WaitState(watch::Receiver<u64>),
+                WaitStart(
+                    watch::Receiver<
+                        Option<Result<Arc<CapabilityRuntimeHandle>, WorkspaceCapabilityError>>,
+                    >,
+                ),
+                WaitStop(Arc<StopFlight>),
+                Stop(RuntimeStop, Arc<dyn WorkspaceCapabilityProvider>),
+            }
+            let next = {
+                let table = lock_unpoisoned(&self.runtime_slots);
+                let slot = Arc::clone(
+                    table
+                        .slots
+                        .get(key)
+                        .expect("shutdown RuntimeSlot must remain in its Manager table"),
+                );
+                let state_changed = slot.state_revision.subscribe();
+                let state = lock_unpoisoned(&slot.state);
+                match state.lifecycle {
+                    CapabilityRuntimeState::Stopped | CapabilityRuntimeState::Error
+                        if state.runtime.is_none() =>
+                    {
+                        Next::Done
+                    }
+                    CapabilityRuntimeState::Starting => Next::WaitStart(
+                        state
+                            .startup_flight
+                            .as_ref()
+                            .expect("starting RuntimeSlot must retain its startup flight")
+                            .completion
+                            .subscribe(),
+                    ),
+                    CapabilityRuntimeState::Stopping => Next::WaitStop(Arc::clone(
+                        state
+                            .stop_flight
+                            .as_ref()
+                            .expect("stopping RuntimeSlot must retain its stop flight"),
+                    )),
+                    CapabilityRuntimeState::Ready | CapabilityRuntimeState::Error
+                        if state.runtime.is_some() =>
+                    {
+                        if state.in_flight != 0 || state.pending_acquires != 0 {
+                            Next::WaitState(state_changed)
+                        } else {
+                            drop(state);
+                            let stop = Self::begin_slot_stop(key.clone(), Arc::clone(&slot))
+                                .expect(
+                                    "idle shutdown RuntimeSlot must transfer its stop ownership",
+                                );
+                            let provider = self
+                                .registry
+                                .provider(key.provider_id.as_str())
+                                .map_err(Self::map_registry_error)?;
+                            Next::Stop(stop, provider)
+                        }
+                    }
+                    CapabilityRuntimeState::Stopped
+                    | CapabilityRuntimeState::Ready
+                    | CapabilityRuntimeState::Error => {
+                        return Err(WorkspaceCapabilityError::contract_error());
+                    }
+                }
+            };
+            match next {
+                Next::Done => return Ok(()),
+                Next::WaitState(mut revision) => revision
+                    .changed()
+                    .await
+                    .map_err(|_| WorkspaceCapabilityError::contract_error())?,
+                Next::WaitStart(completion) => {
+                    let _ = Self::wait_for_startup(completion).await;
+                }
+                Next::WaitStop(flight) => Self::wait_for_stop(flight).await?,
+                Next::Stop(stop, provider) => match self
+                    .stop_runtime(stop, provider, StopCompletion::Idle)
+                    .await?
+                {
+                    StopResult::IdleStopped => return Ok(()),
+                    StopResult::ResumeAcquire(_) => {
+                        return Err(WorkspaceCapabilityError::contract_error());
+                    }
+                },
+            }
+        }
+    }
+
     /// 将 Registry 内部错误收敛为 Manager 的安全 Workspace Capability 错误。
     fn map_registry_error(error: CapabilityProviderError) -> WorkspaceCapabilityError {
         match error.code {
             CapabilityProviderErrorCode::NotFound => WorkspaceCapabilityError::not_found(),
             _ => WorkspaceCapabilityError::contract_error(),
+        }
+    }
+
+    /// 将 Provider 的封闭安全代码继续收敛为 Manager 对外的冻结错误，不传播实现细节。
+    fn map_provider_call_error(error: CapabilityProviderError) -> WorkspaceCapabilityError {
+        match error.code {
+            CapabilityProviderErrorCode::NotFound
+            | CapabilityProviderErrorCode::Unavailable
+            | CapabilityProviderErrorCode::OperationFailed => WorkspaceCapabilityError {
+                code: WorkspaceCapabilityErrorCode::RuntimeLost,
+            },
+            CapabilityProviderErrorCode::RuntimeIdentityMismatch
+            | CapabilityProviderErrorCode::ContractError => {
+                WorkspaceCapabilityError::contract_error()
+            }
         }
     }
 }
@@ -968,6 +1983,8 @@ fn runtime_matches(
 
 #[cfg(test)]
 mod tests {
+    // 子模块复用既有 fake Provider；所有 action 测试仍属于 workspace_capability::tests。
+    include!("workspace_capability/action_tests.rs");
     use super::*;
     use serde_json::json;
     use std::{
@@ -990,6 +2007,7 @@ mod tests {
             preparation_policy: CapabilityPreparationPolicy::ExplicitOnly,
             stage_descriptors: vec![CapabilityStageDescriptor {
                 id: "index".into(),
+                display_name: "Index".into(),
                 requirement: CapabilityStageRequirement::Required,
             }],
             action_descriptors: vec![CapabilityActionDescriptor {
@@ -1026,6 +2044,20 @@ mod tests {
         WrongGeneration,
     }
 
+    /// 受 channel 控制的 stop 结果，确保 Stopping 竞态测试不依赖 sleep。
+    #[derive(Clone, Copy, Debug)]
+    enum StopPlan {
+        Success,
+        Failure,
+    }
+
+    /// 受 channel 控制的 Tool 调用结果，用于验证 Manager guard 的取消释放语义。
+    #[derive(Clone, Copy, Debug)]
+    enum CallPlan {
+        Success,
+        Failure,
+    }
+
     /// 第三方 fake Provider 只依赖本 module 的通用 domain 类型。
     struct FakeProvider {
         descriptor: WorkspaceCapabilityDescriptor,
@@ -1036,8 +2068,17 @@ mod tests {
         calls: std::sync::atomic::AtomicUsize,
         stops: std::sync::atomic::AtomicUsize,
         stop_fails: std::sync::atomic::AtomicBool,
+        call_fails: std::sync::atomic::AtomicBool,
         start_plans: Mutex<VecDeque<oneshot::Receiver<StartPlan>>>,
         start_entered: Arc<Notify>,
+        call_plans: Mutex<VecDeque<oneshot::Receiver<CallPlan>>>,
+        prepare_plans: Mutex<VecDeque<oneshot::Receiver<CallPlan>>>,
+        prepare_entered: Arc<Notify>,
+        prepared_leases: Mutex<Vec<WorkspaceLease>>,
+        call_entered: Arc<Notify>,
+        stop_plans: Mutex<VecDeque<oneshot::Receiver<StopPlan>>>,
+        stop_entered: Arc<Notify>,
+        stopped_workspaces: Arc<Mutex<Vec<String>>>,
     }
 
     impl FakeProvider {
@@ -1057,8 +2098,17 @@ mod tests {
                 calls: std::sync::atomic::AtomicUsize::new(0),
                 stops: std::sync::atomic::AtomicUsize::new(0),
                 stop_fails: std::sync::atomic::AtomicBool::new(false),
+                call_fails: std::sync::atomic::AtomicBool::new(false),
                 start_plans: Mutex::new(VecDeque::new()),
                 start_entered: Arc::new(Notify::new()),
+                call_plans: Mutex::new(VecDeque::new()),
+                prepare_plans: Mutex::new(VecDeque::new()),
+                prepare_entered: Arc::new(Notify::new()),
+                prepared_leases: Mutex::new(Vec::new()),
+                call_entered: Arc::new(Notify::new()),
+                stop_plans: Mutex::new(VecDeque::new()),
+                stop_entered: Arc::new(Notify::new()),
+                stopped_workspaces: Arc::new(Mutex::new(Vec::new())),
             }
         }
 
@@ -1069,10 +2119,37 @@ mod tests {
             sender
         }
 
+        /// 为下一次 stop 安排一个由测试 channel 放行的确定性结果。
+        fn enqueue_stop(&self) -> oneshot::Sender<StopPlan> {
+            let (sender, receiver) = oneshot::channel();
+            lock_unpoisoned(&self.stop_plans).push_back(receiver);
+            sender
+        }
+
+        /// 在显式 prepare 内确定性暂停，以验证 duplicate/cancel/remove。
+        fn enqueue_prepare(&self) -> oneshot::Sender<CallPlan> {
+            let (sender, receiver) = oneshot::channel();
+            lock_unpoisoned(&self.prepare_plans).push_back(receiver);
+            sender
+        }
+
         /// 令后续 stop 确定性失败，用于验证 failure carrier 的所有权归还。
         fn fail_stop(&self) {
             self.stop_fails
                 .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+
+        /// 令后续 Tool 调用返回安全 Provider 失败，验证 Manager 不泄露其内部分类。
+        fn fail_call(&self) {
+            self.call_fails
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+
+        /// 为下一次 Tool 调用安排一个由测试 channel 放行的确定性结果。
+        fn enqueue_call(&self) -> oneshot::Sender<CallPlan> {
+            let (sender, receiver) = oneshot::channel();
+            lock_unpoisoned(&self.call_plans).push_back(receiver);
+            sender
         }
 
         /// 断言 Registry/Manager lookup 未调用任何 Provider 生命周期方法。
@@ -1130,14 +2207,24 @@ mod tests {
 
         fn prepare<'a>(
             &'a self,
-            _lease: WorkspaceLease,
+            lease: WorkspaceLease,
             _action: CapabilityPrepareAction,
             _activity: &'a dyn CapabilityActivitySink,
         ) -> CapabilityFuture<'a, Result<CapabilityPrepareResult, CapabilityProviderError>>
         {
             self.prepares
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Box::pin(async {
+            lock_unpoisoned(&self.prepared_leases).push(lease);
+            let plan = lock_unpoisoned(&self.prepare_plans).pop_front();
+            Box::pin(async move {
+                self.prepare_entered.notify_one();
+                if let Some(plan) = plan {
+                    if matches!(plan.await, Ok(CallPlan::Failure) | Err(_)) {
+                        return Err(CapabilityProviderError {
+                            code: CapabilityProviderErrorCode::OperationFailed,
+                        });
+                    }
+                }
                 Ok(CapabilityPrepareResult {
                     readiness: CapabilityReadinessState::Ready,
                 })
@@ -1190,8 +2277,22 @@ mod tests {
             _runtime: Option<&'a CapabilityRuntimeHandle>,
             _tool: WorkspaceToolCall,
         ) -> CapabilityFuture<'a, Result<WorkspaceToolResult, CapabilityProviderError>> {
+            let call_fails = self.call_fails.load(std::sync::atomic::Ordering::SeqCst);
+            let plan = lock_unpoisoned(&self.call_plans).pop_front();
+            let call_entered = Arc::clone(&self.call_entered);
             Box::pin(async move {
                 self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let call_fails = if let Some(plan) = plan {
+                    call_entered.notify_one();
+                    matches!(plan.await.unwrap_or(CallPlan::Failure), CallPlan::Failure)
+                } else {
+                    call_fails
+                };
+                if call_fails {
+                    return Err(CapabilityProviderError {
+                        code: CapabilityProviderErrorCode::OperationFailed,
+                    });
+                }
                 Ok(WorkspaceToolResult {
                     result: json!({ "ok": true }),
                 })
@@ -1204,7 +2305,16 @@ mod tests {
         ) -> CapabilityFuture<'_, Result<StopEvidence, CapabilityStopFailure>> {
             self.stops.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let stop_fails = self.stop_fails.load(std::sync::atomic::Ordering::SeqCst);
+            let plan = lock_unpoisoned(&self.stop_plans).pop_front();
+            let stop_entered = Arc::clone(&self.stop_entered);
+            let stopped_workspaces = Arc::clone(&self.stopped_workspaces);
             Box::pin(async move {
+                let stop_fails = if let Some(plan) = plan {
+                    stop_entered.notify_one();
+                    matches!(plan.await.unwrap_or(StopPlan::Failure), StopPlan::Failure)
+                } else {
+                    stop_fails
+                };
                 if stop_fails {
                     return Err(CapabilityStopFailure {
                         runtime,
@@ -1213,6 +2323,7 @@ mod tests {
                         },
                     });
                 }
+                lock_unpoisoned(&stopped_workspaces).push(runtime.workspace_id.clone());
                 Ok(StopEvidence {
                     runtime_state: CapabilityRuntimeState::Stopped,
                 })
@@ -1235,8 +2346,30 @@ mod tests {
 
     /// 创建指定 per-slot concurrency 的通用 workspace-scoped fake Provider。
     fn runtime_provider(provider_id: &str, per_slot_concurrency: usize) -> Arc<FakeProvider> {
+        runtime_provider_with_capacity(provider_id, per_slot_concurrency, 2)
+    }
+
+    /// 创建指定并发度和容量上限的通用 workspace-scoped fake Provider。
+    fn runtime_provider_with_capacity(
+        provider_id: &str,
+        per_slot_concurrency: usize,
+        max_instances: usize,
+    ) -> Arc<FakeProvider> {
         let mut provider_descriptor = descriptor(provider_id);
         provider_descriptor.runtime_policy.per_slot_concurrency = per_slot_concurrency;
+        provider_descriptor.runtime_policy.max_instances = max_instances;
+        Arc::new(FakeProvider::with_descriptor(provider_descriptor))
+    }
+
+    /// 创建指定 idle timeout 的 fake Provider，避免 timeout 测试依赖真实等待。
+    fn runtime_provider_with_idle_timeout(
+        provider_id: &str,
+        per_slot_concurrency: usize,
+        idle_timeout_ms: u64,
+    ) -> Arc<FakeProvider> {
+        let mut provider_descriptor = descriptor(provider_id);
+        provider_descriptor.runtime_policy.per_slot_concurrency = per_slot_concurrency;
+        provider_descriptor.runtime_policy.idle_timeout_ms = idle_timeout_ms;
         Arc::new(FakeProvider::with_descriptor(provider_descriptor))
     }
 
@@ -1254,6 +2387,7 @@ mod tests {
         workspace_lease: &WorkspaceLease,
     ) -> Arc<RuntimeSlot> {
         lock_unpoisoned(&manager.runtime_slots)
+            .slots
             .get(&RuntimeSlotKey::new(
                 WorkspaceCapabilityProviderId::new(provider_id),
                 workspace_lease,
@@ -1471,6 +2605,7 @@ mod tests {
         assert_eq!(descriptor["readinessProbe"], "required");
         assert_eq!(descriptor["preparationPolicy"], "explicit_only");
         assert_eq!(descriptor["stageDescriptors"][0]["id"], "index");
+        assert_eq!(descriptor["stageDescriptors"][0]["displayName"], "Index");
         assert_eq!(descriptor["stageDescriptors"][0]["requirement"], "required");
         assert_eq!(
             descriptor["actionDescriptors"][0]["actionId"],
@@ -1726,6 +2861,138 @@ mod tests {
         assert!(value.get("canonicalRoot").is_none());
     }
 
+    #[tokio::test]
+    /// 验证 Manager 在 guard 生命周期内只向指定 Provider 交付一次正确的 Tool 调用。
+    async fn manager_call_acquires_checked_runtime_and_delegates_once() {
+        let provider = runtime_provider("generic", 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_lease = lease("workspace-a", 7);
+
+        let result = manager
+            .call(
+                "generic",
+                workspace_lease.clone(),
+                WorkspaceToolCall {
+                    tool_name: "fake_tool".into(),
+                    arguments: json!({"relative_path":"src/lib.rs"}),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.result, json!({"ok":true}));
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            lock_unpoisoned(&runtime_slot(&manager, "generic", &workspace_lease).state).in_flight,
+            0
+        );
+    }
+
+    #[tokio::test]
+    /// 验证错误 Provider 或启动返回的任意错误 Runtime identity 都不会进入 Provider call。
+    async fn manager_call_rejects_wrong_provider_or_runtime_identity_before_delegation() {
+        let provider = runtime_provider("generic", 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_lease = lease("workspace-a", 7);
+
+        let unknown = manager
+            .call(
+                "unknown",
+                workspace_lease.clone(),
+                WorkspaceToolCall {
+                    tool_name: "fake_tool".into(),
+                    arguments: json!({}),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(unknown.code, WorkspaceCapabilityErrorCode::NotFound);
+
+        for plan in [
+            StartPlan::WrongProvider,
+            StartPlan::WrongWorkspace,
+            StartPlan::WrongGeneration,
+        ] {
+            let sender = provider.enqueue_start();
+            sender.send(plan).unwrap();
+            let error = manager
+                .call(
+                    "generic",
+                    workspace_lease.clone(),
+                    WorkspaceToolCall {
+                        tool_name: "fake_tool".into(),
+                        arguments: json!({}),
+                    },
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, WorkspaceCapabilityErrorCode::ContractError);
+        }
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    /// 验证 Provider 调用失败只映射为冻结的 Manager 错误，绝不向上层泄露 Provider 原因。
+    async fn manager_call_maps_provider_failure_to_runtime_lost() {
+        let provider = runtime_provider("generic", 1);
+        provider.fail_call();
+        let manager = runtime_manager(Arc::clone(&provider));
+
+        let error = manager
+            .call(
+                "generic",
+                lease("workspace-a", 7),
+                WorkspaceToolCall {
+                    tool_name: "fake_tool".into(),
+                    arguments: json!({}),
+                },
+            )
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, WorkspaceCapabilityErrorCode::RuntimeLost);
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    /// 验证取消中的 Manager call 会释放 guard，后续 acquire 与 stop 均可继续推进。
+    async fn cancelled_manager_call_releases_in_flight_for_following_acquire_and_stop() {
+        let provider = runtime_provider_with_idle_timeout("generic", 1, 0);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_lease = lease("workspace-a", 7);
+        let _call = provider.enqueue_call();
+        let calling_manager = Arc::clone(&manager);
+        let calling_lease = workspace_lease.clone();
+        let calling = tokio::spawn(async move {
+            calling_manager
+                .call(
+                    "generic",
+                    calling_lease,
+                    WorkspaceToolCall {
+                        tool_name: "fake_tool".into(),
+                        arguments: json!({}),
+                    },
+                )
+                .await
+        });
+
+        provider.call_entered.notified().await;
+        let slot = runtime_slot(&manager, "generic", &workspace_lease);
+        assert_eq!(lock_unpoisoned(&slot.state).in_flight, 1);
+        calling.abort();
+        assert!(calling.await.unwrap_err().is_cancelled());
+        assert_eq!(lock_unpoisoned(&slot.state).in_flight, 0);
+
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_lease)
+                .await
+                .unwrap(),
+        );
+        manager.stop_idle_runtimes().await.unwrap();
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 1);
+    }
+
     #[test]
     /// 验证冻结的 Manager 错误代码序列化为公开安全 wire 值。
     fn workspace_capability_error_codes_keep_the_frozen_wire_values() {
@@ -1895,10 +3162,7 @@ mod tests {
 
         provider.start_entered.notified().await;
         let slot = runtime_slot(&manager, "generic", &workspace_lease);
-        let old_completion = match slot.begin_acquire() {
-            RuntimeAcquireDecision::Wait { completion } => completion,
-            _ => panic!("second epoch-one caller must bind the current startup flight"),
-        };
+        let old_completion = slot.startup_completion();
         first_start.send(StartPlan::Failure).unwrap();
         let first_error = match leader.await.unwrap() {
             Err(error) => error,
@@ -2110,7 +3374,7 @@ mod tests {
             .await
             .unwrap();
         assert!(!std::ptr::eq(first.runtime(), second.runtime()));
-        assert_eq!(lock_unpoisoned(&manager.runtime_slots).len(), 2);
+        assert_eq!(lock_unpoisoned(&manager.runtime_slots).slots.len(), 2);
         assert_eq!(provider.starts.load(Ordering::SeqCst), 2);
         drop(first);
         drop(second);
@@ -2166,6 +3430,769 @@ mod tests {
         assert_eq!(
             lock_unpoisoned(&runtime_slot(&manager, "generic", &workspace_b).state).lifecycle,
             CapabilityRuntimeState::Ready
+        );
+    }
+
+    #[tokio::test]
+    /// 验证已 idle 到 Descriptor timeout 的 ready Slot 会停止，但不删除其 Registry/Slot 记录。
+    async fn idle_timeout_stops_ready_slot_without_removing_its_slot() {
+        let provider = runtime_provider_with_idle_timeout("generic", 1, 0);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_lease = lease("workspace-a", 7);
+
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_lease.clone())
+                .await
+                .unwrap(),
+        );
+        manager.stop_idle_runtimes().await.unwrap();
+
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            *lock_unpoisoned(&provider.stopped_workspaces),
+            vec!["workspace-a"]
+        );
+        assert_eq!(
+            lock_unpoisoned(&runtime_slot(&manager, "generic", &workspace_lease).state).lifecycle,
+            CapabilityRuntimeState::Stopped
+        );
+        assert_eq!(lock_unpoisoned(&manager.runtime_slots).slots.len(), 1);
+    }
+
+    #[tokio::test]
+    /// 验证 in-flight Slot 不会被 timeout 停止，guard 释放后重新扫描才可停止。
+    async fn idle_timeout_defers_in_flight_slot_until_guard_release() {
+        let provider = runtime_provider_with_idle_timeout("generic", 1, 0);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_lease = lease("workspace-a", 7);
+        let guard = manager
+            .acquire_runtime("generic", workspace_lease.clone())
+            .await
+            .unwrap();
+
+        manager.stop_idle_runtimes().await.unwrap();
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            lock_unpoisoned(&runtime_slot(&manager, "generic", &workspace_lease).state).lifecycle,
+            CapabilityRuntimeState::Ready
+        );
+
+        drop(guard);
+        manager.stop_idle_runtimes().await.unwrap();
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            lock_unpoisoned(&runtime_slot(&manager, "generic", &workspace_lease).state).lifecycle,
+            CapabilityRuntimeState::Stopped
+        );
+    }
+
+    #[tokio::test]
+    /// 验证并发 idle stop 请求对同一 Slot 只调用一次 Provider stop。
+    async fn concurrent_idle_stop_requests_are_single_flight_per_slot() {
+        let provider = runtime_provider_with_idle_timeout("generic", 1, 0);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_lease = lease("workspace-a", 7);
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_lease.clone())
+                .await
+                .unwrap(),
+        );
+        let stop = provider.enqueue_stop();
+        let first_manager = Arc::clone(&manager);
+        let first = tokio::spawn(async move { first_manager.stop_idle_runtimes().await });
+
+        provider.stop_entered.notified().await;
+        manager.stop_idle_runtimes().await.unwrap();
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            lock_unpoisoned(&runtime_slot(&manager, "generic", &workspace_lease).state).lifecycle,
+            CapabilityRuntimeState::Stopping
+        );
+        stop.send(StopPlan::Success).unwrap();
+        first.await.unwrap().unwrap();
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    /// 验证容量满时会停止 idle LRU Slot，stop 成功后才启动 replacement。
+    async fn capacity_evicts_idle_lru_before_starting_replacement() {
+        let provider = runtime_provider_with_capacity("generic", 1, 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_a = lease("workspace-a", 7);
+        let workspace_b = lease("workspace-b", 7);
+
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_a.clone())
+                .await
+                .unwrap(),
+        );
+        let replacement = manager
+            .acquire_runtime("generic", workspace_b.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(provider.starts.load(Ordering::SeqCst), 2);
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            *lock_unpoisoned(&provider.stopped_workspaces),
+            vec!["workspace-a"]
+        );
+        assert_eq!(
+            lock_unpoisoned(&runtime_slot(&manager, "generic", &workspace_a).state).lifecycle,
+            CapabilityRuntimeState::Stopped
+        );
+        assert_eq!(
+            lock_unpoisoned(&runtime_slot(&manager, "generic", &workspace_b).state).lifecycle,
+            CapabilityRuntimeState::Ready
+        );
+        drop(replacement);
+    }
+
+    #[tokio::test]
+    /// 验证 busy 的较旧 Slot 不可驱逐，较新的 idle Slot 也不会抢占其容量。
+    async fn capacity_skips_busy_lru_and_evicts_the_only_idle_slot() {
+        let provider = runtime_provider_with_capacity("generic", 1, 2);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_a = lease("workspace-a", 7);
+        let workspace_b = lease("workspace-b", 7);
+        let workspace_c = lease("workspace-c", 7);
+
+        let busy = manager
+            .acquire_runtime("generic", workspace_a.clone())
+            .await
+            .unwrap();
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_b.clone())
+                .await
+                .unwrap(),
+        );
+        let replacement = manager
+            .acquire_runtime("generic", workspace_c.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            *lock_unpoisoned(&provider.stopped_workspaces),
+            vec!["workspace-b"]
+        );
+        assert_eq!(
+            lock_unpoisoned(&runtime_slot(&manager, "generic", &workspace_a).state).in_flight,
+            1
+        );
+        assert_eq!(
+            lock_unpoisoned(&runtime_slot(&manager, "generic", &workspace_c).state).lifecycle,
+            CapabilityRuntimeState::Ready
+        );
+        drop(busy);
+        drop(replacement);
+    }
+
+    #[tokio::test]
+    /// 验证容量满但所有 Slot 均 busy 时不调用 stop 或 start replacement。
+    async fn full_capacity_without_eligible_victim_returns_busy_without_side_effects() {
+        let provider = runtime_provider_with_capacity("generic", 1, 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_a = lease("workspace-a", 7);
+        let workspace_b = lease("workspace-b", 7);
+        let busy = manager
+            .acquire_runtime("generic", workspace_a)
+            .await
+            .unwrap();
+
+        let error = match manager.acquire_runtime("generic", workspace_b).await {
+            Err(error) => error,
+            Ok(_) => panic!("all busy Slots must not produce a replacement guard"),
+        };
+        assert_eq!(error.code, WorkspaceCapabilityErrorCode::Busy);
+        assert_eq!(provider.starts.load(Ordering::SeqCst), 1);
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 0);
+        drop(busy);
+    }
+
+    #[tokio::test]
+    /// 验证 stop failure 将同一 handle 留在 error Slot，容量不释放且后续 acquire 不会清空它。
+    async fn failed_lru_stop_retains_capacity_and_runtime_handle_without_replacement() {
+        let provider = runtime_provider_with_capacity("generic", 1, 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_a = lease("workspace-a", 7);
+        let workspace_b = lease("workspace-b", 7);
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_a.clone())
+                .await
+                .unwrap(),
+        );
+        provider.fail_stop();
+
+        let error = match manager
+            .acquire_runtime("generic", workspace_b.clone())
+            .await
+        {
+            Err(error) => error,
+            Ok(_) => panic!("stop failure must not produce a replacement guard"),
+        };
+        assert_eq!(error.code, WorkspaceCapabilityErrorCode::StopFailed);
+        assert_eq!(provider.starts.load(Ordering::SeqCst), 1);
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 1);
+        let original = runtime_slot(&manager, "generic", &workspace_a);
+        let original_state = lock_unpoisoned(&original.state);
+        assert_eq!(original_state.lifecycle, CapabilityRuntimeState::Error);
+        assert!(original_state.runtime.is_some());
+        drop(original_state);
+        assert_eq!(
+            WorkspaceCapabilityManager::allocated_capacity(
+                &lock_unpoisoned(&manager.runtime_slots),
+                &WorkspaceCapabilityProviderId::new("generic"),
+            ),
+            1
+        );
+        assert_eq!(
+            lock_unpoisoned(&runtime_slot(&manager, "generic", &workspace_b).state).lifecycle,
+            CapabilityRuntimeState::Stopped
+        );
+
+        let retained_error = match manager.acquire_runtime("generic", workspace_a).await {
+            Err(error) => error,
+            Ok(_) => panic!("retained stop-failure handle must not be replaced by acquire"),
+        };
+        assert_eq!(retained_error.code, WorkspaceCapabilityErrorCode::Busy);
+        assert_eq!(provider.starts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    /// 验证 victim 进入 Stopping 后并发 acquire 立即 Busy，不能重新取得被转移的 handle。
+    async fn stopping_victim_rejects_concurrent_acquire_without_reentry_window() {
+        let provider = runtime_provider_with_capacity("generic", 1, 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_a = lease("workspace-a", 7);
+        let workspace_b = lease("workspace-b", 7);
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_a.clone())
+                .await
+                .unwrap(),
+        );
+        let stop = provider.enqueue_stop();
+        let evicting_manager = Arc::clone(&manager);
+        let evicting_lease = workspace_b.clone();
+        let evicting = tokio::spawn(async move {
+            evicting_manager
+                .acquire_runtime("generic", evicting_lease)
+                .await
+        });
+
+        provider.stop_entered.notified().await;
+        let error = match manager
+            .acquire_runtime("generic", workspace_a.clone())
+            .await
+        {
+            Err(error) => error,
+            Ok(_) => panic!("Stopping Slot must not re-enter acquire"),
+        };
+        assert_eq!(error.code, WorkspaceCapabilityErrorCode::Busy);
+        assert_eq!(provider.starts.load(Ordering::SeqCst), 1);
+        stop.send(StopPlan::Success).unwrap();
+        drop(evicting.await.unwrap().unwrap());
+        assert_eq!(provider.starts.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    /// 验证等待 eviction 的 caller 被取消后，后台 stop 仍返还 failure handle 并保留容量。
+    async fn cancelled_eviction_waiter_does_not_drop_stop_failure_handle() {
+        let provider = runtime_provider_with_capacity("generic", 1, 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_a = lease("workspace-a", 7);
+        let workspace_b = lease("workspace-b", 7);
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_a.clone())
+                .await
+                .unwrap(),
+        );
+        let stop = provider.enqueue_stop();
+        let evicting_manager = Arc::clone(&manager);
+        let evicting = tokio::spawn(async move {
+            evicting_manager
+                .acquire_runtime("generic", workspace_b)
+                .await
+        });
+
+        provider.stop_entered.notified().await;
+        evicting.abort();
+        let join_error = match evicting.await {
+            Err(error) => error,
+            Ok(_) => panic!("cancelled eviction caller must not complete"),
+        };
+        assert!(join_error.is_cancelled());
+        let original = runtime_slot(&manager, "generic", &workspace_a);
+        let mut completion = Box::pin(original.stop_completion_published.notified());
+        assert!(
+            std::future::poll_fn(|context| match completion.as_mut().poll(context) {
+                Poll::Pending => Poll::Ready(true),
+                Poll::Ready(_) => Poll::Ready(false),
+            })
+            .await
+        );
+        stop.send(StopPlan::Failure).unwrap();
+        completion.await;
+        let state = lock_unpoisoned(&original.state);
+        assert_eq!(state.lifecycle, CapabilityRuntimeState::Error);
+        assert!(state.runtime.is_some());
+        drop(state);
+
+        let retained_error = match manager.acquire_runtime("generic", workspace_a).await {
+            Err(error) => error,
+            Ok(_) => panic!("cancelled caller must not allow retained handle replacement"),
+        };
+        assert_eq!(retained_error.code, WorkspaceCapabilityErrorCode::Busy);
+        assert_eq!(provider.starts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    /// 验证每次 admitted acquire 的单调序号决定 LRU，而非 HashMap 迭代顺序。
+    async fn lru_eviction_order_is_deterministic_after_reuse() {
+        let provider = runtime_provider_with_capacity("generic", 1, 2);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_a = lease("workspace-a", 7);
+        let workspace_b = lease("workspace-b", 7);
+        let workspace_c = lease("workspace-c", 7);
+
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_a.clone())
+                .await
+                .unwrap(),
+        );
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_b.clone())
+                .await
+                .unwrap(),
+        );
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_a)
+                .await
+                .unwrap(),
+        );
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_c)
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(
+            *lock_unpoisoned(&provider.stopped_workspaces),
+            vec!["workspace-b"]
+        );
+    }
+
+    #[tokio::test]
+    /// 验证 Remove 登记后拒绝同一 Workspace 的新 acquire，直到 Registry 删除阶段释放排他权。
+    async fn workspace_remove_excludes_concurrent_acquire_until_its_guard_is_released() {
+        let provider = runtime_provider_with_capacity("generic", 1, 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace = lease("workspace-a", 7);
+        drop(
+            manager
+                .acquire_runtime("generic", workspace.clone())
+                .await
+                .unwrap(),
+        );
+        let stop = provider.enqueue_stop();
+        let (release_tx, release_rx) = oneshot::channel();
+        let (done_tx, done_rx) = oneshot::channel();
+        let remove_manager = Arc::clone(&manager);
+        let remove_workspace = workspace.clone();
+        tokio::spawn(async move {
+            let removal = remove_manager
+                .begin_workspace_remove(&remove_workspace)
+                .await
+                .unwrap();
+            let _ = done_tx.send(());
+            let _ = release_rx.await;
+            drop(removal);
+        });
+
+        provider.stop_entered.notified().await;
+        let error = match manager.acquire_runtime("generic", workspace.clone()).await {
+            Err(error) => error,
+            Ok(_) => panic!("removing Workspace must reject acquire"),
+        };
+        assert_eq!(error.code, WorkspaceCapabilityErrorCode::Busy);
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 1);
+        stop.send(StopPlan::Success).unwrap();
+        done_rx.await.unwrap();
+        release_tx.send(()).unwrap();
+    }
+
+    #[tokio::test]
+    /// 验证 starting、in-flight 与 pending acquire 都会让 Remove fail closed。
+    async fn workspace_remove_rejects_starting_and_live_runtime_owners() {
+        let provider = runtime_provider_with_capacity("generic", 1, 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace = lease("workspace-a", 7);
+        let start = provider.enqueue_start();
+        let starting_manager = Arc::clone(&manager);
+        let starting_workspace = workspace.clone();
+        let starting = tokio::spawn(async move {
+            starting_manager
+                .acquire_runtime("generic", starting_workspace)
+                .await
+        });
+        provider.start_entered.notified().await;
+        let starting_error = match manager.begin_workspace_remove(&workspace).await {
+            Err(error) => error,
+            Ok(_) => panic!("starting Workspace must block Remove"),
+        };
+        assert_eq!(starting_error.code, WorkspaceCapabilityErrorCode::Busy);
+        start.send(StartPlan::Success).unwrap();
+        let guard = starting.await.unwrap().unwrap();
+        let in_flight_error = match manager.begin_workspace_remove(&workspace).await {
+            Err(error) => error,
+            Ok(_) => panic!("in-flight Runtime must block Remove"),
+        };
+        assert_eq!(in_flight_error.code, WorkspaceCapabilityErrorCode::Busy);
+        drop(guard);
+        drop(manager.begin_workspace_remove(&workspace).await.unwrap());
+    }
+
+    #[tokio::test]
+    /// 验证 Remove stop failure 保留同一 handle，并在清除 removing 后仍拒绝替换 acquire。
+    async fn workspace_remove_stop_failure_retains_runtime_handle_and_clears_exclusion() {
+        let provider = runtime_provider_with_capacity("generic", 1, 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace = lease("workspace-a", 7);
+        drop(
+            manager
+                .acquire_runtime("generic", workspace.clone())
+                .await
+                .unwrap(),
+        );
+        provider.fail_stop();
+
+        let error = match manager.begin_workspace_remove(&workspace).await {
+            Err(error) => error,
+            Ok(_) => panic!("stop failure must preserve removal ownership"),
+        };
+        assert_eq!(error.code, WorkspaceCapabilityErrorCode::StopFailed);
+        let slot = runtime_slot(&manager, "generic", &workspace);
+        let state = lock_unpoisoned(&slot.state);
+        assert_eq!(state.lifecycle, CapabilityRuntimeState::Error);
+        assert!(state.runtime.is_some());
+        drop(state);
+        let acquire_error = match manager.acquire_runtime("generic", workspace).await {
+            Err(error) => error,
+            Ok(_) => panic!("retained handle must reject replacement acquire"),
+        };
+        assert_eq!(acquire_error.code, WorkspaceCapabilityErrorCode::Busy);
+    }
+
+    #[tokio::test]
+    /// 验证 stop 超时只返回有界失败；后台 single-flight 继续持有 handle，随后仍可安全收敛。
+    async fn workspace_remove_stop_timeout_keeps_single_flight_handle_ownership() {
+        let provider = runtime_provider_with_capacity("generic", 1, 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace = lease("workspace-a", 7);
+        drop(
+            manager
+                .acquire_runtime("generic", workspace.clone())
+                .await
+                .unwrap(),
+        );
+        let held_stop = provider.enqueue_stop();
+        let error = match manager.begin_workspace_remove(&workspace).await {
+            Err(error) => error,
+            Ok(_) => panic!("unresolved stop must return a bounded failure"),
+        };
+        assert_eq!(error.code, WorkspaceCapabilityErrorCode::StopFailed);
+        let slot = runtime_slot(&manager, "generic", &workspace);
+        let state = lock_unpoisoned(&slot.state);
+        assert_eq!(state.lifecycle, CapabilityRuntimeState::Stopping);
+        assert!(state.runtime.is_none());
+        drop(state);
+        let acquire_error = match manager.acquire_runtime("generic", workspace.clone()).await {
+            Err(error) => error,
+            Ok(_) => panic!("timed-out stop must retain its admission ownership"),
+        };
+        assert_eq!(acquire_error.code, WorkspaceCapabilityErrorCode::Busy);
+
+        let completion = slot.stop_completion_published.notified();
+        held_stop.send(StopPlan::Success).unwrap();
+        completion.await;
+        let state = lock_unpoisoned(&slot.state);
+        assert_eq!(state.lifecycle, CapabilityRuntimeState::Stopped);
+        assert!(state.runtime.is_none());
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    /// 验证 eviction、Remove 与 idle sweep 同时遇到同一 Slot 时只执行一次 Provider stop。
+    async fn remove_eviction_and_idle_stop_share_one_slot_stop_flight() {
+        let provider = runtime_provider_with_capacity("generic", 1, 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_a = lease("workspace-a", 7);
+        let workspace_b = lease("workspace-b", 7);
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_a.clone())
+                .await
+                .unwrap(),
+        );
+        let stop = provider.enqueue_stop();
+        let evict_manager = Arc::clone(&manager);
+        let evicting =
+            tokio::spawn(
+                async move { evict_manager.acquire_runtime("generic", workspace_b).await },
+            );
+        provider.stop_entered.notified().await;
+        let remove_manager = Arc::clone(&manager);
+        let remove_workspace = workspace_a.clone();
+        let removing = tokio::spawn(async move {
+            let removal = remove_manager
+                .begin_workspace_remove(&remove_workspace)
+                .await
+                .unwrap();
+            drop(removal);
+        });
+        manager.stop_idle_runtimes().await.unwrap();
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 1);
+        stop.send(StopPlan::Success).unwrap();
+        drop(evicting.await.unwrap().unwrap());
+        removing.await.unwrap();
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    /// 验证 Host shutdown 停止全部 live 与 retained-handle Slot，且不会遗留 fake Runtime ownership。
+    async fn host_shutdown_drains_live_and_retained_handles_without_orphans() {
+        let provider = runtime_provider_with_capacity("generic", 1, 2);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let workspace_a = lease("workspace-a", 7);
+        let workspace_b = lease("workspace-b", 7);
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_a.clone())
+                .await
+                .unwrap(),
+        );
+        drop(
+            manager
+                .acquire_runtime("generic", workspace_b.clone())
+                .await
+                .unwrap(),
+        );
+        let failed_stop = provider.enqueue_stop();
+        let failed_manager = Arc::clone(&manager);
+        let failed_workspace = workspace_a.clone();
+        let failed_remove = tokio::spawn(async move {
+            failed_manager
+                .begin_workspace_remove(&failed_workspace)
+                .await
+                .map(|_| ())
+        });
+        provider.stop_entered.notified().await;
+        failed_stop.send(StopPlan::Failure).unwrap();
+        assert_eq!(
+            failed_remove.await.unwrap().unwrap_err().code,
+            WorkspaceCapabilityErrorCode::StopFailed
+        );
+
+        manager.shutdown_runtimes().await.unwrap();
+        assert_eq!(provider.stops.load(Ordering::SeqCst), 3);
+        let stopped = lock_unpoisoned(&provider.stopped_workspaces).clone();
+        assert!(stopped.contains(&"workspace-a".into()));
+        assert!(stopped.contains(&"workspace-b".into()));
+        for workspace in [&workspace_a, &workspace_b] {
+            let slot = runtime_slot(&manager, "generic", workspace);
+            let state = lock_unpoisoned(&slot.state);
+            assert_eq!(state.lifecycle, CapabilityRuntimeState::Stopped);
+            assert!(state.runtime.is_none());
+        }
+        let acquire_error = match manager.acquire_runtime("generic", workspace_a).await {
+            Err(error) => error,
+            Ok(_) => panic!("shutdown Manager must reject new acquire"),
+        };
+        assert_eq!(acquire_error.code, WorkspaceCapabilityErrorCode::Busy);
+    }
+
+    #[tokio::test]
+    /// 验证 Remove stop failure 不会删除 Registry entry，且 fake handle 仍由原 Slot 保留。
+    async fn coordinated_remove_preserves_registry_entry_and_handle_after_stop_failure() {
+        use crate::{
+            agent::{product::AgentProductService, store::StateStore},
+            config::{self, AppPaths, ManagerConfig, Workspace},
+            serena::SupervisorState,
+            workspace_registry::WorkspaceRegistry,
+            workspace_resolver::WorkspaceResolver,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("marker.txt"), b"preserve").unwrap();
+        let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
+            config_file: directory.path().join("config.json"),
+            log_directory: directory.path().join("logs"),
+            app_log: directory.path().join("logs/app.log"),
+            serena_log: directory.path().join("logs/serena.log"),
+        };
+        let workspace = Workspace {
+            id: "workspace".into(),
+            name: "Workspace".into(),
+            root: std::fs::canonicalize(&root).unwrap(),
+            generation: 7,
+        };
+        config::save(
+            &paths.config_file,
+            &ManagerConfig {
+                workspace_registry_revision: 1,
+                workspaces: vec![workspace.clone()],
+                ..ManagerConfig::default()
+            },
+        )
+        .unwrap();
+        let provider = runtime_provider_with_capacity("generic", 1, 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let mut supervisor = SupervisorState::new(paths.clone()).unwrap();
+        supervisor.replace_workspace_capability_manager_for_test(Arc::clone(&manager));
+        let lease = WorkspaceResolver::new(&supervisor)
+            .resolve(&workspace.id)
+            .unwrap();
+        drop(
+            manager
+                .acquire_runtime("generic", lease.clone())
+                .await
+                .unwrap(),
+        );
+        provider.fail_stop();
+        let product = AgentProductService::new(
+            StateStore::open(directory.path().join("agent-state"))
+                .await
+                .unwrap(),
+        );
+
+        assert_eq!(
+            supervisor
+                .remove_workspace_coordinated(&product, &workspace.id)
+                .await,
+            Err("WORKSPACE_CAPABILITY_STOP_FAILED".into())
+        );
+        assert_eq!(
+            WorkspaceRegistry::new(&supervisor).get(&workspace.id),
+            Ok(workspace)
+        );
+        assert_eq!(std::fs::read(root.join("marker.txt")).unwrap(), b"preserve");
+        let slot = runtime_slot(&manager, "generic", &lease);
+        let state = lock_unpoisoned(&slot.state);
+        assert_eq!(state.lifecycle, CapabilityRuntimeState::Error);
+        assert!(state.runtime.is_some());
+    }
+
+    #[tokio::test]
+    /// 验证 Remove admission 已建立且 stop 被阻塞时，Agent Start/Claim 与 capability acquire 都不能越过。
+    async fn coordinated_remove_admission_blocks_agent_claim_and_capability_acquire() {
+        use crate::{
+            agent::{product::AgentProductService, store::StateStore},
+            config::{self, AppPaths, ManagerConfig, Workspace},
+            serena::{SupervisorState, WorkspaceStartCreation},
+            workspace_registry::{WORKSPACE_IN_USE, WorkspaceRegistry},
+            workspace_resolver::WorkspaceResolver,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+        let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
+            config_file: directory.path().join("config.json"),
+            log_directory: directory.path().join("logs"),
+            app_log: directory.path().join("logs/app.log"),
+            serena_log: directory.path().join("logs/serena.log"),
+        };
+        let workspace = Workspace {
+            id: "workspace".into(),
+            name: "Workspace".into(),
+            root: std::fs::canonicalize(&root).unwrap(),
+            generation: 7,
+        };
+        config::save(
+            &paths.config_file,
+            &ManagerConfig {
+                workspace_registry_revision: 1,
+                workspaces: vec![workspace.clone()],
+                ..ManagerConfig::default()
+            },
+        )
+        .unwrap();
+        let provider = runtime_provider_with_capacity("generic", 1, 1);
+        let manager = runtime_manager(Arc::clone(&provider));
+        let mut supervisor = SupervisorState::new(paths).unwrap();
+        supervisor.replace_workspace_capability_manager_for_test(Arc::clone(&manager));
+        let supervisor = Arc::new(supervisor);
+        let lease = WorkspaceResolver::new(supervisor.as_ref())
+            .resolve(&workspace.id)
+            .unwrap();
+        drop(
+            manager
+                .acquire_runtime("generic", lease.clone())
+                .await
+                .unwrap(),
+        );
+        let store = StateStore::open(directory.path().join("agent-state"))
+            .await
+            .unwrap();
+        let product = Arc::new(AgentProductService::new(store.clone()));
+        let held_stop = provider.enqueue_stop();
+        let remove_supervisor = Arc::clone(&supervisor);
+        let remove_product = Arc::clone(&product);
+        let remove_id = workspace.id.clone();
+        let removing = tokio::spawn(async move {
+            remove_supervisor
+                .remove_workspace_coordinated(remove_product.as_ref(), &remove_id)
+                .await
+        });
+
+        provider.stop_entered.notified().await;
+        assert_eq!(
+            supervisor.create_workspace_start(
+                &store,
+                WorkspaceStartCreation {
+                    execution_id: "execution".into(),
+                    agent_id: "agent".into(),
+                    request_key: "request".into(),
+                    prompt: "prompt".into(),
+                    workspace_id: workspace.id.clone(),
+                    work: None,
+                    now: 1,
+                },
+            ),
+            Err(WORKSPACE_IN_USE.into())
+        );
+        assert!(
+            store
+                .workspace_claim(lease.canonical_root.to_string_lossy().into_owned())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let acquire_error = match manager.acquire_runtime("generic", lease.clone()).await {
+            Err(error) => error,
+            Ok(_) => panic!("Remove admission must reject capability acquire"),
+        };
+        assert_eq!(acquire_error.code, WorkspaceCapabilityErrorCode::Busy);
+
+        held_stop.send(StopPlan::Success).unwrap();
+        assert_eq!(removing.await.unwrap(), Ok(workspace.clone()));
+        assert_eq!(
+            WorkspaceRegistry::new(supervisor.as_ref()).get(&workspace.id),
+            Err(crate::workspace_registry::WORKSPACE_NOT_FOUND.into())
         );
     }
 }

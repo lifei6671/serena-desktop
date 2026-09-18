@@ -1,4 +1,5 @@
 use super::*;
+use crate::{config::Workspace, mcp::serena};
 use axum::{Json, Router, extract::State, response::IntoResponse, routing::post};
 use std::sync::{
     Arc, Mutex,
@@ -92,6 +93,25 @@ async fn fixture(root: PathBuf) -> (Workspace, serena::Client, Fake, tokio::task
     (workspace, client, fake, server)
 }
 
+/// 让旧 Client fixture 通过 Lease-rooted compatibility adapter 调用，不恢复 ActiveWorkspace Authority。
+async fn read_with_client(
+    workspace: &Workspace,
+    client: &serena::Client,
+    remote: Value,
+    limit: usize,
+    cancel: CancellationToken,
+) -> Result<Value, String> {
+    let lease = crate::workspace_resolver::WorkspaceLease {
+        workspace_id: workspace.id.clone(),
+        canonical_root: workspace.root.clone(),
+        generation: workspace.generation,
+    };
+    read(&lease, remote, limit, cancel, move |arguments| {
+        client.call("read_file", arguments)
+    })
+    .await
+}
+
 #[tokio::test]
 async fn source_read_file_returns_full_raw_sha_and_relative_path_across_ranges_and_budgets() {
     let dir = tempfile::tempdir().unwrap();
@@ -112,7 +132,7 @@ async fn source_read_file_returns_full_raw_sha_and_relative_path_across_ranges_a
         if let Some(end) = end {
             args["end_line"] = json!(end);
         }
-        let output = read(
+        let output = read_with_client(
             &workspace,
             &client,
             args.clone(),
@@ -128,7 +148,7 @@ async fn source_read_file_returns_full_raw_sha_and_relative_path_across_ranges_a
         assert!(output.get("hint").is_none());
         assert_eq!(
             output["workspace"],
-            serde_json::to_value(&workspace).unwrap()
+            json!({"id":workspace.id,"generation":workspace.generation})
         );
         assert_eq!(output["path"], "nested/file.txt");
         assert!(!std::path::Path::new(output["path"].as_str().unwrap()).is_absolute());
@@ -140,7 +160,7 @@ async fn source_read_file_returns_full_raw_sha_and_relative_path_across_ranges_a
             .all(|hash| hash == "98c468325cef7f63ade1c10cab22b29983bf78710ce6f50b9fdea26322c8e19e")
     );
     std::fs::write(dir.path().join("nested/file.txt"), b"changed\r\n").unwrap();
-    let output = read(
+    let output = read_with_client(
         &workspace,
         &client,
         json!({"relative_path":"nested/file.txt"}),
@@ -172,7 +192,7 @@ async fn source_read_file_hashes_multiple_chunks_and_non_utf8_raw_bytes() {
     let bytes = [b"abc\r\n".as_slice(), &vec![b'x'; 150000], b"\r\n"].concat();
     std::fs::write(dir.path().join("large.txt"), bytes).unwrap();
     let (workspace, client, _, server) = fixture(dir.path().into()).await;
-    let output = read(
+    let output = read_with_client(
         &workspace,
         &client,
         json!({"relative_path":"large.txt","start_line":0,"end_line":0,"max_answer_chars":3}),
@@ -195,7 +215,7 @@ async fn source_read_file_rejects_changed_version_and_preserves_existing_errors(
     std::fs::write(dir.path().join("file.txt"), b"abc\r\n").unwrap();
     let (workspace, client, fake, server) = fixture(dir.path().into()).await;
     for path in ["../outside", "missing.txt", "C:/outside"] {
-        let error = read(
+        let error = read_with_client(
             &workspace,
             &client,
             json!({"relative_path":path}),
@@ -209,7 +229,7 @@ async fn source_read_file_rejects_changed_version_and_preserves_existing_errors(
     assert!(fake.requests.lock().unwrap().is_empty());
     fake.change.store(true, Ordering::SeqCst);
     assert_eq!(
-        read(
+        read_with_client(
             &workspace,
             &client,
             json!({"relative_path":"file.txt"}),
@@ -221,7 +241,7 @@ async fn source_read_file_rejects_changed_version_and_preserves_existing_errors(
         "SOURCE_READ_CHANGED"
     );
     assert!(
-        read(
+        read_with_client(
             &workspace,
             &client,
             json!({"relative_path":"file.txt"}),
@@ -234,7 +254,7 @@ async fn source_read_file_rejects_changed_version_and_preserves_existing_errors(
     );
     fake.fail.store(true, Ordering::SeqCst);
     assert!(
-        read(
+        read_with_client(
             &workspace,
             &client,
             json!({"relative_path":"file.txt"}),
@@ -249,7 +269,7 @@ async fn source_read_file_rejects_changed_version_and_preserves_existing_errors(
     let cancel = CancellationToken::new();
     cancel.cancel();
     assert_eq!(
-        read(
+        read_with_client(
             &workspace,
             &client,
             json!({"relative_path":"file.txt"}),
@@ -282,7 +302,7 @@ async fn source_read_file_rejects_junction_escape_before_upstream_call() {
     assert!(output.status.success());
     let (workspace, client, fake, server) = fixture(root).await;
     assert!(
-        read(
+        read_with_client(
             &workspace,
             &client,
             json!({"relative_path":"link/file.txt"}),

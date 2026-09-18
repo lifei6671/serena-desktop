@@ -232,6 +232,84 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Workspace Slot 受管 Serena context 的固定工具白名单。
+/// 该列表同时用于写入与回读校验，避免两处配置语义漂移。
+const WORKSPACE_SERENA_FIXED_TOOLS: &[&str] = &[
+    "activate_project",
+    "get_current_config",
+    "read_file",
+    "list_dir",
+    "find_file",
+    "search_for_pattern",
+    "get_symbols_overview",
+    "find_symbol",
+    "find_referencing_symbols",
+];
+
+/// 为 workspace-scoped Serena Slot 写入独立且最小的受管全局配置。
+/// Slot Home 不从旧共享 Home 迁移 projects；Workspace authority 始终来自 Lease。
+pub(crate) fn prepare_workspace_serena_home(home: &Path, context: &Path) -> Result<(), String> {
+    let value = serde_json::json!({
+        "language_backend": "LSP", "trusted_project_path_patterns": [],
+        "web_dashboard": false, "web_dashboard_open_on_launch": false,
+        "gui_log_window": false, "default_modes": [], "projects": [],
+        "project_serena_folder_location": "$projectDir/.serena"
+    });
+    atomic_write(
+        &home.join("serena_config.yml"),
+        serde_json::to_string_pretty(&value).unwrap().as_bytes(),
+    )?;
+    let context_value = serde_json::json!({
+        "description":"Desktop workspace-scoped source backend", "prompt":"",
+        "fixed_tools": WORKSPACE_SERENA_FIXED_TOOLS,
+        "single_project":false
+    });
+    atomic_write(
+        context,
+        serde_json::to_string_pretty(&context_value)
+            .unwrap()
+            .as_bytes(),
+    )?;
+    verify_workspace_serena_home(home, context)
+}
+
+/// 验证 Slot 配置仍保持固定安全基线，避免启动时接受被外部修改的 Home。
+pub(crate) fn verify_workspace_serena_home(home: &Path, context: &Path) -> Result<(), String> {
+    let global: serde_yaml_ng::Value = serde_yaml_ng::from_str(
+        &fs::read_to_string(home.join("serena_config.yml")).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let context_value: serde_yaml_ng::Value =
+        serde_yaml_ng::from_str(&fs::read_to_string(context).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+    let safe_global = global["trusted_project_path_patterns"]
+        .as_sequence()
+        .is_some_and(|patterns| patterns.is_empty())
+        && global["web_dashboard"].as_bool() == Some(false)
+        && global["web_dashboard_open_on_launch"].as_bool() == Some(false)
+        && global["gui_log_window"].as_bool() == Some(false)
+        && global["project_serena_folder_location"].as_str() == Some("$projectDir/.serena")
+        && global["projects"]
+            .as_sequence()
+            .is_some_and(|projects| projects.is_empty());
+    let has_fixed_tools = context_value["fixed_tools"]
+        .as_sequence()
+        .is_some_and(|tools| {
+            tools.len() == WORKSPACE_SERENA_FIXED_TOOLS.len()
+                && WORKSPACE_SERENA_FIXED_TOOLS.iter().all(|allowed| {
+                    tools
+                        .iter()
+                        .filter(|tool| tool.as_str() == Some(*allowed))
+                        .count()
+                        == 1
+                })
+        });
+    let safe_context = context_value["single_project"].as_bool() == Some(false) && has_fixed_tools;
+    (safe_global && safe_context)
+        .then_some(())
+        .ok_or_else(|| "managed Serena slot config is invalid".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -564,6 +642,51 @@ mod tests {
                 .unwrap()
                 .contains("startMinimized")
         );
+    }
+
+    #[test]
+    fn workspace_serena_home_accepts_generated_fixed_tools() {
+        let directory = tempfile::tempdir().unwrap();
+        let home = directory.path().join("slot-home");
+        let context = home.join("slot-context.yml");
+        fs::create_dir(&home).unwrap();
+
+        prepare_workspace_serena_home(&home, &context).unwrap();
+
+        assert!(verify_workspace_serena_home(&home, &context).is_ok());
+    }
+
+    #[test]
+    fn workspace_serena_home_rejects_extra_fixed_tool() {
+        let directory = tempfile::tempdir().unwrap();
+        let home = directory.path().join("slot-home");
+        let context = home.join("slot-context.yml");
+        fs::create_dir(&home).unwrap();
+        prepare_workspace_serena_home(&home, &context).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&context).unwrap()).unwrap();
+        value["fixed_tools"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!("write_file"));
+        fs::write(&context, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+
+        assert!(verify_workspace_serena_home(&home, &context).is_err());
+    }
+
+    #[test]
+    fn workspace_serena_home_rejects_missing_fixed_tool() {
+        let directory = tempfile::tempdir().unwrap();
+        let home = directory.path().join("slot-home");
+        let context = home.join("slot-context.yml");
+        fs::create_dir(&home).unwrap();
+        prepare_workspace_serena_home(&home, &context).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&context).unwrap()).unwrap();
+        value["fixed_tools"].as_array_mut().unwrap().pop();
+        fs::write(&context, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+
+        assert!(verify_workspace_serena_home(&home, &context).is_err());
     }
 }
 

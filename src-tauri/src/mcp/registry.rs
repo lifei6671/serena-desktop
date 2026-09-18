@@ -97,6 +97,31 @@ pub const SOURCES: &[(&str, &str, &[&str], &[&str])] = &[
         &["relative_path", "name_path"],
     ),
 ];
+/// 已迁移到 Workspace Capability 的 Serena Semantic public tool。
+pub(crate) const SEMANTIC_SOURCES: &[&str] = &[
+    "source_symbols_overview",
+    "source_find_symbol",
+    "source_find_references",
+];
+
+/// Phase 2B Rust Source cutover 前，仍由 Serena Slot 执行的基础 Source compatibility Tool。
+pub(crate) const COMPATIBILITY_SOURCES: &[&str] = &[
+    "source_read_file",
+    "source_list_dir",
+    "source_find_file",
+    "source_search_pattern",
+];
+
+/// 判断 Source Tool 是否必须由 server-resolved WorkspaceLease 承载 Authority。
+pub(crate) fn is_semantic_source(name: &str) -> bool {
+    SEMANTIC_SOURCES.contains(&name)
+}
+
+/// 所有公开 Source Tool 都只能由 request-resolved WorkspaceLease 承载 Authority。
+pub(crate) fn is_workspace_scoped_source(name: &str) -> bool {
+    SEMANTIC_SOURCES.contains(&name) || COMPATIBILITY_SOURCES.contains(&name)
+}
+
 pub const GITS: &[&str] = &[
     "git_status",
     "git_diff",
@@ -161,7 +186,7 @@ fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
         output["properties"]["activeWorkspace"] = json!({"anyOf":[workspace,{"type":"null"}]});
         output["properties"]["status"] = json!({"type":"string"});
         output["required"] = json!(["activeWorkspace", "truncated"]);
-    } else if GITS.contains(&name) {
+    } else if GITS.contains(&name) || SOURCES.iter().any(|source| source.0 == name) {
         output["properties"]["workspace"] = workspace_provenance_schema();
         output["properties"]["text"] = json!({"type":"string"});
         output["properties"]["hint"] = json!({"type":"string"});
@@ -650,6 +675,15 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
             .unwrap()
             .retain(|key, _| allowed.contains(&key.as_str()));
         s["required"] = json!(required);
+        if is_workspace_scoped_source(name) {
+            // Source Tool 的 Workspace Authority 只公开 workspaceId；root 不进入公共 Schema。
+            s["properties"]["workspaceId"] =
+                schema::<WorkspaceIdArgs>()["properties"]["workspaceId"].clone();
+            s["required"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!("workspaceId"));
+        }
         let remote = upstream
             .iter()
             .find(|t| t.name == remote_name)
@@ -707,14 +741,27 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
     }
     if let Some((_, _, allowed, required)) = SOURCES.iter().find(|t| t.0 == name) {
         let object = args.as_object().ok_or("INVALID_PARAMS: 参数必须是对象")?;
-        if object.keys().any(|k| !allowed.contains(&k.as_str()))
-            || required
-                .iter()
-                .any(|k| !object.contains_key(*k) || object[*k].is_null())
+        let workspace_scoped = is_workspace_scoped_source(name);
+        if workspace_scoped {
+            // 先给出 Workspace Authority 的冻结错误分类，再验证业务字段。
+            parse_workspace_id(args)?;
+        }
+        if object.keys().any(|key| {
+            !allowed.contains(&key.as_str()) && (!workspace_scoped || key != "workspaceId")
+        }) || required
+            .iter()
+            .any(|k| !object.contains_key(*k) || object[*k].is_null())
         {
             return Err("INVALID_PARAMS: 缺少必要参数或存在未公开参数".into());
         }
-        serde_json::from_value::<SourceArgs>(args.clone())
+        let mut source_args = args.clone();
+        if workspace_scoped {
+            source_args
+                .as_object_mut()
+                .expect("validated Source arguments must be an object")
+                .remove("workspaceId");
+        }
+        serde_json::from_value::<SourceArgs>(source_args)
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
     } else if GITS.contains(&name) {
         parse_workspace_id(args)?;
@@ -1182,17 +1229,56 @@ mod tests {
     }
 
     #[test]
-    fn foundation_does_not_publish_unsafe_tool_family_workspace_schemas() {
+    fn all_sources_require_workspace_context_and_keep_their_declared_fields() {
         let tools = list(&upstream(), true).unwrap();
         for tool in tools.iter().filter(|tool| tool.name.starts_with("source_")) {
-            assert!(
-                tool.input_schema["properties"].get("workspaceId").is_none(),
-                "{} must wait for P2A3-011",
-                tool.name
-            );
+            let properties = tool.input_schema["properties"].as_object().unwrap();
+            let required = tool.input_schema["required"].as_array().unwrap();
+            assert_eq!(properties["workspaceId"]["type"], "string", "{}", tool.name);
+            assert!(required.contains(&json!("workspaceId")), "{}", tool.name);
         }
         // 2D Adapter 完成前，旧 Global Active CodeGraph 工具不得以任何 Schema 公开。
         assert!(!tools.iter().any(|tool| tool.name == "codegraph_explore"));
+    }
+
+    #[test]
+    fn sources_validate_workspace_context_before_business_arguments() {
+        for &(name, _, _, _) in SOURCES {
+            for args in [json!({}), json!({"workspaceId": null})] {
+                assert_eq!(
+                    validate(name, &args),
+                    Err("WORKSPACE_CONTEXT_REQUIRED".into()),
+                    "{name}: {args}"
+                );
+            }
+            for args in [
+                json!({"workspaceId": 3}),
+                json!({"workspaceId": ""}),
+                json!({"workspaceId": " \t"}),
+            ] {
+                assert!(
+                    validate(name, &args)
+                        .unwrap_err()
+                        .starts_with("INVALID_PARAMS"),
+                    "{name}: {args}"
+                );
+            }
+        }
+
+        assert!(
+            validate(
+                "source_symbols_overview",
+                &json!({"workspaceId":"known","relative_path":"src/lib.rs"})
+            )
+            .is_ok()
+        );
+        assert!(
+            validate(
+                "source_read_file",
+                &json!({"workspaceId":"known","relative_path":"src/lib.rs"})
+            )
+            .is_ok()
+        );
     }
 
     #[test]
@@ -1220,10 +1306,22 @@ mod tests {
             if tool.name == "source_read_file" {
                 assert_eq!(output["properties"]["sha256"]["pattern"], "^[0-9a-f]{64}$");
                 let properties = tool.input_schema["properties"].as_object().unwrap();
-                assert_eq!(properties.len(), 4);
-                for field in ["relative_path", "start_line", "end_line", "max_bytes"] {
+                assert_eq!(properties.len(), 5);
+                for field in [
+                    "workspaceId",
+                    "relative_path",
+                    "start_line",
+                    "end_line",
+                    "max_bytes",
+                ] {
                     assert!(properties.contains_key(field));
                 }
+                assert!(
+                    tool.input_schema["required"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&json!("workspaceId"))
+                );
             }
         }
     }

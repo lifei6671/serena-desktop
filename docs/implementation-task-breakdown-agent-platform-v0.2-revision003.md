@@ -116,8 +116,11 @@ Phase: Phase 0
 Type: contract-test  
 Goal: 验证不同 Workspace 独立 endpoint/process 与共享配置安全性。  
 Why now: 决定 2A.3 的可用容量策略。  
+DCR resolution: contract-test 已完成。Serena CLI `1.7.0` 的 A/B 独立 process/endpoint 可并发 live、各自保持 Root/marker，停止 A 不影响 B；共享 `SERENA_HOME/serena_config.yml` 时 `projects` registry 出现确定性 lost update，最终仅保留 Workspace B，Workspace A 注册丢失。Host 已批准冻结 per-slot `SERENA_HOME`；P2A3-008 按此实现，并以 `maxInstances > 1` 的容量契约运行。
+
 Dependencies: P0-004 (H)  
-Blocked by: Serena binary/evidence environment  
+Blocked by: None；contract-test evidence 已获 Host 接受，DCR 已 resolved
+
 Allowed scope: 临时 Workspace、临时端口、临时 Serena Home。  
 Forbidden scope: 在代码中实现多个 fallback。  
 Contract references: §10.9；§11.3；§52 Phase 0/2A.3  
@@ -125,8 +128,10 @@ Implementation requirements: 覆盖 A/B 并发、配置互不覆盖、working se
 Non-goals: 实现 per-slot Home。  
 Tests required: A/B 同时运行及同时调用。  
 Evidence required: PID、endpoint、Root identity、配置 diff、资源数据。  
-Acceptance criteria: PASS，或 DCR 明确选择 per-slot Home / `maxInstances=1`。  
-Rollback / failure behavior: 未解决时仅阻塞 Phase 2A.3。  
+Acceptance criteria: contract-test evidence 已记录，DCR 已冻结 per-slot Home；P2A3-008 可据此实施。
+
+Rollback / failure behavior: 若 per-slot Home 与冻结契约出现新的实质冲突，记录 `DESIGN_BLOCKER` 并仅阻塞 Phase 2A.3。
+
 Risk: high  
 Estimated blast radius: small  
 Can run in parallel with: P0-007～P0-009
@@ -1070,7 +1075,8 @@ Type: implementation
 Goal: 实现 per-Provider `maxInstances` 和 zero-in-flight LRU eviction。  
 Why now: 跨 Workspace 并发必须受真实容量约束。  
 Dependencies: P2A3-003 (H)  
-Blocked by: None；Serena 实际 `maxInstances`/`idleTimeout` 取值留到 P2A3-008，受 P0-005 (E) 阻塞  
+Blocked by: None；Serena 实际 `maxInstances`/`idleTimeout` 取值留到 P2A3-008，P0-005 (E) 已 completed/resolved
+
 Allowed scope: capability manager policy/tests。  
 Forbidden scope: retarget live runtime、驱逐 in-flight slot。  
 Contract references: §10.8～§10.9 Capacity/Idle Eviction  
@@ -1153,14 +1159,18 @@ Phase: Phase 2A.3
 Type: implementation  
 Goal: 每个 live Slot 启动独立 Serena process/endpoint/client。  
 Why now: 替代 global Serena process + activate switching。  
-Dependencies: P2A3-003、P2A3-004、P2A3-007、P0-005 (H/E)  
-Blocked by: 多进程 evidence 或已批准 DCR  
+Dependencies: P2A3-003、P2A3-004、P2A3-007、P0-005 (H/E, completed/resolved)
+
+Blocked by: None；P0-005 evidence 与 approved per-slot `SERENA_HOME` DCR 已解除此前 blocker
+
 Allowed scope: Serena adapter runtime、process launcher、tests。  
 Forbidden scope: 复用后 retarget、改变现有 Agent Runtime。  
 Contract references: §10.7～§10.9；§11.2～§11.3  
-Implementation requirements: process 生命周期固定 Root；ready 后验证 canonical project Root。  
+Implementation requirements: 每个 live Slot 的 `SERENA_HOME` 与 `(providerId=serena, workspaceId, workspaceGeneration)` Runtime identity 一致，不同 live Slot 不共享 writable Home/config；启动前在该 Slot Home 生成/验证最小受管 global config，保持 `trusted_project_path_patterns=[]`、loopback、受管 context 与固定 Tool allowlist。首次 `--project <canonicalRoot>` 只能更新本 Slot Home，`projects` 列表不得作为 Authority；ready 后验证 active/canonical Root 与 Lease 一致。stop/idle eviction 可持久复用 Home，Workspace Remove 不删除 Workspace 下 `.serena`，不新增 retention/GC。Serena `maxInstances > 1` 的首版具体值由本任务基于 P0-005 资源证据冻结。
+
 Non-goals: auto prepare/index。  
-Tests required: A/B identity、same-workspace single-flight、capacity busy、crash isolation。  
+Tests required: A/B identity、各 Slot 独立 Home/config、same-workspace single-flight、容量允许时 A/B 真正并发、capacity busy、crash isolation；首次启动只写本 Slot Home 且 `projects` 不参与 Root Authority；idle stop/reacquire 复用受管 Home，Workspace Remove 不删除 `.serena`。
+
 Evidence required: process fixture/integration results。  
 Acceptance criteria: A/B 永不共享可 retarget process。  
 Rollback / failure behavior: 目标 capability unavailable/error，不恢复 global process。  
@@ -1280,7 +1290,7 @@ Type: integration-test
 Goal: 关闭 Phase 2A.3 Gate。  
 Why now: Runtime isolation 是硬保证。  
 Dependencies: P2A3-001～P2A3-013 (H)  
-Blocked by: P0-005 (E)  
+Blocked by: None；P0-005 (E) 已 completed/resolved，approved per-slot `SERENA_HOME` DCR 已满足该 Gate 前置条件
 Allowed scope: capability/Serena integration tests。  
 Forbidden scope: Rust Source cutover。  
 Contract references: §52 Phase 2A.3；§53 Capability Runtime；§56.70～§90  
@@ -2567,13 +2577,15 @@ Type: manual-e2e
 Goal: 验证首次 Semantic 调用 auto-prepare、lazy start 和容量语义。  
 Why now: Serena 不再是 startup 依赖。  
 Dependencies: P7-003 (H)  
-Blocked by: Serena installed；P0-005 选定策略  
+Blocked by: Serena installed；最终候选环境
+
 Allowed scope: 临时 Workspace/Serena config。  
 Forbidden scope: 手工预热 Runtime、global activate。  
 Contract references: §10.9；§11；§41～§42  
 Implementation requirements: selection 无进程；首次调用创建最小 config；不做 index/onboarding。  
 Non-goals: CodeGraph。  
-Tests required: same-workspace single-flight；A/B 并发或 max=1 busy。  
+Tests required: same-workspace single-flight；A/B 使用独立 per-slot Home 并在容量允许时并发；容量满时按 LRU/BUSY 契约处理。
+
 Evidence required: process/endpoint/root/activity。  
 Acceptance criteria: 永不 retarget；行为符合 capacity 策略。  
 Rollback / failure behavior: stop runtime/remove 临时 entry。  
@@ -2782,7 +2794,7 @@ P2A2-001 + P2A2-004
                                ├→ P2A3-004
                                ├→ P2A3-005 → P2A3-006
                                └→ P2A3-007
-P2A3-003 + P2A3-004 + P2A3-007 + P0-005(E)
+P2A3-003 + P2A3-004 + P2A3-007 + P0-005(E, completed/resolved)
   └─H→ P2A3-008 → P2A3-009 → P2A3-010 → P2A3-011
 
 P2A3-003 ─H→ P2A3-004 (Fake Provider capacity/LRU；不依赖 P0-005)
@@ -2793,7 +2805,7 @@ P2A2-001..012 + P2A3-011 ─H→ P2A2-013
 这条交叉依赖不合并 Phase。它表示：2A.2 Authority 代码可以先完成，但必须等最小 Lease-routed Serena Source route 后，才能声明 2A.2 可运行 Gate 完成。
 
 ```text
-P2A3-001..013 + P0-005(E) ─H→ P2A3-014
+P2A3-001..013 + P0-005(E, completed/resolved) ─H→ P2A3-014
 P2A2-013 + P2A3-014 ─H→ Phase 2A.3 Gate
 ```
 
@@ -2941,7 +2953,7 @@ P0-003 ─S→ 所有 DB/config migration 任务
 | Evidence | Task | 阻塞 Phase | 不阻塞 |
 |---|---|---|---|
 | Serena CLI/project workflow | P0-004 | 依赖具体行为的 P2A3 Serena 任务 | Phase 1、2A.1、2A.2 基础 |
-| Serena multi-process/shared config | P0-005 | Phase 2A.3 Serena 实际容量参数/process startup | Phase 1、2A.1、2A.2、通用 Manager capacity/LRU |
+| Serena multi-process/shared config | P0-005 (completed/resolved) | 已满足的 Phase 2A.3 Serena 实际容量参数/process startup 证据 | Phase 1、2A.1、2A.2、通用 Manager capacity/LRU |
 | CodeGraph status/init/sync contract | P0-006 | Phase 2D CodeGraph readiness/actions | Phase 1～2C |
 | CodeGraph multi-workspace/process | P0-007 | Phase 2D RuntimeSlot/capacity | Phase 1～2C |
 | Codex Usage wire/terminal coverage | P0-008 | Phase 4 | Phase 1～3 |
@@ -2965,7 +2977,7 @@ P0-003 ─S→ 所有 DB/config migration 任务
 9. `P1-003` — ProviderRegistry
 10. `P1-004` — Codex Registration Adapter
 
-主线不等待 P0-005；该 Evidence 只阻塞 Serena 真实 process/capacity 集成，不阻塞 Phase 1 或通用 Capability Manager。
+P0-005 Evidence 已 completed/resolved；其 per-slot Home DCR 为 Serena 真实 process/capacity 集成提供已满足的前置证据，不影响 Phase 1 或通用 Capability Manager。
 
 ---
 
@@ -2975,7 +2987,7 @@ P0-003 ─S→ 所有 DB/config migration 任务
 
 None
 
-冻结设计中没有发现新的实施阻断矛盾。唯一需要特殊编排的 2A.2 Backend Continuity 已通过跨阶段 hard dependency 显式处理，不需要 DCR，也不改变冻结架构。
+冻结设计中没有未决实施阻断矛盾。P0-005 shared-config evidence 已通过 approved per-slot `SERENA_HOME` DCR resolved；2A.2 Backend Continuity 继续通过跨阶段 hard dependency 显式处理。
 
 ```text
 Implementation planning readiness:

@@ -14,6 +14,7 @@ mod mcp;
 mod oauth;
 mod remote;
 mod serena;
+mod serena_capability;
 mod tray;
 mod workspace_capability;
 mod workspace_inspection;
@@ -243,6 +244,9 @@ pub fn run() {
             commands::workspace_rename,
             commands::workspace_reorder,
             commands::workspace_remove,
+            commands::workspace_capability_observe,
+            commands::workspace_capability_prepare,
+            commands::workspace_capability_cancel,
             workspace_inspection::workspace_inspect_directory,
             workspace_picker::workspace_pick_directory,
             commands::get_codex_version,

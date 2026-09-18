@@ -519,7 +519,9 @@ async fn local_agent_start_holds_supervisor_operation_mutex_from_lease_to_create
     let remove_supervisor = broker.supervisor.clone();
     let remove_product = product.clone();
     let mut remove = tokio::task::spawn_blocking(move || {
-        remove_supervisor.remove_workspace_coordinated(remove_product.as_ref(), "W")
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(remove_supervisor.remove_workspace_coordinated(remove_product.as_ref(), "W"))
     });
     // Hook is after Resolver and before the Store transaction; Remove must not mutate Registry here.
     assert!(

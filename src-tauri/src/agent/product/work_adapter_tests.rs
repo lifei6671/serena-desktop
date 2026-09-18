@@ -1083,7 +1083,9 @@ async fn resolver_start_and_remove_share_supervisor_operation_exclusion() {
     let remove_supervisor = supervisor.clone();
     let remove_service = service.clone();
     let mut remove = tokio::task::spawn_blocking(move || {
-        remove_workspace(&remove_supervisor, &remove_service, "W")
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(remove_workspace(&remove_supervisor, &remove_service, "W"))
     });
     assert!(
         tokio::time::timeout(Duration::from_millis(50), &mut remove)
@@ -1167,8 +1169,11 @@ async fn resolver_start_after_remove_linearizes_to_workspace_not_found() {
     }));
     let remove_supervisor = supervisor.clone();
     let remove_service = service.clone();
-    let remove =
-        std::thread::spawn(move || remove_workspace(&remove_supervisor, &remove_service, "W"));
+    let remove = std::thread::spawn(move || {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(remove_workspace(&remove_supervisor, &remove_service, "W"))
+    });
     tokio::task::spawn_blocking(move || remove_entered_rx.recv().unwrap())
         .await
         .unwrap();

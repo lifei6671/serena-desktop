@@ -372,7 +372,7 @@ serena-desktop.exe
 
 当前 Activate 流程会连接共享 Serena Server、调用 `activate_project`，同时为同一个 Active Workspace 创建 CodeGraph Binding；`codegraph_explore` 再从该全局 Active slot 取 Binding 并在持有 Workspace read lock 时查询。
 
-当前 Serena 子进程统一继承 Supervisor 的 `SERENA_HOME=<app data>/serena-home`，因此共享同一个 `serena_config.yml`。多进程是否会并发改写 project/global config 仍需 Phase 0 实测，当前文档不把推测写成既定故障。
+P0-005 已完成 Serena CLI `1.7.0` 双进程实测：A/B 可使用独立 process/loopback endpoint 并发 live，各自保持 Root/marker，停止 A 不影响 B；共享 `SERENA_HOME/serena_config.yml` 时，`projects` registry 出现确定性 lost update，最终只保留 Workspace B，Workspace A 注册丢失。已批准 DCR 冻结为 **per-slot `SERENA_HOME`**：每个 live Serena Slot 使用自己的可写 Home/config，Serena `maxInstances > 1`，容量满时按 LRU/BUSY 契约处理。
 
 因此当前实现只能保证“单 Active Workspace 的绑定切换”，不能满足两个会话同时对不同 Workspace 使用 Serena/CodeGraph 的隔离要求。V0.2 必须把 Serena Client/Process 与 CodeGraph Binding 从全局 Active slot 拆到 Workspace-scoped Runtime Manager。
 
@@ -1623,9 +1623,9 @@ capacity full + no safely evictable Slot
     → capability busy error
 ```
 
-例如 Serena `maxInstances = 1` 时，如果 A Runtime 正在 in-flight，B 请求必须返回对应 capability busy error；不得复用 A Process 并执行 `activate B`。
+Serena 允许 `maxInstances > 1`，因此 A/B Slot 在容量允许时必须真正并发；容量满且没有安全 LRU 候选时，目标请求返回对应 capability busy error，绝不得复用 A Process 并执行 `activate B`。
 
-Idle sweeper 只停止超过 timeout 且 `in_flight == 0` 的 Slot。驱逐/空闲停止不得删除 Workspace Registry Entry 或 Provider 持久化数据。Serena/CodeGraph 的具体 `maxInstances`、`idleTimeout` 数值由 Phase 0/2A.3/2D 的 Windows 资源与负载测试冻结在各自 Descriptor；首版不新增用户配置。
+Idle sweeper 只停止超过 timeout 且 `in_flight == 0` 的 Slot。驱逐/空闲停止不得删除 Workspace Registry Entry 或 Provider 持久化数据。Serena 首版具体 `maxInstances`、`idleTimeout` 由 P2A3-008 基于 P0-005 Windows 资源证据冻结在 Descriptor；CodeGraph 的对应数值由 Phase 0/2D 证据冻结。首版不新增用户配置。
 
 ### Failure / Shutdown
 
@@ -1702,9 +1702,13 @@ WorkspaceCapabilityManager[provider=serena]
 
 图中的 A/B Process 只有在 Serena `maxInstances` 容量允许时才可同时 live；容量较小时，Workspace Slot identity 仍然独立。容量满则按第 10.9 节驱逐安全的 idle Slot，或在没有安全候选时返回 capability busy error，绝不复用 A Process 去 activate B。
 
-启动时使用固定的 `serena start-mcp-server --project <canonicalRoot>`，或在该独立 Slot 中仅执行一次等价 `activate_project(canonicalRoot)`；这里的 `activate_project` 只是 Provider 内部、绑定新 Slot 的一次启动步骤，不是公共 `workspace_activate`，也不建立请求间 Workspace Context。缺少 `.serena/project.yml` 时允许使用 Serena 官方的首次按路径激活默认配置路径隐式创建。Runtime 发布 `ready` 前必须重新验证激活 Root 与 WorkspaceLease 一致；之后整个生命周期内不得再激活其他 Workspace。`find_symbol(workspaceId=A)` 只能取得 A Slot，不能把共享 Serena Process 从 B 切回 A。
+已批准 DCR 将 Serena Home identity 与 Runtime identity 对齐：一个 live Slot 的 Home 必须绑定 `(providerId=serena, workspaceId, workspaceGeneration)`；不同 live Slot 不得共享可写 Serena Home 或 `serena_config.yml`。Home 仅是 Serena capability runtime 的受管数据目录，不是 Workspace Authority；canonical Root 的唯一 Authority 仍是 `WorkspaceLease`。
 
-不采用“单 Serena Process + 跨 Workspace global Mutex + 每次 activate/call”的目标方案。即使 Phase 0 DCR 将 Serena `maxInstances` 冻结为 `1`，也仍是 Workspace-scoped Slot + LRU/BUSY，而不是可 retarget 的全局 Process。后者虽然可以串行避免直接串线，但会造成全 Workspace 队头阻塞，并依赖尚未验证的 Serena project-specific cache/state 切换完整性。
+P2A3-008 在每个 Slot 启动前，必须在该 Slot 自己的 Home 生成并验证最小受管 Serena global config，沿用既有安全策略：`trusted_project_path_patterns=[]`、transport 仅 loopback、受管 context 与固定 Tool allowlist。不得复制共享 Home 的 `projects` 列表，更不得把它作为 Root 或 Workspace Authority。该 Slot 的首次 `--project <canonicalRoot>` 只允许更新自己的 Home；Runtime 发布 `ready` 前仍须验证 active/canonical Root 与 WorkspaceLease 一致。
+
+启动时使用固定的 `serena start-mcp-server --project <canonicalRoot>`，或在该独立 Slot 中仅执行一次等价 `activate_project(canonicalRoot)`；这里的 `activate_project` 只是 Provider 内部、绑定新 Slot 的一次启动步骤，不是公共 `workspace_activate`，也不建立请求间 Workspace Context。缺少 `.serena/project.yml` 时允许使用 Serena 官方的首次按路径激活默认配置路径隐式创建。之后整个生命周期内不得再激活其他 Workspace。`find_symbol(workspaceId=A)` 只能取得 A Slot，不能把共享 Serena Process 从 B 切回 A。
+
+冻结模型是各自拥有 Home 的 Workspace-scoped Slot + 通用 LRU/BUSY。stop/idle eviction 不要求删除 per-slot Home，受管 Home 可以持久复用；Workspace Remove 也不得删除 Workspace 下的 `.serena` 数据。首版不新增 retention/GC 子系统。
 
 SerenaDesktop 启动不遍历 Workspace 创建 Serena Project，也不拉起进程。第一次 Semantic Tool Call 才 lazy acquire：
 
@@ -4503,8 +4507,7 @@ Runtime safety
 - 冻结 Serena Index/Onboarding 不阻止 Semantic Runtime ready 的契约，以及 index readiness 的可信证据来源；
 - 冻结 CodeGraph `status --json` schema/Root identity 校验与 `init --yes`、`sync`、显式 rebuild 命令；
 - 记录 Serena/CodeGraph 单实例 Windows working set、startup latency、idle stop latency 与并发调用证据；
-- 验证 Serena 多进程可同时使用独立 loopback endpoint、各自固定 project state 且互不改写共享配置；
-- 若共享 `SERENA_HOME/serena_config.yml` 的多进程验证失败，则阻止 Phase 2A.3 开始，并通过一次 DCR 在 per-slot `SERENA_HOME` 与 Serena `maxInstances=1` 的 Workspace-scoped Slot 策略中明确选择；后者在其他 Workspace Slot in-flight 时返回 busy，不使用可 retarget 的全局 Process。V0.2 不提前实现 Mutex/per-slot Home/单实例三套 fallback；
+- P0-005 已验证 Serena 多进程可使用独立 loopback endpoint、各自固定 project state；共享 `SERENA_HOME/serena_config.yml` 的 `projects` registry 会发生确定性 lost update。已批准 DCR 冻结 per-slot `SERENA_HOME`，由 P2A3-008 落实；不同 live Slot 使用独立可写 Home/config，Serena `maxInstances > 1`，容量满时按 LRU/BUSY 契约处理；
 - 验证 CodeGraph 多进程可同时绑定不同 canonicalRoot/index，并确认现有 index 的 Root identity 校验来源；
 - 据此冻结首版 max running instances / idle timeout 内部常量；
 - 冻结 Source Write Contract；
@@ -4521,8 +4524,8 @@ Runtime safety
 Phase 0 负责冻结公共契约、建立基线并定义各阶段前置 Gate，不是“所有外部验证全部完成后才能开始任何后续开发”的单体阻塞点。某项外部 Contract Evidence 只阻塞实际依赖它的阶段：
 
 ```text
-Serena multi-process / shared-config evidence
-    → required before Phase 2A.3
+P0-005 multi-process/shared-config evidence + per-slot Home DCR
+    → resolved prerequisite for Phase 2A.3
 
 CodeGraph status / multi-process evidence
     → required before Phase 2D
@@ -4541,7 +4544,7 @@ Gate catalog（按上述依赖阶段应用）：
 ```text
 Runtime tests baseline known
 Serena implicit project creation/activation evidence recorded
-Serena shared-config multi-process test passed OR DCR resolved before Phase 2A.3
+P0-005 shared-config lost-update evidence recorded; per-slot SERENA_HOME DCR resolved before Phase 2A.3
 CodeGraph machine-readable status contract recorded
 Serena/CodeGraph version contract probes recorded; no hash pin required
 Workspace capability provider contract frozen
@@ -4696,7 +4699,7 @@ Gate：
 Serena missing still works
 workspace appears before capability observation completes
 provider observe failure does not block registration
-Serena shared-config multi-process Phase 0 gate passed or DCR resolved
+P0-005 shared-config lost-update evidence recorded and per-slot SERENA_HOME DCR resolved
 existing Serena-backed Source tools use request Lease + Workspace-scoped Serena Slot, never Global ActiveWorkspace
 Serena missing project.yml is auto-preparable, not workspace unavailable
 first Serena tool call creates default project configuration without indexing/onboarding
@@ -4706,8 +4709,8 @@ explicit Serena prepare and build_index remain separate actions
 registering many workspaces starts zero Serena runtimes
 same-workspace concurrent first calls start one Serena process
 different-workspace Serena calls never share or retarget a process
-different-workspace Serena calls run concurrently only when maxInstances allows
-maxInstances=1 + A in-flight + B request returns capability busy; never activate B in A process
+different-workspace Serena calls use distinct writable Homes and run concurrently when maxInstances allows
+Serena `maxInstances > 1` value is frozen by P2A3-008 from P0-005 resource evidence; capacity full returns capability busy and never activates B in A process
 in-flight Serena slot is never evicted
 semantic acquire may auto-create only Serena default project configuration
 semantic acquire never runs Serena index/onboarding
@@ -5102,8 +5105,11 @@ installer/uninstaller
 | Serena optional index absent/stale | Semantic Tool 仍可运行，Health 展示 index 状态 |
 | CodeGraph index 不存在 | `CODEGRAPH_NOT_INITIALIZED/PREPARATION_REQUIRED`，不创建 `.codegraph` |
 | `.codegraph/` 存在但 status/index 不可用 | readiness error/degraded；Runtime acquire 不自动 reindex |
-| Serena A 与 B，容量允许 | 分别使用 A/B Process 真正并发，不 activate 切换 |
-| Serena `maxInstances=1`，A in-flight 时请求 B | 返回对应 capability busy error；不复用 A Process activate B |
+| Serena A 与 B，容量允许 | 分别使用 A/B Process 与各自 writable Home 真正并发，不 activate 切换 |
+| Serena A 与 B，容量已满且无安全 LRU | 返回对应 capability busy error；不复用 A Process activate B |
+| Serena Slot 首次启动 | 仅在该 Slot 的 Home 生成/验证最小受管 config；`projects` 不作为 Root Authority |
+| Serena Slot idle stop 后再 acquire | 可复用同一受管 Home；不要求删除或重建 Home |
+| Serena Workspace Remove | 不删除 Workspace 下 `.serena` 数据；不要求删除 per-slot Home |
 | CodeGraph A 与 B，容量允许 | 分别查询 A/B runtime/index，可真正并发 |
 | CodeGraph 容量不允许且无安全 LRU | 返回 `CODEGRAPH_BUSY`，不 retarget live process |
 | 同一 Slot 并发能力尚未验证 | Slot 内串行；其他 Workspace 仅在 Provider 容量允许时并发 |
@@ -5403,15 +5409,15 @@ Read / Agent 保持可用。
 67. Agent Execution Workspace 创建时冻结，Continue/UI/其他请求均不能改变；`agent_query`/cancel/continue 不接收新 `workspaceId`，Continue 继承原 Execution Workspace；
 68. Git 通过 WorkspaceResolver 后在对应 canonicalRoot 执行；
 69. CodeGraph runtime/index 按 Workspace 隔离，资源冲突 fail explicit 而非隐式切换；
-70. Serena 每个 live Slot 拥有独立 Process/endpoint/Client，生命周期内不 retarget；容量不足时允许某些 Workspace Slot 非 live；
+70. Serena 每个 live Slot 拥有独立 Process/endpoint/Client 与绑定 Runtime identity 的可写 Home，生命周期内不 retarget；Home 不是 Workspace Authority，容量不足时允许某些 Workspace Slot 非 live；
 71. 注册或启动 Desktop 不 eager start Serena/CodeGraph Runtime；
 72. 同一 Workspace 并发首次调用通过 single-flight 只启动一个 Runtime；
 73. 不同 Workspace Runtime 在 Provider `maxInstances` 允许时可并发；容量不足时走 LRU/BUSY，failure/health 和 Workspace identity 始终隔离；
 74. Serena/CodeGraph 都有独立的有界实例数与 Idle Timeout；
 75. LRU eviction 只选择 `in_flight == 0` 的 Slot；
 76. 容量满且无可驱逐 Slot 时返回 capability busy error，不复用或 retarget 其他 Workspace 的 live Runtime；
-77. Idle eviction 保留 Workspace Registry Entry 和 CodeGraph index；
-78. Workspace Remove 阻止 runtime acquire/in-flight，并先停止 idle Slot；
+77. Idle eviction 保留 Workspace Registry Entry、CodeGraph index 和可持久复用的 per-slot Serena Home；
+78. Workspace Remove 阻止 runtime acquire/in-flight，并先停止 idle Slot；不删除 Workspace 下 `.serena` 数据，也不要求删除 per-slot Home；
 79. Runtime stop 失败时 Registry Entry 保留；
 80. Capability Health 按 Workspace 展示 stopped/starting/ready/error/stopping；
 81. Host shutdown 后无 Serena/CodeGraph orphan process；
@@ -5437,7 +5443,7 @@ Read / Agent 保持可用。
 101. `total_tokens` 只能来自 Provider，不从可能重叠的 breakdown 相加；
 102. V0.2 不自动 prune Activity History，查询必须 bounded + cursor；
 103. Workspace 交付拆为 Phase 2A.1 Registry、2A.2 Resolver/Authority、2A.3 Capability/Serena；每个 Gate 后公开 Tool 均有 Lease 路由，不出现 Source backend 断档；
-104. Serena shared-config 多进程验证失败时阻止 2A.3，并先完成 DCR；若冻结 `maxInstances=1`，其他 Workspace in-flight 时返回 busy，绝不恢复 retarget；
+104. P0-005 已证实 shared-config `projects` lost update，并已通过 DCR 冻结 per-slot `SERENA_HOME`；2A.3 按各 live Slot 独立 writable Home 实现，并沿用 `maxInstances > 1` 的 LRU/BUSY 容量契约；
 105. Workspace CRUD 复用现有 `SupervisorState.operation` 和 atomic config persist；
 106. Serena/CodeGraph 使用 Version Contract/probe，不复制 Codex binary hash pin；
 107. Portable/Installed 通过固定 identifier 的相同 config/data path Gate，不新增迁移子系统。

@@ -15,6 +15,10 @@ use crate::{
     },
     config::{self, AppPaths, ManagerConfig, Workspace},
     logs,
+    serena_capability::SerenaCapabilityProvider,
+    workspace_capability::{
+        WorkspaceCapabilityErrorCode, WorkspaceCapabilityManager, WorkspaceCapabilityRegistry,
+    },
     workspace_resolver::WorkspaceResolver,
 };
 use serde::Serialize;
@@ -109,8 +113,9 @@ pub(crate) struct WorkspaceStartCreation {
 }
 
 pub struct SupervisorState {
-    runtime: Mutex<Runtime>,
+    runtime: Arc<Mutex<Runtime>>,
     operation: Mutex<()>,
+    capability_manager: Arc<WorkspaceCapabilityManager>,
     dashboard_url: Arc<Mutex<String>>,
     pub paths: AppPaths,
     #[cfg(test)]
@@ -150,17 +155,36 @@ impl SupervisorState {
     pub fn new(paths: AppPaths) -> Result<Self, String> {
         logs::ensure_directory(&paths.log_directory)?;
         let config = config::load(&paths.config_file)?;
+        // Provider 只读取最新配置快照；Registry 构造本身不执行 Serena CLI 或 Runtime 生命周期。
+        let runtime = Arc::new(Mutex::new(Runtime {
+            config,
+            installation: None,
+            git: GitInstallation::default(),
+            codegraph_version: None,
+            process: None,
+            status: ServerStatus::Stopped,
+            last_error: None,
+        }));
+        let config_runtime = Arc::clone(&runtime);
+        let serena_provider: Arc<dyn crate::workspace_capability::WorkspaceCapabilityProvider> =
+            Arc::new(SerenaCapabilityProvider::new(
+                Arc::new(move || {
+                    config_runtime
+                        .lock()
+                        .expect("supervisor runtime mutex poisoned")
+                        .config
+                        .clone()
+                }),
+                paths.clone(),
+            ));
         Ok(Self {
-            runtime: Mutex::new(Runtime {
-                config,
-                installation: None,
-                git: GitInstallation::default(),
-                codegraph_version: None,
-                process: None,
-                status: ServerStatus::Stopped,
-                last_error: None,
-            }),
+            runtime,
             operation: Mutex::new(()),
+            capability_manager: Arc::new(WorkspaceCapabilityManager::new(Arc::new(
+                WorkspaceCapabilityRegistry::new([serena_provider]).map_err(|_| {
+                    "workspace capability registry initialization failed".to_owned()
+                })?,
+            ))),
             dashboard_url: Arc::new(Mutex::new(DEFAULT_DASHBOARD_URL.to_string())),
             paths,
             #[cfg(test)]
@@ -172,6 +196,20 @@ impl SupervisorState {
             #[cfg(test)]
             workspace_remove_test_owners: Mutex::new(WorkspaceRemoveTestOwnerCounts::default()),
         })
+    }
+
+    /// 仅供跨层生命周期测试注入 fake Runtime Manager，不形成生产动态 Provider 注册机制。
+    #[cfg(test)]
+    pub(crate) fn replace_workspace_capability_manager_for_test(
+        &mut self,
+        manager: Arc<WorkspaceCapabilityManager>,
+    ) {
+        self.capability_manager = manager;
+    }
+
+    /// 返回已在 Supervisor 构造期固定的 Capability Manager，不暴露 Provider 私有 Runtime。
+    pub(crate) fn workspace_capability_manager(&self) -> Arc<WorkspaceCapabilityManager> {
+        Arc::clone(&self.capability_manager)
     }
 
     pub fn snapshot(&self) -> SupervisorSnapshot {
@@ -408,8 +446,52 @@ impl SupervisorState {
         })
     }
 
-    /// Remove 的单一 typed coordination point：Claim 检查与 Registry 删除共用 operation mutex。
-    pub(crate) fn remove_workspace_coordinated(
+    /// Remove 先在 capability Manager 中关闭 admission，stop 完成前绝不进入 Registry 删除。
+    pub(crate) async fn remove_workspace_coordinated(
+        &self,
+        product: &AgentProductService,
+        id: &str,
+    ) -> Result<Workspace, String> {
+        let (lease, removal) = {
+            let _operation = self.operation.lock().expect("operation mutex poisoned");
+            let lease = WorkspaceResolver::new(self).resolve(id)?;
+            let removal = self
+                .capability_manager
+                .begin_workspace_remove_admission(&lease)
+                .map_err(Self::map_workspace_capability_remove_error)?;
+            let workspace = crate::workspace_registry::WorkspaceRegistry::new(self).get(id)?;
+            if self.workspace_remove_owners(product, &workspace)?.is_busy() {
+                drop(removal);
+                return Err(crate::workspace_registry::WORKSPACE_IN_USE.into());
+            }
+            (lease, removal)
+        };
+        if let Err(error) = self.capability_manager.drain_workspace_remove(&lease).await {
+            drop(removal);
+            return Err(Self::map_workspace_capability_remove_error(error));
+        }
+        let result = self.remove_workspace_registry_coordinated(product, id);
+        drop(removal);
+        result
+    }
+
+    /// 将 capability Remove 的安全错误映射为已有 Local Workspace 错误 surface。
+    fn map_workspace_capability_remove_error(
+        error: crate::workspace_capability::WorkspaceCapabilityError,
+    ) -> String {
+        match error.code {
+            WorkspaceCapabilityErrorCode::Busy => {
+                crate::workspace_registry::WORKSPACE_IN_USE.into()
+            }
+            _ => serde_json::to_value(error.code)
+                .ok()
+                .and_then(|value| value.as_str().map(str::to_owned))
+                .unwrap_or_else(|| "WORKSPACE_CAPABILITY_CONTRACT_ERROR".into()),
+        }
+    }
+
+    /// Claim 检查与 Registry 删除共用 operation mutex，且只在 capability ownership 已释放后调用。
+    fn remove_workspace_registry_coordinated(
         &self,
         product: &AgentProductService,
         id: &str,
@@ -435,6 +517,19 @@ impl SupervisorState {
         removed.ok_or_else(|| "workspace removal made no entry".into())
     }
 
+    /// Host shutdown 通过同一 Manager 收敛 RuntimeSlot；失败时保留 Provider ownership。
+    pub(crate) async fn shutdown_capability_runtimes(&self) -> Result<(), String> {
+        self.capability_manager
+            .shutdown_runtimes()
+            .await
+            .map_err(|error| {
+                serde_json::to_value(error.code)
+                    .ok()
+                    .and_then(|value| value.as_str().map(str::to_owned))
+                    .unwrap_or_else(|| "WORKSPACE_CAPABILITY_CONTRACT_ERROR".into())
+            })
+    }
+
     /// Start 的线性化点：在同一 operation mutex 内解析 Lease，并原子提交 Execution 与 Claim。
     pub(crate) fn create_workspace_start(
         &self,
@@ -443,6 +538,12 @@ impl SupervisorState {
     ) -> Result<CreateOutcome, String> {
         let _operation = self.operation.lock().expect("operation mutex poisoned");
         let lease = WorkspaceResolver::new(self).resolve(&creation.workspace_id)?;
+        if self
+            .capability_manager
+            .workspace_remove_admission_active(&lease)
+        {
+            return Err(crate::workspace_registry::WORKSPACE_IN_USE.into());
+        }
         let snapshot = WorkspaceSnapshot {
             id: lease.workspace_id,
             root: lease.canonical_root.to_string_lossy().into_owned(),
@@ -734,7 +835,7 @@ impl SupervisorState {
 }
 
 #[cfg(windows)]
-fn contain_process(child: &Child) -> std::io::Result<std::os::windows::io::OwnedHandle> {
+pub(crate) fn contain_process(child: &Child) -> std::io::Result<std::os::windows::io::OwnedHandle> {
     use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -766,7 +867,7 @@ fn contain_process(child: &Child) -> std::io::Result<std::os::windows::io::Owned
 }
 
 #[cfg(windows)]
-fn terminate_managed_process(child: &mut Child) -> Result<(), String> {
+pub(crate) fn terminate_managed_process(child: &mut Child) -> Result<(), String> {
     let mut command = hidden_command("taskkill.exe");
     command.args(["/PID", &child.id().to_string(), "/T", "/F"]);
     let output = run_with_timeout(command, Duration::from_secs(10), "终止 Serena 进程树")?;
@@ -784,8 +885,23 @@ fn terminate_managed_process(child: &mut Child) -> Result<(), String> {
     }
 }
 
+/// 终止调用方独占的 Windows Job Object 及其进程树。
+#[cfg(windows)]
+pub(crate) fn terminate_managed_job(
+    job: &std::os::windows::io::OwnedHandle,
+) -> std::io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+
+    // SAFETY: 调用方持有该 Job 的唯一 OwnedHandle；只影响被分配到该 Job 的进程树。
+    if unsafe { TerminateJobObject(job.as_raw_handle(), 1) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 #[cfg(not(windows))]
-fn terminate_managed_process(child: &mut Child) -> Result<(), String> {
+pub(crate) fn terminate_managed_process(child: &mut Child) -> Result<(), String> {
     child.kill().map_err(|error| error.to_string())
 }
 
@@ -977,6 +1093,38 @@ mod tests {
     use crate::discovery::InstallationSource;
 
     #[test]
+    fn supervisor_registers_the_single_production_serena_capability() {
+        let directory = tempfile::tempdir().unwrap();
+        let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
+            config_file: directory.path().join("config").join("config.json"),
+            log_directory: directory.path().join("logs"),
+            app_log: directory.path().join("logs").join("app.log"),
+            serena_log: directory.path().join("logs").join("serena.log"),
+        };
+        std::fs::create_dir_all(paths.config_file.parent().unwrap()).unwrap();
+        config::save(&paths.config_file, &ManagerConfig::default()).unwrap();
+
+        let supervisor = SupervisorState::new(paths).unwrap();
+        let providers = supervisor.capability_manager.providers();
+
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].descriptor().provider_id.as_str(), "serena");
+        assert_eq!(
+            providers[0].descriptor().tool_names,
+            [
+                "source_read_file",
+                "source_list_dir",
+                "source_find_file",
+                "source_search_pattern",
+                "source_symbols_overview",
+                "source_find_symbol",
+                "source_find_references"
+            ]
+        );
+    }
+
+    #[test]
     #[cfg(windows)]
     fn job_owner_fixture() {
         let Some(signal) = std::env::var_os("SERENA_JOB_TEST_SIGNAL") else {
@@ -1027,6 +1175,34 @@ mod tests {
             unsafe { WaitForSingleObject(child.as_raw_handle(), 5000) },
             0
         );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn terminating_a_managed_job_leaves_another_slot_alive() {
+        let mut first = hidden_command("ping.exe")
+            .args(["-n", "60", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let first_job = contain_process(&first).unwrap();
+        let mut second = hidden_command("ping.exe")
+            .args(["-n", "60", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .spawn()
+            .unwrap();
+        let second_job = contain_process(&second).unwrap();
+
+        terminate_managed_job(&first_job).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while first.try_wait().unwrap().is_none() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+
+        assert!(first.try_wait().unwrap().is_some());
+        assert!(second.try_wait().unwrap().is_none());
+        terminate_managed_job(&second_job).unwrap();
+        second.wait().unwrap();
     }
 
     #[test]
