@@ -14,6 +14,7 @@ mod source_read_support;
 mod source_search;
 pub(crate) mod source_write_atomic_replace;
 pub(crate) mod source_write_commit;
+mod source_write_content;
 mod source_write_create;
 mod source_write_delete;
 mod source_write_domain;

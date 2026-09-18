@@ -1677,18 +1677,18 @@ Can run in parallel with: P2C-006～P2C-009、P2C-011
 
 Phase: Phase 2C  
 Type: implementation  
-Goal: 实现 `first/all`、expectedMatches 和空 oldContent 约束。  
+Goal: 实现 literal、non-overlapping 的 `first/all` content replacement 与确定性匹配计数。
 Why now: 这是六 Tool 中歧义风险最高的独立行为。  
 Dependencies: P2C-001～P2C-005 (H)  
 Blocked by: None  
 Allowed scope: replace-content handler/tests。  
 Forbidden scope: 正则扩展、新 mode。  
 Contract references: §13.10、§13.10 first/all；§13.12～§13.15  
-Implementation requirements: oldContent 空→invalid；all 无 max→invalid；数量不符→ambiguous。  
+Implementation requirements: 修改前 raw UTF-8 snapshot 上从左到右 non-overlapping literal match；oldContent 空或等于 newContent、expectedMatches=0、all 无/0 max、first 携带 max、all expectedMatches>max 均在文件访问前 invalid；读后 no match→not found，再比较 expectedMatches/max；随后按 snapshot newline style 规范化 newContent，若等于 oldContent 则 invalid，任一失败不 commit；untouched bytes 不重写；成功 changedRange=None、changedCount 为实际替换次数。
 Non-goals: regex replace。  
-Tests required: first/all/no match/multi match/expectedMatches/stale。  
+Tests required: overlapping non-overlap 计数、参数优先级、first/all/no match/multi match/expectedMatches/max、literal 特殊字符、空 newContent、newline/raw-byte、LF/CRLF normalization-induced no-op、limits、stale/external edit/Workspace drift/junction/cancel、Remote disabled 及 P2C-003～010 聚焦回归。
 Evidence required: focused tests。  
-Acceptance criteria: 每种歧义均确定性失败。  
+Acceptance criteria: 每种参数、匹配或 normalization-induced no-op 均确定性失败，成功只提交真实内容变化。
 Rollback / failure behavior: 匹配不确定时不写。  
 Risk: high  
 Estimated blast radius: medium  

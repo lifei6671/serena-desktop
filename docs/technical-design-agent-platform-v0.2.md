@@ -2158,13 +2158,24 @@ SOURCE_VERSION_REQUIRED
 
 ## 13.10 replace_content
 
-literal match，不是 regex。
+`oldContent` 对修改前原始 UTF-8 snapshot 作 exact literal match，不是 regex，且不对 `oldContent` 作 newline normalization。`actualMatches` 固定从左到右按 non-overlapping literal match 计数；例如 `text="aaa"`、`oldContent="aa"` 时 `actualMatches=1`。
 
-`oldContent=""`：
+以下属于 Workspace 或文件访问前的纯参数校验，均返回：
 
 ```text
 SOURCE_INVALID_ARGUMENT
 ```
+
+```text
+oldContent=""
+oldContent == newContent
+expectedMatches=0
+mode=all 且 maxReplacements 缺失或为 0
+mode=first 且携带 maxReplacements
+mode=all 且 expectedMatches > maxReplacements
+```
+
+`newContent` 可为空，表示删除匹配内容；空或非空均遵循 inline mutation 内容校验。`newContent` 中的换行只按修改前 snapshot newline style 规范化，未匹配区域 raw bytes 不重写。若 raw `oldContent != newContent`，但 snapshot 后规范化的 `newContent == oldContent`，则返回 `SOURCE_INVALID_ARGUMENT`；该判断依赖目标 newline style，不属于纯参数校验。
 
 参数：
 
@@ -2178,9 +2189,9 @@ maxReplacements?
 
 ### mode=first
 
-最多替换一处。
+无匹配返回 `SOURCE_CONTENT_NOT_FOUND`。满足匹配约束后最多替换第一处。
 
-如果提供 `expectedMatches`，它表示修改前全文总匹配数。
+如果提供 `expectedMatches`，它表示修改前全文总 non-overlapping 匹配数，必须与 `actualMatches` 相等；否则返回 `SOURCE_CONTENT_AMBIGUOUS`。
 
 典型：
 
@@ -2193,31 +2204,29 @@ expectedMatches=1
 
 ### mode=all
 
-`maxReplacements` 必填。
+`maxReplacements` 必填且必须大于 0。
 
-如果提供 `expectedMatches`：
+无匹配返回 `SOURCE_CONTENT_NOT_FOUND`。如果提供 `expectedMatches`：
 
 ```text
 actualMatches == expectedMatches
 ```
 
-必须成立。
+必须成立，否则返回 `SOURCE_CONTENT_AMBIGUOUS`。
 
-未提供 `expectedMatches`：
+无论是否提供 `expectedMatches`，`actualMatches > maxReplacements` 返回 `SOURCE_CONTENT_AMBIGUOUS`。满足约束后替换全部 non-overlapping 匹配。
 
-只受 `maxReplacements` 限制。
+错误优先级固定为：全部纯参数错误先于 Workspace/文件访问；读取后先判断无匹配，再判断 `expectedMatches` 不符和 `maxReplacements` 上限，随后规范化 `newContent` 并拒绝 normalization-induced no-op；任一失败不得进入 commit。
 
-找不到：
-
-```text
-SOURCE_CONTENT_NOT_FOUND
-```
-
-匹配数不符合预期：
+成功结果固定：
 
 ```text
-SOURCE_CONTENT_AMBIGUOUS
+changedRange = None
+changedCount = mode=first 时 1，否则 actualMatches
+beforeSha256 / afterSha256 = 修改前 / 修改后完整文件 SHA-256
 ```
+
+因 raw `oldContent == newContent` 与 normalization-induced no-op 均已拒绝，成功必定产生真实 candidate 变化；首版不提供 no-op replace success 或无意义 atomic replace。
 
 ---
 

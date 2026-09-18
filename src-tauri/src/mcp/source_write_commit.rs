@@ -164,6 +164,18 @@ impl TargetCommitCoordinator {
             .len()
     }
 
+    /// 仅测试观察所有已登记 holder/waiter，供 handler 精确确认已进入同一 target 的锁等待窗口。
+    #[cfg(test)]
+    pub(crate) fn permit_count_for_test(&self) -> u32 {
+        self.state
+            .entries
+            .lock()
+            .expect("target commit coordinator mutex poisoned")
+            .iter()
+            .map(|(_, entry)| entry.ref_count)
+            .sum()
+    }
+
     /// 仅测试设置一次性 hash read hook，以确定性覆盖读取期间版本漂移。
     #[cfg(test)]
     fn set_hash_read_hook_for_test(&self, hook: HashReadHook) {
