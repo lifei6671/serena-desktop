@@ -17,6 +17,7 @@ pub(crate) mod source_write_commit;
 mod source_write_create;
 mod source_write_domain;
 mod source_write_file;
+mod source_write_insert;
 mod source_write_support;
 pub(crate) mod source_write_text;
 use crate::{
