@@ -2284,7 +2284,9 @@ sync where supported
 safe/atomic replace
 ```
 
-失败清理 temp。
+native replace 前的失败保留完整 OLD 并清理本次 temp；成功的 native replace 提交完整 NEW。Unix 在成功 `rename` 后对 parent directory 的同步仅为 best-effort，不能把已提交 NEW 改投影为失败。
+
+Windows 使用 `ReplaceFileW` 且 flags=`0`，不得使用文档不支持的 `REPLACEFILE_WRITE_THROUGH`。`ERROR_UNABLE_TO_MOVE_REPLACEMENT` (1176) 与 `ERROR_UNABLE_TO_MOVE_REPLACEMENT_2` (1177) 是 Windows 文档化的 ambiguous native failure：只对 canonical target 进行有界 re-read/reconcile，能证明 NEW 则成功、能证明 OLD 则 `SOURCE_IO_ERROR`，否则返回 `SOURCE_COMMIT_STATE_UNKNOWN`；V0.2 不做自动 rollback/recovery。
 
 禁止：
 
@@ -4348,6 +4350,7 @@ SOURCE_RANGE_INVALID
 SOURCE_ALREADY_EXISTS
 SOURCE_VERSION_REQUIRED
 SOURCE_VERSION_CONFLICT
+SOURCE_COMMIT_STATE_UNKNOWN
 SOURCE_CONTENT_NOT_FOUND
 SOURCE_CONTENT_AMBIGUOUS
 SOURCE_WRITE_REMOTE_DISABLED
@@ -4770,6 +4773,8 @@ Gate：
 - junction attack；
 - Remote Write disabled。
 
+安全替换不变量：pre-commit 或 native-safe failure 保留 OLD；success 提交 NEW；Windows 文档化的 ambiguous native failure 仅返回经 mandatory re-read 后的 success、safe `SOURCE_IO_ERROR` 或 `SOURCE_COMMIT_STATE_UNKNOWN`，绝不伪装为安全失败。SerenaDesktop 不会产生半写入的 target bytes。
+
 ---
 
 ## Phase 2D — Workspace Capability Adapters / CodeGraph / Health UI
@@ -5085,6 +5090,7 @@ installer/uninstaller
 | External editor changes target before locked revalidation | SHA 不同则 version conflict；不声明跨进程事务隔离 |
 | Remove during active WorkspaceWriteGuard | `WORKSPACE_IN_USE` |
 | crash during write | no half file |
+| Windows ReplaceFileW 1176/1177 ambiguous native failure | canonical target bounded re-read: candidate SHA => success; before SHA => `SOURCE_IO_ERROR`; missing/other/unreadable/reparse/uncertain => `SOURCE_COMMIT_STATE_UNKNOWN`; never blind retry or automatic rollback |
 | Remote default | write unavailable |
 
 ---

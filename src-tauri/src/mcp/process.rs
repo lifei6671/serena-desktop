@@ -112,34 +112,6 @@ pub fn safe_relative(root: &Path, value: &str) -> Result<PathBuf, String> {
     }
     Ok(resolved)
 }
-/// Serena follows links by design. Broker rejects an escaping link before a subtree query.
-pub fn check_subtree(root: &Path, path: &Path) -> Result<(), String> {
-    let mut pending = vec![path.to_path_buf()];
-    let mut visited = std::collections::HashSet::new();
-    while let Some(path) = pending.pop() {
-        let actual = path
-            .canonicalize()
-            .map_err(|e| format!("INVALID_PATH: {e}"))?;
-        if !actual.starts_with(root) {
-            return Err(format!("INVALID_PATH: 链接越出项目 {}", path.display()));
-        }
-        if !visited.insert(actual.clone()) || !actual.is_dir() {
-            continue;
-        }
-        for entry in std::fs::read_dir(&actual).map_err(|e| e.to_string())? {
-            let entry = entry.map_err(|e| e.to_string())?;
-            if entry.file_name() == ".git" {
-                continue;
-            }
-            let kind = entry.file_type().map_err(|e| e.to_string())?;
-            if kind.is_dir() || kind.is_symlink() {
-                pending.push(entry.path());
-            }
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,6 +156,5 @@ mod tests {
         assert!(status.status.success());
         let root = root.canonicalize().unwrap();
         assert!(safe_relative(&root, "link").is_err());
-        assert!(check_subtree(&root, &root).is_err());
     }
 }

@@ -7,7 +7,18 @@ pub mod projects;
 pub mod registry;
 pub mod serena;
 mod server;
+mod source_find;
+mod source_list;
 mod source_read;
+mod source_read_support;
+mod source_search;
+pub(crate) mod source_write_atomic_replace;
+pub(crate) mod source_write_commit;
+mod source_write_create;
+mod source_write_domain;
+mod source_write_file;
+mod source_write_support;
+pub(crate) mod source_write_text;
 use crate::{
     config::{ManagerConfig, Workspace},
     serena::{ServerStatus, SupervisorState},
@@ -30,7 +41,15 @@ use tokio_util::sync::CancellationToken;
 
 pub struct Active {
     pub workspace: Workspace,
+    #[allow(
+        dead_code,
+        reason = "deprecated compatibility activation retains the client owner"
+    )]
     pub client: Arc<serena::Client>,
+    #[allow(
+        dead_code,
+        reason = "deprecated compatibility activation retains the verified process identity"
+    )]
     pub pid: u32,
 }
 pub struct Listener {
@@ -432,45 +451,27 @@ impl Broker {
                 .clone();
             arguments.remove("workspaceId");
             let arguments = Value::Object(arguments);
-            if registry::COMPATIBILITY_SOURCES.contains(&name) {
-                let source_args: registry::SourceArgs = serde_json::from_value(arguments.clone())
-                    .expect("registry validation verified compatibility Source arguments");
-                let limit = compatibility_source_limit(name, &source_args)?;
-                if name == "source_read_file" {
-                    let manager = self.supervisor.workspace_capability_manager();
-                    let call_lease = lease.clone();
-                    let tool_name = name.to_owned();
-                    return source_read::read(
-                        &lease,
-                        arguments,
-                        limit,
-                        cancel,
-                        move |arguments| async move {
-                            call_workspace_source(manager, call_lease, tool_name, arguments).await
-                        },
-                    )
-                    .await;
-                }
-                validate_compatibility_source_path(&lease, &source_args, cancel.clone()).await?;
-                // 取消时 drop Manager.call future，让既有 in-flight guard 的 RAII 立即归还 Slot。
-                let text = tokio::select! {
-                    result = call_workspace_source(
-                        self.supervisor.workspace_capability_manager(),
-                        lease.clone(),
-                        name.to_owned(),
-                        arguments,
-                    ) => result?,
-                    _ = cancel.cancelled() => return Err("CANCELLED".into()),
-                };
-                if text.len() > limit {
-                    return Err("OUTPUT_LIMIT_EXCEEDED: 缩小路径、行范围或匹配条件".into());
-                }
-                return Ok(json!({
-                    "workspace":{"id":lease.workspace_id,"generation":lease.generation},
-                    "text":text,
-                    "truncated":false
-                }));
+            if name == "source_read_file" {
+                let source_args: registry::SourceArgs = serde_json::from_value(arguments)
+                    .expect("registry validation verified local Source arguments");
+                return source_read::read(&lease, source_args, cancel).await;
             }
+            if name == "source_list_dir" {
+                let source_args: registry::SourceArgs = serde_json::from_value(arguments)
+                    .expect("registry validation verified local Source arguments");
+                return source_list::list(&lease, source_args, cancel).await;
+            }
+            if name == "source_find_file" {
+                let source_args: registry::SourceArgs = serde_json::from_value(arguments)
+                    .expect("registry validation verified local Source arguments");
+                return source_find::find(&lease, source_args, cancel).await;
+            }
+            if name == "source_search_pattern" {
+                let source_args: registry::SourceArgs = serde_json::from_value(arguments)
+                    .expect("registry validation verified local Source arguments");
+                return source_search::search(&lease, source_args, cancel).await;
+            }
+            // 此处只会到达三个 Semantic Source；四个基础 Source 已在上方本地完成。
             let text = call_workspace_source(
                 self.supervisor.workspace_capability_manager(),
                 lease.clone(),
@@ -514,23 +515,13 @@ fn map_semantic_capability_error(error: WorkspaceCapabilityError) -> String {
     }
 }
 
-/// Compatibility Source 不伪装为 Semantic surface；Capability operational error 保留冻结安全分类。
-fn map_compatibility_source_capability_error(error: WorkspaceCapabilityError) -> String {
-    serde_json::to_value(error.code)
-        .expect("WorkspaceCapabilityErrorCode must serialize")
-        .as_str()
-        .expect("WorkspaceCapabilityErrorCode must serialize as a string")
-        .into()
-}
-
-/// 将 Source 正文唯一地交给 request Lease 对应的 Serena Slot，并拒绝非文本 Provider 结果。
+/// 将三个 Semantic Source 唯一地交给 request Lease 对应的 Serena Slot，并拒绝非文本 Provider 结果。
 async fn call_workspace_source(
     manager: Arc<crate::workspace_capability::WorkspaceCapabilityManager>,
     lease: crate::workspace_resolver::WorkspaceLease,
     tool_name: String,
     arguments: Value,
 ) -> Result<String, String> {
-    let semantic = registry::is_semantic_source(&tool_name);
     let result = manager
         .call(
             "serena",
@@ -541,62 +532,12 @@ async fn call_workspace_source(
             },
         )
         .await
-        .map_err(|error| {
-            if semantic {
-                map_semantic_capability_error(error)
-            } else {
-                map_compatibility_source_capability_error(error)
-            }
-        })?;
+        .map_err(map_semantic_capability_error)?;
     result
         .result
         .as_str()
         .map(str::to_owned)
         .ok_or("WORKSPACE_CAPABILITY_CONTRACT_ERROR".into())
-}
-
-/// 复刻基础 Source 的既有 output budget；Provider 只负责把该预算映射给 Serena。
-fn compatibility_source_limit(
-    name: &str,
-    arguments: &registry::SourceArgs,
-) -> Result<usize, String> {
-    let limit = arguments
-        .max_bytes
-        .unwrap_or(if name == "source_read_file" {
-            32_768
-        } else {
-            65_536
-        });
-    let maximum = if name == "source_read_file" {
-        131_072
-    } else {
-        262_144
-    };
-    if limit == 0 || limit > maximum {
-        return Err("INVALID_PARAMS: max_bytes 超出范围".into());
-    }
-    Ok(limit)
-}
-
-/// 基础 Source 在进入 Provider 前以 Lease root 检查路径及链接子树，保留旧 INVALID_PATH 语义。
-async fn validate_compatibility_source_path(
-    lease: &crate::workspace_resolver::WorkspaceLease,
-    arguments: &registry::SourceArgs,
-    cancel: CancellationToken,
-) -> Result<(), String> {
-    if cancel.is_cancelled() {
-        return Err("CANCELLED".into());
-    }
-    let root = lease.canonical_root.clone();
-    let relative_path = arguments.relative_path.clone().unwrap_or_default();
-    let checked = process::safe_relative(&root, &relative_path)?;
-    let worker_root = root.clone();
-    tokio::select! {
-        result = tokio::task::spawn_blocking(move || process::check_subtree(&worker_root, &checked)) => {
-            result.map_err(|error| error.to_string())?
-        }
-        _ = cancel.cancelled() => Err("CANCELLED".into()),
-    }
 }
 
 fn append_log(logs: &Mutex<VecDeque<String>>, message: &str) {
@@ -672,14 +613,10 @@ mod integration_tests {
     struct SemanticRoutingProvider {
         descriptor: WorkspaceCapabilityDescriptor,
         calls: std::sync::Mutex<Vec<(WorkspaceLease, WorkspaceToolCall)>>,
-        call_entered: Arc<tokio::sync::Notify>,
-        call_release: std::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
-        call_hold: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
         wrong_runtime: std::sync::atomic::AtomicBool,
-        fail_call: std::sync::atomic::AtomicBool,
+        fail_start: std::sync::atomic::AtomicBool,
         probes: std::sync::atomic::AtomicUsize,
         observations: std::sync::atomic::AtomicUsize,
-        stops: std::sync::atomic::AtomicUsize,
     }
 
     impl SemanticRoutingProvider {
@@ -689,9 +626,9 @@ mod integration_tests {
                 descriptor: WorkspaceCapabilityDescriptor {
                     provider_id: WorkspaceCapabilityProviderId::new("serena"),
                     display_name: "Semantic routing fixture".into(),
-                    tool_names: registry::SOURCES
+                    tool_names: registry::SEMANTIC_SOURCES
                         .iter()
-                        .map(|source| source.0.into())
+                        .map(|source| (*source).into())
                         .collect(),
                     runtime_model: CapabilityRuntimeModel::WorkspaceScopedProcess,
                     readiness_probe: CapabilityReadinessProbe::Required,
@@ -715,22 +652,11 @@ mod integration_tests {
                     },
                 },
                 calls: std::sync::Mutex::new(Vec::new()),
-                call_entered: Arc::new(tokio::sync::Notify::new()),
-                call_release: std::sync::Mutex::new(None),
-                call_hold: std::sync::Mutex::new(None),
                 wrong_runtime: std::sync::atomic::AtomicBool::new(false),
-                fail_call: std::sync::atomic::AtomicBool::new(false),
+                fail_start: std::sync::atomic::AtomicBool::new(false),
                 probes: std::sync::atomic::AtomicUsize::new(0),
                 observations: std::sync::atomic::AtomicUsize::new(0),
-                stops: std::sync::atomic::AtomicUsize::new(0),
             }
-        }
-
-        /// 阻塞下一次 Provider call，供 drop/cancel 组合测试精确控制时序。
-        fn block_next_call(&self) {
-            let (release, wait) = tokio::sync::oneshot::channel();
-            *self.call_release.lock().unwrap() = Some(wait);
-            *self.call_hold.lock().unwrap() = Some(release);
         }
     }
 
@@ -791,7 +717,13 @@ mod integration_tests {
         {
             let provider_id = self.descriptor.provider_id.clone();
             let wrong_runtime = self.wrong_runtime.load(std::sync::atomic::Ordering::SeqCst);
+            let fail_start = self.fail_start.load(std::sync::atomic::Ordering::SeqCst);
             Box::pin(async move {
+                if fail_start {
+                    return Err(CapabilityProviderError {
+                        code: CapabilityProviderErrorCode::OperationFailed,
+                    });
+                }
                 let provider_id = if wrong_runtime {
                     WorkspaceCapabilityProviderId::new("wrong-provider")
                 } else {
@@ -807,22 +739,10 @@ mod integration_tests {
             _runtime: Option<&'a CapabilityRuntimeHandle>,
             tool: WorkspaceToolCall,
         ) -> CapabilityFuture<'a, Result<WorkspaceToolResult, CapabilityProviderError>> {
-            let call_release = self.call_release.lock().unwrap().take();
-            let fail_call = self.fail_call.load(std::sync::atomic::Ordering::SeqCst);
             let calls = &self.calls;
-            let call_entered = Arc::clone(&self.call_entered);
             let lease = lease.clone();
             Box::pin(async move {
                 calls.lock().unwrap().push((lease.clone(), tool.clone()));
-                call_entered.notify_one();
-                if let Some(wait) = call_release {
-                    let _ = wait.await;
-                }
-                if fail_call {
-                    return Err(CapabilityProviderError {
-                        code: CapabilityProviderErrorCode::OperationFailed,
-                    });
-                }
                 Ok(WorkspaceToolResult {
                     result: json!(format!("semantic:{}", lease.workspace_id)),
                 })
@@ -833,7 +753,6 @@ mod integration_tests {
             &self,
             _runtime: CapabilityRuntimeHandle,
         ) -> CapabilityFuture<'_, Result<StopEvidence, CapabilityStopFailure>> {
-            self.stops.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Box::pin(async {
                 Ok(StopEvidence {
                     runtime_state: CapabilityRuntimeState::Stopped,
@@ -877,7 +796,8 @@ mod integration_tests {
     #[test]
     fn workspace_id_foundation_routes_valid_unknown_ids_to_resolver() {
         let directory = tempfile::tempdir().unwrap();
-        let broker = fixture(directory.path(), None);
+        let provider = Arc::new(SemanticRoutingProvider::new());
+        let (broker, _manager) = semantic_fixture(directory.path(), Arc::clone(&provider));
 
         assert_eq!(
             registry::resolve_workspace_lease(
@@ -990,7 +910,7 @@ mod integration_tests {
             );
         }
         assert_eq!(provider.calls.lock().unwrap().len(), 2);
-        // 持有 legacy active 写锁仍可完成四项基础 Source，证明它们同样不读取全局 Authority。
+        // 持有 legacy active 写锁仍可完成四个本地基础 Source，证明它们均不读取全局 Authority。
         let legacy_active_lock = broker.workspace.write().await;
         for (name, arguments, workspace) in [
             (
@@ -1034,12 +954,14 @@ mod integration_tests {
         }
         drop(legacy_active_lock);
         let calls = provider.calls.lock().unwrap();
-        assert_eq!(calls.len(), 7);
-        assert_eq!(calls[2].0.workspace_id, workspace_a.id);
-        assert_eq!(calls[3].0.workspace_id, workspace_b.id);
-        assert_eq!(calls[4].0.workspace_id, workspace_b.id);
-        assert_eq!(calls[5].0.workspace_id, workspace_a.id);
-        assert_eq!(calls[6].0.workspace_id, workspace_b.id);
+        // 四个基础 Source 均只走本地 Rust；本段调用不应触发 Serena Provider。
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().all(|(_, tool)| {
+            tool.tool_name != "source_read_file"
+                && tool.tool_name != "source_list_dir"
+                && tool.tool_name != "source_find_file"
+                && tool.tool_name != "source_search_pattern"
+        }));
         drop(calls);
         for relative_path in ["../outside", "C:/outside", "\\\\server\\share"] {
             assert!(
@@ -1054,7 +976,7 @@ mod integration_tests {
                     .starts_with("INVALID_PATH")
             );
         }
-        assert_eq!(provider.calls.lock().unwrap().len(), 7);
+        assert_eq!(provider.calls.lock().unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -1113,12 +1035,14 @@ mod integration_tests {
     }
 
     #[tokio::test]
-    async fn compatibility_sources_keep_workspace_errors_and_safe_provider_failures() {
+    async fn serena_missing_keeps_basic_sources_available_without_provider_calls() {
         let directory = tempfile::tempdir().unwrap();
         let provider = Arc::new(SemanticRoutingProvider::new());
         let (broker, _manager) = semantic_fixture(directory.path(), Arc::clone(&provider));
         let root = directory.path().join("workspace");
-        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("file.txt"), "workspace text\n").unwrap();
+        std::fs::write(root.join("src/marker.rs"), "// workspace marker\n").unwrap();
         let workspace = WorkspaceRegistry::new(&broker.supervisor)
             .register(root, Some("Workspace".into()))
             .unwrap();
@@ -1163,103 +1087,68 @@ mod integration_tests {
                 "{name}"
             );
         }
-
+        assert_ne!(
+            broker.supervisor.snapshot().server_status,
+            ServerStatus::Running
+        );
+        broker.start().await.unwrap();
+        let port = broker.snapshot().await.port;
+        let client = ()
+            .serve(StreamableHttpClientTransport::from_uri(format!(
+                "http://127.0.0.1:{port}/mcp"
+            )))
+            .await
+            .unwrap();
+        let advertised = client.list_all_tools().await.unwrap();
+        for &name in registry::LOCAL_SOURCES
+            .iter()
+            .chain(registry::SEMANTIC_SOURCES)
+        {
+            assert!(advertised.iter().any(|tool| tool.name == name), "{name}");
+        }
+        for (name, arguments) in [
+            ("source_read_file", json!({"relative_path":"file.txt"})),
+            ("source_list_dir", json!({"relative_path":"src"})),
+            ("source_find_file", json!({"file_mask":"*.rs"})),
+            (
+                "source_search_pattern",
+                json!({"substring_pattern":"workspace marker"}),
+            ),
+        ] {
+            let mut arguments = arguments.as_object().unwrap().clone();
+            arguments.insert("workspaceId".into(), json!(workspace.id));
+            let result = client
+                .call_tool(CallToolRequestParams::new(name).with_arguments(arguments))
+                .await
+                .unwrap();
+            assert_ne!(result.is_error, Some(true), "{name}: {result:?}");
+            assert_eq!(
+                result.structured_content.unwrap()["workspace"]["id"],
+                workspace.id,
+                "{name}"
+            );
+        }
+        assert!(provider.calls.lock().unwrap().is_empty());
         provider
-            .fail_call
+            .fail_start
             .store(true, std::sync::atomic::Ordering::SeqCst);
-        let error = broker
-            .dispatch(
-                "source_list_dir",
-                json!({"workspaceId":workspace.id,"relative_path":""}),
-                CancellationToken::new(),
+        let semantic = client
+            .call_tool(
+                CallToolRequestParams::new("source_symbols_overview").with_arguments(
+                    json!({"workspaceId":workspace.id,"relative_path":"src/marker.rs"})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                ),
             )
             .await
-            .unwrap_err();
-        assert_eq!(error, "WORKSPACE_CAPABILITY_RUNTIME_LOST");
-        assert!(!error.contains(&workspace.root.to_string_lossy().to_string()));
-    }
-
-    #[tokio::test]
-    async fn dropped_compatibility_source_request_releases_manager_guard_for_stop_and_reacquire() {
-        let directory = tempfile::tempdir().unwrap();
-        let provider = Arc::new(SemanticRoutingProvider::new());
-        provider.block_next_call();
-        let (broker, manager) = semantic_fixture(directory.path(), Arc::clone(&provider));
-        let root = directory.path().join("workspace");
-        std::fs::create_dir(&root).unwrap();
-        std::fs::write(root.join("file.txt"), "fixture").unwrap();
-        let workspace = WorkspaceRegistry::new(&broker.supervisor)
-            .register(root, Some("Workspace".into()))
             .unwrap();
-        let lease = registry::resolve_workspace_lease(
-            &broker.supervisor,
-            &json!({"workspaceId":workspace.id}),
-        )
-        .unwrap();
-        let entered = provider.call_entered.notified();
-        let calling = {
-            let broker = Arc::clone(&broker);
-            let workspace_id = workspace.id.clone();
-            tokio::spawn(async move {
-                broker
-                    .dispatch(
-                        "source_read_file",
-                        json!({"workspaceId":workspace_id,"relative_path":"file.txt"}),
-                        CancellationToken::new(),
-                    )
-                    .await
-            })
-        };
-        entered.await;
-        calling.abort();
-        assert!(calling.await.unwrap_err().is_cancelled());
-        manager.stop_idle_runtimes().await.unwrap();
-        assert_eq!(provider.stops.load(std::sync::atomic::Ordering::SeqCst), 1);
-        drop(manager.acquire_runtime("serena", lease).await.unwrap());
-    }
-
-    #[tokio::test]
-    async fn cancelled_nonread_compatibility_source_drops_manager_guard_before_provider_returns() {
-        let directory = tempfile::tempdir().unwrap();
-        let provider = Arc::new(SemanticRoutingProvider::new());
-        provider.block_next_call();
-        let (broker, manager) = semantic_fixture(directory.path(), Arc::clone(&provider));
-        let root = directory.path().join("workspace");
-        std::fs::create_dir_all(root.join("src")).unwrap();
-        let workspace = WorkspaceRegistry::new(&broker.supervisor)
-            .register(root, Some("Workspace".into()))
-            .unwrap();
-        let lease = registry::resolve_workspace_lease(
-            &broker.supervisor,
-            &json!({"workspaceId":workspace.id}),
-        )
-        .unwrap();
-        let cancel = CancellationToken::new();
-        let entered = provider.call_entered.notified();
-        let calling = {
-            let broker = Arc::clone(&broker);
-            let workspace_id = workspace.id.clone();
-            let cancel = cancel.clone();
-            tokio::spawn(async move {
-                broker
-                    .dispatch(
-                        "source_list_dir",
-                        json!({"workspaceId":workspace_id,"relative_path":"src"}),
-                        cancel,
-                    )
-                    .await
-            })
-        };
-        entered.await;
-        cancel.cancel();
-        let result = tokio::time::timeout(Duration::from_secs(1), calling)
-            .await
-            .expect("cancelled compatibility Source must not wait for Provider")
-            .expect("dispatch task must not panic");
-        assert_eq!(result, Err("CANCELLED".into()));
-        manager.stop_idle_runtimes().await.unwrap();
-        assert_eq!(provider.stops.load(std::sync::atomic::Ordering::SeqCst), 1);
-        drop(manager.acquire_runtime("serena", lease).await.unwrap());
+        // capability 失败按既有 MCP error 语义返回，且不影响 listener/list。
+        assert_eq!(semantic.is_error, Some(true));
+        let text = serde_json::to_string(&semantic).unwrap();
+        assert!(text.contains("SEMANTIC_RUNTIME_START_FAILED"), "{text}");
+        client.cancel().await.unwrap();
+        broker.stop().await.unwrap();
     }
 
     #[tokio::test]
@@ -1518,6 +1407,28 @@ mod integration_tests {
             .supervisor
             .select_desktop_workspace(&workspace_b.id)
             .unwrap();
+        // Discovery 只返回 Registry catalog，不能建立后续 Tool 的 Workspace binding。
+        assert_eq!(
+            broker
+                .dispatch("workspace_list", json!({}), CancellationToken::new())
+                .await
+                .unwrap()["workspaces"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            broker
+                .dispatch(
+                    "workspace_get",
+                    json!({"workspaceId":workspace_a.id}),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap()["workspace"]["id"],
+            workspace_a.id
+        );
         assert!(broker.workspace.read().await.is_none());
 
         let (status_a, status_b) = tokio::join!(
@@ -1589,6 +1500,36 @@ mod integration_tests {
                 .unwrap()
                 .contains("only-a.txt")
         );
+        // 旧 direct handler 即使仍可调用，也不得为后续 Tool 建立 Workspace Authority。
+        assert_eq!(
+            broker
+                .dispatch("workspace_current", json!({}), CancellationToken::new())
+                .await
+                .unwrap()["activeWorkspace"],
+            Value::Null
+        );
+        let activate_error = broker
+            .dispatch("workspace_activate", json!({}), CancellationToken::new())
+            .await
+            .unwrap_err();
+        assert!(activate_error.starts_with("INVALID_PARAMS"));
+        assert_eq!(
+            broker
+                .dispatch("workspace_deactivate", json!({}), CancellationToken::new())
+                .await
+                .unwrap()["status"],
+            "inactive"
+        );
+        for (name, args) in [
+            ("source_symbols_overview", json!({})),
+            ("git_status", json!({})),
+        ] {
+            assert_eq!(
+                broker.dispatch(name, args, CancellationToken::new()).await,
+                Err("WORKSPACE_CONTEXT_REQUIRED".into()),
+                "{name} must not inherit a compatibility or Discovery context"
+            );
+        }
         assert!(
             !active_b_request_a["text"]
                 .as_str()
@@ -2033,13 +1974,20 @@ mod integration_tests {
             json!({"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}),
         )
         .await;
-        // Do not register placeholder descriptions when the upstream is stopped.
-        assert!(
-            messages(&tools)[0]["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("BACKEND_UNAVAILABLE")
-        );
+        // Discovery is local: stopped Serena does not remove Source Tool descriptors.
+        let tool_messages = messages(&tools);
+        let names = tool_messages[0]["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect::<std::collections::HashSet<_>>();
+        for &name in registry::LOCAL_SOURCES
+            .iter()
+            .chain(registry::SEMANTIC_SOURCES)
+        {
+            assert!(names.contains(name), "{name}");
+        }
         for method in ["server/discover", "tools/list"] {
             let response = post(
                 port,
@@ -2086,13 +2034,8 @@ mod integration_tests {
                     .with_arguments(json!({"path":"test.png"}).as_object().unwrap().clone()),
             )
             .await
-            .unwrap();
-        assert_eq!(image.is_error, Some(true));
-        assert!(
-            serde_json::to_string(&image)
-                .unwrap()
-                .contains("NO_ACTIVE_WORKSPACE")
-        );
+            .unwrap_err();
+        assert!(image.to_string().contains("WORKSPACE_CONTEXT_REQUIRED"));
         assert!(
             client
                 .list_all_tools()
@@ -2166,15 +2109,12 @@ mod integration_tests {
                 assert!(line.contains("[MCP]"), "{line}");
             }
         }
-        assert!(
-            logs.iter()
-                .any(|line| line.starts_with("ERROR ") && line.contains("success=false"))
-        );
         assert!(logs.iter().any(|line| line.starts_with("WARN ") && line.contains("error_code=INVALID_PARAMS")));
         assert!(logs.iter().any(|line| line.contains("MCP 已监听")));
         assert!(logs.iter().any(|line| line.contains("HTTP POST")));
         assert!(logs.iter().any(|line| line.contains("tools/list")));
         for (tool, outcome) in [
+            ("media_read_image", "error_code=INVALID_PARAMS"),
             ("git_status", "error_code=INVALID_PARAMS"),
             ("workspace_deactivate", "success=true"),
             ("workspace_activate", "error_code=INVALID_PARAMS"),
@@ -2195,6 +2135,81 @@ mod integration_tests {
         broker.stop().await.unwrap();
         assert!(!broker.snapshot().await.running);
         assert!(broker.log_snapshot().last().unwrap().contains("MCP 已停止"));
+    }
+
+    #[tokio::test]
+    async fn media_read_image_uses_only_the_request_workspace_lease() {
+        let dir = tempfile::tempdir().unwrap();
+        let broker = fixture(dir.path(), None);
+        let root_a = dir.path().join("workspace-a");
+        let root_b = dir.path().join("workspace-b");
+        std::fs::create_dir(&root_a).unwrap();
+        std::fs::create_dir(&root_b).unwrap();
+        image::RgbImage::from_pixel(4, 4, image::Rgb([255, 0, 0]))
+            .save(root_a.join("marker.png"))
+            .unwrap();
+        image::RgbImage::from_pixel(4, 4, image::Rgb([0, 0, 255]))
+            .save(root_b.join("marker.png"))
+            .unwrap();
+        let registry = WorkspaceRegistry::new(&broker.supervisor);
+        let workspace_a = registry
+            .register(root_a.clone(), Some("Workspace A".into()))
+            .unwrap();
+        let workspace_b = registry
+            .register(root_b.clone(), Some("Workspace B".into()))
+            .unwrap();
+        // Desktop selection 与 legacy ActiveWorkspace 都刻意指向 B；请求 A 仍必须只读取 A。
+        broker
+            .supervisor
+            .select_desktop_workspace(&workspace_b.id)
+            .unwrap();
+        let legacy = super::orchestration_tests::active(&broker, &root_b).await;
+        broker.start().await.unwrap();
+        let client = ()
+            .serve(StreamableHttpClientTransport::from_uri(format!(
+                "http://127.0.0.1:{}/mcp",
+                broker.config().broker.port
+            )))
+            .await
+            .unwrap();
+        for (workspace_id, expected) in [
+            (&workspace_a.id, [255, 0, 0]),
+            (&workspace_b.id, [0, 0, 255]),
+        ] {
+            let result = client
+                .call_tool(
+                    CallToolRequestParams::new("media_read_image").with_arguments(
+                        json!({"workspaceId":workspace_id,"path":"marker.png"})
+                            .as_object()
+                            .unwrap()
+                            .clone(),
+                    ),
+                )
+                .await
+                .unwrap();
+            let image = media::tests::assert_image(&result, "image/png");
+            assert_eq!(image.to_rgb8().get_pixel(0, 0).0, expected);
+        }
+        let unknown = client
+            .call_tool(
+                CallToolRequestParams::new("media_read_image").with_arguments(
+                    json!({"workspaceId":"unknown","path":"marker.png"})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                ),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unknown.is_error, Some(true));
+        assert!(
+            serde_json::to_string(&unknown)
+                .unwrap()
+                .contains("WORKSPACE_NOT_FOUND")
+        );
+        client.cancel().await.unwrap();
+        broker.stop().await.unwrap();
+        legacy.abort();
     }
 
     #[tokio::test]
@@ -2656,7 +2671,7 @@ mod integration_tests {
                 .list_all_tools()
                 .await
                 .map_err(|e| e.to_string())?;
-            assert_eq!(tools.len(), if b.config().agent_enabled { 23 } else { 19 });
+            assert_eq!(tools.len(), if b.config().agent_enabled { 20 } else { 16 });
             assert!(!tools.iter().any(|tool| tool.name == "agent"));
             assert_eq!(
                 tools.iter().filter(|tool| orchestration::contains(&tool.name)).count(),
@@ -2673,7 +2688,7 @@ mod integration_tests {
                 ("image-poc.webp", image::ImageFormat::WebP, "image/png"),
             ] {
                 media::tests::poc_image().save_with_format(dir.path().join("one").join(file), format).unwrap();
-                let result = discovery.call_tool(CallToolRequestParams::new("media_read_image").with_arguments(json!({"path":file}).as_object().unwrap().clone())).await.map_err(|e| e.to_string())?;
+                let result = discovery.call_tool(CallToolRequestParams::new("media_read_image").with_arguments(json!({"workspaceId":"project-1","path":file}).as_object().unwrap().clone())).await.map_err(|e| e.to_string())?;
                 let decoded = media::tests::assert_image(&result, mime);
                 assert_eq!((decoded.width(), decoded.height()), (640, 320));
                 let pixel = decoded.to_rgb8().get_pixel(320, 230).0;
@@ -2681,7 +2696,7 @@ mod integration_tests {
                 println!("MCP ImageContent POC: {file}, {mime}, 640x320; SERENA IMAGE TEST / 9274 / red circle");
             }
             for (path, code) in [("../outside.png", "INVALID_PATH"), ("missing.png", "INVALID_PATH"), ("example.py", "UNSUPPORTED_MEDIA_TYPE")] {
-                let result = discovery.call_tool(CallToolRequestParams::new("media_read_image").with_arguments(json!({"path":path}).as_object().unwrap().clone())).await.map_err(|e| e.to_string())?;
+                let result = discovery.call_tool(CallToolRequestParams::new("media_read_image").with_arguments(json!({"workspaceId":"project-1","path":path}).as_object().unwrap().clone())).await.map_err(|e| e.to_string())?;
                 assert_eq!(result.is_error, Some(true));
                 assert!(serde_json::to_string(&result).unwrap().contains(code));
             }
@@ -2797,10 +2812,6 @@ mod integration_tests {
                     "source_read_file",
                     json!({"workspaceId":"project-1","relative_path":"missing.py"}),
                 ),
-                (
-                    "source_read_file",
-                    json!({"workspaceId":"project-1","relative_path":"example.py", "max_bytes":1}),
-                ),
             ] {
                 assert!(
                     b.dispatch(name, args, CancellationToken::new())
@@ -2808,6 +2819,15 @@ mod integration_tests {
                         .is_err()
                 );
             }
+            let truncated = b
+                .dispatch(
+                    "source_read_file",
+                    json!({"workspaceId":"project-1","relative_path":"example.py", "max_bytes":1}),
+                    CancellationToken::new(),
+                )
+                .await?;
+            assert_eq!(truncated["truncated"], true);
+            assert!(truncated["text"].as_str().unwrap().len() <= 1);
             // Invalid configuration is rejected without changing A during validation.
             let config2 = dir.path().join("two/.serena/project.yml");
             let original = std::fs::read(&config2).unwrap();
@@ -2871,20 +2891,17 @@ mod integration_tests {
                 ().serve(StreamableHttpClientTransport::from_uri(uri))
                     .await
                     .map_err(|e| e.to_string())?;
-            let upstream = serena::Client::connect(b.supervisor.snapshot().active_port).await?;
             let advertised = client1.list_all_tools().await.map_err(|e| e.to_string())?;
             assert_eq!(advertised.len(), 19); // Agent is opt-in.
-            for (public_name, remote_name, _, _) in registry::SOURCES {
-                let original = upstream
-                    .tools
+            for &(public_name, _, _) in registry::SOURCES {
+                let description = advertised
                     .iter()
-                    .find(|t| t.name == *remote_name)
+                    .find(|tool| tool.name == public_name)
+                    .and_then(|tool| tool.description.as_deref())
                     .unwrap();
-                let exposed = advertised.iter().find(|t| t.name == *public_name).unwrap();
-                assert_eq!(exposed.description, original.description, "{public_name}");
-                assert!(!exposed.description.as_deref().unwrap().is_empty());
+                assert!(description.contains("【做什么】"), "{public_name}");
+                assert!(description.contains("【关键约束】"), "{public_name}");
             }
-            drop(upstream);
             assert_eq!(b.snapshot().await.active_workspace.unwrap().id, "project-1");
             let read_guard = b.workspace.read().await;
             let request = client1
@@ -2998,15 +3015,15 @@ mod integration_tests {
                 .await,
                 Err("UNKNOWN_TOOL".into())
             );
-            assert!(
+            assert_eq!(
                 b.dispatch(
                     "source_read_file",
                     json!({"relative_path":"example.py"}),
                     CancellationToken::new()
                 )
                 .await
-                .unwrap_err()
-                .contains("NO_ACTIVE_WORKSPACE")
+                .unwrap_err(),
+                "WORKSPACE_CONTEXT_REQUIRED"
             );
             assert!(b.workspace.read().await.is_none());
             assert!(b.published.lock().unwrap().is_none());
@@ -3060,6 +3077,411 @@ mod integration_tests {
         }
         assert!(!dir.path().join("one/activation-marker.txt").exists());
         result.unwrap();
+    }
+
+    #[tokio::test]
+    /// P2A2-013：请求级 WorkspaceLease 必须在 A/B 并发、兼容后端和无会话重连下保持唯一 Authority。
+    async fn p2a2_013_request_ab_isolation_backend_continuity_and_sessionless_gate() {
+        let directory = tempfile::tempdir().unwrap();
+        let provider = Arc::new(SemanticRoutingProvider::new());
+        let (broker, _manager) = semantic_fixture(directory.path(), Arc::clone(&provider));
+        let root_a = directory.path().join("workspace-a");
+        let root_b = directory.path().join("workspace-b");
+
+        // 两个根目录保留同名 Source 文件和不同 Marker，并各自初始化为独立 Git 仓库。
+        for (root, marker) in [(&root_a, "A"), (&root_b, "B")] {
+            std::fs::create_dir_all(root.join("src")).unwrap();
+            std::fs::write(root.join("src/marker.rs"), format!("// SOURCE-{marker}\n")).unwrap();
+            std::fs::write(root.join("git-marker.txt"), format!("GIT-{marker}\n")).unwrap();
+            image::RgbImage::from_pixel(
+                4,
+                4,
+                if marker == "A" {
+                    image::Rgb([255, 0, 0])
+                } else {
+                    image::Rgb([0, 0, 255])
+                },
+            )
+            .save(root.join("marker.png"))
+            .unwrap();
+            let mut init = process::command("git");
+            init.arg("init").arg(root);
+            process::run(
+                init,
+                8192,
+                Duration::from_secs(10),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+            for args in [
+                vec!["add", "."],
+                vec![
+                    "-c",
+                    "user.name=P2A2-013",
+                    "-c",
+                    "user.email=p2a2-013@example.invalid",
+                    "commit",
+                    "-m",
+                    "fixture",
+                    "--no-gpg-sign",
+                ],
+            ] {
+                let mut commit = process::command("git");
+                commit.arg("-C").arg(root).args(args);
+                process::run(
+                    commit,
+                    8192,
+                    Duration::from_secs(10),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap();
+            }
+            // 让 status/diff 的内容也能识别各自 canonical root。
+            std::fs::write(
+                root.join("git-marker.txt"),
+                format!("GIT-{marker}-changed\n"),
+            )
+            .unwrap();
+            std::fs::write(root.join(format!("status-marker-{marker}.txt")), marker).unwrap();
+        }
+
+        let registry = WorkspaceRegistry::new(&broker.supervisor);
+        let workspace_a = registry
+            .register(root_a.clone(), Some("Workspace A".into()))
+            .unwrap();
+        let workspace_b = registry
+            .register(root_b.clone(), Some("Workspace B".into()))
+            .unwrap();
+        broker
+            .supervisor
+            .select_desktop_workspace(&workspace_b.id)
+            .unwrap();
+
+        // legacy ActiveWorkspace 与 Desktop selection 都指向 B，不能改变请求 A 的 Lease。
+        let legacy = super::orchestration_tests::active(&broker, &root_b).await;
+        {
+            let mut active = broker.workspace.write().await;
+            let active = active.as_mut().unwrap();
+            active.workspace.id = workspace_b.id.clone();
+            active.workspace.generation = workspace_b.generation;
+        }
+
+        // Work begin 同样必须冻结请求 A 的 Lease，而非从 legacy active 或 Desktop selection 推导。
+        let store = crate::agent::store::StateStore::open(directory.path().join("state"))
+            .await
+            .unwrap();
+        assert!(
+            broker
+                .product
+                .set(Arc::new(crate::agent::product::AgentProductService::new(
+                    store.clone(),
+                )))
+                .is_ok()
+        );
+        let mut config = broker.config();
+        config.agent_enabled = true;
+        broker.supervisor.replace_config(config).unwrap();
+        let work = broker
+            .dispatch(
+                "work_update",
+                json!({"action":"begin","workspaceId":workspace_a.id,"title":"A only"}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let work_run_id = work["data"]["workRun"]["workRunId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let work = store.work_run(work_run_id).await.unwrap().unwrap();
+        assert_eq!(work.workspace_id, workspace_a.id);
+        assert_eq!(
+            work.canonical_workspace_root,
+            workspace_a.root.to_string_lossy()
+        );
+        assert_eq!(work.workspace_generation, workspace_a.generation);
+
+        // tools/list 的公开表不依赖 Serena，保留全部连续后端但绝不重新 advertise legacy CodeGraph。
+        let advertised = registry::list(false);
+        for name in registry::LOCAL_SOURCES
+            .iter()
+            .chain(registry::SEMANTIC_SOURCES)
+            .chain(registry::GITS)
+            .chain(["media_read_image"].iter())
+        {
+            assert!(advertised.iter().any(|tool| tool.name == *name), "{name}");
+        }
+        assert!(
+            !advertised
+                .iter()
+                .any(|tool| tool.name == "codegraph_explore")
+        );
+
+        // Discovery 是 catalog-only；已知 ID 仍可直接复用，但遗漏 ID 不得绑定到 A/B 任一方。
+        assert_eq!(
+            broker
+                .dispatch("workspace_list", json!({}), CancellationToken::new())
+                .await
+                .unwrap()["workspaces"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            broker
+                .dispatch(
+                    "workspace_get",
+                    json!({"workspaceId":workspace_a.id}),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap()["workspace"]["id"],
+            workspace_a.id
+        );
+        for (name, args) in [
+            ("source_read_file", json!({"relative_path":"src/marker.rs"})),
+            ("git_status", json!({})),
+        ] {
+            assert_eq!(
+                broker.dispatch(name, args, CancellationToken::new()).await,
+                Err("WORKSPACE_CONTEXT_REQUIRED".into()),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            broker
+                .read_image(json!({"path":"marker.png"}), CancellationToken::new(),)
+                .await
+                .unwrap_err(),
+            "WORKSPACE_CONTEXT_REQUIRED"
+        );
+
+        // 缺失、类型/空白错误及有效未知 ID 必须在三类公开后端保持稳定分类。
+        for (name, valid) in [
+            ("source_read_file", json!({"relative_path":"src/marker.rs"})),
+            ("git_status", json!({})),
+        ] {
+            for workspace_id in [json!(7), json!(" \t")] {
+                let mut invalid = valid.as_object().unwrap().clone();
+                invalid.insert("workspaceId".into(), workspace_id);
+                assert!(
+                    broker
+                        .dispatch(name, Value::Object(invalid), CancellationToken::new())
+                        .await
+                        .unwrap_err()
+                        .starts_with("INVALID_PARAMS"),
+                    "{name}"
+                );
+            }
+            let mut unknown = valid.as_object().unwrap().clone();
+            unknown.insert("workspaceId".into(), json!("unknown"));
+            assert_eq!(
+                broker
+                    .dispatch(name, Value::Object(unknown), CancellationToken::new())
+                    .await,
+                Err("WORKSPACE_NOT_FOUND".into()),
+                "{name}"
+            );
+        }
+        for workspace_id in [json!(7), json!(" \t"), json!("unknown")] {
+            let error = broker
+                .read_image(
+                    json!({"workspaceId":workspace_id,"path":"marker.png"}),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap_err();
+            if workspace_id == json!("unknown") {
+                assert_eq!(error, "WORKSPACE_NOT_FOUND");
+            } else {
+                assert!(error.starts_with("INVALID_PARAMS"));
+            }
+        }
+
+        // 相同相对路径的并发本地 Source 请求由各自 Lease 提供 provenance 与文件正文。
+        let (source_a, source_b) = tokio::join!(
+            broker.dispatch(
+                "source_read_file",
+                json!({"workspaceId":workspace_a.id,"relative_path":"src/marker.rs"}),
+                CancellationToken::new(),
+            ),
+            broker.dispatch(
+                "source_read_file",
+                json!({"workspaceId":workspace_b.id,"relative_path":"src/marker.rs"}),
+                CancellationToken::new(),
+            )
+        );
+        let source_a = source_a.unwrap();
+        let source_b = source_b.unwrap();
+        assert_eq!(source_a["workspace"]["id"], workspace_a.id);
+        assert!(source_a["text"].as_str().unwrap().contains("SOURCE-A"));
+        assert_eq!(source_b["workspace"]["id"], workspace_b.id);
+        assert!(source_b["text"].as_str().unwrap().contains("SOURCE-B"));
+
+        // 四个本地基础 Source 与三个 Semantic Source 都必须继续以请求 A 的 Lease 工作。
+        for (name, args) in [
+            ("source_list_dir", json!({"relative_path":"src"})),
+            ("source_find_file", json!({"file_mask":"*.rs"})),
+            (
+                "source_search_pattern",
+                json!({"substring_pattern":"SOURCE-A"}),
+            ),
+            (
+                "source_symbols_overview",
+                json!({"relative_path":"src/marker.rs"}),
+            ),
+            ("source_find_symbol", json!({"name_path_pattern":"Marker"})),
+            (
+                "source_find_references",
+                json!({"relative_path":"src/marker.rs","name_path":"Marker"}),
+            ),
+        ] {
+            let mut args = args.as_object().unwrap().clone();
+            args.insert("workspaceId".into(), json!(workspace_a.id));
+            let result = broker
+                .dispatch(name, Value::Object(args), CancellationToken::new())
+                .await
+                .unwrap();
+            assert_eq!(result["workspace"]["id"], workspace_a.id, "{name}");
+            if registry::LOCAL_SOURCES.contains(&name) {
+                assert_ne!(
+                    result["text"],
+                    json!(format!("semantic:{}", workspace_a.id))
+                );
+            } else {
+                assert_eq!(
+                    result["text"],
+                    json!(format!("semantic:{}", workspace_a.id)),
+                    "{name}"
+                );
+            }
+        }
+
+        // Git A/B 并发分别从各自 canonical root 读取，六个公开 Tool 均保持可用。
+        let (git_a, git_b) = tokio::join!(
+            broker.dispatch(
+                "git_status",
+                json!({"workspaceId":workspace_a.id}),
+                CancellationToken::new(),
+            ),
+            broker.dispatch(
+                "git_status",
+                json!({"workspaceId":workspace_b.id}),
+                CancellationToken::new(),
+            )
+        );
+        let git_a = git_a.unwrap();
+        let git_b = git_b.unwrap();
+        assert_eq!(git_a["workspace"]["id"], workspace_a.id);
+        assert!(
+            git_a["text"]
+                .as_str()
+                .unwrap()
+                .contains("status-marker-A.txt")
+        );
+        assert_eq!(git_b["workspace"]["id"], workspace_b.id);
+        assert!(
+            git_b["text"]
+                .as_str()
+                .unwrap()
+                .contains("status-marker-B.txt")
+        );
+        for name in registry::GITS {
+            let result = broker
+                .dispatch(
+                    name,
+                    json!({"workspaceId":workspace_a.id}),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(result["workspace"]["id"], workspace_a.id, "{name}");
+            assert!(!result["text"].as_str().unwrap().is_empty(), "{name}");
+        }
+        println!(
+            "P2A2-013 A/B trace: source=A:{} B:{}; git=A:{} B:{}",
+            source_a["workspace"]["generation"],
+            source_b["workspace"]["generation"],
+            git_a["workspace"]["generation"],
+            git_b["workspace"]["generation"],
+        );
+
+        // 兼容 ActiveWorkspace 操作后，显式 A 仍不能退回 Desktop B 或旧 active B。
+        assert_eq!(
+            broker.workspace.read().await.as_ref().unwrap().workspace.id,
+            workspace_b.id
+        );
+        // Serena 未运行时 workspace_current 不投影 legacy slot，不能让其成为请求上下文。
+        assert!(
+            broker
+                .dispatch("workspace_current", json!({}), CancellationToken::new())
+                .await
+                .unwrap()["activeWorkspace"]
+                .is_null()
+        );
+        assert_eq!(
+            broker
+                .dispatch("workspace_deactivate", json!({}), CancellationToken::new())
+                .await
+                .unwrap()["status"],
+            "inactive"
+        );
+        assert_eq!(
+            broker
+                .dispatch(
+                    "git_status",
+                    json!({"workspaceId":workspace_a.id}),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap()["workspace"]["id"],
+            workspace_a.id
+        );
+
+        // 无状态 Streamable HTTP 重连不能恢复或建立 Workspace binding。
+        broker.start().await.unwrap();
+        let uri = format!("http://127.0.0.1:{}/mcp", broker.config().broker.port);
+        let client = ().serve(StreamableHttpClientTransport::from_uri(uri.clone())).await.unwrap();
+        let missing = client
+            .call_tool(
+                CallToolRequestParams::new("git_status")
+                    .with_arguments(serde_json::Map::<String, Value>::new()),
+            )
+            .await
+            .unwrap_err();
+        assert!(missing.to_string().contains("WORKSPACE_CONTEXT_REQUIRED"));
+        client.cancel().await.unwrap();
+        let reconnected = ().serve(StreamableHttpClientTransport::from_uri(uri)).await.unwrap();
+        let missing = reconnected
+            .call_tool(
+                CallToolRequestParams::new("source_read_file").with_arguments(
+                    json!({"relative_path":"src/marker.rs"})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                ),
+            )
+            .await
+            .unwrap_err();
+        assert!(missing.to_string().contains("WORKSPACE_CONTEXT_REQUIRED"));
+        let codegraph = reconnected
+            .call_tool(
+                CallToolRequestParams::new("codegraph_explore").with_arguments(
+                    json!({"query":"legacy active graph"})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                ),
+            )
+            .await
+            .unwrap_err();
+        assert!(codegraph.to_string().contains("UNKNOWN_TOOL"));
+        reconnected.cancel().await.unwrap();
+        broker.stop().await.unwrap();
+        legacy.abort();
     }
 }
 

@@ -60,17 +60,32 @@ async fn active_fixture(
                 json!({"protocolVersion":request["params"]["protocolVersion"],"capabilities":{"tools":{}},"serverInfo":{"name":"fixture","version":"1"}})
             }
             "tools/list" => {
-                let mut tools: Vec<_> = registry::SOURCES
-                    .iter()
-                    .map(|(_, name, fields, _)| {
-                        let mut properties = serde_json::Map::new();
-                        for field in *fields {
-                            properties.insert((*field).into(), json!({}));
-                        }
-                        properties.insert("max_answer_chars".into(), json!({}));
-                        json!({"name":name,"inputSchema":{"type":"object","properties":properties}})
-                    })
-                    .collect();
+                let mut tools: Vec<_> = [
+                    ("get_symbols_overview", &["relative_path", "depth"][..]),
+                    (
+                        "find_symbol",
+                        &[
+                            "relative_path",
+                            "name_path_pattern",
+                            "depth",
+                            "include_body",
+                        ][..],
+                    ),
+                    (
+                        "find_referencing_symbols",
+                        &["relative_path", "name_path"][..],
+                    ),
+                ]
+                .into_iter()
+                .map(|(name, fields)| {
+                    let mut properties = serde_json::Map::new();
+                    for field in fields {
+                        properties.insert((*field).into(), json!({}));
+                    }
+                    properties.insert("max_answer_chars".into(), json!({}));
+                    json!({"name":name,"inputSchema":{"type":"object","properties":properties}})
+                })
+                .collect();
                 tools.push(json!({"name":"activate_project","inputSchema":{"type":"object","properties":{"project":{}}}}));
                 tools.push(json!({"name":"get_current_config","inputSchema":{"type":"object"}}));
                 json!({"tools":tools})
@@ -643,6 +658,15 @@ async fn http_work_projection_guards_errors_and_reopen_preserve_public_contract(
             .set(Arc::new(AgentProductService::new(store.clone())))
             .is_ok()
     );
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let mut config = broker.config();
+    config.workspaces = vec![Workspace {
+        id: "W".into(),
+        name: "Workspace".into(),
+        root,
+        generation: 1,
+    }];
+    broker.supervisor.replace_config(config).unwrap();
     broker.start().await.unwrap();
     let client = ()
         .serve(StreamableHttpClientTransport::from_uri(format!(
@@ -671,8 +695,8 @@ async fn http_work_projection_guards_errors_and_reopen_preserve_public_contract(
         ),
         (
             "work_update",
-            json!({"action":"begin","workspaceId":"W","title":"title"}),
-            "WORKSPACE_CONTEXT_MISMATCH",
+            json!({"action":"begin","workspaceId":"missing","title":"title"}),
+            "WORKSPACE_NOT_FOUND",
         ),
         (
             "agent_query",
@@ -712,7 +736,6 @@ async fn http_work_projection_guards_errors_and_reopen_preserve_public_contract(
             "WORK_INVALID_ARGUMENT"
         );
     }
-    let server = active(&broker, dir.path()).await;
     assert_eq!(
         call(
             &broker,
@@ -720,7 +743,7 @@ async fn http_work_projection_guards_errors_and_reopen_preserve_public_contract(
             json!({"action":"begin","workspaceId":"wrong","title":"title"})
         )
         .await["error"]["code"],
-        "WORKSPACE_CONTEXT_MISMATCH"
+        "WORKSPACE_NOT_FOUND"
     );
     let created = client
         .call_tool(request(
@@ -747,7 +770,6 @@ async fn http_work_projection_guards_errors_and_reopen_preserve_public_contract(
         .unwrap();
     assert_eq!(queried.is_error, Some(false));
     assert_eq!(queried.structured_content.unwrap()["data"]["workRun"], row);
-    broker.workspace.write().await.take();
     let finished=client.call_tool(request("work_update",json!({"action":"finish","workRunId":id,"outcome":"completed","acceptance":{"summary":" reviewed ","executionIds":[]}}))).await.unwrap();
     assert_eq!(finished.is_error, Some(false));
     let row = finished.structured_content.unwrap()["data"]["workRun"].clone();
@@ -800,7 +822,6 @@ async fn http_work_projection_guards_errors_and_reopen_preserve_public_contract(
     drop(broker);
     drop(store);
     drop(db);
-    server.abort();
     let broker = fixture(dir.path());
     let store = StateStore::open(dir.path().join("state")).await.unwrap();
     assert!(

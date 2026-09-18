@@ -232,15 +232,11 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Workspace Slot 受管 Serena context 的固定工具白名单。
+/// Workspace Slot 受管 Serena context 的固定 Semantic 工具白名单。
 /// 该列表同时用于写入与回读校验，避免两处配置语义漂移。
 const WORKSPACE_SERENA_FIXED_TOOLS: &[&str] = &[
     "activate_project",
     "get_current_config",
-    "read_file",
-    "list_dir",
-    "find_file",
-    "search_for_pattern",
     "get_symbols_overview",
     "find_symbol",
     "find_referencing_symbols",
@@ -260,7 +256,7 @@ pub(crate) fn prepare_workspace_serena_home(home: &Path, context: &Path) -> Resu
         serde_json::to_string_pretty(&value).unwrap().as_bytes(),
     )?;
     let context_value = serde_json::json!({
-        "description":"Desktop workspace-scoped source backend", "prompt":"",
+        "description":"Desktop workspace-scoped semantic source backend", "prompt":"",
         "fixed_tools": WORKSPACE_SERENA_FIXED_TOOLS,
         "single_project":false
     });
@@ -755,7 +751,7 @@ impl AppPaths {
             &self.serena_home().join("serena_config.yml"),
             serde_json::to_string_pretty(&value).unwrap().as_bytes(),
         )?;
-        let context = serde_json::json!({"description":"Desktop Broker read-only backend", "prompt":"", "fixed_tools":["activate_project","get_current_config","read_file","list_dir","find_file","search_for_pattern","get_symbols_overview","find_symbol","find_referencing_symbols"], "single_project":false});
+        let context = serde_json::json!({"description":"Desktop Broker semantic source backend", "prompt":"", "fixed_tools":["activate_project","get_current_config","get_symbols_overview","find_symbol","find_referencing_symbols"], "single_project":false});
         atomic_write(
             &self.broker_context(),
             serde_json::to_string_pretty(&context).unwrap().as_bytes(),

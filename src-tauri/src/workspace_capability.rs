@@ -4182,6 +4182,12 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+        assert_eq!(
+            supervisor
+                .resolve_workspace_write_guard(&workspace.id)
+                .map(|_| ()),
+            Err(WORKSPACE_IN_USE.into())
+        );
         let acquire_error = match manager.acquire_runtime("generic", lease.clone()).await {
             Err(error) => error,
             Ok(_) => panic!("Remove admission must reject capability acquire"),

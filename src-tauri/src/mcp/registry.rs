@@ -47,40 +47,34 @@ pub struct WorkspaceIdArgs {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Empty {}
-pub const SOURCES: &[(&str, &str, &[&str], &[&str])] = &[
+pub const SOURCES: &[(&str, &[&str], &[&str])] = &[
     (
         "source_read_file",
-        "read_file",
         &["relative_path", "start_line", "end_line", "max_bytes"],
         &["relative_path"],
     ),
     (
         "source_list_dir",
-        "list_dir",
         &["relative_path", "recursive", "max_bytes"],
         &["relative_path"],
     ),
     (
         "source_find_file",
-        "find_file",
         &["relative_path", "file_mask", "max_bytes"],
         &["file_mask"],
     ),
     (
         "source_search_pattern",
-        "search_for_pattern",
         &["relative_path", "substring_pattern", "max_bytes"],
         &["substring_pattern"],
     ),
     (
         "source_symbols_overview",
-        "get_symbols_overview",
         &["relative_path", "depth", "max_bytes"],
         &["relative_path"],
     ),
     (
         "source_find_symbol",
-        "find_symbol",
         &[
             "relative_path",
             "name_path_pattern",
@@ -92,7 +86,6 @@ pub const SOURCES: &[(&str, &str, &[&str], &[&str])] = &[
     ),
     (
         "source_find_references",
-        "find_referencing_symbols",
         &["relative_path", "name_path", "max_bytes"],
         &["relative_path", "name_path"],
     ),
@@ -104,22 +97,17 @@ pub(crate) const SEMANTIC_SOURCES: &[&str] = &[
     "source_find_references",
 ];
 
-/// Phase 2B Rust Source cutover 前，仍由 Serena Slot 执行的基础 Source compatibility Tool。
-pub(crate) const COMPATIBILITY_SOURCES: &[&str] = &[
+/// 已迁移到本地 Rust 的基础 Source Tool，仍必须使用 request-resolved WorkspaceLease。
+pub(crate) const LOCAL_SOURCES: &[&str] = &[
     "source_read_file",
     "source_list_dir",
     "source_find_file",
     "source_search_pattern",
 ];
 
-/// 判断 Source Tool 是否必须由 server-resolved WorkspaceLease 承载 Authority。
-pub(crate) fn is_semantic_source(name: &str) -> bool {
-    SEMANTIC_SOURCES.contains(&name)
-}
-
 /// 所有公开 Source Tool 都只能由 request-resolved WorkspaceLease 承载 Authority。
 pub(crate) fn is_workspace_scoped_source(name: &str) -> bool {
-    SEMANTIC_SOURCES.contains(&name) || COMPATIBILITY_SOURCES.contains(&name)
+    SEMANTIC_SOURCES.contains(&name) || LOCAL_SOURCES.contains(&name)
 }
 
 pub const GITS: &[&str] = &[
@@ -167,10 +155,7 @@ pub(crate) fn workspace_provenance_schema() -> Value {
 }
 fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
     let mut t = Tool::new(name, desc, value.as_object().unwrap().clone());
-    t.annotations = Some(ToolAnnotations::default().read_only(!matches!(
-        name,
-        "workspace_activate" | "workspace_deactivate"
-    )));
+    t.annotations = Some(ToolAnnotations::default().read_only(true));
     let workspace = json!({"type":"object", "properties":{"id":{"type":"string"},"name":{"type":"string"},"root":{"type":"string"}}, "required":["id","name","root"]});
     let registry_workspace = json!({"type":"object", "properties":{"id":{"type":"string"},"name":{"type":"string"},"root":{"type":"string"},"generation":{"type":"integer","minimum":0}}, "required":["id","name","root","generation"]});
     let mut output = json!({"type":"object","properties":{"truncated":{"type":"boolean"}},"required":["truncated"]});
@@ -215,6 +200,34 @@ fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
     }
     t.output_schema = Some(output.as_object().unwrap().clone().into());
     t
+}
+
+/// 为所有公开 Source Tool 提供与 Serena 运行状态无关的稳定说明。
+fn source_description(name: &str) -> &'static str {
+    match name {
+        "source_read_file" => {
+            "【做什么】\n读取指定 Workspace 中一个文本文件的全部或指定行范围，并返回已验证相对路径、完整文件 SHA-256 与 Workspace provenance。\n\n【什么时候使用】\n需要查看已登记 Workspace 内的源文件或文本配置时使用。\n\n【关键约束】\nworkspaceId 与 relative_path 必填；路径只能相对该 Workspace 根目录且不得越界。只支持 UTF-8 文本，max_bytes 默认 32768、范围 1–131072；超限时返回 truncated。"
+        }
+        "source_list_dir" => {
+            "【做什么】\n列出指定 Workspace 内目录的文件和子目录，可选择递归返回。\n\n【什么时候使用】\n需要浏览某个源码目录的结构、确认文件或子目录时使用。\n\n【关键约束】\nworkspaceId 与 relative_path 必填；路径只能相对该 Workspace 根目录且不得越界。recursive 默认 false；max_bytes 默认 65536、范围 1–262144；超限时返回 truncated。"
+        }
+        "source_find_file" => {
+            "【做什么】\n在指定 Workspace 内按文件名 glob 查找文件，返回 Workspace-relative 路径。\n\n【什么时候使用】\n已知文件名、扩展名或通配模式，需要定位候选文件时使用。\n\n【关键约束】\nworkspaceId 与 file_mask 必填；relative_path 可限制搜索子树。搜索不会跟随 Workspace 外链接，并遵循本地忽略和隐藏文件规则；max_bytes 默认 65536、范围 1–262144。"
+        }
+        "source_search_pattern" => {
+            "【做什么】\n在指定 Workspace 的文本文件中执行逐行、大小写敏感的正则表达式搜索，返回命中的相对路径、0-based 行号和整行内容。\n\n【什么时候使用】\n需要用正则定位某段代码、配置值或文本片段出现位置时使用。\n\n【关键约束】\nworkspaceId 与 substring_pattern 必填；relative_path 可限制搜索子树。只搜索本地可读文本，不跟随 Workspace 外链接，并遵循本地忽略和隐藏文件规则；max_bytes 默认 65536、范围 1–262144。"
+        }
+        "source_symbols_overview" => {
+            "【做什么】\n获取指定 Workspace 文件或目录的语义符号概览。\n\n【什么时候使用】\n需要理解代码结构、顶层符号或模块轮廓时使用。\n\n【关键约束】\nworkspaceId 与 relative_path 必填；语义分析由该 Workspace 的 Serena capability 按需提供。Serena 不可用时调用会返回既有 capability 错误；max_bytes 默认 65536、范围 1–262144。"
+        }
+        "source_find_symbol" => {
+            "【做什么】\n在指定 Workspace 中按符号路径模式查找语义符号。\n\n【什么时候使用】\n需要定位函数、类、方法或其他代码符号时使用。\n\n【关键约束】\nworkspaceId 与 name_path_pattern 必填；relative_path 可限制范围。语义分析由该 Workspace 的 Serena capability 按需提供；Serena 不可用时调用会返回既有 capability 错误；max_bytes 默认 65536、范围 1–262144。"
+        }
+        "source_find_references" => {
+            "【做什么】\n查找指定 Workspace 中某个语义符号的引用。\n\n【什么时候使用】\n需要评估符号影响范围或追踪调用关系时使用。\n\n【关键约束】\nworkspaceId、relative_path 与 name_path 必填。语义分析由该 Workspace 的 Serena capability 按需提供；Serena 不可用时调用会返回既有 capability 错误；max_bytes 默认 65536、范围 1–262144。"
+        }
+        _ => unreachable!("SOURCES contains only locally described Source tools"),
+    }
 }
 // Stable core only; open execution fields preserve dynamic Product data.
 pub(crate) fn agent_output_schema() -> Value {
@@ -640,7 +653,8 @@ pub fn orchestration_contract_diagnostic(enabled: bool, descriptors: &[Tool]) ->
         contracts.join(",")
     )
 }
-pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String> {
+/// 返回完全由 Broker 本地定义的公开 Tool surface；Discovery 不连接 Serena。
+pub fn list(agent_enabled: bool) -> Vec<Tool> {
     let mut list = vec![
         tool(
             "workspace_list",
@@ -652,23 +666,8 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
             "【做什么】\n按 workspaceId 查询 Serena Desktop Workspace Registry 中当前登记的单个 Workspace。\n\n【什么时候使用】\n已知 Workspace ID，需要读取其登记 catalog 信息时使用。\n\n【关键约束】\n纯 Discovery 查询：不验证 Root 当前存在性、不调用 Provider，也不建立 Binding 或改变任何选择/活动状态。registryRevision 仅表示 catalog freshness。",
             schema::<WorkspaceIdArgs>(),
         ),
-        tool(
-            "workspace_current",
-            "【做什么】\n查询所有客户端共享的当前活动项目，返回其 ID、名称和根目录；没有有效活动绑定时返回 null。\n\n【什么时候使用】\n执行 source_* 操作前确认目标项目，或检查切换后的共享工作区。\n\n【关键约束】\n只读查询，不激活项目。活动状态由所有客户端共享，其他客户端可能切换或取消该绑定。",
-            schema::<Empty>(),
-        ),
-        tool(
-            "workspace_activate",
-            "【做什么】\n激活一个已登记项目，并将其设置为所有客户端共享的当前活动项目。\n\n【什么时候使用】\n当后续 source_* 操作需要切换到指定项目时使用。\n\n【关键约束】\n这是全局共享状态变更，会影响所有连接到本服务的客户端。id 必须来自 workspace_list；项目须已初始化且 Serena 正在运行。切换失败可能清空活动绑定，应查询 workspace_current 后重新激活。",
-            schema::<ActivateArgs>(),
-        ),
-        tool(
-            "workspace_deactivate",
-            "【做什么】\n取消 Broker 中所有客户端共享的当前活动项目绑定。\n\n【什么时候使用】\n结束当前工作区的使用，或希望后续 Source 操作必须先明确激活项目时使用。\n\n【关键约束】\n影响所有客户端；取消后 source_* 不可用，直到重新激活。不会停止 Serena 或 Broker，也不会删除项目文件、配置或登记信息。",
-            schema::<Empty>(),
-        ),
     ];
-    for &(name, remote_name, allowed, required) in SOURCES {
+    for &(name, allowed, required) in SOURCES {
         let mut s = schema::<SourceArgs>();
         s["properties"]
             .as_object_mut()
@@ -684,14 +683,7 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
                 .unwrap()
                 .push(json!("workspaceId"));
         }
-        let remote = upstream
-            .iter()
-            .find(|t| t.name == remote_name)
-            .ok_or_else(|| format!("BACKEND_INCOMPATIBLE: missing {remote_name}"))?;
-        let mut source = tool(name, "", s);
-        // Preserve the upstream description exactly, including whitespace and absence.
-        source.description = remote.description.clone();
-        list.push(source);
+        list.push(tool(name, source_description(name), s));
     }
     for &name in GITS {
         let mut s = schema::<super::git::GitArgs>();
@@ -725,7 +717,7 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
     }
     let mut media = tool(
         "media_read_image",
-        "【做什么】\nRead an image from the active workspace and return it as MCP image content for visual inspection.\n\n【什么时候使用】\n查看当前项目中的截图或图片。\n\n【关键约束】\n仅支持 Workspace 相对路径；只读 PNG/JPEG/WebP。输入最多 20 MiB、40 MP，最长边缩至 2560 px，重编码并剥离原始 metadata；输出最多 6 MiB。WebP 返回 PNG。",
+        "【做什么】\nRead an image from the requested Workspace and return it as MCP image content for visual inspection.\n\n【什么时候使用】\n查看指定 Workspace 中的截图或图片。\n\n【关键约束】\nworkspaceId 必填且只由 Registry 解析；path 只能相对该 Workspace 根目录。只读 PNG/JPEG/WebP。输入最多 20 MiB、40 MP，最长边缩至 2560 px，重编码并剥离原始 metadata；输出最多 6 MiB。WebP 返回 PNG。",
         schema::<super::media::MediaReadImageArgs>(),
     );
     media.output_schema = None;
@@ -733,13 +725,13 @@ pub fn list(upstream: &[Tool], agent_enabled: bool) -> Result<Vec<Tool>, String>
     if agent_enabled {
         list.extend(super::orchestration::descriptors());
     }
-    Ok(list)
+    list
 }
 pub fn validate(name: &str, args: &Value) -> Result<(), String> {
     if super::orchestration::contains(name) {
         return super::orchestration::validate(name, args);
     }
-    if let Some((_, _, allowed, required)) = SOURCES.iter().find(|t| t.0 == name) {
+    if let Some((_, allowed, required)) = SOURCES.iter().find(|t| t.0 == name) {
         let object = args.as_object().ok_or("INVALID_PARAMS: 参数必须是对象")?;
         let workspace_scoped = is_workspace_scoped_source(name);
         if workspace_scoped {
@@ -777,6 +769,7 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
         serde_json::from_value::<super::git::GitArgs>(args.clone())
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
     } else if name == "media_read_image" {
+        parse_workspace_id(args)?;
         serde_json::from_value::<super::media::MediaReadImageArgs>(args.clone())
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
     } else if name == "workspace_activate" {
@@ -914,11 +907,6 @@ mod tests {
             );
         }
     }
-    fn upstream() -> Vec<Tool> {
-        SOURCES.iter().map(|(_, name, _, _)| {
-            Tool::new(*name, format!("  Original {name}\n\nDetailed usage, constraints, and examples.\n中文说明。\n"), serde_json::Map::new())
-        }).collect()
-    }
     #[test]
     fn orchestration_discovery_is_typed_and_action_specific() {
         for tool in super::super::orchestration::descriptors() {
@@ -969,8 +957,8 @@ mod tests {
     }
     #[test]
     fn orchestration_toggle_only_adds_four_tools() {
-        let disabled = list(&upstream(), false).unwrap();
-        let enabled = list(&upstream(), true).unwrap();
+        let disabled = list(false);
+        let enabled = list(true);
         assert!(!disabled.iter().any(|t| t.name == "agent"));
         assert_eq!(
             enabled
@@ -979,8 +967,8 @@ mod tests {
                 .count(),
             4
         );
-        assert_eq!(disabled.len(), 19);
-        assert_eq!(enabled.len(), 23);
+        assert_eq!(disabled.len(), 16);
+        assert_eq!(enabled.len(), 20);
         assert_eq!(
             enabled
                 .iter()
@@ -1001,7 +989,7 @@ mod tests {
     #[test]
     fn public_schema_root_audit() {
         let mut findings = Vec::new();
-        for tool in list(&upstream(), true).unwrap() {
+        for tool in list(true) {
             for (kind, schema) in [
                 ("input", Some(&tool.input_schema)),
                 ("output", tool.output_schema.as_ref()),
@@ -1045,8 +1033,8 @@ mod tests {
 
     #[test]
     fn fixed_surface() {
-        let tools = list(&upstream(), true).unwrap();
-        assert_eq!(tools.len(), 23);
+        let tools = list(true);
+        assert_eq!(tools.len(), 20);
         let mut expected = vec![
             "work_query",
             "work_update",
@@ -1054,9 +1042,6 @@ mod tests {
             "agent_execute",
             "workspace_list",
             "workspace_get",
-            "workspace_current",
-            "workspace_activate",
-            "workspace_deactivate",
             "media_read_image",
         ];
         expected.extend(SOURCES.iter().map(|s| s.0));
@@ -1076,19 +1061,50 @@ mod tests {
             Some(true)
         );
         assert_eq!(media.input_schema["additionalProperties"], false);
-        assert_eq!(media.input_schema["required"], json!(["path"]));
+        assert_eq!(
+            media.input_schema["required"],
+            json!(["workspaceId", "path"])
+        );
         assert_eq!(
             media.input_schema["properties"],
-            json!({"path":{"type":"string","description":"Image path relative to the active workspace root."}})
+            json!({
+                "workspaceId":{"type":"string","description":"必须由服务端解析为 Lease 的目标 Workspace。"},
+                "path":{"type":"string","description":"只能相对本次请求解析出的 Workspace 根目录。"}
+            })
         );
-        assert!(validate("media_read_image", &json!({"path":"a.png"})).is_ok());
+        assert!(
+            validate(
+                "media_read_image",
+                &json!({"workspaceId":"x","path":"a.png"})
+            )
+            .is_ok()
+        );
         for args in [
             json!({}),
-            json!({"path":null}),
-            json!({"path":3}),
-            json!({"path":"a.png","root":"x"}),
-            json!({"path":"a.png","workspaceId":"x"}),
-            json!({"path":"a.png","absolutePath":"x"}),
+            json!({"path":"a.png"}),
+            json!({"workspaceId":null,"path":"a.png"}),
+        ] {
+            assert_eq!(
+                validate("media_read_image", &args),
+                Err("WORKSPACE_CONTEXT_REQUIRED".into())
+            );
+        }
+        for args in [
+            json!({"workspaceId":3,"path":"a.png"}),
+            json!({"workspaceId":"","path":"a.png"}),
+            json!({"workspaceId":" \t","path":"a.png"}),
+        ] {
+            assert!(
+                validate("media_read_image", &args)
+                    .unwrap_err()
+                    .starts_with("INVALID_PARAMS")
+            );
+        }
+        for args in [
+            json!({"workspaceId":"x","path":null}),
+            json!({"workspaceId":"x","path":3}),
+            json!({"workspaceId":"x","path":"a.png","root":"x"}),
+            json!({"workspaceId":"x","path":"a.png","absolutePath":"x"}),
         ] {
             assert!(validate("media_read_image", &args).is_err());
         }
@@ -1098,7 +1114,7 @@ mod tests {
                 .map(|t| &t.name)
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
-            23
+            20
         );
         assert!(
             validate(
@@ -1107,7 +1123,13 @@ mod tests {
             )
             .is_err()
         );
-        assert!(validate("workspace_deactivate", &json!({})).is_ok());
+        for name in [
+            "workspace_current",
+            "workspace_activate",
+            "workspace_deactivate",
+        ] {
+            assert!(!names.contains(name), "{name} must not be advertised");
+        }
         assert!(!names.contains("codegraph_explore"));
         assert_eq!(
             validate(
@@ -1120,7 +1142,7 @@ mod tests {
 
     #[test]
     fn workspace_discovery_tools_expose_registry_contracts() {
-        let tools = list(&upstream(), true).unwrap();
+        let tools = list(true);
         let list = tools
             .iter()
             .find(|tool| tool.name == "workspace_list")
@@ -1230,7 +1252,7 @@ mod tests {
 
     #[test]
     fn all_sources_require_workspace_context_and_keep_their_declared_fields() {
-        let tools = list(&upstream(), true).unwrap();
+        let tools = list(true);
         for tool in tools.iter().filter(|tool| tool.name.starts_with("source_")) {
             let properties = tool.input_schema["properties"].as_object().unwrap();
             let required = tool.input_schema["required"].as_array().unwrap();
@@ -1243,7 +1265,7 @@ mod tests {
 
     #[test]
     fn sources_validate_workspace_context_before_business_arguments() {
-        for &(name, _, _, _) in SOURCES {
+        for &(name, _, _) in SOURCES {
             for args in [json!({}), json!({"workspaceId": null})] {
                 assert_eq!(
                     validate(name, &args),
@@ -1282,8 +1304,8 @@ mod tests {
     }
 
     #[test]
-    fn source_read_file_alone_requires_local_file_version_output() {
-        let tools = list(&upstream(), true).unwrap();
+    fn local_source_schemas_keep_the_frozen_public_contracts() {
+        let tools = list(true);
         for tool in tools
             .iter()
             .filter(|t| t.name.starts_with("source_") || t.name.starts_with("git_"))
@@ -1323,12 +1345,76 @@ mod tests {
                         .contains(&json!("workspaceId"))
                 );
             }
+            if tool.name == "source_list_dir" {
+                let properties = tool.input_schema["properties"].as_object().unwrap();
+                assert_eq!(properties.len(), 4);
+                for field in ["workspaceId", "relative_path", "recursive", "max_bytes"] {
+                    assert!(properties.contains_key(field));
+                }
+                assert!(
+                    tool.input_schema["required"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&json!("relative_path"))
+                );
+                assert!(output["properties"].get("entries").is_none());
+            }
+            if tool.name == "source_find_file" {
+                let properties = tool.input_schema["properties"].as_object().unwrap();
+                assert_eq!(properties.len(), 4);
+                for field in ["workspaceId", "relative_path", "file_mask", "max_bytes"] {
+                    assert!(properties.contains_key(field));
+                }
+                let required = tool.input_schema["required"].as_array().unwrap();
+                assert!(required.contains(&json!("workspaceId")));
+                assert!(required.contains(&json!("file_mask")));
+                assert!(!required.contains(&json!("relative_path")));
+                assert!(output["properties"].get("files").is_none());
+            }
+            if tool.name == "source_search_pattern" {
+                let properties = tool.input_schema["properties"].as_object().unwrap();
+                assert_eq!(properties.len(), 4);
+                for field in [
+                    "workspaceId",
+                    "relative_path",
+                    "substring_pattern",
+                    "max_bytes",
+                ] {
+                    assert!(properties.contains_key(field));
+                }
+                let required = tool.input_schema["required"].as_array().unwrap();
+                assert!(required.contains(&json!("workspaceId")));
+                assert!(required.contains(&json!("substring_pattern")));
+                assert!(!required.contains(&json!("relative_path")));
+            }
         }
+    }
+
+    /// P2B-005 后四个基础 Source Read 均在本地执行，兼容 facade 清理由后续任务负责。
+    #[test]
+    fn source_locality_classification_keeps_read_list_and_find_local() {
+        assert_eq!(
+            LOCAL_SOURCES,
+            [
+                "source_read_file",
+                "source_list_dir",
+                "source_find_file",
+                "source_search_pattern"
+            ]
+        );
+        assert_eq!(
+            SEMANTIC_SOURCES,
+            [
+                "source_symbols_overview",
+                "source_find_symbol",
+                "source_find_references"
+            ]
+        );
     }
 
     #[test]
     fn git_tools_require_explicit_workspace_context_and_minimal_provenance() {
-        let tools = list(&upstream(), true).unwrap();
+        let tools = list(true);
         for &name in GITS {
             let tool = tools.iter().find(|tool| tool.name == name).unwrap();
             let properties = tool.input_schema["properties"].as_object().unwrap();
@@ -1383,14 +1469,27 @@ mod tests {
     }
 
     #[test]
-    fn forwarded_descriptions_are_exact_and_local_descriptions_have_expected_sections() {
-        let upstream = upstream();
-        let tools = list(&upstream, true).unwrap();
-        for (name, remote, _, _) in SOURCES {
-            let exposed = tools.iter().find(|t| t.name == *name).unwrap();
-            let original = upstream.iter().find(|t| t.name == *remote).unwrap();
-            assert_eq!(exposed.description, original.description, "{name}");
+    fn source_descriptions_are_local_stable_and_complete() {
+        let tools = list(true);
+        for &(name, _, _) in SOURCES {
+            let description = tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .and_then(|tool| tool.description.as_deref())
+                .unwrap();
+            for section in ["【做什么】", "【什么时候使用】", "【关键约束】"] {
+                assert!(description.contains(section), "{name}: {section}");
+            }
+            assert!(!description.contains("Original"), "{name}");
         }
+        let search_description = tools
+            .iter()
+            .find(|tool| tool.name == "source_search_pattern")
+            .and_then(|tool| tool.description.as_deref())
+            .unwrap();
+        assert!(search_description.contains("正则表达式"));
+        assert!(search_description.contains("大小写敏感"));
+        assert!(!search_description.contains("字面子串"));
         for tool in tools.iter().filter(|t| !t.name.starts_with("source_")) {
             let description = tool.description.as_deref().unwrap();
             let sections: Vec<_> = description
@@ -1400,33 +1499,14 @@ mod tests {
             let expected = &["【做什么】", "【什么时候使用】", "【关键约束】"];
             assert_eq!(sections, expected, "{}", tool.name);
         }
-        let activate = tools
-            .iter()
-            .find(|t| t.name == "workspace_activate")
-            .unwrap();
-        assert!(
-            activate
-                .description
-                .as_deref()
-                .unwrap()
-                .contains("这是全局共享状态变更，会影响所有连接到本服务的客户端。")
-        );
     }
 
     #[test]
-    fn missing_upstream_tool_fails_instead_of_using_a_placeholder() {
-        assert!(list(&[], true).unwrap_err().contains("missing read_file"));
-        let mut upstream = upstream();
-        upstream[0].description = None;
-        let tools = list(&upstream, true).unwrap();
-        assert!(
-            tools
-                .iter()
-                .find(|t| t.name == "source_read_file")
-                .unwrap()
-                .description
-                .is_none()
-        );
+    fn list_succeeds_without_upstream_or_serena() {
+        let tools = list(true);
+        for &name in LOCAL_SOURCES.iter().chain(SEMANTIC_SOURCES) {
+            assert!(tools.iter().any(|tool| tool.name == name), "{name}");
+        }
     }
 }
 

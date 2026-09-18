@@ -1537,12 +1537,12 @@ Blocked by: None
 Allowed scope: Source atomic file helper、真实 child-process tests。  
 Forbidden scope: 修改 Tool semantics、跨文件事务。  
 Contract references: §13.13；§51.3  
-Implementation requirements: crash 不产生半文件；临时文件可收敛。  
+Implementation requirements: crash 不产生半文件；临时文件可收敛；Windows documented ambiguous native failure 只经 canonical target re-read 投影为 success、safe IO failure 或 `SOURCE_COMMIT_STATE_UNKNOWN`，不自动恢复。
 Non-goals: LockFileEx。  
 Tests required: replace success、permission failure、pre/post-replace crash。  
 Evidence required: child-process crash/reopen filesystem assertions。  
-Acceptance criteria: target 始终为完整旧版或完整新版。  
-Rollback / failure behavior: 失败保留原文件并清理临时文件。  
+Acceptance criteria: success 时 target 为完整新版；safe failure 时 target 为完整旧版；Windows documented ambiguous native failure 返回 `SOURCE_COMMIT_STATE_UNKNOWN` 后必须 re-read，且绝不产生半文件。
+Rollback / failure behavior: pre-commit/native-safe failure 保留原文件并清理本次临时文件；ambiguous native failure 不做自动 rollback/recovery。
 Risk: high  
 Estimated blast radius: medium  
 Can run in parallel with: P2C-005

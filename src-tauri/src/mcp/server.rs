@@ -47,45 +47,22 @@ impl ServerHandler for Handler {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
-        info.instructions = Some("所有会话共享一个活动项目；先查询或激活项目。".into());
+        info.instructions = Some("所有 Workspace-scoped Tool 都必须显式传入 workspaceId。workspace_list 与 workspace_get 仅用于 Discovery，不建立 Workspace binding。".into());
         info
     }
 
     async fn list_tools(
         &self,
         _: Option<PaginatedRequestParams>,
-        context: RequestContext<RoleServer>,
+        _: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        self.0.log("tools/list · 读取 Serena 原始工具描述");
-        let snapshot = self.0.supervisor.snapshot();
-        if snapshot.server_status != ServerStatus::Running {
-            return Err(ErrorData::internal_error(
-                "BACKEND_UNAVAILABLE: 请先启动 Serena 以读取原始工具描述",
-                None,
-            ));
-        }
-        let client = tokio::select! {
-            result = serena::Client::connect(snapshot.active_port) => result,
-            _ = context.ct.cancelled() => return Err(ErrorData::internal_error("CANCELLED", None)),
-        }
-        .map_err(|e| ErrorData::internal_error(e, None))?;
-        let current = self.0.supervisor.snapshot();
-        if current.server_status != ServerStatus::Running
-            || current.process_id != snapshot.process_id
-        {
-            return Err(ErrorData::internal_error(
-                "BACKEND_UNAVAILABLE: Serena 已重启，请重新读取工具列表",
-                None,
-            ));
-        }
-        let tools = registry::list(&client.tools, self.0.config().agent_enabled)
-            .map_err(|e| ErrorData::internal_error(e, None))?;
+        self.0.log("tools/list · 生成本地公开工具描述");
+        let tools = registry::list(self.0.config().agent_enabled);
         self.0.log(&registry::orchestration_contract_diagnostic(
             self.0.config().agent_enabled,
             &tools,
         ));
-        self.0
-            .log("tools/list · 返回工具列表（Serena 描述原样传递）");
+        self.0.log("tools/list · 返回本地公开工具列表");
         Ok(ListToolsResult {
             tools,
             ..Default::default()
@@ -404,7 +381,7 @@ mod quick_tunnel_transport_tests {
             for protocol in ["2025-03-26", "2025-06-18", "2025-11-25"] {
                 for (body, expected) in [
                     (json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":protocol,"capabilities":{},"clientInfo":{"name":"transport-contract-test","version":"1"}}}), "initialize"),
-                    (json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}), "backend_unavailable"),
+                    (json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}), "tools_list"),
                     (json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"workspace_list","arguments":{}}}), "workspace_list"),
                     (json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"git_status","arguments":{}}}), "workspace_context_required"),
                 ] {
@@ -427,7 +404,20 @@ mod quick_tunnel_transport_tests {
                     assert_eq!(value["id"], request_id);
                     match expected {
                         "initialize" => assert_eq!(value["result"]["protocolVersion"], protocol),
-                        "backend_unavailable" => assert!(value["error"]["message"].as_str().unwrap().contains("BACKEND_UNAVAILABLE")),
+                        "tools_list" => {
+                            let names = value["result"]["tools"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .filter_map(|tool| tool["name"].as_str())
+                                .collect::<std::collections::HashSet<_>>();
+                            for name in registry::LOCAL_SOURCES.iter().chain(registry::SEMANTIC_SOURCES) {
+                                assert!(names.contains(name), "{name}: {value}");
+                            }
+                            for legacy in ["workspace_activate", "workspace_deactivate", "workspace_current", "codegraph_explore"] {
+                                assert!(!names.contains(legacy), "{legacy}: {value}");
+                            }
+                        }
                         "workspace_list" => {
                             assert_ne!(value["result"]["isError"], true, "{value}");
                             assert_eq!(value["result"]["structuredContent"]["workspaces"], json!([]), "{value}");

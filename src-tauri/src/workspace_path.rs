@@ -16,17 +16,23 @@ pub(crate) struct WorkspacePathResolver<'a> {
 }
 
 impl<'a> WorkspacePathResolver<'a> {
+    /// 返回仅由已捕获 Lease 派生的 canonical Workspace root，供无路径参数的 Tool 内部使用。
+    pub(crate) fn root(&self) -> Result<PathBuf, String> {
+        let root = fs::canonicalize(&self.lease.canonical_root)
+            .map_err(|_| invalid_path("workspace root is unavailable"))?;
+        if !root.is_dir() {
+            return Err(invalid_path("workspace root is not a directory"));
+        }
+        Ok(root)
+    }
+
     pub(crate) fn new(lease: &'a WorkspaceLease) -> Self {
         Self { lease }
     }
 
     pub(crate) fn resolve(&self, relative_path: &str) -> Result<PathBuf, String> {
         let relative = normalize_relative_path(relative_path)?;
-        let root = fs::canonicalize(&self.lease.canonical_root)
-            .map_err(|_| invalid_path("workspace root is unavailable"))?;
-        if !root.is_dir() {
-            return Err(invalid_path("workspace root is not a directory"));
-        }
+        let root = self.root()?;
 
         let candidate = root.join(relative);
         let (existing, suffix) = nearest_existing_path(&candidate)?;

@@ -582,19 +582,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn remove_workspace_rejects_simulated_future_write_guard_without_removing() {
+    async fn remove_workspace_rejects_active_write_guards_until_the_last_drop() {
         let (directory, paths, supervisor, workspace) = remove_fixture();
         let store = StateStore::open(directory.path().join("agent-state"))
             .await
             .unwrap();
         let product = AgentProductService::new(store);
-        *supervisor.workspace_remove_test_owners.lock().unwrap() = WorkspaceRemoveTestOwnerCounts {
-            future_write_guard_count: 1,
-            future_runtime_slot_ref_count: 0,
-        };
+        let (first_lease, first_guard) = supervisor
+            .resolve_workspace_write_guard(&workspace.id)
+            .unwrap();
+        let (second_lease, second_guard) = supervisor
+            .resolve_workspace_write_guard(&workspace.id)
+            .unwrap();
+        assert_eq!(first_lease, second_lease);
 
         assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file)
             .await;
+        drop(first_guard);
+        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file)
+            .await;
+        drop(second_guard);
+        assert_eq!(
+            remove_workspace(&supervisor, &product, &workspace.id)
+                .await
+                .unwrap(),
+            workspace
+        );
     }
 
     #[tokio::test]
@@ -605,7 +618,6 @@ mod tests {
             .unwrap();
         let product = AgentProductService::new(store);
         *supervisor.workspace_remove_test_owners.lock().unwrap() = WorkspaceRemoveTestOwnerCounts {
-            future_write_guard_count: 0,
             future_runtime_slot_ref_count: 1,
         };
 

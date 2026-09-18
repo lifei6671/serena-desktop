@@ -19,10 +19,11 @@ use crate::{
     workspace_capability::{
         WorkspaceCapabilityErrorCode, WorkspaceCapabilityManager, WorkspaceCapabilityRegistry,
     },
-    workspace_resolver::WorkspaceResolver,
+    workspace_resolver::{WorkspaceLease, WorkspaceResolver},
 };
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     env,
     ffi::OsStr,
     io::{BufRead, BufReader, Read},
@@ -80,7 +81,7 @@ type WorkspaceRemoveHook = Arc<dyn Fn() + Send + Sync>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WorkspaceRemoveOwners {
     agent_claim_present: bool,
-    future_write_guard_count: u32,
+    write_guard_count: u32,
     future_runtime_slot_ref_count: u32,
 }
 
@@ -88,17 +89,69 @@ impl WorkspaceRemoveOwners {
     /// 任一明确 owner 存在即拒绝 Remove，绝不执行 best-effort 删除。
     fn is_busy(self) -> bool {
         self.agent_claim_present
-            || self.future_write_guard_count != 0
+            || self.write_guard_count != 0
             || self.future_runtime_slot_ref_count != 0
     }
 }
 
-/// 仅测试模拟未来 owner；不会编译进生产状态或形成动态注册机制。
+/// 仅测试模拟后续 RuntimeSlot owner；不会编译进生产状态或形成动态注册机制。
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct WorkspaceRemoveTestOwnerCounts {
-    pub(crate) future_write_guard_count: u32,
     pub(crate) future_runtime_slot_ref_count: u32,
+}
+
+/// Guard 的内部身份必须与当次解析到的 Workspace Lease 完全一致。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct WorkspaceWriteGuardIdentity {
+    workspace_id: String,
+    generation: u64,
+    canonical_root: PathBuf,
+}
+
+impl From<&WorkspaceLease> for WorkspaceWriteGuardIdentity {
+    /// 仅复制同一 operation 临界区解析出的 Lease，不接受调用方提供的 root。
+    fn from(lease: &WorkspaceLease) -> Self {
+        Self {
+            workspace_id: lease.workspace_id.clone(),
+            generation: lease.generation,
+            canonical_root: lease.canonical_root.clone(),
+        }
+    }
+}
+
+/// Supervisor 进程内维护的活跃 Source Write 生命周期计数，不是文件写入互斥锁。
+#[derive(Default)]
+struct WorkspaceWriteGuardState {
+    counts: HashMap<WorkspaceWriteGuardIdentity, u32>,
+}
+
+/// 活跃 Source Write 的 RAII owner；只能由 Supervisor 解析当前 Lease 后创建。
+pub(crate) struct WorkspaceWriteGuard {
+    identity: WorkspaceWriteGuardIdentity,
+    state: Arc<Mutex<WorkspaceWriteGuardState>>,
+}
+
+impl Drop for WorkspaceWriteGuard {
+    /// 生命周期结束时递减 refcount，并在最后一个 Guard 释放后删除状态条目。
+    fn drop(&mut self) {
+        let mut state = self
+            .state
+            .lock()
+            .expect("workspace write guard mutex poisoned");
+        let Some(count) = state.counts.get_mut(&self.identity) else {
+            debug_assert!(
+                false,
+                "workspace write guard must retain its refcount entry"
+            );
+            return;
+        };
+        if *count == 1 {
+            state.counts.remove(&self.identity);
+        } else {
+            *count -= 1;
+        }
+    }
 }
 
 /// 已通过普通异步 preflight 的 Start 持久化输入；Workspace 快照仅在 operation mutex 内解析。
@@ -116,6 +169,8 @@ pub struct SupervisorState {
     runtime: Arc<Mutex<Runtime>>,
     operation: Mutex<()>,
     capability_manager: Arc<WorkspaceCapabilityManager>,
+    workspace_write_guards: Arc<Mutex<WorkspaceWriteGuardState>>,
+    target_commit_coordinator: crate::mcp::source_write_commit::TargetCommitCoordinator,
     dashboard_url: Arc<Mutex<String>>,
     pub paths: AppPaths,
     #[cfg(test)]
@@ -185,6 +240,9 @@ impl SupervisorState {
                     "workspace capability registry initialization failed".to_owned()
                 })?,
             ))),
+            workspace_write_guards: Arc::new(Mutex::new(WorkspaceWriteGuardState::default())),
+            target_commit_coordinator:
+                crate::mcp::source_write_commit::TargetCommitCoordinator::new(),
             dashboard_url: Arc::new(Mutex::new(DEFAULT_DASHBOARD_URL.to_string())),
             paths,
             #[cfg(test)]
@@ -210,6 +268,75 @@ impl SupervisorState {
     /// 返回已在 Supervisor 构造期固定的 Capability Manager，不暴露 Provider 私有 Runtime。
     pub(crate) fn workspace_capability_manager(&self) -> Arc<WorkspaceCapabilityManager> {
         Arc::clone(&self.capability_manager)
+    }
+
+    /// 返回本 Supervisor 独占的 per-target commit coordinator；不同 fixture 绝不共享锁表。
+    pub(crate) fn target_commit_coordinator(
+        &self,
+    ) -> crate::mcp::source_write_commit::TargetCommitCoordinator {
+        self.target_commit_coordinator.clone()
+    }
+
+    /// 验证 Guard 仍由本 Supervisor 为同一 Lease 持有，避免跨 Supervisor 或过期 Guard 混用。
+    pub(crate) fn workspace_write_guard_matches(
+        &self,
+        guard: &WorkspaceWriteGuard,
+        lease: &WorkspaceLease,
+    ) -> bool {
+        guard.identity == WorkspaceWriteGuardIdentity::from(lease)
+            && Arc::ptr_eq(&guard.state, &self.workspace_write_guards)
+            && guard
+                .state
+                .lock()
+                .expect("workspace write guard mutex poisoned")
+                .counts
+                .get(&guard.identity)
+                .copied()
+                .unwrap_or(0)
+                != 0
+    }
+
+    /// 在同一 operation 临界区内解析当前 Lease 并登记 Source Write 生命周期。
+    pub(crate) fn resolve_workspace_write_guard(
+        &self,
+        workspace_id: &str,
+    ) -> Result<(WorkspaceLease, WorkspaceWriteGuard), String> {
+        let _operation = self.operation.lock().expect("operation mutex poisoned");
+        let lease = WorkspaceResolver::new(self).resolve(workspace_id)?;
+        if self
+            .capability_manager
+            .workspace_remove_admission_active(&lease)
+        {
+            return Err(crate::workspace_registry::WORKSPACE_IN_USE.into());
+        }
+        let identity = WorkspaceWriteGuardIdentity::from(&lease);
+        let mut state = self
+            .workspace_write_guards
+            .lock()
+            .expect("workspace write guard mutex poisoned");
+        let count = state.counts.entry(identity.clone()).or_insert(0);
+        *count = count
+            .checked_add(1)
+            .expect("workspace write guard refcount overflow");
+        Ok((
+            lease,
+            WorkspaceWriteGuard {
+                identity,
+                state: Arc::clone(&self.workspace_write_guards),
+            },
+        ))
+    }
+
+    /// 仅供本模块回归测试观察私有 refcount，不形成生产 introspection API。
+    #[cfg(test)]
+    fn workspace_write_guard_count_for_test(&self, lease: &WorkspaceLease) -> u32 {
+        self.workspace_write_guards
+            .lock()
+            .expect("workspace write guard mutex poisoned")
+            .counts
+            .get(&WorkspaceWriteGuardIdentity::from(lease))
+            .copied()
+            .unwrap_or(0)
     }
 
     pub fn snapshot(&self) -> SupervisorSnapshot {
@@ -422,28 +549,37 @@ impl SupervisorState {
         &self,
         product: &AgentProductService,
         workspace: &Workspace,
+        lease: &WorkspaceLease,
     ) -> Result<WorkspaceRemoveOwners, String> {
         let agent_claim_present =
             product.workspace_claim_exists_blocking(&workspace.root.to_string_lossy())?;
-        let (future_write_guard_count, future_runtime_slot_ref_count) = {
+        let future_runtime_slot_ref_count = {
             #[cfg(test)]
             {
                 let fixture = *self.workspace_remove_test_owners.lock().unwrap();
-                (
-                    fixture.future_write_guard_count,
-                    fixture.future_runtime_slot_ref_count,
-                )
+                fixture.future_runtime_slot_ref_count
             }
             #[cfg(not(test))]
             {
-                (0, 0)
+                0
             }
         };
         Ok(WorkspaceRemoveOwners {
             agent_claim_present,
-            future_write_guard_count,
+            write_guard_count: self.workspace_write_guard_count(lease),
             future_runtime_slot_ref_count,
         })
+    }
+
+    /// 读取当前 Lease 对应的真实 Guard 数量；调用方已持有 operation mutex。
+    fn workspace_write_guard_count(&self, lease: &WorkspaceLease) -> u32 {
+        self.workspace_write_guards
+            .lock()
+            .expect("workspace write guard mutex poisoned")
+            .counts
+            .get(&WorkspaceWriteGuardIdentity::from(lease))
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Remove 先在 capability Manager 中关闭 admission，stop 完成前绝不进入 Registry 删除。
@@ -460,7 +596,10 @@ impl SupervisorState {
                 .begin_workspace_remove_admission(&lease)
                 .map_err(Self::map_workspace_capability_remove_error)?;
             let workspace = crate::workspace_registry::WorkspaceRegistry::new(self).get(id)?;
-            if self.workspace_remove_owners(product, &workspace)?.is_busy() {
+            if self
+                .workspace_remove_owners(product, &workspace, &lease)?
+                .is_busy()
+            {
                 drop(removal);
                 return Err(crate::workspace_registry::WORKSPACE_IN_USE.into());
             }
@@ -497,12 +636,16 @@ impl SupervisorState {
         id: &str,
     ) -> Result<Workspace, String> {
         let _operation = self.operation.lock().expect("operation mutex poisoned");
+        let lease = WorkspaceResolver::new(self).resolve(id)?;
         let workspace = crate::workspace_registry::WorkspaceRegistry::new(self).get(id)?;
         #[cfg(test)]
         if let Some(hook) = self.workspace_remove_hook.lock().unwrap().clone() {
             hook();
         }
-        if self.workspace_remove_owners(product, &workspace)?.is_busy() {
+        if self
+            .workspace_remove_owners(product, &workspace, &lease)?
+            .is_busy()
+        {
             return Err(crate::workspace_registry::WORKSPACE_IN_USE.into());
         }
         let mut removed = None;
@@ -1092,6 +1235,50 @@ mod tests {
     use super::*;
     use crate::discovery::InstallationSource;
 
+    /// 建立两个独立 Workspace，供 Guard 生命周期与 Remove 排斥回归使用。
+    fn workspace_write_guard_fixture() -> (tempfile::TempDir, SupervisorState, Workspace, Workspace)
+    {
+        let directory = tempfile::tempdir().unwrap();
+        let first_root = directory.path().join("first");
+        let second_root = directory.path().join("second");
+        std::fs::create_dir_all(&first_root).unwrap();
+        std::fs::create_dir_all(&second_root).unwrap();
+        let first = Workspace {
+            id: "first".into(),
+            name: "First".into(),
+            root: std::fs::canonicalize(&first_root).unwrap(),
+            generation: 11,
+        };
+        let second = Workspace {
+            id: "second".into(),
+            name: "Second".into(),
+            root: std::fs::canonicalize(&second_root).unwrap(),
+            generation: 23,
+        };
+        let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
+            config_file: directory.path().join("config.json"),
+            log_directory: directory.path().join("logs"),
+            app_log: directory.path().join("logs/app.log"),
+            serena_log: directory.path().join("logs/serena.log"),
+        };
+        config::save(
+            &paths.config_file,
+            &ManagerConfig {
+                workspace_registry_revision: 7,
+                workspaces: vec![first.clone(), second.clone()],
+                ..ManagerConfig::default()
+            },
+        )
+        .unwrap();
+        (
+            directory,
+            SupervisorState::new(paths).unwrap(),
+            first,
+            second,
+        )
+    }
+
     #[test]
     fn supervisor_registers_the_single_production_serena_capability() {
         let directory = tempfile::tempdir().unwrap();
@@ -1113,15 +1300,191 @@ mod tests {
         assert_eq!(
             providers[0].descriptor().tool_names,
             [
-                "source_read_file",
-                "source_list_dir",
-                "source_find_file",
-                "source_search_pattern",
                 "source_symbols_overview",
                 "source_find_symbol",
                 "source_find_references"
             ]
         );
+    }
+
+    #[test]
+    /// 同一 Workspace 可并发持有多个 Guard，Drop 必须精确释放并清理最后一个条目。
+    fn workspace_write_guards_are_per_workspace_raii_refcounts() {
+        let (_directory, supervisor, first, second) = workspace_write_guard_fixture();
+        let (first_lease, first_guard) =
+            supervisor.resolve_workspace_write_guard(&first.id).unwrap();
+        assert_eq!(first_lease.workspace_id, first.id);
+        assert_eq!(first_lease.generation, first.generation);
+        assert_eq!(first_lease.canonical_root, first.root);
+        assert_eq!(
+            crate::workspace_registry::WorkspaceRegistry::new(&supervisor)
+                .get(&first.id)
+                .unwrap(),
+            first
+        );
+        assert_eq!(
+            supervisor.workspace_write_guard_count_for_test(&first_lease),
+            1
+        );
+
+        let (same_lease, second_guard) =
+            supervisor.resolve_workspace_write_guard(&first.id).unwrap();
+        assert_eq!(same_lease, first_lease);
+        assert_eq!(
+            supervisor.workspace_write_guard_count_for_test(&first_lease),
+            2
+        );
+
+        let (second_workspace_lease, other_workspace_guard) = supervisor
+            .resolve_workspace_write_guard(&second.id)
+            .unwrap();
+        assert_eq!(
+            supervisor.workspace_write_guard_count_for_test(&second_workspace_lease),
+            1
+        );
+        assert_eq!(
+            supervisor.workspace_write_guard_count_for_test(&first_lease),
+            2
+        );
+
+        drop(first_guard);
+        assert_eq!(
+            supervisor.workspace_write_guard_count_for_test(&first_lease),
+            1
+        );
+        drop(second_guard);
+        assert_eq!(
+            supervisor.workspace_write_guard_count_for_test(&first_lease),
+            0
+        );
+        drop(other_workspace_guard);
+        assert_eq!(
+            supervisor.workspace_write_guard_count_for_test(&second_workspace_lease),
+            0
+        );
+    }
+
+    #[test]
+    /// Registry 的 rename、reorder 与 Desktop selection 不改变目标 Guard 的 Lease 身份。
+    fn workspace_write_guard_does_not_block_non_remove_registry_changes() {
+        let (_directory, supervisor, first, second) = workspace_write_guard_fixture();
+        let (lease, guard) = supervisor.resolve_workspace_write_guard(&first.id).unwrap();
+        let registry = crate::workspace_registry::WorkspaceRegistry::new(&supervisor);
+
+        registry.rename(&first.id, "Renamed First".into()).unwrap();
+        registry
+            .reorder(vec![second.id.clone(), first.id.clone()])
+            .unwrap();
+        assert_eq!(
+            supervisor.select_desktop_workspace(&second.id).unwrap(),
+            second
+        );
+        assert_eq!(
+            WorkspaceResolver::new(&supervisor)
+                .resolve(&first.id)
+                .unwrap(),
+            lease
+        );
+
+        drop(guard);
+        assert_eq!(supervisor.workspace_write_guard_count_for_test(&lease), 0);
+        assert_eq!(
+            supervisor
+                .resolve_workspace_write_guard("missing-workspace")
+                .map(|_| ()),
+            Err(crate::workspace_registry::WORKSPACE_NOT_FOUND.into())
+        );
+    }
+
+    #[tokio::test]
+    /// Guard 只排斥其自身 Workspace 的 Remove，不影响其他 Workspace。
+    async fn workspace_write_guard_does_not_block_other_workspace_remove() {
+        let (directory, supervisor, first, second) = workspace_write_guard_fixture();
+        let store = StateStore::open(directory.path().join("agent-state"))
+            .await
+            .unwrap();
+        let product = AgentProductService::new(store);
+        let (_lease, first_guard) = supervisor.resolve_workspace_write_guard(&first.id).unwrap();
+
+        assert_eq!(
+            supervisor
+                .remove_workspace_coordinated(&product, &second.id)
+                .await
+                .unwrap(),
+            second
+        );
+        drop(first_guard);
+    }
+
+    #[test]
+    /// Guard 获取与 Remove 竞争同一个 operation 边界，只允许其中一方先线性化。
+    fn workspace_write_guard_and_remove_are_linearized() {
+        use std::sync::{Barrier, mpsc};
+
+        let (directory, supervisor, first, _second) = workspace_write_guard_fixture();
+        let store = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(StateStore::open(directory.path().join("agent-state")))
+            .unwrap();
+        let supervisor = Arc::new(supervisor);
+        let product = Arc::new(AgentProductService::new(store));
+        let barrier = Arc::new(Barrier::new(3));
+        let (acquire_result_tx, acquire_result_rx) = mpsc::channel();
+        let (remove_result_tx, remove_result_rx) = mpsc::channel();
+        let (release_guard_tx, release_guard_rx) = mpsc::channel();
+
+        std::thread::scope(|scope| {
+            let acquire_supervisor = Arc::clone(&supervisor);
+            let acquire_id = first.id.clone();
+            let acquire_barrier = Arc::clone(&barrier);
+            scope.spawn(move || {
+                acquire_barrier.wait();
+                match acquire_supervisor.resolve_workspace_write_guard(&acquire_id) {
+                    Ok((_lease, guard)) => {
+                        acquire_result_tx.send(Ok(())).unwrap();
+                        release_guard_rx.recv().unwrap();
+                        drop(guard);
+                    }
+                    Err(error) => acquire_result_tx.send(Err(error)).unwrap(),
+                }
+            });
+            let remove_supervisor = Arc::clone(&supervisor);
+            let remove_product = Arc::clone(&product);
+            let remove_id = first.id.clone();
+            let remove_barrier = Arc::clone(&barrier);
+            scope.spawn(move || {
+                remove_barrier.wait();
+                let result = tokio::runtime::Runtime::new().unwrap().block_on(
+                    remove_supervisor
+                        .remove_workspace_coordinated(remove_product.as_ref(), &remove_id),
+                );
+                remove_result_tx.send(result).unwrap();
+            });
+            barrier.wait();
+
+            let acquire_result = acquire_result_rx.recv().unwrap();
+            let remove_result = remove_result_rx.recv().unwrap();
+            let guard_active = acquire_result.is_ok();
+            match (acquire_result, remove_result) {
+                (Ok(()), Err(error)) => {
+                    assert_eq!(error, crate::workspace_registry::WORKSPACE_IN_USE)
+                }
+                (Err(error), Ok(removed)) => {
+                    assert!(matches!(
+                        error.as_str(),
+                        crate::workspace_registry::WORKSPACE_IN_USE
+                            | crate::workspace_registry::WORKSPACE_NOT_FOUND
+                    ));
+                    assert_eq!(removed, first);
+                }
+                (acquire, remove) => panic!(
+                    "Guard 与 Remove 必须只允许一方成功：acquire={acquire:?}, remove={remove:?}"
+                ),
+            }
+            if guard_active {
+                release_guard_tx.send(()).unwrap();
+            }
+        });
     }
 
     #[test]

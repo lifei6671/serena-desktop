@@ -22,7 +22,11 @@ impl ServerHandler for Upstream {
         _: Option<PaginatedRequestParams>,
         _: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let tools = crate::mcp::registry::SOURCES.iter().map(|(_, name, params, _)| (*name, *params))
+        let tools = [
+            ("get_symbols_overview", &["relative_path", "depth"][..]),
+            ("find_symbol", &["relative_path", "name_path_pattern", "depth", "include_body"][..]),
+            ("find_referencing_symbols", &["relative_path", "name_path"][..]),
+        ].into_iter()
             .chain([("activate_project", &["project"][..]), ("get_current_config", &[][..])])
             .map(|(name, params)| {
                 let properties: serde_json::Map<String, serde_json::Value> = params.iter().copied().chain(["max_answer_chars"])

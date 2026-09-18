@@ -6,6 +6,28 @@ use rmcp::{
 };
 use serde_json::{Value, json};
 use std::{path::Path, time::Duration};
+
+/// Serena Runtime 只校验仍由它执行的三项 Semantic upstream Tool。
+const SEMANTIC_UPSTREAMS: &[(&str, &[&str])] = &[
+    (
+        "get_symbols_overview",
+        &["relative_path", "depth", "max_answer_chars"],
+    ),
+    (
+        "find_symbol",
+        &[
+            "relative_path",
+            "name_path_pattern",
+            "depth",
+            "include_body",
+            "max_answer_chars",
+        ],
+    ),
+    (
+        "find_referencing_symbols",
+        &["relative_path", "name_path", "max_answer_chars"],
+    ),
+];
 // A dropped/failed request makes the backend session unusable until reactivation.
 struct InFlight(Option<rmcp::service::RunningServiceCancellationToken>);
 impl Drop for InFlight {
@@ -35,26 +57,14 @@ impl Client {
             .await
             .map_err(|_| "TOOL_TIMEOUT")?
             .map_err(|e| e.to_string())?;
-        for name in super::registry::SOURCES
-            .iter()
-            .map(|t| t.1)
-            .chain(["activate_project", "get_current_config"])
-        {
+        for (name, params) in SEMANTIC_UPSTREAMS.iter().copied().chain([
+            ("activate_project", &["project"][..]),
+            ("get_current_config", &[][..]),
+        ]) {
             let tool = tools
                 .iter()
                 .find(|t| t.name == name)
                 .ok_or_else(|| format!("BACKEND_INCOMPATIBLE: missing {name}"))?;
-            let mut params: Vec<&str> = super::registry::SOURCES
-                .iter()
-                .find(|t| t.1 == name)
-                .map(|t| t.2.iter().copied().filter(|p| *p != "max_bytes").collect())
-                .unwrap_or_default();
-            if name == "activate_project" {
-                params.push("project");
-            }
-            if super::registry::SOURCES.iter().any(|t| t.1 == name) && name != "find_file" {
-                params.push("max_answer_chars");
-            }
             for param in params {
                 if tool
                     .input_schema

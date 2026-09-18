@@ -142,12 +142,8 @@ impl SerenaCapabilityProvider {
             descriptor: WorkspaceCapabilityDescriptor {
                 provider_id: WorkspaceCapabilityProviderId::new("serena"),
                 display_name: "Serena".into(),
-                // Phase 2B Rust Source cutover 前，基础 Source 与 Semantic Source 共用 Serena Slot ownership。
+                // Serena Provider 只拥有三个 Semantic Source；基础 Source 由本地 Rust 实现。
                 tool_names: vec![
-                    "source_read_file".into(),
-                    "source_list_dir".into(),
-                    "source_find_file".into(),
-                    "source_search_pattern".into(),
                     "source_symbols_overview".into(),
                     "source_find_symbol".into(),
                     "source_find_references".into(),
@@ -426,19 +422,12 @@ impl SerenaCapabilityProvider {
         })
     }
 
-    /// 将全部七个 Source public name 转换为既有 Serena upstream 调用参数。
-    ///
-    /// 前四项仅是 Phase 2B Rust Source cutover 前的临时兼容 ownership，
-    /// 不形成第二个 Provider、Runtime 或 Client 架构。
+    /// 将三个 Semantic Source public name 转换为既有 Serena upstream 调用参数。
     fn source_request(
         tool: WorkspaceToolCall,
     ) -> Result<(&'static str, serde_json::Value), CapabilityProviderError> {
         let (upstream_name, default_limit, hard_limit, inject_max_answer_chars) =
             match tool.tool_name.as_str() {
-                "source_read_file" => ("read_file", 32_768, 131_072, true),
-                "source_list_dir" => ("list_dir", 65_536, 262_144, true),
-                "source_find_file" => ("find_file", 65_536, 262_144, false),
-                "source_search_pattern" => ("search_for_pattern", 65_536, 262_144, true),
                 "source_symbols_overview" => ("get_symbols_overview", 65_536, 262_144, true),
                 "source_find_symbol" => ("find_symbol", 65_536, 262_144, true),
                 "source_find_references" => ("find_referencing_symbols", 65_536, 262_144, true),
@@ -479,11 +468,6 @@ impl SerenaCapabilityProvider {
         );
         if inject_max_answer_chars {
             arguments.insert("max_answer_chars".into(), serde_json::json!(limit));
-        }
-        if tool.tool_name == "source_list_dir" {
-            arguments
-                .entry("recursive")
-                .or_insert(serde_json::json!(false));
         }
         Ok((upstream_name, serde_json::Value::Object(arguments)))
     }
@@ -1232,7 +1216,7 @@ mod tests {
     }
 
     #[test]
-    fn descriptor_projects_all_seven_workspace_scoped_source_tool_names() {
+    fn descriptor_projects_only_semantic_source_tool_names() {
         let provider = provider(
             installation(
                 InstallationState::Missing,
@@ -1248,10 +1232,6 @@ mod tests {
         assert_eq!(
             descriptor.tool_names,
             [
-                "source_read_file",
-                "source_list_dir",
-                "source_find_file",
-                "source_search_pattern",
                 "source_symbols_overview",
                 "source_find_symbol",
                 "source_find_references"
@@ -1280,8 +1260,8 @@ mod tests {
     }
 
     #[tokio::test]
-    /// 验证全部 Source name 复用 Serena Slot，并保留各自冻结的参数清理规则。
-    async fn source_calls_map_all_frozen_tools_and_sanitize_upstream_arguments() {
+    /// 验证 Semantic Source 复用 Serena Slot，并保留各自冻结的参数清理规则。
+    async fn source_calls_map_semantic_tools_and_sanitize_upstream_arguments() {
         let provider = provider(
             installation(
                 InstallationState::Missing,
@@ -1361,55 +1341,6 @@ mod tests {
             assert!(received_arguments.get("include_body").is_none());
         }
 
-        for (tool_name, arguments, upstream_name, expects_max_answer_chars) in [
-            (
-                "source_read_file",
-                serde_json::json!({"relative_path":"src/lib.rs","max_bytes":123}),
-                "read_file",
-                true,
-            ),
-            (
-                "source_list_dir",
-                serde_json::json!({"relative_path":"src","recursive":null}),
-                "list_dir",
-                true,
-            ),
-            (
-                "source_find_file",
-                serde_json::json!({"relative_path":null,"file_mask":"*.rs","max_bytes":456}),
-                "find_file",
-                false,
-            ),
-            (
-                "source_search_pattern",
-                serde_json::json!({"relative_path":"src","substring_pattern":"Workspace","max_bytes":789}),
-                "search_for_pattern",
-                true,
-            ),
-        ] {
-            provider
-                .call(
-                    &workspace_lease,
-                    Some(&runtime),
-                    WorkspaceToolCall {
-                        tool_name: tool_name.into(),
-                        arguments,
-                    },
-                )
-                .await
-                .unwrap();
-            let (received_name, received_arguments) = client.calls.lock().unwrap().pop().unwrap();
-            assert_eq!(received_name, upstream_name);
-            assert!(received_arguments.get("workspaceId").is_none());
-            assert!(received_arguments.get("max_bytes").is_none());
-            assert_eq!(
-                received_arguments.get("max_answer_chars").is_some(),
-                expects_max_answer_chars
-            );
-            if tool_name == "source_list_dir" {
-                assert_eq!(received_arguments["recursive"], false);
-            }
-        }
         assert!(
             provider
                 .call(
