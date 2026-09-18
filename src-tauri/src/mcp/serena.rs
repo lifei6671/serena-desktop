@@ -123,7 +123,11 @@ impl Client {
 /// 将 Windows verbatim 路径和普通路径统一为 Serena 回执可比较的形式。
 fn normalized_root(path: &str) -> String {
     let path = path.replace('\\', "/");
-    path.strip_prefix("//?/").unwrap_or(&path).to_owned()
+    if let Some(unc) = path.strip_prefix("//?/UNC/") {
+        format!("//{unc}")
+    } else {
+        path.strip_prefix("//?/").unwrap_or(&path).to_owned()
+    }
 }
 
 /// 按目标平台的文件系统语义比较已统一格式的 Root；Windows 仅放宽 ASCII 大小写。
@@ -163,9 +167,14 @@ fn activation_header_matches_root(header: &str, root: &Path) -> bool {
     })
 }
 
+/// 为 CLI 仅移除 Windows verbatim 表示，并保留 UNC 根的双前导反斜杠。
 pub fn display(path: &Path) -> String {
     let s = path.to_string_lossy();
-    s.strip_prefix("\\\\?\\").unwrap_or(&s).to_owned()
+    if let Some(unc) = s.strip_prefix("\\\\?\\UNC\\") {
+        format!("\\\\{unc}")
+    } else {
+        s.strip_prefix("\\\\?\\").unwrap_or(&s).to_owned()
+    }
 }
 
 #[cfg(test)]
@@ -197,6 +206,42 @@ mod tests {
             "The project with name 'project' at //?/C:/workspace/project is activated.",
             root
         ));
+    }
+
+    #[test]
+    fn display_normalizes_verbatim_unc_without_changing_other_windows_roots() {
+        assert_eq!(display(Path::new(r"\\?\C:\workspace")), r"C:\workspace");
+        assert_eq!(
+            display(Path::new(r"\\?\UNC\server\share\workspace")),
+            r"\\server\share\workspace"
+        );
+        assert_eq!(
+            display(Path::new(r"\\server\share\workspace")),
+            r"\\server\share\workspace"
+        );
+        assert_eq!(display(Path::new(r"C:\workspace")), r"C:\workspace");
+    }
+
+    #[test]
+    fn normalized_root_normalizes_verbatim_unc_without_changing_ordinary_unc() {
+        assert_eq!(normalized_root("//?/C:/workspace"), "C:/workspace");
+        assert_eq!(
+            normalized_root("//?/UNC/server/share/workspace"),
+            "//server/share/workspace"
+        );
+        assert_eq!(
+            normalized_root("//server/share/workspace"),
+            "//server/share/workspace"
+        );
+    }
+
+    #[test]
+    fn activation_header_matches_verbatim_and_ordinary_unc_roots() {
+        let verbatim_unc = Path::new(r"\\?\UNC\server\share\workspace");
+        let ordinary_unc = Path::new(r"\\server\share\workspace");
+        let header = r"The project with name 'workspace' at \\server\share\workspace is activated.";
+        assert!(activation_header_matches_root(header, verbatim_unc));
+        assert!(activation_header_matches_root(header, ordinary_unc));
     }
 
     #[test]

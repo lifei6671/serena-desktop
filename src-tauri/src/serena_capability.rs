@@ -100,6 +100,9 @@ impl SerenaRuntimeClient for Client {
 struct SerenaRuntime {
     client: Arc<dyn SerenaRuntimeClient>,
     child: Child,
+    /// 仅供真实集成测试核验 A/B Slot 未复用 loopback endpoint。
+    #[cfg(test)]
+    port: u16,
     #[cfg(windows)]
     job: std::os::windows::io::OwnedHandle,
 }
@@ -338,7 +341,8 @@ impl SerenaCapabilityProvider {
         let mut command = hidden_command(&installation.path);
         command
             .args(["start-mcp-server", "--project"])
-            .arg(&lease.canonical_root)
+            // 仅在 Serena CLI 边界去除 Windows verbatim 前缀；Lease 仍保留 canonical Authority。
+            .arg(crate::mcp::serena::display(&lease.canonical_root))
             .args(["--context"])
             .arg(context)
             .args([
@@ -352,6 +356,9 @@ impl SerenaCapabilityProvider {
                 "false",
             ])
             .env("SERENA_HOME", home)
+            // uvx/pyright 的 cache 与 tool lock 也必须随 Slot 隔离，避免共享用户目录的竞争或权限失败。
+            .env("UV_CACHE_DIR", home.join("uv-cache"))
+            .env("UV_TOOL_DIR", home.join("uv-tools"))
             .env("FASTMCP_JSON_RESPONSE", "false")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -412,6 +419,8 @@ impl SerenaCapabilityProvider {
         Ok(SerenaRuntime {
             client: Arc::new(client),
             child,
+            #[cfg(test)]
+            port,
             #[cfg(windows)]
             job,
         })
@@ -961,6 +970,8 @@ mod tests {
         SerenaRuntime {
             client,
             child,
+            #[cfg(test)]
+            port: 0,
             #[cfg(windows)]
             job,
         }
@@ -992,6 +1003,119 @@ mod tests {
         #[cfg(not(windows))]
         let _ = terminate_managed_process(&mut runtime.child);
         SerenaCapabilityProvider::cleanup_child(&mut runtime.child).await;
+    }
+
+    /// 通过只读 Win32 ToolHelp 快照递归取得某个受管主进程当前可见的 descendant PID。
+    #[cfg(windows)]
+    fn snapshot_descendant_pids(root_pid: u32) -> Vec<u32> {
+        use std::collections::{HashMap, HashSet};
+        use windows_sys::Win32::{
+            Foundation::{CloseHandle, INVALID_HANDLE_VALUE},
+            System::Diagnostics::ToolHelp::{
+                CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+                TH32CS_SNAPPROCESS,
+            },
+        };
+
+        // SAFETY: TH32CS_SNAPPROCESS 只读取系统进程表；成功后由本函数唯一关闭快照句柄。
+        let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+        assert_ne!(
+            snapshot, INVALID_HANDLE_VALUE,
+            "process snapshot handle must open for the Windows Gate"
+        );
+        // SAFETY: PROCESSENTRY32W 是 Win32 POD 输出缓冲区；dwSize 必须显式设为结构大小。
+        let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        let mut children = HashMap::<u32, Vec<u32>>::new();
+        // SAFETY: snapshot 与 entry 由本函数持有，循环仅枚举该快照中的稳定记录。
+        let mut available = unsafe { Process32FirstW(snapshot, &mut entry) } != 0;
+        while available {
+            children
+                .entry(entry.th32ParentProcessID)
+                .or_default()
+                .push(entry.th32ProcessID);
+            // SAFETY: 同一快照与已初始化结构可继续枚举下一条记录。
+            available = unsafe { Process32NextW(snapshot, &mut entry) } != 0;
+        }
+        // SAFETY: snapshot 在本函数内唯一拥有，完成枚举后不再使用。
+        unsafe { CloseHandle(snapshot) };
+        let mut descendants = HashSet::new();
+        let mut pending = vec![root_pid];
+        while let Some(parent) = pending.pop() {
+            for child in children.get(&parent).into_iter().flatten().copied() {
+                if descendants.insert(child) {
+                    pending.push(child);
+                }
+            }
+        }
+        let mut descendants = descendants.into_iter().collect::<Vec<_>>();
+        descendants.sort_unstable();
+        descendants
+    }
+
+    /// 为快照中的每个仍存活 descendant 固定同步句柄，避免退出后 PID 被复用为错误证据。
+    #[cfg(windows)]
+    fn capture_descendant_handles(root_pid: u32) -> Vec<std::os::windows::io::OwnedHandle> {
+        use std::os::windows::io::{FromRawHandle, OwnedHandle};
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE};
+
+        snapshot_descendant_pids(root_pid)
+            .into_iter()
+            .map(|pid| {
+                // SAFETY: PID 来自本测试刚完成的只读系统快照；失败即代表无法为 Gate 建立稳定证据。
+                let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+                assert!(
+                    !handle.is_null(),
+                    "captured Serena descendant must be openable for exit evidence"
+                );
+                // SAFETY: OpenProcess 成功后的唯一句柄立即交给 OwnedHandle 管理。
+                unsafe { OwnedHandle::from_raw_handle(handle) }
+            })
+            .collect()
+    }
+
+    /// 在同一个五秒 Gate 时限内确认已捕获的 Slot descendant 都已退出。
+    #[cfg(windows)]
+    fn assert_captured_descendants_exit(handles: &[std::os::windows::io::OwnedHandle], role: &str) {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::{
+            Foundation::WAIT_OBJECT_0, System::Threading::WaitForSingleObject,
+        };
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        for handle in handles {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(
+                !remaining.is_zero(),
+                "{role} captured descendant did not exit within the Gate deadline"
+            );
+            let timeout = remaining.as_millis().min(u32::MAX.into()) as u32;
+            // SAFETY: handle 由本测试持有，且只用于等待该已捕获进程的退出。
+            assert_eq!(
+                unsafe { WaitForSingleObject(handle.as_raw_handle(), timeout) },
+                WAIT_OBJECT_0,
+                "{role} captured descendant remained alive after lifecycle stop"
+            );
+        }
+    }
+
+    /// Remove A 时 B 的短命 helper 可自然退出，但仍存活句柄不得产生异常 wait 状态。
+    #[cfg(windows)]
+    fn assert_descendants_alive_or_exited(handles: &[std::os::windows::io::OwnedHandle]) {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::{
+            Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
+            System::Threading::WaitForSingleObject,
+        };
+
+        for handle in handles {
+            // SAFETY: handle 由本测试持有；零超时只观察，不改变进程状态。
+            let state = unsafe { WaitForSingleObject(handle.as_raw_handle(), 0) };
+            assert!(
+                state == WAIT_TIMEOUT || state == WAIT_OBJECT_0,
+                "B captured descendant produced an invalid wait state during A removal"
+            );
+        }
     }
 
     /// 用于验证 Serena 局部失败不会污染 Registry 的独立第二 Provider。
@@ -1776,6 +1900,166 @@ mod tests {
             std::fs::read(project_configuration).unwrap(),
             existing_project_configuration
         );
+    }
+
+    /// 真实官方 Serena Gate：A/B Slot 必须保持独立，停止 A 不得影响 B，shutdown 后受管进程必须退出。
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "requires SERENA_TEST_EXE pointing at the official 1.7.0 test installation"]
+    async fn official_serena_two_workspace_slots_are_isolated_and_shutdown_cleanly() {
+        use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+        use windows_sys::Win32::{
+            Foundation::WAIT_OBJECT_0,
+            System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject},
+        };
+
+        let executable =
+            PathBuf::from(std::env::var_os("SERENA_TEST_EXE").expect("set SERENA_TEST_EXE"));
+        let directory = tempfile::tempdir().unwrap();
+        let root_a = directory.path().join("workspace-a");
+        let root_b = directory.path().join("workspace-b");
+        std::fs::create_dir_all(&root_a).unwrap();
+        std::fs::create_dir_all(&root_b).unwrap();
+        std::fs::write(root_a.join("a.py"), "def marker_a():\n    return 'a'\n").unwrap();
+        std::fs::write(root_b.join("b.py"), "def marker_b():\n    return 'b'\n").unwrap();
+        let lease_a = WorkspaceLease {
+            workspace_id: "workspace-a".into(),
+            canonical_root: std::fs::canonicalize(root_a).unwrap(),
+            generation: 1,
+        };
+        let lease_b = WorkspaceLease {
+            workspace_id: "workspace-b".into(),
+            canonical_root: std::fs::canonicalize(root_b).unwrap(),
+            generation: 1,
+        };
+        let installation = installation(InstallationState::Standard, executable, "Serena 1.7.0");
+        let provider = Arc::new(SerenaCapabilityProvider::with_probes(
+            Arc::new(move || installation.clone()),
+            Arc::new(project_configuration_exists),
+            directory.path().join("runtime"),
+        ));
+        let provider_port: Arc<dyn WorkspaceCapabilityProvider> = provider.clone();
+        let manager = Arc::new(WorkspaceCapabilityManager::new(Arc::new(
+            WorkspaceCapabilityRegistry::new([provider_port]).unwrap(),
+        )));
+
+        let (runtime_a, runtime_b) = tokio::join!(
+            manager.acquire_runtime("serena", lease_a.clone()),
+            manager.acquire_runtime("serena", lease_b.clone()),
+        );
+        drop(runtime_a.unwrap());
+        drop(runtime_b.unwrap());
+
+        let home_a = provider.slot_home(&lease_a);
+        let home_b = provider.slot_home(&lease_b);
+        assert_ne!(home_a, home_b);
+        assert!(home_a.join("serena_config.yml").is_file());
+        assert!(home_b.join("serena_config.yml").is_file());
+        assert!(lease_a.canonical_root.join(".serena/project.yml").is_file());
+        assert!(lease_b.canonical_root.join(".serena/project.yml").is_file());
+
+        let (pid_a, process_a, pid_b, process_b) = {
+            let runtimes = provider.runtimes.lock().await;
+            let runtime_a = runtimes
+                .get(&SerenaRuntimeKey::from_lease(&lease_a))
+                .expect("A Slot must be live");
+            let runtime_b = runtimes
+                .get(&SerenaRuntimeKey::from_lease(&lease_b))
+                .expect("B Slot must be live");
+            assert_ne!(runtime_a.child.id(), runtime_b.child.id());
+            assert_ne!(runtime_a.port, runtime_b.port);
+            // SAFETY: PID 来自本测试刚启动的受管 Slot；句柄仅用于等待测试结束后的退出。
+            let process_a = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, runtime_a.child.id()) };
+            // SAFETY: PID 来自本测试刚启动的受管 Slot；句柄仅用于等待测试结束后的退出。
+            let process_b = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, runtime_b.child.id()) };
+            assert!(!process_a.is_null());
+            assert!(!process_b.is_null());
+            (
+                runtime_a.child.id(),
+                unsafe { OwnedHandle::from_raw_handle(process_a) },
+                runtime_b.child.id(),
+                unsafe { OwnedHandle::from_raw_handle(process_b) },
+            )
+        };
+        assert_ne!(pid_a, pid_b);
+
+        let (call_a, call_b) = tokio::join!(
+            manager.call(
+                "serena",
+                lease_a.clone(),
+                WorkspaceToolCall {
+                    tool_name: "source_symbols_overview".into(),
+                    arguments: serde_json::json!({"relative_path":"a.py"}),
+                },
+            ),
+            manager.call(
+                "serena",
+                lease_b.clone(),
+                WorkspaceToolCall {
+                    tool_name: "source_symbols_overview".into(),
+                    arguments: serde_json::json!({"relative_path":"b.py"}),
+                },
+            ),
+        );
+        let result_a = call_a.unwrap().result;
+        let result_b = call_b.unwrap().result;
+        let result_a = result_a
+            .as_str()
+            .expect("A source_symbols_overview must return a string");
+        let result_b = result_b
+            .as_str()
+            .expect("B source_symbols_overview must return a string");
+        assert!(result_a.contains("marker_a"));
+        assert!(!result_a.contains("marker_b"));
+        assert!(result_b.contains("marker_b"));
+        assert!(!result_b.contains("marker_a"));
+        let descendants_a = capture_descendant_handles(pid_a);
+        let descendants_b = capture_descendant_handles(pid_b);
+        eprintln!(
+            "official Serena Gate observed descendants: slot-a={}, slot-b={}",
+            descendants_a.len(),
+            descendants_b.len()
+        );
+
+        let removal = manager.begin_workspace_remove(&lease_a).await.unwrap();
+        // SAFETY: handle 在等待过程中由 process_a 保持存活，5 秒为 Gate 失败上界。
+        assert_eq!(
+            unsafe { WaitForSingleObject(process_a.as_raw_handle(), 5_000) },
+            WAIT_OBJECT_0
+        );
+        assert_captured_descendants_exit(&descendants_a, "slot A");
+        // SAFETY: B 主进程 handle 由本测试持有；零超时只确认 A Remove 未误杀 B。
+        assert_eq!(
+            unsafe { WaitForSingleObject(process_b.as_raw_handle(), 0) },
+            windows_sys::Win32::Foundation::WAIT_TIMEOUT
+        );
+        assert_descendants_alive_or_exited(&descendants_b);
+        let result_b_after_remove = manager
+            .call(
+                "serena",
+                lease_b.clone(),
+                WorkspaceToolCall {
+                    tool_name: "source_symbols_overview".into(),
+                    arguments: serde_json::json!({"relative_path":"b.py"}),
+                },
+            )
+            .await
+            .unwrap()
+            .result;
+        let result_b_after_remove = result_b_after_remove
+            .as_str()
+            .expect("B must remain semantic-ready after A removal");
+        assert!(result_b_after_remove.contains("marker_b"));
+        assert!(!result_b_after_remove.contains("marker_a"));
+        drop(removal);
+        manager.shutdown_runtimes().await.unwrap();
+        // SAFETY: handle 在等待过程中由 process_b 保持存活，5 秒为 Gate 失败上界。
+        assert_eq!(
+            unsafe { WaitForSingleObject(process_b.as_raw_handle(), 5_000) },
+            WAIT_OBJECT_0
+        );
+        assert_captured_descendants_exit(&descendants_b, "slot B");
+        assert!(provider.runtimes.lock().await.is_empty());
     }
 
     #[tokio::test]
