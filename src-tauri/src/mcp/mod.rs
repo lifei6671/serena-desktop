@@ -2865,7 +2865,10 @@ mod integration_tests {
                     }
                 }
                 let invalid = client.call_tool(CallToolRequestParams::new("agent_query").with_arguments(json!({"action":"observe","executionId":"observe-e","waitMs":20001}).as_object().unwrap().clone())).await.unwrap();
-                assert_eq!(invalid.structured_content.unwrap()["error"]["code"], "WORK_INVALID_ARGUMENT");
+                assert_eq!(
+                    invalid.structured_content.unwrap()["error"]["code"],
+                    "AGENT_OBSERVE_INVALID_ARGUMENT"
+                );
                 client.cancel().await.unwrap();
             }
             assert_eq!(store.execution("observe-e".into()).await.unwrap().unwrap(), finished);

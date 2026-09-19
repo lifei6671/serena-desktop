@@ -12,6 +12,8 @@ mod orchestration_tests;
 mod persistence_tests;
 #[path = "restart_tests.rs"]
 mod restart_tests;
+#[path = "usage_projection_tests.rs"]
+mod usage_projection_tests;
 #[path = "work_adapter_tests.rs"]
 mod work_adapter_tests;
 #[path = "workspace_write_tests.rs"]
@@ -28,6 +30,45 @@ fn w(root: &std::path::Path, id: &str) -> Option<WorkspaceSnapshot> {
         root: root.to_string_lossy().into(),
         generation: 1,
     })
+}
+
+/// 仅为 raw SQL fixture 写入与冻结映射一致的 v8 Activity current snapshot。
+fn set_v8_execution_state(
+    db: &rusqlite::Connection,
+    id: &str,
+    status: &str,
+    dispatch_state: &str,
+    activity_phase: Option<ActivityPhase>,
+    tool_category: Option<ToolCategory>,
+) {
+    // 测试不得手写 summary 规则；与 Product 相同的冻结 domain 映射是唯一来源。
+    let progress = match status {
+        "dispatch_pending" => match dispatch_state {
+            "not_dispatched" => ProgressPhase::Pending,
+            "dispatching" => ProgressPhase::Dispatching,
+            "dispatched" => ProgressPhase::Running,
+            "uncertain" => ProgressPhase::Reconciling,
+            _ => panic!("invalid fixture dispatch state: {dispatch_state}"),
+        },
+        "running" | "cancel_requested" | "cancelling" => ProgressPhase::Running,
+        "finalizing" => ProgressPhase::Finalizing,
+        "reconciling" | "unknown" => ProgressPhase::Reconciling,
+        "completed" | "failed" | "cancelled" | "interrupted" => ProgressPhase::Terminal,
+        _ => panic!("invalid fixture status: {status}"),
+    };
+    let summary_code = derive_summary_code(progress, activity_phase, tool_category).unwrap();
+    db.execute(
+        "UPDATE executions SET status=?1,dispatch_state=?2,activity_phase=?3,tool_category=?4,activity_summary_code=?5 WHERE id=?6",
+        rusqlite::params![
+            status,
+            dispatch_state,
+            activity_phase.map(ActivityPhase::as_str),
+            tool_category.map(ToolCategory::as_str),
+            summary_code,
+            id,
+        ],
+    )
+    .unwrap();
 }
 
 #[tokio::test]
@@ -1304,6 +1345,9 @@ fn unknown_reads_and_invalid_continuation_sources_are_fail_closed() {
                 }
             };
             db.execute_batch(sql).unwrap();
+            if field == "status" {
+                set_v8_execution_state(&db, &id, "unknown", "dispatched", None, None);
+            }
             let service = AgentProductService::new(store.clone());
             let before = store.execution(id.clone()).await.unwrap();
             let view = service
@@ -1529,7 +1573,23 @@ fn production_startup_recovery_classifies_claims_before_service_publication() {
             let db = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
             if case != "pending" {
                 db.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at,termination_evidence_state,termination_evidence_type,termination_evidence_at) VALUES ('R1','old-host',?1,1,1,?2,?3,?4)", rusqlite::params![if case=="terminated" {"terminated"} else {"unknown"},if case=="terminated" {"complete"} else {"unknown"},if case=="terminated" {Some("job_active_processes_zero")} else {None},if case=="terminated" {Some(10)} else {None}]).unwrap();
-                db.execute("UPDATE executions SET status=?1,dispatch_state='uncertain',runtime_instance_id='R1' WHERE id='startup-e'", [if case=="terminated" {"reconciling"} else {"unknown"}]).unwrap();
+                set_v8_execution_state(
+                    &db,
+                    "startup-e",
+                    if case == "terminated" {
+                        "reconciling"
+                    } else {
+                        "unknown"
+                    },
+                    "uncertain",
+                    None,
+                    None,
+                );
+                db.execute(
+                    "UPDATE executions SET runtime_instance_id='R1' WHERE id='startup-e'",
+                    [],
+                )
+                .unwrap();
             }
             let before = store.execution("startup-e".into()).await.unwrap().unwrap();
             // This is the same publication barrier called by initialize() in Tauri setup.
@@ -1621,15 +1681,18 @@ fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads
                     .unwrap();
                 let db = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
                 if case != "pending" {
-                    db.execute(
-                        "UPDATE executions SET status=?1,dispatch_state='uncertain' WHERE id='old'",
-                        [if case == "unknown" {
+                    set_v8_execution_state(
+                        &db,
+                        "old",
+                        if case == "unknown" {
                             "unknown"
                         } else {
                             "reconciling"
-                        }],
-                    )
-                    .unwrap();
+                        },
+                        "uncertain",
+                        None,
+                        None,
+                    );
                 }
                 if matches!(case, "terminated" | "needs-r2") {
                     db.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at,termination_evidence_state,termination_evidence_type,termination_evidence_at) VALUES ('R1','old','terminated',1,1,'complete','job_active_processes_zero',10)",[]).unwrap();
@@ -1889,7 +1952,10 @@ let input = '';
 process.stdin.on('data', chunk => input += chunk);
 process.stdin.on('end', () => {
   const {schema, response} = JSON.parse(input);
-  const validate = new Ajv({allErrors:true}).compile(schema);
+  // P4-006 的公开 Usage revision 使用 uint64；测试 AJV 必须注册同一格式才能编译 execute schema。
+  const validate = new Ajv({allErrors:true, formats:{
+    uint64: {type:'number', validate:n => Number.isInteger(n) && n >= 0}
+  }}).compile(schema);
   if (!validate(response)) throw new Error(JSON.stringify(validate.errors));
   // Prove the validator rejects a broken discriminator and narrowed control types.
   for (const changed of [

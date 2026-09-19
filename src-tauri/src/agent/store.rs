@@ -15,8 +15,14 @@ const SCHEMA_V3: &str = include_str!("schema_v3.sql");
 const SCHEMA_V5: &str = include_str!("schema_v5.sql");
 const SCHEMA_V6: &str = include_str!("schema_v6.sql");
 const SCHEMA_V7: &str = include_str!("schema_v7.sql");
+const SCHEMA_V8: &str = include_str!("schema_v8.sql");
+const SCHEMA_V9: &str = include_str!("schema_v9.sql");
 
+mod usage;
+#[cfg(test)]
+mod usage_tests;
 mod work_runs;
+pub(crate) use usage::{CodexUsageBaselineIntent, USAGE_TERMINAL_GRACE_MS};
 pub use work_runs::{WorkExecutionLinkRecord, WorkRunRecord};
 
 #[derive(Clone)]
@@ -32,6 +38,11 @@ pub struct StateStore {
 pub(crate) enum ObservabilityFault {
     Activity,
     PermissionDiagnostic,
+    UsageBaseline,
+    UsageTerminalGrace,
+    UsageFreeze,
+    UsageProjection,
+    UsageInvalidation,
 }
 
 /// Read projection; evidence is returned as stored, never inferred from policy.
@@ -73,6 +84,8 @@ pub struct ExecutionRecord {
     pub last_activity_at: Option<i64>,
     pub activity_phase: Option<String>,
     pub tool_category: Option<String>,
+    pub activity_summary_code: Option<String>,
+    pub activity_sequence: i64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -169,6 +182,15 @@ impl StateStore {
 
     pub async fn execution(&self, id: String) -> Result<Option<ExecutionRecord>, String> {
         self.read(move |c| execution_record(c, &id)).await
+    }
+
+    /// 读取已持久化的公共 Usage；无行保持为 unknown/null，不构造历史默认值。
+    pub async fn execution_usage(
+        &self,
+        id: String,
+    ) -> Result<Option<super::usage::UsageSnapshot>, String> {
+        self.read(move |c| usage::execution_usage_snapshot(c, &id))
+            .await
     }
 
     pub async fn runtime(&self, id: String) -> Result<Option<RuntimeRecord>, String> {
@@ -300,7 +322,7 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
             }
             apply_migration(&transaction, 1, SCHEMA_V1).map_err(|e| e.to_string())?;
         }
-        1..=7 => {}
+        1..=9 => {}
         _ => return Err(format!("unsupported agent state schema version: {version}")),
     }
     if version < 2 {
@@ -320,6 +342,12 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     }
     if version < 7 {
         apply_migration(&transaction, 7, SCHEMA_V7).map_err(|e| e.to_string())?;
+    }
+    if version < 8 {
+        apply_migration(&transaction, 8, SCHEMA_V8).map_err(|e| e.to_string())?;
+    }
+    if version < 9 {
+        apply_migration(&transaction, 9, SCHEMA_V9).map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())
 }
@@ -380,7 +408,7 @@ fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<Executi
              runtime_instance_id, status, dispatch_state, revision, background_cleanup_state,
              release_evidence_state, release_evidence_kind, release_evidence_json, result_completeness, turn_id, provider_terminal_status, provider_terminal_evidence_runtime_instance_id, final_result_json
              , interrupt_requested_at, interrupt_ack_at, interrupt_timeout_at, interrupt_diagnostic, provider_terminal_evidence_at, error_code, error_message,
-             last_activity_at, activity_phase, tool_category
+             last_activity_at, activity_phase, tool_category, activity_summary_code, activity_sequence
              FROM executions WHERE id = ?1", [&id], |r| Ok(ExecutionRecord {
                 id: r.get(0)?, agent_id: r.get(1)?, request_key: r.get(2)?, request_hash: r.get(3)?,
                 prompt: r.get(4)?, execution_profile_json: r.get(5)?, workspace_id: r.get(6)?,
@@ -394,5 +422,6 @@ fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<Executi
                  provider_terminal_evidence_at: r.get(30)?,
                  error_code: r.get(31)?, error_message: r.get(32)?,
                  last_activity_at: r.get(33)?, activity_phase: r.get(34)?, tool_category: r.get(35)?,
+                 activity_summary_code: r.get(36)?, activity_sequence: r.get(37)?,
              })).optional()
 }

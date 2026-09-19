@@ -1,0 +1,2 @@
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Usage spans persisted SQLite validation, Product DTO, and MCP/Tauri serialization."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Projection must reuse the P4-001 UsageSnapshot validation authority."}

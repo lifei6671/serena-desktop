@@ -3142,7 +3142,7 @@ CREATE TABLE execution_activity_events (
 
     activity_phase TEXT,
     tool_category TEXT,
-    summary_code TEXT NOT NULL,
+    summary_code TEXT,
 
     activity_revision TEXT NOT NULL,
     observed_at INTEGER NOT NULL,
@@ -3158,6 +3158,8 @@ CREATE TABLE execution_activity_events (
 只有 semantic Activity change append history。
 
 Heartbeat 不 insert。
+
+`summary_code` 可以为 null，表示当前没有可派生的 summaryCode；不得使用 sentinel 或通用 code。
 
 History 只用于：
 
@@ -3438,11 +3440,13 @@ complete
 
 ### partial
 
-有可信数字，但无法证明覆盖当前 Turn terminal boundary。
+有可信、但尚未由 Provider 合同证明 complete 的 Execution Usage。
 
 ### complete
 
-Provider Contract 能证明 snapshot 覆盖 terminal boundary。
+仅当 Provider Contract 明确提供 authoritative final checkpoint、terminal watermark 或等价的 finality guarantee，才可产生。
+
+这是 generic enum，不是 Codex 默认能力。对于 pinned Codex 0.153.4，当前只能产生 `unknown` 或 `partial`；`turn/completed`、terminal grace expiry 与当前 `account/usage/read` 都不能推导 `complete`。
 
 ---
 
@@ -3466,6 +3470,26 @@ sync checkpoint capability
 ```
 
 不能假设所有未来 Codex 都一样。
+
+## 31.0 P0-008 DCR — pinned Codex 0.153.4
+
+本节由 P0-008 Host Acceptance 的 DCR 冻结。适用 identity 为 `codex-cli 0.153.4`、binary SHA-256 `444a3f0008050605cae73cd9b7a2dcac61294062dfaab56dd20430fd6498518b`；证据来源为 P0-008 `research/verification.md`（SHA-256 `f502d25aee2746037f837770047e11c7c3b2ca0df64d1b39379598812e995f42`）和 `research/multi-response-verification.md`（SHA-256 `8419b8839f08bde0aec81363ec10dcee858f37884042e05fa4fff07efc2ce1f8`）。
+
+```text
+CodexUsageEpoch = (provider_id = 'codex', runtime_instance_id, thread_id)
+```
+
+真实 wire 只证明同一 App Server Runtime、同一 Thread 的 `thread/tokenUsage/updated.tokenUsage.total` 会累计增长；restart/resume 同 Thread 后该 cumulative `total` 会回落/reset。因此只有同一 `CodexUsageEpoch` 内的 counters 可单调比较或相减。runtime_instance_id/thread_id 变化、Cold Resume 或 restart 均使旧 baseline stale/invalid，绝不跨 Runtime subtract。
+
+Codex v0.153.4 capability 固定为：
+
+```text
+supports_sync_usage_checkpoint = false
+supports_complete_usage = false
+supports_response_aggregation = deferred (not proven)
+```
+
+`account/usage/read` 的 24 次真实调用中 `threadUsage` 均为 null；它是 account/estimated usage，不是 Execution checkpoint。`tokenUsage.last` 和 `rawResponse/completed.usage` 都是 Provider-private response-level evidence：`last` 只能称 latest usage candidate/diagnostic，不能投影为 Turn/Execution total。P0-008B multi-response live probe 为 INCONCLUSIVE；任何 exact response aggregation 需另起 DCR，不提前实现。
 
 ---
 
@@ -3534,11 +3558,23 @@ output=null
 
 这种半截 delta。
 
+### 32.0 Codex v0.153.4 participating fields
+
+为避免把 observed JSON shape 误当作跨路径 cumulative accounting 保证，Codex v0.153.4 采用证据最强、实现最小的 required set：
+
+```text
+required participating cumulative counter = Provider-supplied totalTokens only
+```
+
+`inputTokens`、`cachedInputTokens`、`outputTokens`、`reasoningOutputTokens` 与 `cacheWriteInputTokens` 都是 independent optional breakdown，不参与本版 Codex Execution delta。前四个在真实 wire 中出现，但没有已证明的 multi-response/execution aggregation 合同；`cacheWriteInputTokens` schema 可缺失，当前观察值为 0。缺失字段保持 null，公共层不得伪造为 0。
+
+`modelContextWindow` 是 metadata/display field，不是 token consumption participating counter。所有 public `total_tokens` 都只能来自 Provider-supplied `totalTokens`，永不从 breakdown 相加。
+
 ---
 
 ## 32.1 Delta Rule
 
-只有：
+Generic Provider 只有：
 
 ```text
 all participating baseline fields known
@@ -3557,47 +3593,53 @@ completeness = unknown
 
 Provider 不支持的 optional breakdown 可以永久为 null，不影响其他 participating fields。
 
+Codex v0.153.4 只有下列条件同时成立才计算 `total_tokens` delta：
+
+```text
+baseline.totalTokens known
+AND current.totalTokens known
+AND same CodexUsageEpoch
+AND exact execution/runtime/thread/turn identity remains trustworthy
+```
+
+否则 participating delta 整体为 null、`completeness=unknown`。符合条件的 Codex total delta 为 `partial`，不因计算成功而变为 `complete`。optional breakdown 不得通过这一 delta 规则被补齐、相减或用于推导 total。
+
 ---
 
 # 33. Continue Baseline
 
-新 Turn Side-Effect Boundary 前：
+Generic Provider 可以在自身 capability 证明同步 checkpoint 或 authoritative finality 后定义 baseline；该能力不由 Codex v0.153.4 假定。
 
-优先：
+### 33.1 Fresh Thread provenance-zero
 
-```text
-query provider cumulative checkpoint
-    ↓
-persist baseline
-    ↓
-start new turn
-```
-
-若没有同步 checkpoint：
-
-只有同时满足：
+只有当前 Execution 在当前 Runtime 创建新 Thread，且在首次 `turn/start` side effect 前原子冻结时，才允许 `fresh_zero` baseline：
 
 ```text
-checkpoint.lastExecutionId == sourceExecutionId
-source Usage completeness == complete
-checkpoint covers source terminal boundary
-same provider lineage
+new thread identity
+AND same runtime
+AND no prior turn/model response
+AND baseline atomically frozen before turn/start
 ```
 
-才能复用。
+这不是禁止的泛化 `current - 0` fallback。任何条件无法证明即为 `baseline=unknown`。
 
-否则：
+### 33.2 Warm Continue observed baseline
+
+只有 same Runtime、same Thread 且已有 latest cumulative snapshot 时，才可在新的 `turn/start` side effect 前冻结 `observed_same_epoch` baseline。这个 baseline 不要求、也不声称 complete checkpoint；符合 §32.1 时只能产生 `partial` Usage。
+
+baseline 之后若出现精确 identity 证明属于前一 Turn 或其它 Turn 的 late cumulative update，当前 Execution Usage 降级 unknown，不做 baseline correction。若现有 event identity 无法可靠检测该污染，也必须降级 unknown。
+
+### 33.3 Cold Continue / restart
+
+Cold Continue、restart、runtime_instance_id 变化或 thread_id 变化时：
 
 ```text
-baseline unknown
+baseline = unknown
+public participating counters = null
+completeness = unknown
 ```
 
-禁止：
-
-```text
-old checkpoint hard subtract
-current - 0
-```
+禁止复用旧 Runtime cumulative snapshot，禁止旧 checkpoint hard subtract，也禁止跨 Runtime 的 `current - 0`。
 
 ---
 
@@ -3605,28 +3647,9 @@ current - 0
 
 Execution terminal != Usage complete。
 
-只有：
+Generic Provider 只有在自己的合同证明 authoritative final checkpoint、terminal watermark 或等价 finality guarantee 时才可产生 `complete`。
 
-### A. Terminal 后同步 checkpoint
-
-或：
-
-### B. Pinned Contract 明确证明 final Usage notification 覆盖 TurnCompleted
-
-才能：
-
-```text
-complete
-```
-
-否则：
-
-```text
-Execution completed
-Usage partial
-```
-
-合法。
+Codex v0.153.4 没有该 capability。terminal、四秒内未观测到 late Usage、terminal grace expiry 和 `account/usage/read` 均不改变 completeness；有合格 same-epoch total delta 时为 `partial`，其余为 `unknown`。
 
 ---
 
@@ -3691,7 +3714,7 @@ Release Evidence
 
 ## 35.3 Freeze Trigger
 
-以下任一发生：
+Generic Provider 以下任一发生可冻结：
 
 ```text
 Runtime teardown completed
@@ -3713,6 +3736,8 @@ telemetry_state = frozen
 drop
 USAGE_TELEMETRY_FROZEN
 ```
+
+Codex v0.153.4 没有 authoritative final checkpoint trigger；只在 runtime teardown 或 grace expiry 后 frozen。frozen 仅停止接收 telemetry，不等于 complete。
 
 ---
 
@@ -3743,13 +3768,21 @@ no-op
 
 ## 36.2 Regression
 
-incoming cumulative < latest：
+只有同一 `CodexUsageEpoch` 内：
+
+```text
+incoming cumulative < latest
+```
+
+才是：
 
 ```text
 USAGE_COUNTER_REGRESSION
 ```
 
 整 event 不写入。
+
+epoch 变化是 new epoch/reset，不是 regression；不得以 `USAGE_COUNTER_REGRESSION` 拒绝它。
 
 ---
 
@@ -3809,15 +3842,12 @@ completeness=unknown
 # 38. Codex Private Usage Schema
 
 ```sql
-CREATE TABLE codex_thread_usage_checkpoints (
+CREATE TABLE codex_thread_usage_epochs (
     runtime_instance_id TEXT NOT NULL,
     thread_id TEXT NOT NULL,
 
-    last_execution_id TEXT NOT NULL,
-    cumulative_json TEXT NOT NULL,
-
-    covers_terminal_boundary INTEGER NOT NULL
-        CHECK(covers_terminal_boundary IN (0,1)),
+    latest_cumulative_json TEXT NOT NULL,
+    latest_turn_id TEXT,
 
     captured_at INTEGER NOT NULL,
 
@@ -3832,6 +3862,13 @@ CREATE TABLE codex_execution_usage_state (
     runtime_instance_id TEXT NOT NULL,
     thread_id TEXT NOT NULL,
     turn_id TEXT,
+
+    baseline_kind TEXT NOT NULL
+        CHECK(baseline_kind IN (
+            'fresh_zero',
+            'observed_same_epoch',
+            'unknown'
+        )),
 
     baseline_json TEXT,
     latest_cumulative_json TEXT,
@@ -3853,7 +3890,7 @@ CREATE TABLE codex_execution_usage_state (
 );
 ```
 
-公共 Control Plane 不读取这些 Provider-private identity 字段。
+这些是 Provider-private epoch/state，不是同步 checkpoint。不得保留 `covers_terminal_boundary` 或 `last_execution_id` 的 authoritative checkpoint 语义。公共 Control Plane 不读取 runtime/thread/turn/baseline identity；它只消费 generic Usage DTO。
 
 ---
 
@@ -4869,9 +4906,9 @@ disconnect does not cancel
 内容：
 
 - Public Usage；
-- private Codex checkpoint；
-- atomic nullable baseline；
-- terminal coverage；
+- private Codex epoch/state；
+- provenance-backed fresh baseline、same-epoch observed baseline 与 cold unknown；
+- Codex `totalTokens`-only delta；
 - terminal grace；
 - freeze；
 - late events；
@@ -4881,18 +4918,22 @@ Gate：
 
 ```text
 fresh Thread
-Continue
-restart
-nullable baseline
-baseline missing
+same-runtime same-thread Continue
+restart/runtime epoch change
+fresh provenance-zero baseline
+observed same-epoch baseline
+baseline missing/identity pollution
 duplicate
-out of order
-regression
-terminal partial
-terminal complete
+same-epoch regression
+cross-runtime subtraction forbidden
+account/usage/read is not checkpoint
+cacheWrite absent != 0
+modelContextWindow excluded from delta
+terminal/grace/freeze never upgrade Codex complete
 late within grace accepted
 after grace rejected
 runtime teardown immediately frozen
+public total never derives from breakdown
 ```
 
 Usage 不影响 Claim/terminal。
@@ -5207,11 +5248,17 @@ installer/uninstaller
 | Provider optional field null | allowed |
 | Provider supplies total_tokens | 原样校验/投影，不从 breakdown 重算 |
 | Provider omits total_tokens | 保持 null，不相加推导 |
-| stale checkpoint | unknown |
+| Codex fresh provenance zero + observed total | partial total delta |
+| Codex same Runtime/same Thread observed baseline + current total | partial total delta |
+| Codex restart/runtime epoch change | unknown，不报 regression |
+| Codex account/usage/read | 不是 checkpoint |
+| Codex cacheWriteInputTokens absent | null，不伪造为 0 |
+| modelContextWindow | metadata/display，不参与 delta/total |
 | duplicate | no-op |
-| regression | reject |
-| terminal no coverage | partial |
-| terminal covered | complete |
+| same-epoch regression | reject |
+| cross-epoch reset | new epoch，不是 regression |
+| Codex terminal/grace/freeze | 不产生 complete |
+| generic Provider authoritative finality capability | 可按自身合同产生 complete |
 | terminal + 1s late Usage | accepted |
 | grace expired | frozen |
 | runtime teardown | frozen immediately |
@@ -5400,8 +5447,8 @@ Read / Agent 保持可用。
 35. MCP description 明确 Activity 模式不要只看 `unchanged`；
 36. Activity 不泄露 Reasoning/command/stdout/source；
 37. Usage null 与真实 0 可区分；
-38. Continue baseline 是原子可信 Snapshot；
-39. Usage 没 terminal coverage 不标 complete；
+38. Codex baseline 只允许 fresh provenance-zero 或 observed same-epoch Snapshot；Cold Continue 为 unknown；
+39. Codex terminal、grace 与 freeze 都不标 complete；generic complete 需要独立 finality capability；
 40. terminal grace 内 late Usage 可写；
 41. Runtime teardown / grace 后 Usage frozen；
 42. Usage 错误不影响 Claim / terminal；

@@ -110,8 +110,37 @@ impl StateStore {
         &self,
         evidence: &TerminationEvidence,
     ) -> Result<(), RuntimeError> {
-        self.runtime_write(|tx| tx.execute("UPDATE runtime_instances SET state='terminated',stopped_at=?3,
-            termination_evidence_type=?2,termination_evidence_at=?3,termination_evidence_state='complete',
-            last_error_code=NULL,last_error_message=NULL,updated_at=?3 WHERE id=?1 AND state != 'terminated'",params![evidence.id(),evidence.kind(),evidence.at()]))
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|error| RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", error.to_string()))?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", error.to_string()))?;
+        let updated = tx
+            .execute(
+                "UPDATE runtime_instances SET state='terminated',stopped_at=?3,
+                 termination_evidence_type=?2,termination_evidence_at=?3,termination_evidence_state='complete',
+                 last_error_code=NULL,last_error_message=NULL,updated_at=?3
+                 WHERE id=?1 AND state != 'terminated'",
+                params![evidence.id(), evidence.kind(), evidence.at()],
+            )
+            .map_err(|error| RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", error.to_string()))?;
+        if updated != 1 {
+            return Err(RuntimeError::new(
+                "CODEX_RUNTIME_STATE_CONFLICT",
+                "Runtime update did not affect exactly one row",
+            ));
+        }
+        // 终止证据提交才是同 runtime telemetry 的 authoritative freeze 边界；public Usage 保持原值。
+        tx.execute(
+            "UPDATE codex_execution_usage_state
+             SET telemetry_state='frozen', freeze_at=?2
+             WHERE runtime_instance_id=?1 AND telemetry_state != 'frozen'",
+            params![evidence.id(), evidence.at()],
+        )
+        .map_err(|error| RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", error.to_string()))?;
+        tx.commit()
+            .map_err(|error| RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", error.to_string()))
     }
 }

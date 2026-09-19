@@ -1,0 +1,2 @@
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Review Store-to-Product-to-schema propagation and identity/error boundaries."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Review that validation and total semantics are not duplicated or rederived."}

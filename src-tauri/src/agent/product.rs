@@ -1,6 +1,10 @@
 //! One product boundary for MCP and Tauri. Runtime owns all mutation workers.
+pub use super::activity::ProgressPhase;
 use super::{
-    activity::{ActivityPhase, ActivitySilence, ToolCategory},
+    activity::{
+        AGENT_ACTIVITY_CONTRACT_ERROR, ActivityPhase, ActivitySilence, ToolCategory,
+        derive_activity_revision, derive_summary_code,
+    },
     coordinator::now,
     provider::port::ProviderReconcileItem,
     store::{
@@ -8,6 +12,7 @@ use super::{
         transactions::product::{ProductSnapshot, WorkspaceSnapshot, continuation_core_eligible},
     },
     task_manager::AgentTaskManager,
+    usage::{UsageCompleteness, UsageSnapshot},
 };
 use rmcp::schemars::{self, JsonSchema};
 use serde::{Deserialize, Serialize};
@@ -48,6 +53,7 @@ pub enum Action {
         execution_id: String,
         known_revision: Option<String>,
         known_control_revision: Option<String>,
+        known_activity_revision: Option<String>,
         wait_ms: Option<u32>,
         include_result: Option<bool>,
         wake_on: Option<WakeOn>,
@@ -94,6 +100,89 @@ impl ProviderProduct {
             version: None,
         }
     }
+    /// 仅从 Execution 持久化 Provider 投影顶层身份，Usage 不重复 Provider identity。
+    fn from_execution_provider(provider_id: &str) -> Result<Self, String> {
+        match provider_id {
+            "codex" => Ok(Self::codex()),
+            _ => Err(format!("Invalid persisted provider: {provider_id}")),
+        }
+    }
+}
+/// Product schema 的 strict completeness enum；仅从 P4-001 generic enum 映射。
+#[derive(Clone, Copy, Debug, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageCompletenessProduct {
+    Unknown,
+    Partial,
+    Complete,
+}
+impl From<UsageCompleteness> for UsageCompletenessProduct {
+    /// 保留 P4-001 已验证 completeness，不按 token 字段自行推导。
+    fn from(value: UsageCompleteness) -> Self {
+        match value {
+            UsageCompleteness::Unknown => Self::Unknown,
+            UsageCompleteness::Partial => Self::Partial,
+            UsageCompleteness::Complete => Self::Complete,
+        }
+    }
+}
+/// Product 层的公共 Usage shape；不含 runtime、thread、turn 或 Provider-private state。
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageProduct {
+    #[schemars(with = "Option<i64>", required)]
+    pub input_tokens: Option<i64>,
+    #[schemars(with = "Option<i64>", required)]
+    pub cached_input_tokens: Option<i64>,
+    #[schemars(with = "Option<i64>", required)]
+    pub cache_write_input_tokens: Option<i64>,
+    #[schemars(with = "Option<i64>", required)]
+    pub output_tokens: Option<i64>,
+    #[schemars(with = "Option<i64>", required)]
+    pub reasoning_tokens: Option<i64>,
+    #[schemars(with = "Option<i64>", required)]
+    pub total_tokens: Option<i64>,
+    #[schemars(with = "Option<i64>", required)]
+    pub model_context_window: Option<i64>,
+    pub completeness: UsageCompletenessProduct,
+    pub usage_revision: u64,
+    #[schemars(with = "Option<i64>", required)]
+    pub updated_at: Option<i64>,
+}
+impl UsageProduct {
+    /// 历史 Execution 无 Usage 行时的稳定公共默认值；空值不代表真实零。
+    fn unknown() -> Self {
+        Self {
+            input_tokens: None,
+            cached_input_tokens: None,
+            cache_write_input_tokens: None,
+            output_tokens: None,
+            reasoning_tokens: None,
+            total_tokens: None,
+            model_context_window: None,
+            completeness: UsageCompletenessProduct::Unknown,
+            usage_revision: 0,
+            updated_at: None,
+        }
+    }
+    /// 只逐字段映射已验证快照；total 与 completeness 绝不在 Product 层推导。
+    fn project(snapshot: Option<&UsageSnapshot>) -> Self {
+        let Some(snapshot) = snapshot else {
+            return Self::unknown();
+        };
+        Self {
+            input_tokens: snapshot.input_tokens,
+            cached_input_tokens: snapshot.cached_input_tokens,
+            cache_write_input_tokens: snapshot.cache_write_input_tokens,
+            output_tokens: snapshot.output_tokens,
+            reasoning_tokens: snapshot.reasoning_tokens,
+            total_tokens: snapshot.total_tokens,
+            model_context_window: snapshot.model_context_window,
+            completeness: snapshot.completeness.into(),
+            usage_revision: snapshot.revision,
+            updated_at: Some(snapshot.updated_at),
+        }
+    }
 }
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -104,6 +193,7 @@ pub struct Progress {
     pub last_activity_at: Option<i64>,
     pub activity_age_ms: Option<i64>,
     pub silence_level: Option<ActivitySilence>,
+    pub summary_code: Option<String>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,19 +201,27 @@ pub struct HistoryPage {
     pub executions: Vec<ExecutionView>,
     pub next_cursor: Option<String>,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ProgressPhase {
-    Pending,
-    Dispatching,
-    Running,
-    Finalizing,
-    Reconciling,
-    Terminal,
-}
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WakeOn {
+    Control,
+    Activity,
+}
+/// 表示 Observe 返回当前快照的确定性唤醒原因。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WakeReason {
+    InitialMismatch,
+    Control,
+    Activity,
+    Terminal,
+    Result,
+    Timeout,
+}
+/// 表示首次 stale token 与当前快照不一致的唯一类别。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MismatchKind {
     Control,
     Activity,
 }
@@ -153,6 +251,8 @@ pub struct ExecutionView {
     pub agent_id: String,
     pub workspace_id: String,
     pub provider: ProviderProduct,
+    /// 始终存在的公共 Usage 投影；无持久化行时保持 unknown/null。
+    pub usage: UsageProduct,
     pub status: String,
     pub dispatch_state: String,
     pub thread_id: Option<String>,
@@ -174,6 +274,10 @@ pub struct ExecutionView {
     owns_claim: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unchanged: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wake_reason: Option<WakeReason>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mismatch_kind: Option<MismatchKind>,
     pub result_available: bool,
     pub progress: Progress,
     pub next_action: Option<NextAction>,
@@ -240,13 +344,13 @@ impl ExecutionView {
         Self::hash_revision(input)
     }
     fn activity_revision(&self) -> String {
-        Self::hash_revision(json!([
-            "agent-activity-v1",
-            self.execution_id,
+        derive_activity_revision(
+            &self.execution_id,
             self.progress.activity_phase,
             self.progress.tool_category,
-            self.progress.last_activity_at
-        ]))
+            self.progress.summary_code.as_deref(),
+        )
+        .expect("Activity Revision inputs must always serialize")
     }
     fn hash_revision(input: Value) -> String {
         Sha256::digest(input.to_string().as_bytes())
@@ -320,6 +424,8 @@ impl ProductError {
             "AGENT_RESUME_NOT_ALLOWED",
             "AGENT_MANUAL_RESOLUTION_REQUIRED",
             "AGENT_RUNTIME_QUARANTINED",
+            AGENT_ACTIVITY_CONTRACT_ERROR,
+            "AGENT_OBSERVE_INVALID_ARGUMENT",
             "BACKEND_UNAVAILABLE",
             "CODEX_APP_SERVER_INCOMPATIBLE",
         ];
@@ -392,8 +498,23 @@ pub fn parse(value: Value) -> Result<Action, String> {
         Action::Observe {
             execution_id,
             wait_ms,
+            known_revision,
+            known_control_revision,
+            known_activity_revision,
             ..
-        } => !execution_id.is_empty() && wait_ms.is_none_or(|n| n <= 25_000),
+        } => {
+            !execution_id.is_empty()
+                && wait_ms.is_none_or(|n| n <= 25_000)
+                && known_revision
+                    .as_ref()
+                    .is_none_or(|token| !token.is_empty())
+                && known_control_revision
+                    .as_ref()
+                    .is_none_or(|token| !token.is_empty())
+                && known_activity_revision
+                    .as_ref()
+                    .is_none_or(|token| !token.is_empty())
+        }
         Action::Cancel { execution_id } | Action::ResumePending { execution_id } => {
             !execution_id.is_empty()
         }
@@ -566,6 +687,7 @@ impl AgentProductService {
                 execution_id,
                 known_revision,
                 known_control_revision,
+                known_activity_revision,
                 wait_ms,
                 include_result,
                 wake_on,
@@ -573,6 +695,7 @@ impl AgentProductService {
                 self.observe_wait(
                     execution_id,
                     known_control_revision.or(known_revision),
+                    known_activity_revision,
                     wait_ms.unwrap_or(20_000),
                     include_result.unwrap_or(false),
                     wake_on.unwrap_or(WakeOn::Control),
@@ -602,43 +725,59 @@ impl AgentProductService {
         &self,
         id: String,
         known_control_revision: Option<String>,
+        known_activity_revision: Option<String>,
         wait_ms: u32,
         include_result: bool,
         wake_on: WakeOn,
     ) -> Result<ExecutionView, String> {
         let deadline = Instant::now() + Duration::from_millis(u64::from(wait_ms));
-        let mut initial_control_revision = None;
-        let mut initial_activity_revision = None;
+        let mut view = self.observe(id.clone(), include_result).await?;
+        view.unchanged = Some(known_control_revision.as_ref() == Some(&view.control_revision));
+        if known_control_revision
+            .as_ref()
+            .is_some_and(|known| known != &view.control_revision)
+        {
+            view.wake_reason = Some(WakeReason::InitialMismatch);
+            view.mismatch_kind = Some(MismatchKind::Control);
+            return Ok(view);
+        }
+        if known_activity_revision
+            .as_ref()
+            .is_some_and(|known| known != &view.activity_revision)
+        {
+            view.wake_reason = Some(WakeReason::InitialMismatch);
+            view.mismatch_kind = Some(MismatchKind::Activity);
+            return Ok(view);
+        }
+        let initial_control_revision = view.control_revision.clone();
+        let initial_activity_revision = view.activity_revision.clone();
         loop {
             // Each read finishes its transaction before sleeping. Dropping this future has no side effects.
-            let mut view = self.observe(id.clone(), include_result).await?;
-            let unchanged = known_control_revision.as_ref() == Some(&view.control_revision);
-            view.unchanged = Some(unchanged);
-            let control_changed = initial_control_revision
-                .as_ref()
-                .is_some_and(|initial| initial != &view.control_revision);
-            if initial_control_revision.is_none() {
-                initial_control_revision = Some(view.control_revision.clone());
-            }
-            let activity_changed = initial_activity_revision
-                .as_ref()
-                .is_some_and(|initial| initial != &view.activity_revision);
-            if initial_activity_revision.is_none() {
-                initial_activity_revision = Some(view.activity_revision.clone());
-            }
-            if view.progress.phase == ProgressPhase::Terminal
-                || (include_result && view.result_available)
-                || (known_control_revision.is_some() && !unchanged)
-                || control_changed
-                || (matches!(wake_on, WakeOn::Activity) && activity_changed)
-                || Instant::now() >= deadline
+            view.unchanged = Some(known_control_revision.as_ref() == Some(&view.control_revision));
+            let reason = if include_result && view.result_available {
+                Some(WakeReason::Result)
+            } else if view.progress.phase == ProgressPhase::Terminal {
+                Some(WakeReason::Terminal)
+            } else if view.control_revision != initial_control_revision {
+                Some(WakeReason::Control)
+            } else if matches!(wake_on, WakeOn::Activity)
+                && view.activity_revision != initial_activity_revision
             {
+                Some(WakeReason::Activity)
+            } else if Instant::now() >= deadline {
+                Some(WakeReason::Timeout)
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                view.wake_reason = Some(reason);
                 return Ok(view);
             }
             tokio::time::sleep(
                 Duration::from_millis(500).min(deadline.saturating_duration_since(Instant::now())),
             )
             .await;
+            view = self.observe(id.clone(), include_result).await?;
         }
     }
     async fn observe(&self, id: String, include_result: bool) -> Result<ExecutionView, String> {
@@ -732,11 +871,18 @@ impl AgentProductService {
                 .as_deref()
                 .map(ToolCategory::try_from)
                 .transpose()?;
-            match (r.last_activity_at, activity_phase, tool_category) {
-                (None, None, None)
-                | (Some(_), Some(ActivityPhase::Provider), None)
-                | (Some(_), Some(ActivityPhase::Tool), Some(_)) => {}
+            // Activity 的时间戳仅用于展示；持久化契约只要求 phase/category 配对合法。
+            match (activity_phase, tool_category) {
+                (None, None)
+                | (Some(ActivityPhase::Provider), None)
+                | (Some(ActivityPhase::Tool), Some(_)) => {}
                 _ => return Err("Invalid persisted execution activity".into()),
+            }
+            // Product 只投影已由 Store 写入的 Activity 摘要；不一致时拒绝伪造新语义。
+            let expected_summary_code =
+                derive_summary_code(phase, activity_phase, tool_category).map_err(str::to_owned)?;
+            if r.activity_summary_code.as_deref() != expected_summary_code {
+                return Err(AGENT_ACTIVITY_CONTRACT_ERROR.into());
             }
             let activity_age_ms = r
                 .last_activity_at
@@ -765,7 +911,8 @@ impl AgentProductService {
                 execution_id: r.id.clone(),
                 agent_id: r.agent_id.clone(),
                 workspace_id: r.workspace_id.clone(),
-                provider: ProviderProduct::codex(),
+                provider: ProviderProduct::from_execution_provider(&r.provider)?,
+                usage: UsageProduct::project(s.usage.as_ref()),
                 status: r.status.clone(),
                 dispatch_state: r.dispatch_state.clone(),
                 thread_id: compatibility.thread_id,
@@ -787,6 +934,8 @@ impl AgentProductService {
                 runtime_instance_id: r.runtime_instance_id.clone(),
                 owns_claim: s.owns_claim,
                 unchanged: None,
+                wake_reason: None,
+                mismatch_kind: None,
                 result_available,
                 progress: Progress {
                     phase,
@@ -795,6 +944,7 @@ impl AgentProductService {
                     last_activity_at: r.last_activity_at,
                     activity_age_ms,
                     silence_level,
+                    summary_code: r.activity_summary_code.clone(),
                 },
                 next_action,
                 final_result,

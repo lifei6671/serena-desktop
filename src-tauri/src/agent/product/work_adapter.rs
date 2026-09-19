@@ -35,8 +35,11 @@ pub enum AgentQueryAction {
     Observe {
         execution_id: String,
         known_revision: Option<String>,
+        known_control_revision: Option<String>,
+        known_activity_revision: Option<String>,
         wait_ms: Option<u32>,
         include_result: Option<bool>,
+        wake_on: Option<WakeOn>,
     },
 }
 
@@ -99,22 +102,35 @@ impl AgentProductService {
             AgentQueryAction::Observe {
                 execution_id,
                 known_revision,
+                known_control_revision,
+                known_activity_revision,
                 wait_ms,
                 include_result,
+                wake_on,
             } => {
-                validate_id(&execution_id)?;
+                validate_observe_id(&execution_id)?;
                 let wait_ms = wait_ms.unwrap_or(15_000);
-                if wait_ms > 20_000 || known_revision.as_ref().is_some_and(|r| r.trim().is_empty())
+                if wait_ms > 20_000
+                    || known_revision
+                        .as_ref()
+                        .is_some_and(|token| token.trim().is_empty())
+                    || known_control_revision
+                        .as_ref()
+                        .is_some_and(|token| token.trim().is_empty())
+                    || known_activity_revision
+                        .as_ref()
+                        .is_some_and(|token| token.trim().is_empty())
                 {
-                    return Err(invalid_argument());
+                    return Err(invalid_observe_argument());
                 }
                 Ok(ProductData::Execution(Box::new(
                     self.observe_wait(
                         execution_id,
-                        known_revision,
+                        known_control_revision.or(known_revision),
+                        known_activity_revision,
                         wait_ms,
                         include_result.unwrap_or(false),
-                        WakeOn::Control,
+                        wake_on.unwrap_or(WakeOn::Control),
                     )
                     .await?,
                 )))
@@ -318,6 +334,25 @@ fn submission_error(mut error: ProductError) -> ProductError {
 
 fn invalid_argument() -> ProductError {
     "WORK_INVALID_ARGUMENT".to_string().into()
+}
+
+/// Observe 的公共参数契约独立于其他 Work 参数错误分类。
+fn invalid_observe_argument() -> ProductError {
+    "AGENT_OBSERVE_INVALID_ARGUMENT".to_string().into()
+}
+
+/// 检查 Observe executionId 的既有语法，并保留 Observe 专用错误分类。
+fn validate_observe_id(id: &str) -> Result<(), ProductError> {
+    // 保持既有 executionId 语法，只将 Observe 的拒绝映射到专用错误码。
+    if id.is_empty()
+        || id
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        Err(invalid_observe_argument())
+    } else {
+        Ok(())
+    }
 }
 
 fn validate_id(id: &str) -> Result<(), ProductError> {

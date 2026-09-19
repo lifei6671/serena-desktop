@@ -857,7 +857,6 @@ fn assert_compact_observation(response: &Value) {
         "workspaceId",
         "dispatchState",
         "controlRevision",
-        "activityRevision",
         "availableActions",
         "threadId",
         "threadName",
@@ -877,12 +876,25 @@ fn assert_compact_observation(response: &Value) {
             "unexpected observe field: {field}"
         );
     }
-    for field in ["executionId", "status", "revision", "resultCompleteness"] {
+    for field in [
+        "executionId",
+        "status",
+        "revision",
+        "activityRevision",
+        "resultCompleteness",
+    ] {
         assert!(data[field].is_string(), "missing {field}");
     }
+    assert!(data["usage"].is_object(), "missing public usage");
+    assert!(data["usage"]["completeness"].is_string());
+    assert!(data["usage"]["usageRevision"].is_u64());
     assert!(data["unchanged"].is_boolean());
     assert!(data["resultAvailable"].is_boolean());
     assert!(data["progress"]["phase"].is_string());
+    assert!(
+        data["progress"]["summaryCode"].is_null() || data["progress"]["summaryCode"].is_string(),
+        "missing nullable summaryCode"
+    );
     for field in [
         "activityPhase",
         "lastActivityAt",
@@ -910,7 +922,8 @@ process.stdin.on('end', () => {
   const {schema, responses} = JSON.parse(input);
   const validate = new Ajv({allErrors:true, formats:{
     int64: {type:'number', validate:Number.isInteger},
-    uint32: {type:'number', validate:n => Number.isInteger(n) && n >= 0 && n <= 4294967295}
+    uint32: {type:'number', validate:n => Number.isInteger(n) && n >= 0 && n <= 4294967295},
+    uint64: {type:'number', validate:n => Number.isInteger(n) && n >= 0}
   }}).compile(schema);
   for (const response of responses) {
     if (!validate(response)) throw new Error(JSON.stringify(validate.errors));
@@ -1050,7 +1063,10 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     assert_compact_observation(&first);
     assert_eq!(first["data"]["revision"], detail["data"]["controlRevision"]);
     assert_eq!(first["data"]["unchanged"], false);
-    assert_eq!(first["data"]["progress"], json!({"phase":"pending"}));
+    assert_eq!(
+        first["data"]["progress"],
+        json!({"phase":"pending","summaryCode":null})
+    );
     assert_eq!(first["data"]["attention"], "pending_explicit_resume");
     assert!(first["data"].get("finalResult").is_none());
     assert!(first["data"].get("error").is_none());
@@ -1076,7 +1092,11 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     assert_eq!(
         list,
         json!({"ok":true,"data":{"executions":[{
-            "executionId":"E","status":"dispatch_pending","dispatchState":"not_dispatched",
+            "executionId":"E","provider":{"id":"codex","displayName":"Codex"},
+            "usage":{"inputTokens":null,"cachedInputTokens":null,"cacheWriteInputTokens":null,
+                "outputTokens":null,"reasoningTokens":null,"totalTokens":null,"modelContextWindow":null,
+                "completeness":"unknown","usageRevision":0,"updatedAt":null},
+            "status":"dispatch_pending","dispatchState":"not_dispatched",
             "revision":detail["data"]["controlRevision"],"resultAvailable":false,"resultCompleteness":"unknown",
             "attention":"pending_explicit_resume","nextAction":{"action":"resume_pending"},"createdAt":1
         }]}})
@@ -1088,7 +1108,7 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     assert!(!store.product_worker_owned("E"));
 
     let db = rusqlite::Connection::open(dir.path().join("state/agent-state.db")).unwrap();
-    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched',thread_id='T',turn_id='TURN',last_activity_at=?1,activity_phase='tool',tool_category='test' WHERE id='E'", [chrono::Utc::now().timestamp_millis()]).unwrap();
+    db.execute("UPDATE executions SET status='running',dispatch_state='dispatched',thread_id='T',turn_id='TURN',last_activity_at=?1,activity_phase='tool',tool_category='test',activity_summary_code='tool.test' WHERE id='E'", [chrono::Utc::now().timestamp_millis()]).unwrap();
     store
         .save_thread_name("T".into(), Some("Test thread".into()))
         .await
@@ -1105,17 +1125,53 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     assert_compact_observation(&running);
     assert_eq!(
         running["data"]["progress"],
-        json!({"phase":"running","toolCategory":"test","silenceLevel":"fresh"})
+        json!({"phase":"running","summaryCode":"tool.test","toolCategory":"test","silenceLevel":"fresh"})
     );
     assert_eq!(
         running["data"]["nextAction"],
         json!({"action":"observe","waitMs":20000})
     );
     assert!(running["data"].get("attention").is_none());
+    let known_control = running["data"]["revision"].clone();
+    let known_activity = running["data"]["activityRevision"].clone();
+    let activity_wait = client.call_tool(request(
+        "agent_query",
+        json!({
+            "action":"observe","executionId":"E",
+            "knownControlRevision":known_control,
+            "knownActivityRevision":known_activity,
+            "wakeOn":"activity","waitMs":20000
+        }),
+    ));
+    let activity_change = async {
+        tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        store
+            .execution_activity(
+                "E".into(),
+                "T".into(),
+                "TURN".into(),
+                crate::agent::activity::ActivityPhase::Tool,
+                Some(crate::agent::activity::ToolCategory::Read),
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .await
+            .unwrap();
+    };
+    let (activity_wait, ()) = tokio::join!(activity_wait, activity_change);
+    let activity_wait = activity_wait.unwrap().structured_content.unwrap();
+    assert_compact_observation(&activity_wait);
+    assert_eq!(activity_wait["data"]["wakeReason"], "activity");
+    assert_eq!(activity_wait["data"]["unchanged"], true);
+    assert_eq!(
+        activity_wait["data"]["progress"]["summaryCode"],
+        "tool.read"
+    );
+    assert!(activity_wait["data"].get("mismatchKind").is_none());
+    samples.push(activity_wait);
     samples.push(running);
 
     // Restore an undispatched fixture so execute.cancel exercises a real control receipt without a Provider.
-    db.execute("UPDATE executions SET status='dispatch_pending',dispatch_state='not_dispatched',thread_id=NULL,turn_id=NULL,last_activity_at=NULL,activity_phase=NULL,tool_category=NULL WHERE id='E'", []).unwrap();
+    db.execute("UPDATE executions SET status='dispatch_pending',dispatch_state='not_dispatched',thread_id=NULL,turn_id=NULL,last_activity_at=NULL,activity_phase=NULL,tool_category=NULL,activity_summary_code=NULL WHERE id='E'", []).unwrap();
     let cancelled = client
         .call_tool(request(
             "agent_execute",
@@ -1182,7 +1238,11 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     assert_eq!(
         terminal_list,
         json!({"ok":true,"data":{"executions":[{
-            "executionId":"E","status":"completed","dispatchState":"dispatched","revision":terminal_detail["data"]["revision"],
+            "executionId":"E","provider":{"id":"codex","displayName":"Codex"},
+            "usage":{"inputTokens":null,"cachedInputTokens":null,"cacheWriteInputTokens":null,
+                "outputTokens":null,"reasoningTokens":null,"totalTokens":null,"modelContextWindow":null,
+                "completeness":"unknown","usageRevision":0,"updatedAt":null},
+            "status":"completed","dispatchState":"dispatched","revision":terminal_detail["data"]["revision"],
             "resultAvailable":true,"resultCompleteness":"complete","attention":"none","threadName":"Test thread",
             "nextAction":{"action":"review_result","includeResult":true},"createdAt":1,"completedAt":42
         }]}})
@@ -1198,9 +1258,39 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
         0
     );
 
-    for args in [
-        json!({"action":"get","executionId":"missing"}),
-        json!({"action":"observe","executionId":"E","waitMs":20001}),
+    for (args, code) in [
+        (
+            json!({"action":"get","executionId":"missing"}),
+            "AGENT_EXECUTION_NOT_FOUND",
+        ),
+        (
+            json!({"action":"observe","executionId":"E","waitMs":20001}),
+            "AGENT_OBSERVE_INVALID_ARGUMENT",
+        ),
+        (
+            json!({"action":"observe","executionId":"bad id","waitMs":0}),
+            "AGENT_OBSERVE_INVALID_ARGUMENT",
+        ),
+        (
+            json!({"action":"observe","executionId":"bad\nid","waitMs":0}),
+            "AGENT_OBSERVE_INVALID_ARGUMENT",
+        ),
+        (
+            json!({"action":"observe","executionId":"E","knownRevision":""}),
+            "AGENT_OBSERVE_INVALID_ARGUMENT",
+        ),
+        (
+            json!({"action":"observe","executionId":"E","knownControlRevision":""}),
+            "AGENT_OBSERVE_INVALID_ARGUMENT",
+        ),
+        (
+            json!({"action":"observe","executionId":"E","knownActivityRevision":""}),
+            "AGENT_OBSERVE_INVALID_ARGUMENT",
+        ),
+        (
+            json!({"action":"observe","executionId":"E","wakeOn":"unknown"}),
+            "AGENT_OBSERVE_INVALID_ARGUMENT",
+        ),
     ] {
         let failure = client
             .call_tool(request("agent_query", args))
@@ -1210,6 +1300,7 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
         let failure = failure.structured_content.unwrap();
         assert_eq!(failure.as_object().unwrap().len(), 2);
         assert!(failure.get("control").is_none());
+        assert_eq!(failure["error"]["code"], code);
         assert_eq!(failure["error"]["message"], failure["error"]["code"]);
         samples.push(failure);
     }
@@ -1235,11 +1326,7 @@ fn typed_registry_validation_rejects_cross_action_fields_and_preserves_context_a
         ),
         (
             "agent_query",
-            json!({"action":"observe","executionId":"e","wakeOn":"activity"}),
-        ),
-        (
-            "agent_query",
-            json!({"action":"observe","executionId":"e","knownControlRevision":"r"}),
+            json!({"action":"observe","executionId":"e","wakeOn":"unknown"}),
         ),
         (
             "agent_execute",
@@ -1272,6 +1359,12 @@ fn typed_registry_validation_rejects_cross_action_fields_and_preserves_context_a
         )
         .is_err()
     );
+    for args in [
+        json!({"action":"observe","executionId":"e","knownControlRevision":"control","knownActivityRevision":"activity","wakeOn":"activity","waitMs":0}),
+        json!({"action":"observe","executionId":"e","waitMs":20000}),
+    ] {
+        assert!(registry::validate("agent_query", &args).is_ok(), "{args}");
+    }
     let tools = orchestration::descriptors();
     let execute = tools
         .iter()

@@ -41,6 +41,11 @@ impl AgentEventSink for ExecutionTelemetryProjector {
                         eprintln!("Agent activity projection dropped");
                     }
                 }
+                AgentTelemetryEvent::Usage(usage) if usage.execution_id() == self.execution_id => {
+                    if self.store.project_execution_usage(usage).await.is_err() {
+                        eprintln!("Agent usage projection dropped");
+                    }
+                }
                 AgentTelemetryEvent::Activity(_) | AgentTelemetryEvent::Usage(_) => {}
             }
         })

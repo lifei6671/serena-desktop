@@ -8,6 +8,7 @@ pub mod store;
 #[cfg(windows)]
 pub mod task_manager;
 pub mod telemetry_projector;
+pub mod usage;
 
 #[cfg(windows)]
 pub mod product;

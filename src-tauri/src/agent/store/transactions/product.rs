@@ -4,6 +4,7 @@ use crate::agent::execution::{
     CreateExecutionInput, ExecutionMode, Provider, canonicalize_request,
     legacy_pre_c2_continuation_hash, matches_current_or_legacy_workspace_generation_hash,
 };
+use crate::agent::usage::UsageSnapshot;
 
 mod work;
 pub use work::WorkExecutionContext;
@@ -120,6 +121,8 @@ fn create_fresh_with_work(
 #[derive(Debug)]
 pub struct ProductSnapshot {
     pub execution: ExecutionRecord,
+    /// 已在 product_read 的 LEFT JOIN 中验证的公共 Usage；None 表示历史无行。
+    pub usage: Option<UsageSnapshot>,
     pub thread_name: Option<String>,
     pub owns_claim: bool,
     pub runtime_attempt_exists: bool,
@@ -551,20 +554,35 @@ impl StateStore {
         self.read(move |c| {
             let tx=c.unchecked_transaction()?;
             let query = if id.is_some() {
-                "SELECT id,created_at,updated_at,completed_at FROM executions WHERE id=?1 AND (?2 IS NULL OR agent_id=?2) AND (?3 IS NULL OR workspace_id=?3) LIMIT ?4"
+                "SELECT e.id,e.created_at,e.updated_at,e.completed_at,
+                        u.execution_id,u.provider_id,u.input_tokens,u.cached_input_tokens,
+                        u.cache_write_input_tokens,u.output_tokens,u.reasoning_tokens,u.total_tokens,
+                        u.model_context_window,u.completeness,u.usage_revision,u.updated_at
+                 FROM executions e LEFT JOIN execution_usage u ON u.execution_id=e.id
+                 WHERE e.id=?1 AND (?2 IS NULL OR e.agent_id=?2) AND (?3 IS NULL OR e.workspace_id=?3) LIMIT ?4"
             } else {
-                "SELECT id,created_at,updated_at,completed_at FROM executions WHERE (?1 IS NULL OR id=?1) AND (?2 IS NULL OR agent_id=?2) AND (?3 IS NULL OR workspace_id=?3) ORDER BY created_at DESC,id DESC LIMIT ?4"
+                "SELECT e.id,e.created_at,e.updated_at,e.completed_at,
+                        u.execution_id,u.provider_id,u.input_tokens,u.cached_input_tokens,
+                        u.cache_write_input_tokens,u.output_tokens,u.reasoning_tokens,u.total_tokens,
+                        u.model_context_window,u.completeness,u.usage_revision,u.updated_at
+                 FROM executions e LEFT JOIN execution_usage u ON u.execution_id=e.id
+                 WHERE (?1 IS NULL OR e.id=?1) AND (?2 IS NULL OR e.agent_id=?2) AND (?3 IS NULL OR e.workspace_id=?3)
+                 ORDER BY e.created_at DESC,e.id DESC LIMIT ?4"
             };
             let mut q=tx.prepare(query)?;
-            let rows=q.query_map(params![id,agent,workspace,limit],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,Option<i64>>(3)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
-            rows.into_iter().map(|(id,created_at,updated_at,completed_at)|{
+            let rows=q.query_map(params![id,agent,workspace,limit],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,Option<i64>>(3)?,super::super::usage::execution_usage_snapshot_from_left_join(r,4)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            rows.into_iter().map(|(id,created_at,updated_at,completed_at,usage)|{
                 let row=execution_record(&tx,&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+                if usage.as_ref().is_some_and(|usage| usage.execution_id != row.id || usage.provider_id.as_str() != row.provider) {
+                    // 持久化 public Usage 不得与 Execution identity 拼接为一个伪造事实。
+                    return Err(rusqlite::Error::FromSqlConversionFailure(4, rusqlite::types::Type::Text, Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, "PERSISTED_USAGE_IDENTITY_MISMATCH"))));
+                }
                 let thread_name = tx.query_row("SELECT name FROM thread_names WHERE thread_id=?1", [&row.thread_id], |r| r.get::<_, Option<String>>(0)).optional()?.flatten();
                 let owns:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM workspace_claims WHERE execution_id=?1 AND canonical_workspace_root=?2)",params![id,row.canonical_workspace_root],|r|r.get(0))?;
                 let claimed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM workspace_claims WHERE execution_id=?1 OR canonical_workspace_root=?2)",params![id,row.canonical_workspace_root],|r|r.get(0))?;
                 let busy:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM executions WHERE agent_id=?1 AND status NOT IN ('completed','failed','cancelled','interrupted'))",[&row.agent_id],|r|r.get(0))?;
                 let runtime_attempt_exists:bool=crate::agent::store::runtime_attempts::runtime_attempt_exists(&tx,&id)?;
-                Ok(ProductSnapshot{execution:row,thread_name,owns_claim:owns,runtime_attempt_exists,claim_free:!claimed,agent_free:!busy,created_at,updated_at,completed_at})
+                Ok(ProductSnapshot{execution:row,usage,thread_name,owns_claim:owns,runtime_attempt_exists,claim_free:!claimed,agent_free:!busy,created_at,updated_at,completed_at})
             }).collect()
         }).await
     }

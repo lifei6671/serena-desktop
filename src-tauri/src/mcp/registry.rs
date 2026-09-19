@@ -247,7 +247,7 @@ fn source_description(name: &str) -> &'static str {
 }
 // Stable core only; open execution fields preserve dynamic Product data.
 pub(crate) fn agent_output_schema() -> Value {
-    json!({
+    let mut schema = json!({
       "type": "object",
       "oneOf": [
         {
@@ -632,7 +632,46 @@ pub(crate) fn agent_output_schema() -> Value {
           ]
         }
       }
-    })
+    });
+    // Activity v2 字段在闭合 Product schema 中与 DTO 原子发布，避免校验拒绝新快照。
+    let progress = &mut schema["$defs"]["execution"]["properties"]["progress"];
+    progress["properties"]["summaryCode"] = json!({"type":["string","null"]});
+    progress["required"]
+        .as_array_mut()
+        .expect("execution progress required fields")
+        .push(json!("summaryCode"));
+    let execution = &mut schema["$defs"]["execution"]["properties"];
+    execution["wakeReason"] = json!({
+        "enum":["initial_mismatch","control","activity","terminal","result","timeout"]
+    });
+    execution["mismatchKind"] = json!({"enum":["control","activity"]});
+    // P4-006：execute 同样暴露 ExecutionView，Usage 必须是稳定且可空字段已显式声明的公共 DTO。
+    execution["usage"] = json!({
+        "type":"object",
+        "properties": {
+            "inputTokens":{"type":["integer","null"]},
+            "cachedInputTokens":{"type":["integer","null"]},
+            "cacheWriteInputTokens":{"type":["integer","null"]},
+            "outputTokens":{"type":["integer","null"]},
+            "reasoningTokens":{"type":["integer","null"]},
+            "totalTokens":{"type":["integer","null"]},
+            "modelContextWindow":{"type":["integer","null"]},
+            "completeness":{"enum":["unknown","partial","complete"]},
+            "usageRevision":{"type":"integer","minimum":0,"format":"uint64"},
+            "updatedAt":{"type":["integer","null"]}
+        },
+        "required":[
+            "inputTokens","cachedInputTokens","cacheWriteInputTokens","outputTokens",
+            "reasoningTokens","totalTokens","modelContextWindow","completeness",
+            "usageRevision","updatedAt"
+        ],
+        "additionalProperties":false
+    });
+    schema["$defs"]["execution"]["required"]
+        .as_array_mut()
+        .expect("execution required fields")
+        .push(json!("usage"));
+    schema
 }
 pub fn tool_contract_hash(descriptor: &Tool) -> String {
     use sha2::{Digest, Sha256};
@@ -879,6 +918,7 @@ mod tests {
             "providerTerminalStatus",
             "resultCompleteness",
             "attention",
+            "usage",
         ] {
             assert!(
                 schema["$defs"]["execution"]["required"]
@@ -887,6 +927,73 @@ mod tests {
                     .contains(&json!(field))
             );
         }
+        assert_eq!(
+            schema["$defs"]["execution"]["properties"]["wakeReason"]["enum"],
+            json!([
+                "initial_mismatch",
+                "control",
+                "activity",
+                "terminal",
+                "result",
+                "timeout"
+            ])
+        );
+        assert_eq!(
+            schema["$defs"]["execution"]["properties"]["mismatchKind"]["enum"],
+            json!(["control", "activity"])
+        );
+        assert_eq!(
+            schema["$defs"]["execution"]["properties"]["progress"]["properties"]["summaryCode"]["type"],
+            json!(["string", "null"])
+        );
+        assert!(
+            schema["$defs"]["execution"]["properties"]["progress"]["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("summaryCode"))
+        );
+        let usage = &schema["$defs"]["execution"]["properties"]["usage"];
+        for field in [
+            "inputTokens",
+            "cachedInputTokens",
+            "cacheWriteInputTokens",
+            "outputTokens",
+            "reasoningTokens",
+            "totalTokens",
+            "modelContextWindow",
+            "completeness",
+            "usageRevision",
+            "updatedAt",
+        ] {
+            assert!(
+                usage["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!(field)),
+                "usage {field} must be required"
+            );
+        }
+        for field in [
+            "inputTokens",
+            "cachedInputTokens",
+            "cacheWriteInputTokens",
+            "outputTokens",
+            "reasoningTokens",
+            "totalTokens",
+            "modelContextWindow",
+            "updatedAt",
+        ] {
+            assert_eq!(
+                usage["properties"][field]["type"],
+                json!(["integer", "null"])
+            );
+        }
+        assert_eq!(
+            usage["properties"]["completeness"]["enum"],
+            json!(["unknown", "partial", "complete"])
+        );
+        assert_eq!(usage["properties"]["usageRevision"]["format"], "uint64");
+        assert_eq!(usage["additionalProperties"], false);
         println!("agent outputSchema bytes={}", schema.to_string().len());
     }
 
@@ -905,6 +1012,20 @@ mod tests {
             }
         }
         let tools = super::super::orchestration::descriptors();
+        // P3-004/005 原子公开契约的固定指纹，输入与闭合输出变化都必须显式更新。
+        for (name, expected) in [
+            (
+                "agent_query",
+                "67f707ccd1b8cc2853b1e48160ad6185ec064d4a3e8e2ce60edc8e50e3f7f60c",
+            ),
+            (
+                "agent_execute",
+                "545a7f6f77331ad3a44b22a308f9c3517a897612ffa2a7e8b987644c02b8a63c",
+            ),
+        ] {
+            let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+            assert_eq!(tool_contract_hash(tool), expected, "{name}");
+        }
         for tool in &tools {
             let hash = tool_contract_hash(tool);
             assert_eq!(hash.len(), 64);
@@ -971,7 +1092,22 @@ mod tests {
                 "agentId",
                 "acceptedAt",
             ] {
+                if tool.name == "agent_query"
+                    && matches!(private, "wakeOn" | "knownControlRevision")
+                {
+                    continue;
+                }
                 assert!(!schema.contains(private), "{} {private}", tool.name);
+            }
+            if tool.name == "agent_query" {
+                for field in [
+                    "knownRevision",
+                    "knownControlRevision",
+                    "knownActivityRevision",
+                    "wakeOn",
+                ] {
+                    assert!(schema.contains(field), "agent_query {field}");
+                }
             }
             assert!(tool.output_schema.is_some());
             let read_only = tool.name.ends_with("query");
@@ -1055,6 +1191,7 @@ mod tests {
                 "work_update output anyOf",
                 "work_update output $defs",
                 "agent_query input oneOf",
+                "agent_query input $defs",
                 "agent_query output anyOf",
                 "agent_query output definitions",
                 "agent_execute input oneOf",
@@ -1606,8 +1743,24 @@ mod agent_contract_tests {
             serde_json::to_value(agent.output_schema.as_ref().unwrap()).unwrap(),
             super::agent_output_schema()
         );
-        let query = tools.iter().find(|t| t.name == "agent_query").unwrap();
-        let query = serde_json::to_value(query.output_schema.as_ref().unwrap()).unwrap();
+        let query_descriptor = tools.iter().find(|t| t.name == "agent_query").unwrap();
+        let query_description = query_descriptor.description.as_deref().unwrap();
+        for contract in [
+            "默认 15000ms",
+            "范围 0..=20000",
+            "knownRevision 是 knownControlRevision 的 legacy alias",
+            "activity 模式",
+            "不能只看 unchanged",
+            "latest snapshot",
+            "coalesce",
+            "旧 v1 token",
+        ] {
+            assert!(
+                query_description.contains(contract),
+                "agent_query {contract}"
+            );
+        }
+        let query = serde_json::to_value(query_descriptor.output_schema.as_ref().unwrap()).unwrap();
         for (branch, field, ok) in [(0, "data", true), (1, "error", false)] {
             let envelope = &query["anyOf"][branch];
             assert_eq!(envelope["properties"]["ok"]["const"], ok);
@@ -1627,8 +1780,10 @@ mod agent_contract_tests {
         let observation = &defs["QueryObservation"];
         for field in [
             "executionId",
+            "usage",
             "status",
             "revision",
+            "activityRevision",
             "unchanged",
             "resultAvailable",
             "resultCompleteness",
@@ -1641,23 +1796,49 @@ mod agent_contract_tests {
                     .contains(&serde_json::json!(field))
             );
         }
-        assert_eq!(observation["required"].as_array().unwrap().len(), 7);
-        assert_eq!(observation["properties"].as_object().unwrap().len(), 11);
+        assert_eq!(observation["required"].as_array().unwrap().len(), 9);
+        assert_eq!(observation["properties"].as_object().unwrap().len(), 15);
         assert_eq!(observation["additionalProperties"], false);
         for field in [
             "prompt",
             "canonicalWorkspaceRoot",
             "controlRevision",
-            "activityRevision",
             "threadId",
             "dispatchState",
         ] {
             assert!(observation["properties"].get(field).is_none());
         }
+        assert_eq!(
+            defs["WakeReason"]["enum"],
+            serde_json::json!([
+                "initial_mismatch",
+                "control",
+                "activity",
+                "terminal",
+                "result",
+                "timeout"
+            ])
+        );
+        assert_eq!(
+            defs["MismatchKind"]["enum"],
+            serde_json::json!(["control", "activity"])
+        );
         let summary = &defs["QuerySummary"];
-        assert_eq!(summary["properties"].as_object().unwrap().len(), 11);
-        assert_eq!(summary["required"].as_array().unwrap().len(), 8);
+        assert_eq!(summary["properties"].as_object().unwrap().len(), 13);
+        assert_eq!(summary["required"].as_array().unwrap().len(), 10);
         assert_eq!(summary["additionalProperties"], false);
+        for field in ["provider", "usage"] {
+            assert!(
+                summary["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!(field))
+            );
+        }
+        assert_eq!(
+            defs["UsageCompletenessProduct"]["enum"],
+            serde_json::json!(["unknown", "partial", "complete"])
+        );
         for field in [
             "prompt",
             "canonicalWorkspaceRoot",
@@ -1678,14 +1859,14 @@ mod agent_contract_tests {
         }
         assert_eq!(
             defs["QueryProgress"]["required"],
-            serde_json::json!(["phase"])
+            serde_json::json!(["phase", "summaryCode"])
         );
         assert_eq!(
             defs["QueryProgress"]["properties"]
                 .as_object()
                 .unwrap()
                 .len(),
-            3
+            4
         );
         assert_eq!(defs["QueryProgress"]["additionalProperties"], false);
         let silence_level_description = agent.output_schema.as_ref().unwrap()["$defs"]["execution"]

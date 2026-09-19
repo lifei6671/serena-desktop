@@ -260,8 +260,9 @@ async fn rt06_startup_list_history_and_observe_synchronize_durable_records() {
         pending(&store, &dir.path().join(id), id).await;
     }
     let db = Connection::open(dir.path().join("agent-state.db")).unwrap();
-    // Historical fixture, including a fully committed terminal record without a Claim.
-    db.execute("UPDATE executions SET status=id,dispatch_state='uncertain' WHERE id IN ('reconciling','unknown')", []).unwrap();
+    // v8 restart fixture, including a fully committed terminal record without a Claim.
+    set_v8_execution_state(&db, "reconciling", "reconciling", "uncertain", None, None);
+    set_v8_execution_state(&db, "unknown", "unknown", "uncertain", None, None);
     db.execute("UPDATE executions SET status='completed',dispatch_state='dispatched',result_completeness='complete',final_result_json='{}',release_evidence_state='complete',release_evidence_kind='same_runtime_cleanup',release_evidence_json='{}' WHERE id='completed'", []).unwrap();
     db.execute(
         "DELETE FROM workspace_claims WHERE execution_id='completed'",

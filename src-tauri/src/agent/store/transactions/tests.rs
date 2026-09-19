@@ -1,7 +1,7 @@
 //! SQLite fixtures are simulated evidence, never Windows/Provider contract evidence.
 use super::*;
 use crate::agent::execution::{CreateExecutionInput, canonicalize_request};
-use std::sync::Barrier;
+use std::sync::{Arc, Barrier};
 
 fn block<T>(future: impl std::future::Future<Output = T>) -> T {
     tauri::async_runtime::block_on(future)
@@ -38,6 +38,10 @@ fn event(s: &StateStore, event: Transition, now: i64) -> Result<(), String> {
 }
 fn status(s: &StateStore) -> ExecutionRecord {
     block(s.execution("e".into())).unwrap().unwrap()
+}
+/// 读取 Store 内部 history，用于断言权威持久化结果而非 Product wire。
+fn history(s: &StateStore, after_sequence: Option<i64>, limit: Option<i64>) -> ActivityHistoryPage {
+    block(s.execution_activity_history("e".into(), after_sequence, limit)).unwrap()
 }
 fn safe_cleanup(s: &StateStore) {
     event(
@@ -960,7 +964,7 @@ fn permission_hint_cannot_replace_turn_or_provider_failure_diagnostic() {
 }
 
 #[test]
-fn delayed_activity_event_time_does_not_regress_execution_updated_at() {
+fn first_semantic_activity_and_heartbeats_keep_lifecycle_revision_and_updated_at_stable() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(dir.path());
     fixture(&store, Status::Running, DispatchState::Dispatched);
@@ -973,9 +977,17 @@ fn delayed_activity_event_time_does_not_regress_execution_updated_at() {
             [],
         )
         .unwrap();
-    block(store.execution_diagnostic("e".into(), "CODEX_TURN_ERROR".into(), "turn".into(), 20))
-        .unwrap();
     let before_revision = status(&store).revision;
+    let before_updated_at: i64 = store
+        .connection
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT updated_at FROM executions WHERE id='e'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
 
     block(store.execution_activity(
         "e".into(),
@@ -987,7 +999,35 @@ fn delayed_activity_event_time_does_not_regress_execution_updated_at() {
     ))
     .unwrap();
 
-    let row = status(&store);
+    let first = status(&store);
+    assert_eq!(first.last_activity_at, Some(10));
+    assert_eq!(first.activity_phase.as_deref(), Some("tool"));
+    assert_eq!(first.tool_category.as_deref(), Some("test"));
+    assert_eq!(first.activity_summary_code.as_deref(), Some("tool.test"));
+    assert_eq!(first.activity_sequence, 1);
+    assert_eq!(first.revision, before_revision);
+    assert_eq!(history(&store, None, None).events.len(), 1);
+
+    block(store.execution_activity(
+        "e".into(),
+        "ROOT".into(),
+        "TURN".into(),
+        ActivityPhase::Tool,
+        Some(ToolCategory::Test),
+        20,
+    ))
+    .unwrap();
+    block(store.execution_activity(
+        "e".into(),
+        "ROOT".into(),
+        "TURN".into(),
+        ActivityPhase::Tool,
+        Some(ToolCategory::Test),
+        15,
+    ))
+    .unwrap();
+
+    let heartbeat = status(&store);
     let updated_at: i64 = store
         .connection
         .lock()
@@ -998,16 +1038,15 @@ fn delayed_activity_event_time_does_not_regress_execution_updated_at() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(row.last_activity_at, Some(10));
-    assert_eq!(row.activity_phase.as_deref(), Some("tool"));
-    assert_eq!(row.tool_category.as_deref(), Some("test"));
-    assert_eq!(row.revision, before_revision + 1);
-    assert_eq!(updated_at, 20);
-    assert_eq!(row.error_code.as_deref(), Some("CODEX_TURN_ERROR"));
+    assert_eq!(heartbeat.last_activity_at, Some(20));
+    assert_eq!(heartbeat.activity_sequence, 1);
+    assert_eq!(heartbeat.revision, before_revision);
+    assert_eq!(updated_at, before_updated_at);
+    assert_eq!(history(&store, None, None).events.len(), 1);
 }
 
 #[test]
-fn provider_agnostic_activity_projection_preserves_activity_store_semantics() {
+fn semantic_activity_changes_append_exact_history_without_lifecycle_revision_cas() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(dir.path());
     fixture(&store, Status::Running, DispatchState::Dispatched);
@@ -1020,11 +1059,32 @@ fn provider_agnostic_activity_projection_preserves_activity_store_semantics() {
         10,
     ))
     .unwrap();
+    block(store.project_execution_activity(
+        "e".into(),
+        ActivityPhase::Tool,
+        Some(ToolCategory::Command),
+        11,
+    ))
+    .unwrap();
     let projected = status(&store);
-    assert_eq!(projected.last_activity_at, Some(10));
+    let page = history(&store, None, None);
+    assert_eq!(projected.last_activity_at, Some(11));
     assert_eq!(projected.activity_phase.as_deref(), Some("tool"));
-    assert_eq!(projected.tool_category.as_deref(), Some("test"));
-    assert_eq!(projected.revision, before.revision + 1);
+    assert_eq!(projected.tool_category.as_deref(), Some("command"));
+    assert_eq!(
+        projected.activity_summary_code.as_deref(),
+        Some("tool.command")
+    );
+    assert_eq!(projected.activity_sequence, 2);
+    assert_eq!(projected.revision, before.revision);
+    assert_eq!(page.events.len(), 2);
+    assert_eq!(page.events[0].sequence, 1);
+    assert_eq!(
+        page.events[0].activity_revision,
+        "ded56df71bc1875c111bf734e82758961fa8858efc7a792da6ab6db4d1cbd176"
+    );
+    assert_eq!(page.events[1].sequence, 2);
+    assert_eq!(page.events[1].summary_code.as_deref(), Some("tool.command"));
 
     assert_eq!(
         block(store.project_execution_activity(
@@ -1057,6 +1117,280 @@ fn provider_agnostic_activity_projection_preserves_activity_store_semantics() {
     let terminal = status(&store);
     block(store.project_execution_activity("e".into(), ActivityPhase::Provider, None, 13)).unwrap();
     assert_eq!(status(&store), terminal);
+}
+
+/// 验证 Finalizing 覆盖底层 Activity，且相同 heartbeat 不生成重复 history。
+#[test]
+fn lifecycle_finalizing_changes_summary_and_heartbeat_does_not_repeat_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Running, DispatchState::Dispatched);
+    block(store.project_execution_activity(
+        "e".into(),
+        ActivityPhase::Tool,
+        Some(ToolCategory::Test),
+        1,
+    ))
+    .unwrap();
+    let before_lifecycle = status(&store);
+
+    event(
+        &store,
+        Transition::ProviderTerminal {
+            runtime_id: "r".into(),
+            status: Status::Completed,
+        },
+        2,
+    )
+    .unwrap();
+    let finalizing = status(&store);
+    let page = history(&store, None, None);
+    assert_eq!(finalizing.status, "finalizing");
+    assert_eq!(finalizing.revision, before_lifecycle.revision + 1);
+    assert_eq!(
+        finalizing.activity_summary_code.as_deref(),
+        Some("execution.finalizing")
+    );
+    assert_eq!(finalizing.activity_sequence, 2);
+    assert_ne!(
+        page.events[0].activity_revision,
+        page.events[1].activity_revision
+    );
+
+    block(store.project_execution_activity(
+        "e".into(),
+        ActivityPhase::Tool,
+        Some(ToolCategory::Test),
+        3,
+    ))
+    .unwrap();
+    let heartbeat = status(&store);
+    assert_eq!(heartbeat.last_activity_at, Some(3));
+    assert_eq!(heartbeat.activity_sequence, 2);
+    assert_eq!(heartbeat.revision, finalizing.revision);
+    assert_eq!(history(&store, None, None).events.len(), 2);
+}
+
+/// 验证 Reconciling 也以进度摘要覆盖底层 Activity。
+#[test]
+fn lifecycle_reconciling_appends_its_overridden_summary() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Running, DispatchState::Dispatched);
+    block(store.project_execution_activity(
+        "e".into(),
+        ActivityPhase::Tool,
+        Some(ToolCategory::Command),
+        1,
+    ))
+    .unwrap();
+    event(&store, Transition::Reconcile, 2).unwrap();
+    let row = status(&store);
+    let page = history(&store, None, None);
+    assert_eq!(row.status, "reconciling");
+    assert_eq!(
+        row.activity_summary_code.as_deref(),
+        Some("execution.reconciling")
+    );
+    assert_eq!(row.activity_sequence, 2);
+    assert_eq!(
+        page.events[1].summary_code.as_deref(),
+        Some("execution.reconciling")
+    );
+}
+
+/// 验证离开覆盖态会将无底层 Activity 的 null summary 原样写入 history。
+#[test]
+fn lifecycle_leaving_override_appends_nullable_summary_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Finalizing, DispatchState::Dispatched);
+
+    event(
+        &store,
+        Transition::ProviderTerminal {
+            runtime_id: "r".into(),
+            status: Status::Completed,
+        },
+        1,
+    )
+    .unwrap();
+    event(
+        &store,
+        Transition::CleanupEmpty {
+            runtime_id: "r".into(),
+        },
+        2,
+    )
+    .unwrap();
+    finish(&store).unwrap();
+
+    let row = status(&store);
+    let page = history(&store, None, None);
+    assert_eq!(row.status, "completed");
+    assert_eq!(row.activity_summary_code, None);
+    assert_eq!(row.activity_sequence, 2);
+    assert_eq!(page.events.len(), 2);
+    assert_eq!(
+        page.events[0].summary_code.as_deref(),
+        Some("execution.finalizing")
+    );
+    assert_eq!(page.events[1].summary_code, None);
+    assert_eq!(
+        page.events[1].activity_revision,
+        crate::agent::activity::derive_activity_revision("e", None, None, None).unwrap()
+    );
+}
+
+/// 验证同一 Store 串行事务可收敛并发 Activity 与生命周期，不依赖 sleep。
+#[test]
+fn concurrent_activity_and_lifecycle_preserve_both_semantic_history_events() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Running, DispatchState::Dispatched);
+    let barrier = Arc::new(Barrier::new(3));
+    let activity_store = store.clone();
+    let activity_barrier = barrier.clone();
+    let activity = std::thread::spawn(move || {
+        activity_barrier.wait();
+        block(activity_store.project_execution_activity(
+            "e".into(),
+            ActivityPhase::Tool,
+            Some(ToolCategory::Test),
+            1,
+        ))
+    });
+    let lifecycle_store = store.clone();
+    let lifecycle_barrier = barrier.clone();
+    let lifecycle = std::thread::spawn(move || {
+        lifecycle_barrier.wait();
+        block(lifecycle_store.transition_execution(
+            "e".into(),
+            0,
+            Transition::ProviderTerminal {
+                runtime_id: "r".into(),
+                status: Status::Completed,
+            },
+            2,
+        ))
+    });
+    barrier.wait();
+    activity.join().unwrap().unwrap();
+    lifecycle.join().unwrap().unwrap();
+
+    let row = status(&store);
+    let page = history(&store, None, None);
+    assert_eq!(row.status, "finalizing");
+    assert_eq!(row.activity_phase.as_deref(), Some("tool"));
+    assert_eq!(row.tool_category.as_deref(), Some("test"));
+    assert_eq!(
+        row.activity_summary_code.as_deref(),
+        Some("execution.finalizing")
+    );
+    assert_eq!(row.activity_sequence, 2);
+    assert_eq!(row.revision, 1);
+    assert_eq!(page.events.len(), 2);
+    assert_eq!(page.events[0].sequence, 1);
+    assert_eq!(page.events[1].sequence, 2);
+}
+
+/// 验证 history 查询强制上限、排他 cursor、稳定升序与 nullable roundtrip。
+#[test]
+fn activity_history_pagination_is_bounded_exclusive_and_preserves_null_summary() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Finalizing, DispatchState::Dispatched);
+    event(
+        &store,
+        Transition::ProviderTerminal {
+            runtime_id: "r".into(),
+            status: Status::Completed,
+        },
+        1,
+    )
+    .unwrap();
+    event(
+        &store,
+        Transition::CleanupEmpty {
+            runtime_id: "r".into(),
+        },
+        2,
+    )
+    .unwrap();
+    finish(&store).unwrap();
+    let first = history(&store, None, Some(1));
+    assert_eq!(first.events.len(), 1);
+    assert_eq!(first.events[0].sequence, 1);
+    assert_eq!(first.next_cursor, Some(1));
+    let second = history(&store, first.next_cursor, Some(1));
+    assert_eq!(second.events.len(), 1);
+    assert_eq!(second.events[0].sequence, 2);
+    assert_eq!(second.events[0].summary_code, None);
+    assert_eq!(second.next_cursor, None);
+    assert!(history(&store, Some(2), Some(1)).events.is_empty());
+    assert_eq!(history(&store, None, Some(10_000)).events.len(), 2);
+    assert_eq!(
+        block(store.execution_activity_history("e".into(), Some(-1), Some(1))).unwrap_err(),
+        "INVALID_ACTIVITY_HISTORY_CURSOR"
+    );
+}
+
+/// 验证 Activity 的失败路径不会留下 current 或 history 的半条写入。
+#[test]
+fn activity_rejections_and_history_insert_failure_are_atomic() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Running, DispatchState::Dispatched);
+    let before = status(&store);
+    store.inject_observability_failure(ObservabilityFault::Activity);
+    assert_eq!(
+        block(store.project_execution_activity(
+            "e".into(),
+            ActivityPhase::Tool,
+            Some(ToolCategory::Test),
+            1,
+        ))
+        .unwrap_err(),
+        "INJECTED_ACTIVITY_PERSISTENCE_FAILURE"
+    );
+    assert_eq!(status(&store), before);
+    assert!(history(&store, None, None).events.is_empty());
+
+    assert_eq!(
+        block(store.execution_activity(
+            "e".into(),
+            "wrong-root".into(),
+            "wrong-turn".into(),
+            ActivityPhase::Tool,
+            Some(ToolCategory::Test),
+            1,
+        ))
+        .unwrap_err(),
+        "EXECUTION_PROTOCOL_IDENTITY_MISMATCH"
+    );
+    assert_eq!(status(&store), before);
+    assert!(history(&store, None, None).events.is_empty());
+
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER reject_activity_history BEFORE INSERT ON execution_activity_events
+             BEGIN SELECT RAISE(ABORT,'history-fault'); END;",
+        )
+        .unwrap();
+    assert!(
+        block(store.project_execution_activity(
+            "e".into(),
+            ActivityPhase::Tool,
+            Some(ToolCategory::Test),
+            1,
+        ))
+        .is_err()
+    );
+    assert_eq!(status(&store), before);
+    assert!(history(&store, None, None).events.is_empty());
 }
 
 #[test]

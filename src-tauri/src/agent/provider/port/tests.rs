@@ -115,6 +115,22 @@ struct FakeEventSink;
 
 impl AgentEventSink for FakeEventSink {}
 
+/// 构造安全 Usage event，供 sink 闭集测试使用。
+fn usage_event(execution_id: String) -> UsageEvent {
+    UsageEvent::cumulative(
+        execution_id,
+        ProviderId::new("codex".into()).unwrap(),
+        16,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        10,
+    )
+}
+
 #[derive(Default)]
 struct FakeAcceptanceSink(AtomicUsize);
 
@@ -153,7 +169,7 @@ async fn event_sink_is_object_safe_and_accepts_the_closed_telemetry_set() {
         10,
     )))
     .await;
-    sink.publish(AgentTelemetryEvent::Usage(UsageEvent::new(
+    sink.publish(AgentTelemetryEvent::Usage(usage_event(
         "execution-1".into(),
     )))
     .await;
@@ -166,7 +182,7 @@ async fn event_sink_is_object_safe_and_accepts_the_closed_telemetry_set() {
                 ToolCategory::Test,
                 10,
             )),
-            AgentTelemetryEvent::Usage(UsageEvent::new("execution-1".into())),
+            AgentTelemetryEvent::Usage(usage_event("execution-1".into())),
         ]
     );
 }
@@ -198,10 +214,14 @@ fn telemetry_contract_excludes_private_identity_evidence_and_wire_derives() {
         "cleanup",
         "job",
         "recovery",
-        "reasoning",
+        "raw",
         "argv",
+        "command",
         "stdout",
         "stderr",
+        "environment",
+        "credential",
+        "payload",
         "prompt",
         "source",
         "diff",
@@ -221,6 +241,14 @@ fn telemetry_contract_excludes_private_identity_evidence_and_wire_derives() {
         "pub phase:",
         "pub tool_category:",
         "pub observed_at:",
+        "pub provider_id:",
+        "pub cumulative_total_tokens:",
+        "pub input_tokens:",
+        "pub cached_input_tokens:",
+        "pub cache_write_input_tokens:",
+        "pub output_tokens:",
+        "pub reasoning_output_tokens:",
+        "pub model_context_window:",
     ] {
         assert!(
             !source.contains(private_field),

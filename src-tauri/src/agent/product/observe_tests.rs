@@ -129,7 +129,12 @@ async fn progress_phase_follows_persisted_dispatch_and_execution_facts() {
         ("interrupted", "dispatched", "terminal"),
     ] {
         db.execute(
-            "UPDATE executions SET status=?1,dispatch_state=?2 WHERE id='e'",
+            "UPDATE executions SET status=?1,dispatch_state=?2,
+             activity_summary_code=CASE
+               WHEN ?1='finalizing' THEN 'execution.finalizing'
+               WHEN ?1 IN ('reconciling','unknown') THEN 'execution.reconciling'
+               WHEN ?1='dispatch_pending' AND ?2='uncertain' THEN 'execution.reconciling'
+               ELSE NULL END WHERE id='e'",
             [status, dispatch],
         )
         .unwrap();
@@ -165,6 +170,10 @@ async fn observe_validation_stays_at_product_boundary() {
         json!({"action":"observe","executionId":"e","waitMs":0.5}),
         json!({"action":"observe","executionId":"e","knownRevision":1}),
         json!({"action":"observe","executionId":"e","knownControlRevision":1}),
+        json!({"action":"observe","executionId":"e","knownActivityRevision":1}),
+        json!({"action":"observe","executionId":"e","knownRevision":""}),
+        json!({"action":"observe","executionId":"e","knownControlRevision":""}),
+        json!({"action":"observe","executionId":"e","knownActivityRevision":""}),
         json!({"action":"observe","executionId":"e","wakeOn":"invalid"}),
         json!({"action":"observe","executionId":"e","includeResult":"yes"}),
         json!({"action":"observe","executionId":"e","unexpected":true}),
@@ -354,7 +363,10 @@ async fn revisions_separate_control_activity_and_store_cas() {
         assert_eq!(view.activity_revision(), source_revision);
         assert_eq!(view.control_revision(), revision);
     }
-    db.execute("UPDATE executions SET status='unknown' WHERE id='e'", [])
+    db.execute(
+        "UPDATE executions SET status='unknown',activity_summary_code='execution.reconciling' WHERE id='e'",
+        [],
+    )
         .unwrap();
     let unknown = service
         .checked_operation(
@@ -483,7 +495,7 @@ async fn activity_mode_without_new_activity_waits_for_deadline_despite_display_a
     // Activity age uses UTC wall time, so a paused Tokio clock cannot exercise aging.
     let last_activity_at = now() - 29_000;
     db.execute(
-        "UPDATE executions SET status='running',dispatch_state='dispatched',last_activity_at=?1,activity_phase='tool',tool_category='test' WHERE id='e'",
+        "UPDATE executions SET status='running',dispatch_state='dispatched',last_activity_at=?1,activity_phase='tool',tool_category='test',activity_summary_code='tool.test' WHERE id='e'",
         [last_activity_at],
     )
     .unwrap();
@@ -543,7 +555,7 @@ async fn default_control_mode_without_known_revision_wakes_on_control_change() {
     );
     let transition = async {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        db.execute("UPDATE executions SET status='finalizing' WHERE id='e'", [])
+        db.execute("UPDATE executions SET status='finalizing',activity_summary_code='execution.finalizing' WHERE id='e'", [])
             .unwrap();
     };
     let started = Instant::now();
@@ -556,7 +568,7 @@ async fn default_control_mode_without_known_revision_wakes_on_control_change() {
         observed["data"]["controlRevision"],
         initial.control_revision
     );
-    assert_eq!(
+    assert_ne!(
         observed["data"]["activityRevision"],
         initial.activity_revision
     );
@@ -615,7 +627,7 @@ async fn activity_mode_without_known_revision_also_wakes_on_control_change() {
     );
     let transition = async {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        db.execute("UPDATE executions SET status='finalizing' WHERE id='e'", [])
+        db.execute("UPDATE executions SET status='finalizing',activity_summary_code='execution.finalizing' WHERE id='e'", [])
             .unwrap();
     };
     let started = Instant::now();
@@ -687,7 +699,7 @@ async fn completed_control_change_wakes_with_latest_activity_and_result() {
     let waiter = service.checked_operation(json!({"action":"observe","executionId":"e","knownControlRevision":initial.control_revision,"waitMs":2500}), None);
     let transition = async {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        db.execute("UPDATE executions SET status='completed',provider_terminal_status='completed',final_result_json='{}',completed_at=10,last_activity_at=9,activity_phase='provider' WHERE id='e'", []).unwrap();
+        db.execute("UPDATE executions SET status='completed',provider_terminal_status='completed',final_result_json='{}',completed_at=10,last_activity_at=9,activity_phase='provider',activity_summary_code='provider.processing' WHERE id='e'", []).unwrap();
     };
     let started = Instant::now();
     let (observed, ()) = tokio::join!(waiter, transition);
@@ -714,7 +726,7 @@ async fn uncertain_dispatch_convergence_wakes_control_observe() {
     let (dir, _store, service) = pending().await;
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
     db.execute(
-        "UPDATE executions SET dispatch_state='uncertain' WHERE id='e'",
+        "UPDATE executions SET dispatch_state='uncertain',activity_summary_code='execution.reconciling' WHERE id='e'",
         [],
     )
     .unwrap();
@@ -724,7 +736,7 @@ async fn uncertain_dispatch_convergence_wakes_control_observe() {
     let transition = async {
         tokio::time::sleep(Duration::from_millis(50)).await;
         db.execute(
-            "UPDATE executions SET dispatch_state='dispatched' WHERE id='e'",
+            "UPDATE executions SET dispatch_state='dispatched',activity_summary_code=NULL WHERE id='e'",
             [],
         )
         .unwrap();
@@ -849,7 +861,7 @@ async fn activity_projection_never_exposes_command_output_or_local_paths() {
         [],
     )
     .unwrap();
-    let command = "python C:\\private\\script.py --token secret-token --password hunter2";
+    let command = "python C:\\private\\script.py --token secret-token --password hunter2 --argv P3_ARGV_MARKER --env P3_ENV_MARKER";
     let activity = match crate::agent::codex::protocol::notification(
         "item/started".into(),
         json!({"threadId":"ROOT","turnId":"TURN","item":{
@@ -875,7 +887,7 @@ async fn activity_projection_never_exposes_command_output_or_local_paths() {
     assert!(matches!(
         crate::agent::codex::protocol::notification(
             "item/commandExecution/outputDelta".into(),
-            json!({"threadId":"ROOT","turnId":"TURN","itemId":"I","delta":"stdout secret-token hunter2 C:\\private"}),
+            json!({"threadId":"ROOT","turnId":"TURN","itemId":"I","delta":"stdout stderr secret-token hunter2 P3_CREDENTIAL_MARKER P3_SOURCE_MARKER P3_DIFF_MARKER C:\\private"}),
         )
         .unwrap(),
         crate::agent::codex::protocol::Notification::Other { .. }
@@ -892,7 +904,19 @@ async fn activity_projection_never_exposes_command_output_or_local_paths() {
             .await,
     ] {
         let exposed = response.to_string();
-        for secret in [command, "secret-token", "hunter2", "C:\\private", "stdout"] {
+        for secret in [
+            command,
+            "secret-token",
+            "hunter2",
+            "P3_ARGV_MARKER",
+            "P3_ENV_MARKER",
+            "P3_CREDENTIAL_MARKER",
+            "P3_SOURCE_MARKER",
+            "P3_DIFF_MARKER",
+            "C:\\private",
+            "stdout",
+            "stderr",
+        ] {
             assert!(
                 !exposed.contains(secret),
                 "Product exposed {secret}: {exposed}"
@@ -921,6 +945,8 @@ async fn dropping_observer_does_not_stop_owned_worker_or_create_another_turn() {
     assert_eq!(receipt["ok"], true, "{receipt}");
     assert!(receipt["data"].get("finalResult").is_none());
     assert!(receipt["data"].get("unchanged").is_none());
+    assert!(receipt["data"].get("wakeReason").is_none());
+    assert!(receipt["data"].get("mismatchKind").is_none());
     assert!(receipt["data"]["revision"].is_string());
     let id = receipt["data"]["executionId"].as_str().unwrap().to_string();
     let observer = {
@@ -940,7 +966,7 @@ async fn dropping_observer_does_not_stop_owned_worker_or_create_another_turn() {
     assert!(observer.await.unwrap_err().is_cancelled());
     // The fake Provider holds turn/start until release, so simulate an Activity snapshot here.
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
-    db.execute("UPDATE executions SET last_activity_at=?1,activity_phase='tool',tool_category='test' WHERE id=?2", rusqlite::params![now(), id]).unwrap();
+    db.execute("UPDATE executions SET last_activity_at=?1,activity_phase='tool',tool_category='test',activity_summary_code='tool.test' WHERE id=?2", rusqlite::params![now(), id]).unwrap();
     let reconnected = service.checked_operation(
         json!({"action":"observe","executionId":id,"knownControlRevision":receipt["data"]["controlRevision"],"waitMs":0}), None,
     ).await;
@@ -1026,7 +1052,10 @@ async fn diagnostic_revision_wakes_observe_and_list_agrees_across_lifecycle() {
         "completed",
     ] {
         db.execute(
-            "UPDATE executions SET status=?1,provider_terminal_status=?2 WHERE id='e'",
+            "UPDATE executions SET status=?1,provider_terminal_status=?2,
+             activity_summary_code=CASE
+               WHEN ?1 IN ('reconciling','unknown') THEN 'execution.reconciling'
+               ELSE NULL END WHERE id='e'",
             rusqlite::params![status, (status == "completed").then_some("completed")],
         )
         .unwrap();
@@ -1083,4 +1112,135 @@ async fn diagnostic_projection_never_exposes_raw_provider_payload() {
         assert!(!message.contains("secret"));
         assert!(!view.error_code.unwrap().contains("secret"));
     }
+}
+
+#[tokio::test]
+async fn activity_v2_tokens_and_observe_diagnostics_follow_frozen_contract() {
+    let (dir, store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute(
+        "UPDATE executions SET status='running',dispatch_state='dispatched',thread_id='ROOT',turn_id='TURN' WHERE id='e'",
+        [],
+    )
+    .unwrap();
+    store
+        .execution_activity(
+            "e".into(),
+            "ROOT".into(),
+            "TURN".into(),
+            ActivityPhase::Provider,
+            None,
+            now(),
+        )
+        .await
+        .unwrap();
+    let provider = service.observe("e".into(), false).await.unwrap();
+    assert_eq!(
+        provider.progress.summary_code.as_deref(),
+        Some("provider.processing")
+    );
+    store
+        .execution_activity(
+            "e".into(),
+            "ROOT".into(),
+            "TURN".into(),
+            ActivityPhase::Provider,
+            None,
+            now() + 1,
+        )
+        .await
+        .unwrap();
+    let heartbeat = service.observe("e".into(), false).await.unwrap();
+    assert_eq!(heartbeat.activity_revision, provider.activity_revision);
+
+    let waiter = service.checked_operation(
+        json!({
+            "action":"observe","executionId":"e",
+            "knownControlRevision":heartbeat.control_revision,
+            "knownActivityRevision":heartbeat.activity_revision,
+            "wakeOn":"activity","waitMs":2500
+        }),
+        None,
+    );
+    let update = async {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        store
+            .execution_activity(
+                "e".into(),
+                "ROOT".into(),
+                "TURN".into(),
+                ActivityPhase::Tool,
+                Some(ToolCategory::Test),
+                now(),
+            )
+            .await
+            .unwrap();
+    };
+    let (observed, ()) = tokio::join!(waiter, update);
+    assert_eq!(observed["data"]["wakeReason"], "activity");
+    assert_eq!(observed["data"]["unchanged"], true);
+    assert_eq!(observed["data"]["progress"]["summaryCode"], "tool.test");
+
+    let current = service.observe("e".into(), false).await.unwrap();
+    let stale_activity = service
+        .checked_operation(
+            json!({"action":"observe","executionId":"e","knownActivityRevision":"agent-activity-v1","waitMs":25000}),
+            None,
+        )
+        .await;
+    assert_eq!(stale_activity["data"]["wakeReason"], "initial_mismatch");
+    assert_eq!(stale_activity["data"]["mismatchKind"], "activity");
+    let control_wins = service
+        .checked_operation(
+            json!({"action":"observe","executionId":"e","knownControlRevision":"stale","knownActivityRevision":"stale","waitMs":25000}),
+            None,
+        )
+        .await;
+    assert_eq!(control_wins["data"]["mismatchKind"], "control");
+    let alias_loses = service
+        .checked_operation(
+            json!({"action":"observe","executionId":"e","knownRevision":"stale","knownControlRevision":current.control_revision,"knownActivityRevision":current.activity_revision,"waitMs":0}),
+            None,
+        )
+        .await;
+    assert_eq!(alias_loses["data"]["wakeReason"], "timeout");
+    assert_eq!(alias_loses["data"]["unchanged"], true);
+}
+
+#[tokio::test]
+async fn persisted_activity_contract_and_result_priority_fail_closed() {
+    let (dir, _store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    db.execute(
+        "UPDATE executions SET status='running',dispatch_state='dispatched',last_activity_at=1,activity_phase='tool',tool_category='test',activity_summary_code='tool.read' WHERE id='e'",
+        [],
+    )
+    .unwrap();
+    let invalid = service
+        .checked_operation(
+            json!({"action":"observe","executionId":"e","waitMs":0}),
+            None,
+        )
+        .await;
+    assert_eq!(invalid["error"]["code"], "AGENT_ACTIVITY_CONTRACT_ERROR");
+
+    db.execute(
+        "UPDATE executions SET status='completed',provider_terminal_status='completed',final_result_json='{}',completed_at=2,last_activity_at=NULL,activity_phase=NULL,tool_category=NULL,activity_summary_code=NULL WHERE id='e'",
+        [],
+    )
+    .unwrap();
+    let result = service
+        .checked_operation(
+            json!({"action":"observe","executionId":"e","includeResult":true,"waitMs":0}),
+            None,
+        )
+        .await;
+    assert_eq!(result["data"]["wakeReason"], "result");
+    let terminal = service
+        .checked_operation(
+            json!({"action":"observe","executionId":"e","waitMs":0}),
+            None,
+        )
+        .await;
+    assert_eq!(terminal["data"]["wakeReason"], "terminal");
 }

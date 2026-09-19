@@ -3,6 +3,7 @@ use crate::agent::{
     activity::ToolCategory,
     execution::{CreateExecutionInput, canonicalize_request},
     provider::{
+        ProviderId,
         port::AgentEventSink,
         telemetry::{AgentActivityEvent, AgentTelemetryEvent, UsageEvent},
     },
@@ -34,8 +35,24 @@ async fn create(store: &StateStore, id: &str, root: &std::path::Path, key: &str)
         .execution_id
 }
 
+/// 构造安全 Usage event，验证 projector 只委托 Store 而不理解私有 identity。
+fn usage_event(execution_id: String) -> UsageEvent {
+    UsageEvent::cumulative(
+        execution_id,
+        ProviderId::new("codex".into()).unwrap(),
+        16,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        10,
+    )
+}
+
 #[tokio::test]
-async fn projector_binds_activity_to_its_exact_execution_and_ignores_usage() {
+async fn projector_binds_activity_and_delegates_usage_only_for_its_exact_execution() {
     let directory = tempfile::tempdir().unwrap();
     let store = StateStore::open(directory.path().into()).await.unwrap();
     let first = create(
@@ -64,8 +81,10 @@ async fn projector_binds_activity_to_its_exact_execution_and_ignores_usage() {
             11,
         )))
         .await;
+    // 注入仅 Usage Store 能消费的故障，证明 projector 对匹配 event 做透明委托。
+    store.inject_observability_failure(crate::agent::store::ObservabilityFault::UsageProjection);
     projector
-        .publish(AgentTelemetryEvent::Usage(UsageEvent::new(first.clone())))
+        .publish(AgentTelemetryEvent::Usage(usage_event(first.clone())))
         .await;
 
     let projected = store.execution(first).await.unwrap().unwrap();
@@ -76,6 +95,11 @@ async fn projector_binds_activity_to_its_exact_execution_and_ignores_usage() {
     assert!(untouched.last_activity_at.is_none());
     assert!(untouched.activity_phase.is_none());
     assert!(untouched.tool_category.is_none());
+    assert!(
+        !store.observability_failure_pending(
+            crate::agent::store::ObservabilityFault::UsageProjection
+        )
+    );
 }
 
 #[tokio::test]
@@ -119,4 +143,5 @@ fn projector_stays_provider_agnostic_and_telemetry_stays_closed() {
     assert!(!source.contains("codex::"));
     assert!(source.contains("AgentTelemetryEvent::Activity"));
     assert!(source.contains("AgentTelemetryEvent::Usage"));
+    assert!(source.contains("project_execution_usage"));
 }

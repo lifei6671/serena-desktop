@@ -182,7 +182,7 @@ Can run in parallel with: P0-005、P0-008、P0-009
 
 Phase: Phase 0  
 Type: contract-test  
-Goal: 固定 Codex binary/version/hash、token schema、ordering、terminal coverage 和 checkpoint 能力。  
+Goal: 固定 Codex binary/version/hash、token schema、ordering、terminal/late observation、epoch/reset 与 checkpoint capability evidence。
 Why now: Phase 4 不得猜测累计值和 complete 边界。  
 Dependencies: None  
 Blocked by: pinned Codex binary  
@@ -191,9 +191,9 @@ Forbidden scope: 修改 runtime、推导 `total_tokens`。
 Contract references: §31～§35；§52 Phase 0/4  
 Implementation requirements: 覆盖 fresh、continue、terminal、late notification。  
 Non-goals: Usage DB/Product/UI。  
-Tests required: integer/null/ordering/coverage probes。  
+Tests required: integer/null/ordering/terminal-late/checkpoint probes。
 Evidence required: binary hash、wire samples、事件顺序。  
-Acceptance criteria: participating fields 与 complete 条件明确。  
+Acceptance criteria: 真实证据与未知项明确；DCR_REQUIRED 时冻结最小安全 Phase 4 合同。
 Rollback / failure behavior: 不满足时进入 DCR，仅阻塞 Phase 4。  
 Risk: high  
 Estimated blast radius: small  
@@ -2094,14 +2094,14 @@ Phase: Phase 4
 Type: implementation  
 Goal: 定义 UsageSnapshot、Completeness、revision 及严格整数校验。  
 Why now: DB 和 Codex parser 需要稳定公共模型。  
-Dependencies: P3-007、P0-008 (H/E)  
-Blocked by: Codex Usage contract evidence  
+Dependencies: P3-007、P0-008 Usage Contract DCR (accepted)
+Blocked by: None；Codex `complete` 不可达不是 generic domain blocker。
 Allowed scope: Agent usage domain/tests。  
 Forbidden scope: Provider 私有 identity、公共层计算 total。  
 Contract references: §30～§31.1；§50 Usage  
-Implementation requirements: null≠0；integer 范围严格；total 只接受 Provider 值。  
+Implementation requirements: null≠0；integer 范围严格；total 只接受 Provider 值；generic `unknown/partial/complete` 保留。
 Non-goals: DB/parser。  
-Tests required: null/zero/float/negative/string/overflow。  
+Tests required: null/zero/float/negative/string/overflow；Codex capability 不产生 complete。
 Evidence required: unit tests。  
 Acceptance criteria: 非法数字返回 `USAGE_EVENT_INVALID`。  
 Rollback / failure behavior: 无可信 usage 时保持 unknown/null。  
@@ -2113,16 +2113,16 @@ Can run in parallel with: None
 
 Phase: Phase 4  
 Type: migration  
-Goal: 增加公共 execution_usage 与 Codex private checkpoint/state 表。  
+Goal: 增加公共 execution_usage 与 Codex private epoch/state 表。
 Why now: parser 前先建立原子持久化边界。  
 Dependencies: P4-001、P0-003 (H)  
 Blocked by: None  
 Allowed scope: 新 Agent schema migration、store records/tests。  
 Forbidden scope: Activity/lifecycle schema 改动、历史补 0。  
 Contract references: §37～§38；§54.5  
-Implementation requirements: CHECK/FK 完整；旧 Execution 无行→unknown。  
+Implementation requirements: CHECK/FK 完整；旧 Execution 无行→unknown；`codex_thread_usage_epochs` 以 `(runtime_instance_id,thread_id)` 为 key，不承载 sync checkpoint 或 terminal coverage 语义。
 Non-goals: update 算法。  
-Tests required: migrate/constraints/old history/restart。  
+Tests required: migrate/constraints/old history/restart；epoch state 与 execution state 的 private/public 隔离。
 Evidence required: DB tests。  
 Acceptance criteria: 公共与 Provider-private 表清晰分离。  
 Rollback / failure behavior: migration 失败原子回滚。  
@@ -2136,14 +2136,14 @@ Phase: Phase 4
 Type: implementation  
 Goal: 按 pinned wire contract 解析累计 usage 并发布安全 event。  
 Why now: 只有 Provider Adapter 能理解 Codex 字段。  
-Dependencies: P4-001、P1-007、P0-008 (H/E)  
-Blocked by: Codex wire evidence  
+Dependencies: P4-001、P1-007、P0-008 Usage Contract DCR (accepted)
+Blocked by: None
 Allowed scope: `agent/codex/protocol.rs`、provider telemetry tests。  
 Forbidden scope: 公共层读取 thread/turn、silent cast/clamp。  
 Contract references: §23；§31；§38  
-Implementation requirements: publish 前校验 execution/runtime/thread/turn。  
-Non-goals: delta/store lifecycle。  
-Tests required: valid/invalid/duplicate/out-of-order/wrong identity。  
+Implementation requirements: 解析 `thread/tokenUsage/updated` cumulative snapshot；publish 前 exact execution/runtime/thread/turn identity binding；严格整数校验。
+Non-goals: public delta/store lifecycle、`last` 或 raw response aggregation。
+Tests required: valid/invalid/duplicate/out-of-order/wrong identity；`last`/raw response 不进入 Public Usage 计算。
 Evidence required: pinned wire fixture tests。  
 Acceptance criteria: 不可信 event 无法进入 Store。  
 Rollback / failure behavior: invalid event 丢弃并诊断，不影响 Execution。  
@@ -2151,20 +2151,20 @@ Risk: high
 Estimated blast radius: medium  
 Can run in parallel with: P4-002
 
-## P4-004 — Baseline Capture、Delta 与 Continue
+## P4-004 — Usage Epoch Baseline、Delta 与 Continue
 
 Phase: Phase 4  
 Type: implementation  
-Goal: 实现原子 nullable baseline 和可信 delta。  
-Why now: Continue Usage 不能用旧 checkpoint 猜测。  
+Goal: 实现 Codex epoch-scoped baseline、total-only delta 与 Continue 降级规则。
+Why now: Continue Usage 不能用旧 Runtime checkpoint 猜测。
 Dependencies: P4-002、P4-003 (H)  
-Blocked by: P0-008 terminal/checkpoint evidence  
-Allowed scope: Usage store service、Codex checkpoint adapter/tests。  
-Forbidden scope: partial field subtraction、`current-0`。  
+Blocked by: None；P0-008 DCR 已冻结可实施边界。
+Allowed scope: Usage store service、Codex epoch state adapter/tests。
+Forbidden scope: breakdown subtraction、跨 Runtime subtraction、`account/usage/read` checkpoint、泛化 `current-0`。
 Contract references: §32～§33；§38  
-Implementation requirements: participating fields 全 known 才算 delta；Continue 优先同步 checkpoint。  
+Implementation requirements: fresh Thread 仅允许 provenance-backed zero；Warm Continue 仅允许 same Runtime/same Thread observed snapshot；Cold Continue/restart=unknown；required participating counter 仅 Provider-supplied `totalTokens`。
 Non-goals: terminal grace。  
-Tests required: fresh/continue/missing/null/stale/different lineage/restart。  
+Tests required: fresh provenance-zero/same-epoch continue/missing/null/late identity pollution/restart/cross-runtime forbidden。
 Evidence required: baseline/delta DB assertions。  
 Acceptance criteria: 不完整 baseline 产生全 unknown delta。  
 Rollback / failure behavior: 证据不足降级 unknown，不影响执行。  
@@ -2172,23 +2172,23 @@ Risk: high
 Estimated blast radius: medium  
 Can run in parallel with: None
 
-## P4-005 — Terminal Coverage、Grace、Freeze 与 Late Events
+## P4-005 — Terminal Grace、Freeze 与 Late Events
 
 Phase: Phase 4  
 Type: implementation  
 Goal: 实现 accepting→terminal_grace→frozen telemetry lifecycle。  
-Why now: Execution terminal 与 Usage complete 必须解耦。  
+Why now: Execution terminal、telemetry acceptance 与 generic completeness 必须解耦。
 Dependencies: P4-003～P4-004 (H)  
-Blocked by: P0-008 terminal evidence  
+Blocked by: None；P0-008 已证明 Codex terminal/grace 不提供 complete finality。
 Allowed scope: Usage store/projector、runtime teardown hook、tests。  
 Forbidden scope: 延迟 Claim release、修改 Execution terminal。  
 Contract references: §34～§36  
-Implementation requirements: 2000ms grace；teardown/expiry/final checkpoint 冻结；late identity 严格。  
+Implementation requirements: 2000ms grace；Codex 仅 teardown/expiry 冻结；late identity 严格；generic Provider 可保留 authoritative final checkpoint trigger。
 Non-goals: UI。  
-Tests required: partial/complete、+1s accepted、expired/teardown rejected、duplicate/regression。  
+Tests required: Codex partial/unknown、+1s accepted、expired/teardown rejected、duplicate/same-epoch regression；generic complete 只用 fake Provider contract 测试，不伪装为 Codex 证据。
 Evidence required: deterministic clock tests。  
 Acceptance criteria: Usage 错误不影响 Claim/terminal。  
-Rollback / failure behavior: 不确定 coverage 保持 partial；frozen event drop。  
+Rollback / failure behavior: 不确定 Usage 保持 unknown/partial；frozen event drop。
 Risk: high  
 Estimated blast radius: medium  
 Can run in parallel with: None
@@ -2204,7 +2204,7 @@ Blocked by: None
 Allowed scope: `agent/product.rs`、history/list queries、DTO/types tests。  
 Forbidden scope: UI 相加 total、读取 Codex private identity。  
 Contract references: §39；§40；§51.6  
-Implementation requirements: detail 完整 usage；list 返回 total/completeness/providerId。  
+Implementation requirements: detail 投影 generic unknown/partial/complete；list 返回 total/completeness/providerId；Codex 未证明 complete 时不得生成 complete。
 Non-goals: 前端显示。  
 Tests required: absent/unknown/partial/complete/zero/historical/list query count。  
 Evidence required: DTO snapshots。  
@@ -2220,14 +2220,27 @@ Phase: Phase 4
 Type: integration-test  
 Goal: 关闭 Phase 4 Gate。  
 Why now: wire、DB、delta、terminal 需联合证明。  
-Dependencies: P4-001～P4-006 (H)  
-Blocked by: P0-008 (E)  
+Dependencies: P4-001～P4-006 (H)、P0-008 Usage Contract DCR (accepted)
+Blocked by: None
 Allowed scope: Codex/provider/product integration tests。  
 Forbidden scope: UI。  
 Contract references: §52 Phase 4；§53 Usage；§56.37～§42、§101  
-Implementation requirements: fresh/continue/restart/null/duplicate/regression/coverage/grace/freeze。  
+Implementation requirements: fresh provenance-zero、same-epoch delta、restart/epoch-change unknown、cross-runtime subtraction forbidden、no account checkpoint、same-epoch regression、cacheWrite absent、context-window exclusion、terminal/grace/freeze non-complete、late identity/freeze、Provider total only。
 Non-goals: Manual 真实 UI。  
-Tests required: 完整 Usage matrix。  
+Tests required: 完整 DCR Usage matrix：
+
+- fresh Thread provenance zero -> partial observed usage；
+- same Runtime/same Thread cumulative delta（仅在 DCR identity 条件满足时）；
+- restart/runtime epoch change -> unknown，且不报 regression；
+- cross-runtime subtraction forbidden；
+- `account/usage/read` 不作为 checkpoint；
+- same-epoch counter regression rejected；
+- cacheWrite absent != 0；
+- modelContextWindow 不参与 total/delta；
+- terminal/grace/freeze 不升级 complete；
+- late event identity/freeze；
+- public total 永不从 breakdown 相加；
+- Codex only asserts partial/unknown，generic complete 使用 fake Provider contract。
 Evidence required: test totals 和 pinned contract 引用。  
 Acceptance criteria: 所有 Gate PASS 且 public 不推导 total。  
 Rollback / failure behavior: 失败阻止 Phase 5；Execution 功能保持可用。  
@@ -2871,11 +2884,11 @@ P3-001..006 → P3-007 → Phase 3 Gate
 ```
 
 ```text
-Phase 3 Gate + P0-008(E)
+Phase 3 Gate + P0-008 Usage Contract DCR (accepted)
   └→ P4-001 → P4-002
        └────────→ P4-003
 P4-002 + P4-003 → P4-004 → P4-005 → P4-006
-P4-001..006 + P0-008(E) → P4-007 → Phase 4 Gate
+P4-001..006 → P4-007 → Phase 4 Gate
 ```
 
 ```text

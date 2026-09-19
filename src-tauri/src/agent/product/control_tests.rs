@@ -131,11 +131,7 @@ async fn control_attention_distinguishes_clean_pending_unknown_and_active_work()
         ("running", "dispatched", "none", "observe", false),
         ("finalizing", "dispatched", "none", "observe", false),
     ] {
-        db.execute(
-            "UPDATE executions SET status=?1,dispatch_state=?2 WHERE id='e'",
-            [status, dispatch],
-        )
-        .unwrap();
+        set_v8_execution_state(&db, "e", status, dispatch, None, None);
         let response = service
             .checked_operation(
                 json!({"action":"observe","executionId":"e","waitMs":0}),
@@ -330,11 +326,7 @@ async fn control_uncertain_resume_rejection_uses_persisted_facts_not_runtime_or_
     service.manager.backend_error = Some("BACKEND_UNAVAILABLE: no launch".into());
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
     for dispatch in ["dispatching", "uncertain", "dispatched", "not_dispatched"] {
-        db.execute(
-            "UPDATE executions SET status='unknown',dispatch_state=?1 WHERE id='e'",
-            [dispatch],
-        )
-        .unwrap();
+        set_v8_execution_state(&db, "e", "unknown", dispatch, None, None);
         let before = store.execution("e".into()).await.unwrap().unwrap();
         for action in ["observe", "resume_pending", "cancel"] {
             let args = if action == "observe" {

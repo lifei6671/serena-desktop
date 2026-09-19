@@ -245,11 +245,7 @@ async fn accepted_transport_errors_project_original_control_instead_of_rejecting
     let service = AgentProductService::new(store.clone());
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
     for state in ["not_dispatched", "dispatching", "uncertain", "dispatched"] {
-        db.execute(
-            "UPDATE executions SET dispatch_state=?1 WHERE id='E'",
-            [state],
-        )
-        .unwrap();
+        set_v8_execution_state(&db, "E", "dispatch_pending", state, None, None);
         let expected =
             serde_json::to_value(service.observe("E".into(), false).await.unwrap().control)
                 .unwrap();

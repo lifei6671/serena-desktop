@@ -600,8 +600,11 @@ fn work_adapter_queries_are_passive_and_inactive_work_cancels_running_execution(
             .agent_query(AgentQueryAction::Observe {
                 execution_id: id.clone(),
                 known_revision: Some(initial.control_revision),
+                known_control_revision: None,
+                known_activity_revision: None,
                 wait_ms: Some(80),
                 include_result: Some(true),
+                wake_on: None,
             })
             .await
             .unwrap()

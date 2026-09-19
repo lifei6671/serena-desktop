@@ -17,10 +17,10 @@
 
 ## Acceptance Criteria
 
-- [ ] `UsageSnapshot` 以 camelCase 且拒绝未知字段序列化/反序列化。
-- [ ] 非法 wire 输入通过公共入口稳定映射为 `USAGE_EVENT_INVALID`。
-- [ ] unknown/partial/complete 均可 round-trip，domain 不硬编码 Codex capability。
-- [ ] 覆盖 P4-001 指定的 null/zero、total、数值边界、identity、未知字段与 enum 测试矩阵。
+- [x] `UsageSnapshot` 以 camelCase 且拒绝未知字段序列化/反序列化。
+- [x] 非法 wire 输入通过公共入口稳定映射为 `USAGE_EVENT_INVALID`。
+- [x] unknown/partial/complete 均可 round-trip，domain 不硬编码 Codex capability。
+- [x] 覆盖 P4-001 指定的 null/zero、total、数值边界、identity、未知字段与 enum 测试矩阵。
 
 ## Notes
 

@@ -237,8 +237,11 @@ async fn start_durable_receipt_retry_lineage_and_continuation_reuse_existing_wor
             s.agent_query(AgentQueryAction::Observe {
                 execution_id: next.execution_id.clone(),
                 known_revision: None,
+                known_control_revision: None,
+                known_activity_revision: None,
                 wait_ms: Some(0),
                 include_result: Some(true),
+                wake_on: None,
             })
             .await
             .unwrap(),
@@ -477,8 +480,11 @@ async fn query_exact_get_observe_timeout_and_change_are_read_only() {
         s.agent_query(AgentQueryAction::Observe {
             execution_id: "E".into(),
             known_revision: Some(initial.control_revision.clone()),
+            known_control_revision: None,
+            known_activity_revision: None,
             wait_ms: Some(80),
             include_result: None,
+            wake_on: None,
         })
         .await
         .unwrap(),
@@ -493,8 +499,11 @@ async fn query_exact_get_observe_timeout_and_change_are_read_only() {
             s.agent_query(AgentQueryAction::Observe {
                 execution_id: "E".into(),
                 known_revision: Some("different-opaque-token".into()),
+                known_control_revision: None,
+                known_activity_revision: None,
                 wait_ms: wait,
                 include_result: None,
+                wake_on: None,
             }),
         )
         .await
@@ -505,8 +514,11 @@ async fn query_exact_get_observe_timeout_and_change_are_read_only() {
     let waiter = s.agent_query(AgentQueryAction::Observe {
         execution_id: "E".into(),
         known_revision: Some(initial.control_revision),
+        known_control_revision: None,
+        known_activity_revision: None,
         wait_ms: Some(20_000),
         include_result: None,
+        wake_on: None,
     });
     let change = async {
         tokio::time::sleep(Duration::from_millis(60)).await;
@@ -548,8 +560,11 @@ async fn observe_default_wait_is_fifteen_seconds() {
     s.agent_query(AgentQueryAction::Observe {
         execution_id: "E".into(),
         known_revision: None,
+        known_control_revision: None,
+        known_activity_revision: None,
         wait_ms: None,
         include_result: None,
+        wake_on: None,
     })
     .await
     .unwrap();
@@ -744,24 +759,115 @@ async fn adapter_validation_and_start_work_guards_create_nothing() {
             work_run_id: "".into(),
             limit: None,
         },
-        AgentQueryAction::Observe {
-            execution_id: "E".into(),
-            known_revision: None,
-            wait_ms: Some(20_001),
-            include_result: None,
-        },
-        AgentQueryAction::Observe {
-            execution_id: "E".into(),
-            known_revision: Some(" ".into()),
-            wait_ms: None,
-            include_result: None,
-        },
     ] {
         assert_eq!(
             s.agent_query(action).await.unwrap_err().code,
             "WORK_INVALID_ARGUMENT"
         );
     }
+    for action in [
+        AgentQueryAction::Observe {
+            execution_id: "".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(0),
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "   ".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(0),
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "bad id".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(0),
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "bad\tid".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(0),
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "bad\nid".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(0),
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "E".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(20_001),
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "E".into(),
+            known_revision: Some(" ".into()),
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: None,
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "E".into(),
+            known_revision: None,
+            known_control_revision: Some(" ".into()),
+            known_activity_revision: None,
+            wait_ms: None,
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "E".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: Some(" ".into()),
+            wait_ms: None,
+            include_result: None,
+            wake_on: None,
+        },
+    ] {
+        assert_eq!(
+            s.agent_query(action).await.unwrap_err().code,
+            "AGENT_OBSERVE_INVALID_ARGUMENT"
+        );
+    }
+    assert_eq!(
+        s.agent_query(AgentQueryAction::Observe {
+            execution_id: "E-1_abc".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(0),
+            include_result: None,
+            wake_on: None,
+        })
+        .await
+        .unwrap_err()
+        .code,
+        "AGENT_EXECUTION_NOT_FOUND"
+    );
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
     for status in ["completed", "failed", "cancelled"] {
         db.execute("UPDATE work_runs SET status=?1", [status])
@@ -828,8 +934,11 @@ async fn dropping_adapter_caller_and_observer_keeps_owned_execution_running() {
     let observer = s.agent_query(AgentQueryAction::Observe {
         execution_id: id.clone(),
         known_revision: None,
+        known_control_revision: None,
+        known_activity_revision: None,
         wait_ms: Some(20_000),
         include_result: None,
+        wake_on: None,
     });
     assert!(
         tokio::time::timeout(Duration::from_millis(80), observer)
@@ -846,7 +955,7 @@ async fn dropping_adapter_caller_and_observer_keeps_owned_execution_running() {
 }
 
 #[tokio::test]
-async fn cancel_projection_failure_preserves_committed_execution_identity() {
+async fn invalid_persisted_activity_rejects_cancel_without_claim_side_effect() {
     let dir = tempfile::tempdir().unwrap();
     let store = StateStore::open(dir.path().into()).await.unwrap();
     create_work(&store, dir.path(), "work").await;
@@ -854,7 +963,7 @@ async fn cancel_projection_failure_preserves_committed_execution_identity() {
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
     // Valid SQL field values, but an invalid Activity combination for the view.
     db.execute("UPDATE executions SET last_activity_at=1, activity_phase='tool', tool_category=NULL WHERE id='E'", []).unwrap();
-    let before = store.execution("E".into()).await.unwrap().unwrap();
+    let before = store.execution("E".into()).await.unwrap();
     let work = store.work_run("work".into()).await.unwrap();
     let links = store.work_execution_links("work".into()).await.unwrap();
     assert!(
@@ -887,37 +996,34 @@ async fn cancel_projection_failure_preserves_committed_execution_identity() {
         )
         .await
         .unwrap_err();
-    let committed = store.execution("E".into()).await.unwrap().unwrap();
-    assert_eq!(committed.status, "cancelled");
-    assert_eq!(committed.revision, before.revision + 1);
-    assert_eq!(committed.dispatch_state, before.dispatch_state);
+    // 非法 Activity 不允许借由取消路径被悄然修复或推进生命周期。
+    assert!(error.accepted_execution_id.is_none());
+    assert_eq!(store.execution("E".into()).await.unwrap(), before);
     assert!(
         store
             .workspace_claim(dir.path().to_string_lossy().into())
             .await
             .unwrap()
-            .is_none()
+            .is_some()
     );
-    assert_eq!(error.accepted_execution_id.as_deref(), Some("E"));
     let response = s.adapter_error_response(error).await;
     assert_eq!(response["ok"], false);
     assert_eq!(response["error"]["code"], "AGENT_OPERATION_FAILED");
-    assert_eq!(response["error"]["executionId"], "E");
     assert_eq!(
         response["control"],
         json!({
-            "requestAccepted": true, "providerInvoked": null, "dispatchCertainty": "uncertain",
-            "nextAction": {"action": "observe", "waitMs": 20000, "executionId": "E"}
+            "requestAccepted": false, "providerInvoked": false, "dispatchCertainty": "not_dispatched",
+            "nextAction": null
         })
     );
-    // Error projection is a read: it cannot cancel twice, dispatch, or create rows.
-    assert_eq!(store.execution("E".into()).await.unwrap(), Some(committed));
+    // 拒绝路径不能启动运行时、创建行或释放 Claim。
+    assert_eq!(store.execution("E".into()).await.unwrap(), before);
     assert!(
         store
             .workspace_claim(dir.path().to_string_lossy().into())
             .await
             .unwrap()
-            .is_none()
+            .is_some()
     );
     assert_eq!(store.work_run("work".into()).await.unwrap(), work);
     assert_eq!(

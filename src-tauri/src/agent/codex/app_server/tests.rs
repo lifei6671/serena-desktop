@@ -275,9 +275,12 @@ fn stale_activity_envelope_runtime_is_dropped_and_execution_completes() {
         assert_eq!(row.provider_terminal_status.as_deref(), Some("completed"));
         assert_eq!(row.result_completeness, "complete");
         assert_eq!(row.release_evidence_state, "complete");
-        assert!(row.last_activity_at.is_none());
+        // 合法终结路径会留下 finalizing/terminal 的 Activity 语义时间；旧 Runtime 的 tool/test 不得成为 current。
+        assert!(row.last_activity_at.is_some());
         assert!(row.activity_phase.is_none());
         assert!(row.tool_category.is_none());
+        assert!(row.activity_summary_code.is_none());
+        assert_eq!(row.activity_sequence, 2);
         assert!(row.error_code.is_none());
     });
 }

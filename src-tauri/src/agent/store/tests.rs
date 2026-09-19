@@ -42,7 +42,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
         let store = open(dir.path());
         let c = store.connection.lock().unwrap();
         for (pragma, expected) in [
-            ("user_version", 7),
+            ("user_version", 9),
             ("foreign_keys", 1),
             ("synchronous", 2),
             ("busy_timeout", 5000),
@@ -65,6 +65,10 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
             "workspace_claims",
             "work_runs",
             "work_execution_links",
+            "execution_activity_events",
+            "execution_usage",
+            "codex_thread_usage_epochs",
+            "codex_execution_usage_state",
             "prevent_execution_runtime_rebind",
             "executions_runtime_state",
             "executions_one_unresolved_per_agent",
@@ -79,6 +83,15 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
                 1
             );
         }
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE name='codex_thread_usage_checkpoints'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0
+        );
     }
     assert!(dir.path().join("agent-state.db").is_file());
 }
@@ -121,7 +134,7 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        7
+        9
     );
     assert_eq!(
         c.query_row(
@@ -172,6 +185,45 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
             )
             .unwrap(),
         0
+    );
+}
+
+/// 验证 v9 发生 SQL 故障时，版本号和三张 Usage 表都不会部分提交。
+#[test]
+fn v9_migration_failure_rolls_back_usage_schema_and_version() {
+    let mut c = Connection::open_in_memory().unwrap();
+    create_v8(&c);
+    {
+        let tx = c.transaction().unwrap();
+        let invalid = format!("{SCHEMA_V9}\nCREATE TABLE v9_broken (");
+        assert!(apply_migration(&tx, 9, &invalid).is_err());
+    }
+    assert_eq!(
+        c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        8
+    );
+    for table in [
+        "execution_usage",
+        "codex_thread_usage_epochs",
+        "codex_execution_usage_state",
+    ] {
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?1",
+                [table],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0,
+            "{table}"
+        );
+    }
+    migrate(&mut c).unwrap();
+    assert_eq!(
+        c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        9
     );
 }
 
@@ -236,7 +288,7 @@ fn v2_migration_preserves_history_and_adds_nullable_activity() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        7
+        9
     );
     let old = execution_record(&c, "old").unwrap().unwrap();
     assert_eq!(old.last_activity_at, None);
@@ -268,7 +320,7 @@ fn every_pre_v6_schema_preserves_history_and_reopens_with_null_parent() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            7
+            9
         );
         let after = execution_record(&c, "old").unwrap().unwrap();
         assert_eq!((after.request_hash, after.prompt, after.thread_id), before);
@@ -299,12 +351,12 @@ fn unsupported_or_unversioned_history_is_not_guessed_or_rewritten() {
             .unwrap(),
         0
     );
-    c.pragma_update(None, "user_version", 8).unwrap();
+    c.pragma_update(None, "user_version", 10).unwrap();
     assert!(migrate(&mut c).unwrap_err().contains("unsupported"));
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        8
+        10
     );
 }
 
@@ -352,10 +404,12 @@ fn v6_upgrade_preserves_rows_and_defines_generation_one_baseline() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        7
+        9
     );
     let mut expected_executions = executions;
     expected_executions[0].push(rusqlite::types::Value::Integer(1));
+    expected_executions[0].push(rusqlite::types::Value::Null);
+    expected_executions[0].push(rusqlite::types::Value::Integer(0));
     let mut expected_work_runs = work_runs;
     expected_work_runs[0].push(rusqlite::types::Value::Integer(1));
     let actual_executions = c
@@ -442,6 +496,550 @@ fn v7_generation_columns_default_to_one_and_reject_nonpositive_raw_sql() {
             "workspace_generation INTEGER NOT NULL DEFAULT 1 CHECK(workspace_generation >= 1)"
         ));
     }
+}
+
+/// 构造真实 v7 数据库，以覆盖 v8 的独立升级路径。
+fn create_v7(c: &Connection) {
+    for schema in [
+        SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7,
+    ] {
+        c.execute_batch(schema).unwrap();
+    }
+    c.pragma_update(None, "user_version", 7).unwrap();
+}
+
+/// 构造真实 v8 数据库，以覆盖 v9 的独立升级路径。
+fn create_v8(c: &Connection) {
+    for schema in [
+        SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_V4, SCHEMA_V5, SCHEMA_V6, SCHEMA_V7, SCHEMA_V8,
+    ] {
+        c.execute_batch(schema).unwrap();
+    }
+    c.pragma_update(None, "user_version", 8).unwrap();
+}
+
+/// 验证新库包含 v8 Activity 结构及其全部关键约束。
+#[test]
+fn v8_fresh_database_has_activity_current_and_history_constraints() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    let mut c = store.connection.lock().unwrap();
+    insert(&mut c, "parent", "agent", "root");
+
+    for column in ["activity_summary_code", "activity_sequence"] {
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM pragma_table_info('executions') WHERE name=?1",
+                [column],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1,
+            "{column}"
+        );
+    }
+    assert_eq!(
+        c.query_row(
+            "SELECT on_delete FROM pragma_foreign_key_list('execution_activity_events')",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap(),
+        "RESTRICT"
+    );
+    assert!(
+        c.execute(
+            "UPDATE executions SET activity_sequence=-1 WHERE id='parent'",
+            []
+        )
+        .is_err()
+    );
+
+    c.execute(
+        "INSERT INTO execution_activity_events
+         (execution_id,sequence,activity_phase,tool_category,summary_code,activity_revision,observed_at)
+         VALUES ('parent',0,'tool','read','tool.read','revision',1)",
+        [],
+    )
+    .unwrap();
+    c.execute(
+        "INSERT INTO execution_activity_events
+         (execution_id,sequence,summary_code,activity_revision,observed_at)
+         VALUES ('parent',1,NULL,'revision',2)",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        c.query_row(
+            "SELECT summary_code FROM execution_activity_events WHERE execution_id='parent' AND sequence=1",
+            [],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .unwrap(),
+        None
+    );
+    assert!(
+        c.execute(
+            "INSERT INTO execution_activity_events
+             (execution_id,sequence,summary_code,activity_revision,observed_at)
+             VALUES ('parent',0,'provider.processing','revision',3)",
+            [],
+        )
+        .is_err()
+    );
+    assert!(
+        c.execute(
+            "INSERT INTO execution_activity_events
+             (execution_id,sequence,summary_code,activity_revision,observed_at)
+             VALUES ('missing',0,'provider.processing','revision',1)",
+            [],
+        )
+        .is_err()
+    );
+    assert!(
+        c.execute("DELETE FROM executions WHERE id='parent'", [])
+            .is_err()
+    );
+}
+
+/// 验证 v7 历史行只回填当前摘要，并完整覆盖冻结的 summaryCode 映射。
+#[test]
+fn v8_backfills_current_summary_without_inventing_history() {
+    let mut c = Connection::open_in_memory().unwrap();
+    create_v7(&c);
+    let cases = [
+        (
+            "finalizing",
+            "not_dispatched",
+            Some("provider"),
+            Some("read"),
+            Some("execution.finalizing"),
+        ),
+        (
+            "reconciling",
+            "not_dispatched",
+            Some("tool"),
+            Some("test"),
+            Some("execution.reconciling"),
+        ),
+        (
+            "dispatch_pending",
+            "uncertain",
+            Some("tool"),
+            Some("command"),
+            Some("execution.reconciling"),
+        ),
+        (
+            "running",
+            "dispatched",
+            Some("provider"),
+            None,
+            Some("provider.processing"),
+        ),
+        (
+            "running",
+            "dispatched",
+            Some("tool"),
+            Some("read"),
+            Some("tool.read"),
+        ),
+        (
+            "running",
+            "dispatched",
+            Some("tool"),
+            Some("edit"),
+            Some("tool.edit"),
+        ),
+        (
+            "running",
+            "dispatched",
+            Some("tool"),
+            Some("command"),
+            Some("tool.command"),
+        ),
+        (
+            "running",
+            "dispatched",
+            Some("tool"),
+            Some("build"),
+            Some("tool.build"),
+        ),
+        (
+            "running",
+            "dispatched",
+            Some("tool"),
+            Some("test"),
+            Some("tool.test"),
+        ),
+        (
+            "running",
+            "dispatched",
+            Some("tool"),
+            Some("tool"),
+            Some("tool.other"),
+        ),
+        ("completed", "dispatched", None, None, None),
+    ];
+    for (index, (status, dispatch_state, activity_phase, tool_category, _)) in
+        cases.iter().enumerate()
+    {
+        let id = format!("execution-{index}");
+        let agent = format!("agent-{index}");
+        insert_pre_v6(&c, &id, &agent, "root", None);
+        c.execute(
+            "UPDATE executions SET status=?1, dispatch_state=?2, activity_phase=?3, tool_category=?4 WHERE id=?5",
+            params![status, dispatch_state, activity_phase, tool_category, id],
+        )
+        .unwrap();
+    }
+
+    migrate(&mut c).unwrap();
+    assert_eq!(
+        c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        9
+    );
+    assert_eq!(
+        c.query_row(
+            "SELECT count(*) FROM execution_activity_events",
+            [],
+            |row| { row.get::<_, i64>(0) }
+        )
+        .unwrap(),
+        0
+    );
+    for (index, (_, _, _, _, expected_summary)) in cases.iter().enumerate() {
+        let id = format!("execution-{index}");
+        let row = execution_record(&c, &id).unwrap().unwrap();
+        assert_eq!(
+            row.activity_summary_code.as_deref(),
+            *expected_summary,
+            "{id}"
+        );
+        assert_eq!(row.activity_sequence, 0, "{id}");
+    }
+    migrate(&mut c).unwrap();
+}
+
+/// 验证非法旧 Activity 组合会中止整个 v8 事务，不留下半升级结构。
+#[test]
+fn v8_invalid_legacy_activity_fails_closed_without_partial_schema() {
+    for (activity_phase, tool_category) in [("provider", Some("read")), ("tool", None)] {
+        let mut c = Connection::open_in_memory().unwrap();
+        create_v7(&c);
+        insert_pre_v6(&c, "invalid", "agent", "root", None);
+        c.execute(
+            "UPDATE executions SET status='running', dispatch_state='dispatched',
+             activity_phase=?1, tool_category=?2 WHERE id='invalid'",
+            params![activity_phase, tool_category],
+        )
+        .unwrap();
+
+        assert!(
+            migrate(&mut c)
+                .unwrap_err()
+                .contains("AGENT_ACTIVITY_CONTRACT_ERROR")
+        );
+        assert_eq!(
+            c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            7
+        );
+        for (kind, name) in [
+            ("table", "execution_activity_events"),
+            ("trigger", "validate_v8_activity_backfill"),
+        ] {
+            assert_eq!(
+                c.query_row(
+                    "SELECT count(*) FROM sqlite_schema WHERE type=?1 AND name=?2",
+                    [kind, name],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+                0,
+                "{name}"
+            );
+        }
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM pragma_table_info('executions') WHERE name='activity_summary_code'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0
+        );
+    }
+}
+
+/// 验证磁盘上的真实 v8 fixture 原子升级到 v9，且不为历史 Execution 补 Usage。
+#[test]
+fn v9_migrates_real_v8_fixture_without_backfilling_usage() {
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("agent-state.db");
+    let mut c = Connection::open(&database).unwrap();
+    create_v8(&c);
+    insert(&mut c, "legacy", "agent", "root");
+    drop(c);
+
+    let store = open(dir.path());
+    {
+        let c = store.connection.lock().unwrap();
+        assert_eq!(
+            c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            9
+        );
+        assert_eq!(
+            c.query_row(
+                "SELECT count(*) FROM execution_usage WHERE execution_id='legacy'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0
+        );
+        for table in ["codex_thread_usage_epochs", "codex_execution_usage_state"] {
+            assert_eq!(
+                c.query_row(
+                    "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?1",
+                    [table],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+                1,
+                "{table}"
+            );
+        }
+    }
+    assert!(
+        tauri::async_runtime::block_on(store.execution_usage("legacy".into()))
+            .unwrap()
+            .is_none()
+    );
+}
+
+/// 验证 v9 的 FK、CHECK 与 epoch 复合主键均由 SQLite 拒绝非法写入。
+#[test]
+fn v9_usage_schema_enforces_foreign_keys_keys_and_constraints() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    let mut c = store.connection.lock().unwrap();
+
+    assert!(
+        c.execute(
+            "INSERT INTO execution_usage(execution_id,provider_id,completeness,updated_at)
+             VALUES ('missing','codex','unknown',0)",
+            [],
+        )
+        .is_err()
+    );
+    assert!(
+        c.execute(
+            "INSERT INTO codex_execution_usage_state(
+                execution_id,runtime_instance_id,thread_id,baseline_kind,telemetry_state
+             ) VALUES ('missing','runtime','thread','unknown','accepting')",
+            [],
+        )
+        .is_err()
+    );
+
+    insert(&mut c, "completeness", "completeness-agent", "root");
+    assert!(
+        c.execute(
+            "INSERT INTO execution_usage(execution_id,provider_id,completeness,updated_at)
+             VALUES ('completeness','codex','invalid',0)",
+            [],
+        )
+        .is_err()
+    );
+    assert!(
+        c.execute(
+            "INSERT INTO execution_usage(execution_id,provider_id,completeness,usage_revision,updated_at)
+             VALUES ('completeness','codex','unknown',-1,0)",
+            [],
+        )
+        .is_err()
+    );
+
+    for (index, column) in [
+        "input_tokens",
+        "cached_input_tokens",
+        "cache_write_input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+        "total_tokens",
+        "model_context_window",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let negative_id = format!("negative-{index}");
+        let nullable_id = format!("nullable-{index}");
+        let negative_agent = format!("negative-agent-{index}");
+        let nullable_agent = format!("nullable-agent-{index}");
+        insert(&mut c, &negative_id, &negative_agent, "root");
+        insert(&mut c, &nullable_id, &nullable_agent, "root");
+        assert!(c
+            .execute(
+                &format!(
+                    "INSERT INTO execution_usage(execution_id,provider_id,{column},completeness,updated_at)
+                     VALUES (?1,'codex',-1,'unknown',0)"
+                ),
+                [&negative_id],
+            )
+            .is_err(),
+            "{column}"
+        );
+        c.execute(
+            &format!(
+                "INSERT INTO execution_usage(execution_id,provider_id,{column},completeness,updated_at)
+                 VALUES (?1,'codex',NULL,'unknown',0)"
+            ),
+            [&nullable_id],
+        )
+        .unwrap();
+        c.execute(
+            &format!("UPDATE execution_usage SET {column}=0 WHERE execution_id=?1"),
+            [&nullable_id],
+        )
+        .unwrap();
+    }
+
+    c.execute(
+        "INSERT INTO codex_thread_usage_epochs(
+            runtime_instance_id,thread_id,latest_cumulative_json,latest_turn_id,captured_at
+         ) VALUES ('runtime','thread','{}',NULL,1)",
+        [],
+    )
+    .unwrap();
+    assert!(
+        c.execute(
+            "INSERT INTO codex_thread_usage_epochs(
+                runtime_instance_id,thread_id,latest_cumulative_json,latest_turn_id,captured_at
+             ) VALUES ('runtime','thread','{}',NULL,2)",
+            [],
+        )
+        .is_err()
+    );
+    c.execute(
+        "INSERT INTO codex_thread_usage_epochs(
+            runtime_instance_id,thread_id,latest_cumulative_json,latest_turn_id,captured_at
+         ) VALUES ('runtime','other-thread','{}',NULL,2)",
+        [],
+    )
+    .unwrap();
+
+    insert(&mut c, "baseline", "baseline-agent", "root");
+    assert!(
+        c.execute(
+            "INSERT INTO codex_execution_usage_state(
+                execution_id,runtime_instance_id,thread_id,baseline_kind,telemetry_state
+             ) VALUES ('baseline','runtime','thread','invalid','accepting')",
+            [],
+        )
+        .is_err()
+    );
+    insert(&mut c, "telemetry", "telemetry-agent", "root");
+    assert!(
+        c.execute(
+            "INSERT INTO codex_execution_usage_state(
+                execution_id,runtime_instance_id,thread_id,baseline_kind,telemetry_state
+             ) VALUES ('telemetry','runtime','thread','unknown','invalid')",
+            [],
+        )
+        .is_err()
+    );
+}
+
+/// 验证 v9 行重开后不丢失，并经由读模型保持公共与 Provider-private 边界。
+#[test]
+fn v9_usage_records_survive_restart_and_read_through_store_scaffolding() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    {
+        let mut c = store.connection.lock().unwrap();
+        insert(&mut c, "persisted", "agent", "root");
+        c.execute(
+            "INSERT INTO execution_usage(
+                execution_id,provider_id,input_tokens,cached_input_tokens,cache_write_input_tokens,
+                output_tokens,reasoning_tokens,total_tokens,model_context_window,completeness,
+                usage_revision,updated_at
+             ) VALUES ('persisted','codex',0,NULL,2,3,NULL,5,6,'partial',7,8)",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO codex_thread_usage_epochs(
+                runtime_instance_id,thread_id,latest_cumulative_json,latest_turn_id,captured_at
+             ) VALUES ('runtime','thread','{\"total\":5}','turn',9)",
+            [],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO codex_execution_usage_state(
+                execution_id,runtime_instance_id,thread_id,turn_id,baseline_kind,baseline_json,
+                latest_cumulative_json,telemetry_state,terminal_at,freeze_at,last_event_at
+             ) VALUES ('persisted','runtime','thread','turn','observed_same_epoch','{\"total\":1}',
+                       '{\"total\":5}','terminal_grace',10,NULL,11)",
+            [],
+        )
+        .unwrap();
+    }
+    drop(store);
+
+    let reopened = open(dir.path());
+    let snapshot = tauri::async_runtime::block_on(reopened.execution_usage("persisted".into()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(snapshot.provider_id.as_str(), "codex");
+    assert_eq!(snapshot.input_tokens, Some(0));
+    assert_eq!(snapshot.cached_input_tokens, None);
+    assert_eq!(snapshot.total_tokens, Some(5));
+    assert_eq!(snapshot.revision, 7);
+    assert_eq!(snapshot.updated_at, 8);
+    assert_eq!(
+        snapshot.completeness,
+        crate::agent::usage::UsageCompleteness::Partial
+    );
+
+    let c = reopened.connection.lock().unwrap();
+    let epoch = usage::codex_thread_usage_epoch_record(&c, "runtime", "thread")
+        .unwrap()
+        .unwrap();
+    assert_eq!(epoch.latest_turn_id.as_deref(), Some("turn"));
+    assert_eq!(epoch.captured_at, 9);
+    let state = usage::codex_execution_usage_state_record(&c, "persisted")
+        .unwrap()
+        .unwrap();
+    assert_eq!(state.baseline_kind, "observed_same_epoch");
+    assert_eq!(state.telemetry_state, "terminal_grace");
+    assert_eq!(state.freeze_at, None);
+    assert_eq!(state.last_event_at, Some(11));
+}
+
+/// 验证公共存储行复用 P4-001 校验，不让损坏 identity 伪装为快照。
+#[test]
+fn v9_usage_record_mapping_reuses_public_usage_validation() {
+    let record = usage::ExecutionUsageRecord {
+        execution_id: "invalid execution id".into(),
+        provider_id: "codex".into(),
+        input_tokens: Some(0),
+        cached_input_tokens: None,
+        cache_write_input_tokens: None,
+        output_tokens: None,
+        reasoning_tokens: None,
+        total_tokens: None,
+        model_context_window: None,
+        completeness: "unknown".into(),
+        usage_revision: 0,
+        updated_at: 0,
+    };
+    let mapped: Result<crate::agent::usage::UsageSnapshot, String> = record.try_into();
+    assert_eq!(
+        mapped.unwrap_err(),
+        crate::agent::usage::USAGE_EVENT_INVALID
+    );
 }
 
 #[test]
