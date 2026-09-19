@@ -27,8 +27,9 @@ import { Check, ChevronDownIcon, Folder, RefreshCw } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
-import type { AppState } from "./types";
+import type { AppState, WorkspaceCapabilityActivity, WorkspaceCapabilityHealth } from "./types";
 import type { useBroker } from "./useBroker";
 
 function displayProjectPath(path: string): string {
@@ -40,54 +41,50 @@ const SYNC_MIN_PENDING_MS = 600;
 const COPY_MIN_PENDING_MS = 500;
 const SUCCESS_FEEDBACK_MS = 1500;
 
-function CopyCommand({
-  text,
-  label,
-  onCopied,
-}: {
-  text: string;
-  label: string;
-  onCopied: () => void;
-}) {
-  const [copying, setCopying] = useState(false);
-  const copy = async () => {
-    setCopying(true);
-    try {
-      await navigator.clipboard.writeText(text);
-      onCopied();
-    } catch {
-      toast.error("复制失败，请手动选择命令复制。");
-    } finally {
-      setCopying(false);
-    }
-  };
-  return (
-    <div>
-      <div className="endpoint-copy">
-        <code className="project-path" style={{ whiteSpace: "pre-wrap" }}>
-          {text}
-        </code>
-        <Button
-          variant="outline"
-          aria-label={label}
-          disabled={copying}
-          aria-busy={copying}
-          onClick={() => void copy()}
-        >
-          {copying && <Spinner data-icon="inline-start" aria-hidden="true" />}
-          复制
-        </Button>
-      </div>
-    </div>
-  );
+/** 将安全枚举投影为紧凑本地标签，不依赖 Provider identity。 */
+function capabilityLabel(value: string): string {
+  return ({
+    installed: "已安装",
+    not_installed: "未安装",
+    check_failed: "检测失败",
+    not_prepared: "未准备",
+    preparing: "准备中",
+    ready: "就绪",
+    degraded: "需更新",
+    error: "异常",
+    unknown: "未知",
+    unavailable: "不可用",
+    stopped: "已停止",
+    starting: "启动中",
+    stopping: "停止中",
+    absent: "未建立",
+    pending: "等待中",
+    running: "执行中",
+    stale: "已过期",
+  } as Record<string, string>)[value] ?? value;
 }
+
+/** 为任意 DTO 状态选择通用 Badge 色调，不检查 Provider ID。 */
+function capabilityBadgeVariant(value: string): "success" | "warning" | "destructive" | "secondary" {
+  if (["ready", "installed"].includes(value)) return "success";
+  if (["error", "unavailable", "not_installed", "check_failed"].includes(value)) return "destructive";
+  if (["starting", "stopping", "preparing", "running", "pending", "stale", "degraded"].includes(value)) return "warning";
+  return "secondary";
+}
+
+type CapabilityActionFeedback = {
+  workspaceId: string;
+  providerId: string;
+  actionId: string;
+  phase: "pending" | "success" | "error" | "cancelled";
+  operationId: string | null;
+};
 
 export function ProjectPanel({
   state,
   controller,
   onSettings,
   onRemote,
-  onSerena,
   onSelectWorkspace,
   onCopied,
 }: {
@@ -118,70 +115,24 @@ export function ProjectPanel({
   const [removeConfirmation, setRemoveConfirmation] = useState<{ id: string; name: string; root: string } | null>(null);
   const [removingWorkspaceId, setRemovingWorkspaceId] = useState<string | null>(null);
   const [reorderingWorkspaceId, setReorderingWorkspaceId] = useState<string | null>(null);
+  const [capabilityHealth, setCapabilityHealth] = useState<WorkspaceCapabilityHealth | null>(null);
+  const [capabilityHealthError, setCapabilityHealthError] = useState(false);
+  const [capabilityActivityReady, setCapabilityActivityReady] = useState(false);
+  const [capabilityActionFeedback, setCapabilityActionFeedback] = useState<CapabilityActionFeedback | null>(null);
+  const [capabilityActionInFlightWorkspaceId, setCapabilityActionInFlightWorkspaceId] = useState<string | null>(null);
   const feedbackTimers = useRef(new Set<ReturnType<typeof window.setTimeout>>());
   const mounted = useRef(true);
+  const selectedWorkspaceId = state.desktopSelectedWorkspace?.id ?? null;
+  const selectedWorkspaceIdRef = useRef<string | null>(selectedWorkspaceId);
+  const cancelledCapabilityOperationId = useRef<string | null>(null);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [helpOpen, setHelpOpen] = useState<boolean | undefined>(undefined);
   const project = state.config.workspaces.find((workspace) => workspace.id === selected);
   const selectedWorkspace = state.desktopSelectedWorkspace;
-  const active = broker?.activeWorkspace;
+  selectedWorkspaceIdRef.current = selectedWorkspaceId;
   const pending = !!busy || !!broker?.operation || selecting;
-  const graph = active?.id === selectedWorkspace?.id ? broker?.codegraph : null;
-  const graphState = !active
-    ? { label: "未运行", tone: "idle", detail: "没有运行中的旧 Provider 工作区" }
-    : active.id !== selectedWorkspace?.id
-      ? { label: "独立运行中", tone: "idle", detail: `运行工作区：${active.name}` }
-    : graph
-      ? {
-          ready: { label: "就绪", tone: "good", detail: "" },
-          starting: {
-            label: "启动中",
-            tone: "waiting",
-            detail: "正在连接当前项目",
-          },
-          not_initialized: {
-            label: "未初始化",
-            tone: "idle",
-            detail: "当前项目尚无 CodeGraph 索引",
-          },
-          unavailable: {
-            label: "不可用",
-            tone: "bad",
-            detail: "请检查 CodeGraph 安装",
-          },
-          start_failed: {
-            label: "启动失败",
-            tone: "bad",
-            detail: "请查看 MCP 日志",
-          },
-          runtime_lost: {
-            label: "连接中断",
-            tone: "bad",
-            detail: "下次查询可尝试有限恢复",
-          },
-        }[graph.status]
-      : { label: "读取中", tone: "waiting", detail: "正在读取能力状态" };
   const current = !!project && project.id === selectedWorkspace?.id;
-  const unavailable = state.activeInstallation?.state !== "standard";
-  const serenaLabel =
-    state.serverStatus === "running"
-      ? "运行中"
-      : state.serverStatus === "starting"
-        ? "启动中"
-        : state.serverStatus === "error"
-          ? "运行异常"
-          : unavailable
-            ? "不可用"
-            : "未运行";
-  const serenaTone =
-    state.serverStatus === "running"
-      ? "good"
-      : state.serverStatus === "starting"
-        ? "waiting"
-        : state.serverStatus === "error" || unavailable
-          ? "bad"
-          : "idle";
   const endpoint = broker?.running
     ? `http://127.0.0.1:${broker.port}/mcp`
     : null;
@@ -194,6 +145,63 @@ export function ProjectPanel({
       timers.clear();
     };
   }, []);
+  useEffect(() => {
+    let disposed = false;
+    let unlistenActivity: (() => void) | undefined;
+    setCapabilityHealth(null);
+    setCapabilityHealthError(false);
+    setCapabilityActivityReady(false);
+    setCapabilityActionFeedback(null);
+    setCapabilityActionInFlightWorkspaceId(null);
+    cancelledCapabilityOperationId.current = null;
+    if (!selectedWorkspaceId) return;
+
+    const observe = async () => {
+      try {
+        const health = await api.workspaceCapabilityObserve(selectedWorkspaceId);
+        if (!disposed && selectedWorkspaceIdRef.current === selectedWorkspaceId) {
+          setCapabilityHealth(health);
+        }
+      } catch {
+        if (!disposed && selectedWorkspaceIdRef.current === selectedWorkspaceId) {
+          setCapabilityHealthError(true);
+        }
+      }
+    };
+    const subscribe = async () => {
+      try {
+        unlistenActivity = await listen<WorkspaceCapabilityActivity>(
+          "workspace-capability-activity",
+          ({ payload }) => {
+            if (payload.workspaceId !== selectedWorkspaceId) return;
+            setCapabilityActionFeedback((currentFeedback) => {
+              if (
+                !currentFeedback
+                || currentFeedback.workspaceId !== payload.workspaceId
+                || currentFeedback.providerId !== payload.providerId
+                || currentFeedback.actionId !== payload.actionId
+              ) return currentFeedback;
+              return {
+                ...currentFeedback,
+                operationId: payload.operationId,
+                phase: payload.state === "failed" ? "error" : currentFeedback.phase,
+              };
+            });
+          },
+        );
+        if (disposed) unlistenActivity();
+        else setCapabilityActivityReady(true);
+      } catch {
+        // Activity 订阅失败不影响显式 Health 查询与动作调用。
+      }
+    };
+    void observe();
+    void subscribe();
+    return () => {
+      disposed = true;
+      unlistenActivity?.();
+    };
+  }, [selectedWorkspaceId]);
   const waitForFeedback = (duration: number) =>
     new Promise<void>((resolve) => {
       const timer = window.setTimeout(() => {
@@ -218,6 +226,76 @@ export function ProjectPanel({
       toast.error(String(reason));
     } finally {
       setCancelling(false);
+    }
+  };
+  const refreshCapabilityHealth = async (workspaceId: string) => {
+    try {
+      const health = await api.workspaceCapabilityObserve(workspaceId);
+      if (mounted.current && selectedWorkspaceIdRef.current === workspaceId) {
+        setCapabilityHealth(health);
+        setCapabilityHealthError(false);
+      }
+    } catch {
+      if (mounted.current && selectedWorkspaceIdRef.current === workspaceId) {
+        setCapabilityHealthError(true);
+      }
+    }
+  };
+  const prepareCapabilityAction = async (providerId: string, actionId: string) => {
+    if (!selectedWorkspaceId || capabilityActionInFlightWorkspaceId) return;
+    const workspaceId = selectedWorkspaceId;
+    cancelledCapabilityOperationId.current = null;
+    setCapabilityActionInFlightWorkspaceId(workspaceId);
+    setCapabilityActionFeedback({
+      workspaceId,
+      providerId,
+      actionId,
+      phase: "pending",
+      operationId: null,
+    });
+    try {
+      const result = await api.workspaceCapabilityPrepare(workspaceId, providerId, actionId);
+      if (mounted.current && selectedWorkspaceIdRef.current === workspaceId) {
+        setCapabilityActionFeedback({
+          workspaceId,
+          providerId,
+          actionId,
+          phase: "success",
+          operationId: result.operationId,
+        });
+      }
+    } catch {
+      if (mounted.current && selectedWorkspaceIdRef.current === workspaceId) {
+        setCapabilityActionFeedback((currentFeedback) => currentFeedback && {
+          ...currentFeedback,
+          phase: cancelledCapabilityOperationId.current !== null
+            && cancelledCapabilityOperationId.current === currentFeedback.operationId
+            ? "cancelled"
+            : "error",
+        });
+      }
+    } finally {
+      setCapabilityActionInFlightWorkspaceId((currentWorkspaceId) =>
+        currentWorkspaceId === workspaceId ? null : currentWorkspaceId,
+      );
+      await refreshCapabilityHealth(workspaceId);
+    }
+  };
+  const cancelCapabilityAction = async () => {
+    const operationId = capabilityActionFeedback?.operationId;
+    if (!operationId || capabilityActionFeedback.phase !== "pending") return;
+    try {
+      await api.workspaceCapabilityCancel(operationId);
+      cancelledCapabilityOperationId.current = operationId;
+      setCapabilityActionFeedback((currentFeedback) => currentFeedback && {
+        ...currentFeedback,
+        phase: "cancelled",
+      });
+    } catch {
+      setCapabilityActionFeedback((currentFeedback) => currentFeedback && {
+        ...currentFeedback,
+        phase: "error",
+      });
     }
   };
   const copyEndpoint = async (address: string) => {
@@ -272,13 +350,6 @@ export function ProjectPanel({
       setSelecting(false);
     }
   };
-  const executable = state.installation?.path;
-  const registryHome = broker?.projectSources[0]?.replace(/[\\/][^\\/]+$/, "");
-  const quote = (value: string) => "'" + value.replaceAll("'", "''") + "'";
-  const command =
-    executable && registryHome
-      ? `$env:SERENA_HOME = ${quote(registryHome)}\n& ${quote(executable)} project create --index`
-      : null;
   const importSerena = async () => {
     if (importFeedback !== "idle" || importing) return;
     const startedAt = Date.now();
@@ -517,6 +588,93 @@ export function ProjectPanel({
             </div>
           )}
         </section>
+        {selectedWorkspace && (
+          <section className="home-section" aria-labelledby="capability-health-title">
+            <div className="section-heading">
+              <h2 id="capability-health-title">能力状态</h2>
+              <Button
+                variant="link"
+                disabled={!selectedWorkspaceId}
+                onClick={() => selectedWorkspaceId && void refreshCapabilityHealth(selectedWorkspaceId)}
+              >
+                刷新 →
+              </Button>
+            </div>
+            {capabilityHealthError ? (
+              <p className="helper" role="status">暂时无法读取能力状态，请稍后刷新。</p>
+            ) : !capabilityHealth ? (
+              <p className="helper" role="status">正在读取能力状态…</p>
+            ) : (
+              <div className="service-list" data-capability-workspace={capabilityHealth.workspaceId}>
+                {Object.entries(capabilityHealth.providers).map(([providerId, provider]) => {
+                  const feedback = capabilityActionFeedback?.workspaceId === capabilityHealth.workspaceId
+                    && capabilityActionFeedback.providerId === providerId
+                    ? capabilityActionFeedback
+                    : null;
+                  return (
+                    <div className="service-row" key={providerId} data-capability-provider={providerId}>
+                      <div>
+                        <h3>{provider.displayName}</h3>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          <Badge variant={capabilityBadgeVariant(provider.installation)}>
+                            安装：{capabilityLabel(provider.installation)}
+                          </Badge>
+                          <Badge variant={capabilityBadgeVariant(provider.status)}>
+                            可用性：{capabilityLabel(provider.status)}
+                          </Badge>
+                          <Badge variant={capabilityBadgeVariant(provider.readiness)}>
+                            准备：{capabilityLabel(provider.readiness)}
+                          </Badge>
+                          <Badge variant={capabilityBadgeVariant(provider.runtimeState)}>
+                            运行：{capabilityLabel(provider.runtimeState)}
+                          </Badge>
+                        </div>
+                        {provider.stages.map((stage) => (
+                          <p className="service-detail" key={stage.id}>
+                            {stage.displayName}：{capabilityLabel(stage.state)}
+                            （{capabilityLabel(stage.requirement)}）
+                          </p>
+                        ))}
+                        {feedback && (
+                          <p className="service-detail" role="status">
+                            {feedback.phase === "pending"
+                              ? "正在执行…"
+                              : feedback.phase === "success"
+                                ? "操作已完成"
+                                : feedback.phase === "cancelled"
+                                  ? "已请求取消"
+                                  : "操作未完成"}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {provider.actions.map((action) => (
+                          <Button
+                            key={action.id}
+                            variant="outline"
+                            disabled={!capabilityActivityReady || capabilityActionInFlightWorkspaceId !== null}
+                            aria-busy={feedback?.actionId === action.id && feedback.phase === "pending"}
+                            onClick={() => void prepareCapabilityAction(providerId, action.id)}
+                          >
+                            {feedback?.actionId === action.id && feedback.phase === "pending" && (
+                              <Spinner data-icon="inline-start" aria-hidden="true" />
+                            )}
+                            {action.displayName}
+                          </Button>
+                        ))}
+                        {feedback?.phase === "pending" && feedback.operationId && (
+                          <Button variant="ghost" onClick={() => void cancelCapabilityAction()}>
+                            取消
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
         <section className="home-section project-help" aria-labelledby="project-sync-title">
           <Collapsible
             open={helpOpen ?? broker?.projects.length === 0}
@@ -531,44 +689,7 @@ export function ProjectPanel({
             <CollapsibleContent className="flex flex-col gap-3 pt-3">
               <p>
                 “添加项目”支持普通本地目录，不要求 Git，也不要求已有 .serena。
-                如需为已有 Git 仓库创建 Serena 项目配置并建立索引，可在仓库根目录执行以下命令。
-              </p>
-              <CopyCommand
-                text="serena project create --index"
-                label="复制初始化命令"
-                onCopied={onCopied}
-              />
-              {command && (
-                <Collapsible>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost">
-                      找不到 serena 命令时
-                      <ChevronDownIcon data-icon="inline-end" />
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="flex flex-col gap-3 pt-3">
-                    <p>
-                      仍在仓库根目录执行以下命令，使用 Desktop 检测到的 Serena
-                      和配置目录。
-                    </p>
-                    <CopyCommand
-                      text={command}
-                      label="复制完整初始化命令"
-                      onCopied={onCopied}
-                    />
-                  </CollapsibleContent>
-                </Collapsible>
-              )}
-              <p className="helper">
-                如果仓库已有 .serena/project.yml，请改用以下命令：
-              </p>
-              <CopyCommand
-                text="serena project index"
-                label="复制索引命令"
-                onCopied={onCopied}
-              />
-              <p className="helper">
-                大项目可在终端查看进度；等待命令执行完成后再从 Serena 导入。
+                选择项目后，可在“能力状态”中按当前 Provider 提供的动作准备或更新项目。
               </p>
               <Collapsible>
                 <CollapsibleTrigger asChild>
@@ -594,33 +715,9 @@ export function ProjectPanel({
         </section>
         <section className="home-section" aria-labelledby="services-title">
           <div className="section-heading">
-            <h2 id="services-title">服务状态</h2>
-            <Button variant="link" onClick={onSerena}>
-              查看状态 →
-            </Button>
+            <h2 id="services-title">本机服务</h2>
           </div>
           <div className="service-list">
-            <div className="service-row">
-              <h3>Serena</h3>
-              <Badge
-                variant={
-                  serenaTone === "bad"
-                    ? "destructive"
-                    : serenaTone === "good"
-                      ? "success"
-                      : serenaTone === "waiting"
-                        ? "warning"
-                        : "secondary"
-                }
-              >
-                {serenaLabel}
-              </Badge>
-              <span className="service-detail">
-              {state.serverStatus === "running" && !active
-                  ? "未绑定旧 Provider 工作区"
-                  : state.activeInstallation?.version || "—"}
-              </span>
-            </div>
             <div className="service-row">
               <h3>Git</h3>
               <Badge variant={state.git.available ? "success" : "destructive"}>
@@ -631,33 +728,6 @@ export function ProjectPanel({
                     : "不可用"}
               </Badge>
               <span className="service-detail">{state.git.version || "—"}</span>
-            </div>
-            <div className="service-row">
-              <h3>CodeGraph</h3>
-              <Badge
-                variant={
-                  graphState.tone === "bad"
-                    ? "destructive"
-                    : graphState.tone === "good"
-                      ? "success"
-                      : graphState.tone === "waiting"
-                        ? "warning"
-                        : "secondary"
-                }
-              >
-                {graphState.label}
-              </Badge>
-              <span className="service-detail">
-                {state.codegraphVersion
-                  ? `CodeGraph ${state.codegraphVersion}`
-                  : "版本未检测到"}
-                {graphState.detail && (
-                  <>
-                    <br />
-                    {graphState.detail}
-                  </>
-                )}
-              </span>
             </div>
             <div className="service-row">
               <h3>MCP 连接入口</h3>

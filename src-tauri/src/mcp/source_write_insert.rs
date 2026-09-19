@@ -211,7 +211,9 @@ mod tests {
         mcp::{
             Broker,
             source_write_commit::{LockedTargetCommit, lock_existing_target},
-            source_write_support::{candidate_sha256, set_snapshot_ready_hook_for_test},
+            source_write_support::{
+                candidate_sha256, set_snapshot_ready_hook_for_test, snapshot_hook_test_guard,
+            },
         },
         serena::SupervisorState,
     };
@@ -569,12 +571,13 @@ mod tests {
     /// pre-read 后的 external edit 必须由 P2C-003 locked revalidation 拒绝，不能覆盖外部 bytes。
     #[tokio::test]
     async fn external_edit_after_preread_is_not_overwritten() {
+        let _test_guard = snapshot_hook_test_guard();
         let (_directory, supervisor, workspace, root) = fixture();
         let target = root.join("race.txt");
         fs::write(&target, b"old\n").unwrap();
         let holder = existing_lock(supervisor.as_ref(), &workspace, "race.txt", b"old\n").await;
         let (ready_tx, ready_rx) = mpsc::channel();
-        set_snapshot_ready_hook_for_test(Arc::new(move || ready_tx.send(()).unwrap()));
+        set_snapshot_ready_hook_for_test(&target, Arc::new(move || ready_tx.send(()).unwrap()));
         let task_supervisor = Arc::clone(&supervisor);
         let task = tokio::spawn(async move {
             insert(
@@ -600,17 +603,21 @@ mod tests {
     /// pre-read 后的 Workspace generation 漂移必须在 commit lock 内 fail closed，原文件保持不变。
     #[tokio::test]
     async fn workspace_authority_drift_after_preread_does_not_commit() {
+        let _test_guard = snapshot_hook_test_guard();
         let (_directory, supervisor, workspace, root) = fixture();
         let target = root.join("drift.txt");
         fs::write(&target, b"old\n").unwrap();
         let changed_supervisor = Arc::clone(&supervisor);
         let mut changed_workspace = workspace;
         changed_workspace.generation += 1;
-        set_snapshot_ready_hook_for_test(Arc::new(move || {
-            changed_supervisor
-                .replace_workspaces(vec![changed_workspace.clone()])
-                .unwrap();
-        }));
+        set_snapshot_ready_hook_for_test(
+            &target,
+            Arc::new(move || {
+                changed_supervisor
+                    .replace_workspaces(vec![changed_workspace.clone()])
+                    .unwrap();
+            }),
+        );
         assert_eq!(
             insert(
                 supervisor.as_ref(),

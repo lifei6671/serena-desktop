@@ -501,10 +501,19 @@ mod tests {
         }
     }
 
-    /// strict local DTO 不接受额外字段或 relativePath 别名，workspace taxonomy 仍由既有 parser 先投影。
+    /// strict local DTO 拒绝额外字段，而 Remote 拒绝不影响同一 Local Host Rust handler。
     #[tokio::test]
-    async fn local_create_input_is_strict_without_remote_registration() {
+    async fn local_host_create_handler_remains_callable_while_remote_registration_is_disabled() {
         let (_directory, supervisor, _workspace, root, _paths) = fixture();
+        let local = create_text_file(
+            supervisor.as_ref(),
+            json!({"workspaceId":"workspace", "relative_path":"local.txt", "content":"local"}),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(local.path, "local.txt");
+        assert_eq!(fs::read(root.join("local.txt")).unwrap(), b"local");
         assert_eq!(
             create_text_file(
                 supervisor.as_ref(),
@@ -533,7 +542,7 @@ mod tests {
                 .await,
             Err("UNKNOWN_TOOL".into())
         );
-        assert!(fs::read_dir(root).unwrap().next().is_none());
+        assert!(!root.join("never.txt").exists());
     }
 
     /// Guard 在 commit lock 持有期间继续阻止 Remove，helper 返回并 drop 后生命周期按原机制释放。

@@ -231,7 +231,9 @@ mod tests {
         mcp::{
             Broker,
             source_write_commit::{LockedTargetCommit, lock_existing_target},
-            source_write_support::{candidate_sha256, set_snapshot_ready_hook_for_test},
+            source_write_support::{
+                candidate_sha256, set_snapshot_ready_hook_for_test, snapshot_hook_test_guard,
+            },
         },
         serena::SupervisorState,
     };
@@ -241,16 +243,9 @@ mod tests {
     use std::{
         fs,
         path::PathBuf,
-        sync::{Arc, Mutex, MutexGuard, OnceLock, mpsc},
+        sync::{Arc, mpsc},
         time::Duration,
     };
-
-    static TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
-
-    /// 获取 P2C-011 handler 测试的唯一 hook ownership，释放后才允许下一条测试安装 hook。
-    fn test_guard() -> MutexGuard<'static, ()> {
-        TEST_SERIAL.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
 
     /// 构造注册但未选择的 Workspace，证明 handler 只使用显式 workspaceId。
     fn fixture() -> (tempfile::TempDir, Arc<SupervisorState>, Workspace, PathBuf) {
@@ -684,14 +679,14 @@ mod tests {
     /// external edit、Workspace generation 漂移与 cancellation 均在 commit 前 fail closed。
     #[tokio::test]
     async fn rejects_external_edit_workspace_drift_and_cancellation_without_commit() {
-        let _guard = test_guard();
+        let _guard = snapshot_hook_test_guard();
         let (_directory, supervisor, workspace, root) = fixture();
         let target = root.join("race.txt");
         let existing = b"one\ntwo\n";
         fs::write(&target, existing).unwrap();
         let holder = existing_lock(supervisor.as_ref(), &workspace, "race.txt", existing).await;
         let (ready_tx, ready_rx) = mpsc::channel();
-        set_snapshot_ready_hook_for_test(Arc::new(move || ready_tx.send(()).unwrap()));
+        set_snapshot_ready_hook_for_test(&target, Arc::new(move || ready_tx.send(()).unwrap()));
         let task_supervisor = Arc::clone(&supervisor);
         let task = tokio::spawn(async move {
             replace(
@@ -721,11 +716,14 @@ mod tests {
         let changed_supervisor = Arc::clone(&supervisor);
         let mut changed_workspace = workspace;
         changed_workspace.generation += 1;
-        set_snapshot_ready_hook_for_test(Arc::new(move || {
-            changed_supervisor
-                .replace_workspaces(vec![changed_workspace.clone()])
-                .unwrap();
-        }));
+        set_snapshot_ready_hook_for_test(
+            &drift,
+            Arc::new(move || {
+                changed_supervisor
+                    .replace_workspaces(vec![changed_workspace.clone()])
+                    .unwrap();
+            }),
+        );
         assert_eq!(
             replace(
                 supervisor.as_ref(),
@@ -757,7 +755,7 @@ mod tests {
         )
         .await;
         let (ready_tx, ready_rx) = mpsc::channel();
-        set_snapshot_ready_hook_for_test(Arc::new(move || ready_tx.send(()).unwrap()));
+        set_snapshot_ready_hook_for_test(&target, Arc::new(move || ready_tx.send(()).unwrap()));
         let cancel = CancellationToken::new();
         let waiting_cancel = cancel.clone();
         let waiting_supervisor = Arc::clone(&supervisor);

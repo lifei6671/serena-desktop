@@ -45,10 +45,34 @@ const dom = new JSDOM("<!doctype html><html><body><div id=\"root\"></div></body>
   pretendToBeVisual: true,
 });
 const invocations = [];
+const eventCallbacks = new Map();
+const unlistenedEvents = [];
+let delayedEventListen = null;
 dom.window.__TAURI_INTERNALS__ = {
   invoke: async (command, args) => {
     invocations.push([command, args]);
+    if (command === "workspace_capability_observe") {
+      return { workspaceId: args.workspaceId, providers: {} };
+    }
+    if (command === "workspace_capability_prepare") {
+      return { operationId: "cap-op-default", readiness: "ready" };
+    }
+    if (command === "plugin:event|listen") {
+      if (delayedEventListen) return new Promise(resolve => { delayedEventListen.resolve = () => resolve(args.handler); });
+      return args.handler;
+    }
     return "D:/picked-directory";
+  },
+  transformCallback(callback) {
+    const id = eventCallbacks.size + 1;
+    eventCallbacks.set(id, callback);
+    return id;
+  },
+};
+dom.window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+  unregisterListener(event, eventId) {
+    unlistenedEvents.push([event, eventId]);
+    eventCallbacks.delete(eventId);
   },
 };
 Object.assign(globalThis, {
@@ -97,6 +121,9 @@ test("workspace inspection, registration, Serena import, rename, remove, and reo
   await api.workspaceRename("project-1", "Renamed project");
   await api.workspaceRemove("project-2");
   await api.workspaceReorder(["project-2", "project-1"]);
+  await api.workspaceCapabilityObserve("project-3");
+  await api.workspaceCapabilityPrepare("project-3", "third", "prepare");
+  await api.workspaceCapabilityCancel("cap-op-3");
 
   assert.deepEqual(invocations, [
     ["workspace_inspect_directory", { root: "D:/picked-directory" }],
@@ -105,6 +132,9 @@ test("workspace inspection, registration, Serena import, rename, remove, and reo
     ["workspace_rename", { id: "project-1", name: "Renamed project" }],
     ["workspace_remove", { id: "project-2" }],
     ["workspace_reorder", { ids: ["project-2", "project-1"] }],
+    ["workspace_capability_observe", { workspaceId: "project-3" }],
+    ["workspace_capability_prepare", { workspaceId: "project-3", providerId: "third", actionId: "prepare" }],
+    ["workspace_capability_cancel", { operationId: "cap-op-3" }],
   ]);
 });
 
@@ -180,6 +210,194 @@ const managedWorkspaceOrder = () => [...document.querySelectorAll(".workspace-ma
 
 const managedWorkspaceButton = (id, label) => [...managedWorkspaceRow(id).querySelectorAll("button")]
   .find((element) => element.textContent === label);
+
+function capabilityHealth(workspaceId) {
+  return {
+    workspaceId,
+    providers: {
+      unavailable: {
+        displayName: "Unavailable provider",
+        installation: "not_installed",
+        status: "unavailable",
+        readiness: "unknown",
+        runtimeState: "stopped",
+        checkedAt: 1,
+        stages: [{ id: "setup", displayName: "Setup", state: "unknown", requirement: "auto_preparable", messageCode: null }],
+        actions: [],
+      },
+      prepared: {
+        displayName: "Prepared provider",
+        installation: "installed",
+        status: "ready",
+        readiness: "not_prepared",
+        runtimeState: "ready",
+        checkedAt: 2,
+        stages: [{ id: "cache", displayName: "Cache", state: "stale", requirement: "optional", messageCode: "CACHE_STALE" }],
+        actions: [],
+      },
+      third: {
+        displayName: "Third provider",
+        installation: "installed",
+        status: "error",
+        readiness: "error",
+        runtimeState: "starting",
+        checkedAt: 3,
+        stages: [{ id: "index", displayName: "Index", state: "error", requirement: "required", messageCode: "INDEX_ERROR" }],
+        actions: [{ id: "sync", displayName: "Sync third", authority: "local_human", execution: "provider_prepare" }],
+      },
+      stopping: {
+        displayName: "Stopping provider",
+        installation: "installed",
+        status: "ready",
+        readiness: "ready",
+        runtimeState: "stopping",
+        checkedAt: 4,
+        stages: [],
+        actions: [],
+      },
+      stoppedReady: {
+        displayName: "Stopped ready provider",
+        installation: "installed",
+        status: "ready",
+        readiness: "ready",
+        runtimeState: "stopped",
+        checkedAt: 5,
+        stages: [],
+        actions: [],
+      },
+      runtimeFailure: {
+        displayName: "Runtime failure provider",
+        installation: "installed",
+        status: "error",
+        readiness: "ready",
+        runtimeState: "error",
+        checkedAt: 6,
+        stages: [],
+        actions: [],
+      },
+    },
+  };
+}
+
+test("capability health renders descriptor providers and three orthogonal dimensions without Provider ID branches", async () => {
+  const original = api.workspaceCapabilityObserve;
+  const workspace = { id: "health-workspace", name: "Health", root: "D:/health", generation: 7 };
+  api.workspaceCapabilityObserve = async id => capabilityHealth(id);
+  try {
+    await renderWorkspacePanel(workspaceController(), managedWorkspaceState([workspace], workspace));
+    await act(async () => { await Promise.resolve(); });
+    const health = document.querySelector('[data-capability-workspace="health-workspace"]');
+    assert.match(health.textContent, /Unavailable provider/);
+    assert.match(health.textContent, /安装：未安装/);
+    assert.match(health.textContent, /可用性：不可用/);
+    assert.match(health.textContent, /准备：未准备/);
+    assert.match(health.textContent, /运行：启动中/);
+    assert.match(health.textContent, /运行：就绪/);
+    assert.match(health.textContent, /运行：已停止/);
+    assert.match(health.textContent, /运行：异常/);
+    assert.match(health.textContent, /运行：停止中/);
+    assert.match(health.textContent, /Cache：已过期/);
+    assert.match(health.textContent, /Index：异常/);
+    assert.match(health.textContent, /Third provider/);
+    assert.doesNotMatch(document.querySelector('[data-capability-provider="third"]').textContent, /PID|port|D:\\health/i);
+    assert.doesNotMatch(readFileSync("src/ProjectPanel.tsx", "utf8"), /providerId\s*===\s*["'](?:serena|codegraph)["']/i);
+  } finally {
+    api.workspaceCapabilityObserve = original;
+  }
+});
+
+test("capability activity supplies cancellation identity, refreshes after terminal feedback, and unlistens on unmount", async () => {
+  const original = {
+    observe: api.workspaceCapabilityObserve,
+    prepare: api.workspaceCapabilityPrepare,
+    cancel: api.workspaceCapabilityCancel,
+  };
+  const workspace = { id: "activity-workspace", name: "Activity", root: "D:/activity", generation: 8 };
+  const cancellations = [];
+  let rejectPrepare;
+  let observes = 0;
+  api.workspaceCapabilityObserve = async id => {
+    observes++;
+    return capabilityHealth(id);
+  };
+  api.workspaceCapabilityPrepare = async () => new Promise((_resolve, reject) => { rejectPrepare = reject; });
+  api.workspaceCapabilityCancel = async operationId => { cancellations.push(operationId); };
+  try {
+    await renderWorkspacePanel(workspaceController(), managedWorkspaceState([workspace], workspace));
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => button("Sync third").click());
+    assert.match(document.body.textContent, /正在执行/);
+    const activityCallback = [...eventCallbacks.values()][0];
+    await act(async () => activityCallback({ payload: {
+      operationId: "cap-op-third",
+      workspaceId: workspace.id,
+      providerId: "third",
+      actionId: "sync",
+      stageCode: "preparing",
+      state: "running",
+      revision: 1,
+      messageCode: "CAPABILITY_ACTION_RUNNING",
+    } }));
+    await act(async () => button("取消").click());
+    assert.deepEqual(cancellations, ["cap-op-third"]);
+    assert.equal(button("Sync third").disabled, true, "cancel request keeps the action flight exclusive until terminal feedback");
+    rejectPrepare(new Error("cancelled"));
+    await act(async () => { await Promise.resolve(); });
+    assert.match(document.body.textContent, /已请求取消/);
+    assert.ok(observes >= 2, "terminal prepare refreshes Health");
+    await act(async () => root.unmount());
+    root = null;
+    assert.ok(unlistenedEvents.some(([event]) => event === "workspace-capability-activity"));
+  } finally {
+    api.workspaceCapabilityObserve = original.observe;
+    api.workspaceCapabilityPrepare = original.prepare;
+    api.workspaceCapabilityCancel = original.cancel;
+  }
+});
+
+test("capability actions wait for the activity listener so the opaque cancellation identity cannot be missed", async () => {
+  const original = api.workspaceCapabilityObserve;
+  const workspace = { id: "listener-workspace", name: "Listener", root: "D:/listener", generation: 10 };
+  api.workspaceCapabilityObserve = async id => capabilityHealth(id);
+  delayedEventListen = {};
+  try {
+    await renderWorkspacePanel(workspaceController(), managedWorkspaceState([workspace], workspace));
+    await act(async () => { await Promise.resolve(); });
+    assert.equal(button("Sync third").disabled, true);
+    await act(async () => delayedEventListen.resolve());
+    assert.equal(button("Sync third").disabled, false);
+  } finally {
+    delayedEventListen = null;
+    api.workspaceCapabilityObserve = original;
+  }
+});
+
+test("capability action reports success and safe failure before refreshing the current workspace", async () => {
+  const original = { observe: api.workspaceCapabilityObserve, prepare: api.workspaceCapabilityPrepare };
+  const workspace = { id: "result-workspace", name: "Result", root: "D:/result", generation: 9 };
+  const results = [
+    { operationId: "cap-op-success", readiness: "ready" },
+    new Error("provider details must stay private"),
+  ];
+  api.workspaceCapabilityObserve = async id => capabilityHealth(id);
+  api.workspaceCapabilityPrepare = async () => {
+    const result = results.shift();
+    if (result instanceof Error) throw result;
+    return result;
+  };
+  try {
+    await renderWorkspacePanel(workspaceController(), managedWorkspaceState([workspace], workspace));
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => button("Sync third").click());
+    assert.match(document.body.textContent, /操作已完成/);
+    await act(async () => button("Sync third").click());
+    assert.match(document.body.textContent, /操作未完成/);
+    assert.doesNotMatch(document.body.textContent, /provider details must stay private/);
+  } finally {
+    api.workspaceCapabilityObserve = original.observe;
+    api.workspaceCapabilityPrepare = original.prepare;
+  }
+});
 
 test("picker success inspects an ordinary directory, while cancel does not inspect or register", async () => {
   const original = {

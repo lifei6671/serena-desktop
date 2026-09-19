@@ -29,6 +29,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Mutex;
+#[cfg(test)]
+use tokio_util::sync::CancellationToken;
 
 #[cfg(windows)]
 #[path = "serena_capability_index_windows.rs"]
@@ -1326,6 +1328,7 @@ mod tests {
                     WorkspaceToolCall {
                         tool_name: tool_name.into(),
                         arguments,
+                        cancellation: CancellationToken::new(),
                     },
                 )
                 .await
@@ -1352,6 +1355,7 @@ mod tests {
                             "name_path_pattern":"Widget",
                             "root":"C:/caller-supplied-root"
                         }),
+                        cancellation: CancellationToken::new(),
                     },
                 )
                 .await
@@ -1368,6 +1372,7 @@ mod tests {
                             "name_path_pattern":"Widget",
                             "relative_path":"C:/caller-supplied-root"
                         }),
+                        cancellation: CancellationToken::new(),
                     },
                 )
                 .await
@@ -1417,6 +1422,7 @@ mod tests {
                     WorkspaceToolCall {
                         tool_name: "source_find_symbol".into(),
                         arguments: serde_json::json!({"name_path_pattern":"A"}),
+                        cancellation: CancellationToken::new(),
                     },
                 )
                 .await
@@ -1434,6 +1440,7 @@ mod tests {
                     WorkspaceToolCall {
                         tool_name: "source_find_symbol".into(),
                         arguments: serde_json::json!({"name_path_pattern":"B"}),
+                        cancellation: CancellationToken::new(),
                     },
                 )
                 .await
@@ -1921,6 +1928,7 @@ mod tests {
                 WorkspaceToolCall {
                     tool_name: "source_symbols_overview".into(),
                     arguments: serde_json::json!({"relative_path":"a.py"}),
+                    cancellation: CancellationToken::new(),
                 },
             ),
             manager.call(
@@ -1929,6 +1937,7 @@ mod tests {
                 WorkspaceToolCall {
                     tool_name: "source_symbols_overview".into(),
                     arguments: serde_json::json!({"relative_path":"b.py"}),
+                    cancellation: CancellationToken::new(),
                 },
             ),
         );
@@ -1972,6 +1981,7 @@ mod tests {
                 WorkspaceToolCall {
                     tool_name: "source_symbols_overview".into(),
                     arguments: serde_json::json!({"relative_path":"b.py"}),
+                    cancellation: CancellationToken::new(),
                 },
             )
             .await

@@ -97,6 +97,76 @@ export interface WorkspaceRegistrySnapshot {
   registryRevision: number;
   workspaces: Workspace[];
 }
+
+/** Capability 安装探测状态，与 workspace 准备和 Runtime 生命周期正交。 */
+export type CapabilityInstallationState = "installed" | "not_installed" | "check_failed";
+/** Capability 的 workspace 准备状态。 */
+export type CapabilityReadinessState = "not_prepared" | "preparing" | "ready" | "degraded" | "error" | "unknown";
+/** Provider 可用性状态。 */
+export type CapabilityAvailability = "ready" | "unavailable" | "error";
+/** Provider Runtime 生命周期状态。 */
+export type CapabilityRuntimeState = "stopped" | "starting" | "ready" | "error" | "stopping";
+/** Descriptor stage 的准备要求。 */
+export type CapabilityStageRequirement = "required" | "auto_preparable" | "optional";
+/** Descriptor stage 的安全状态投影。 */
+export type CapabilityStageState = "absent" | "pending" | "running" | "ready" | "stale" | "error" | "unknown";
+/** 显式动作的授权边界。 */
+export type CapabilityActionAuthority = "local_human";
+/** Manager 或 Provider 负责的动作执行模式。 */
+export type CapabilityActionExecution = "manager_ensure_runtime" | "provider_prepare";
+
+/** Descriptor 驱动的单个 Capability stage。 */
+export interface CapabilityStage {
+  id: string;
+  displayName: string;
+  state: CapabilityStageState;
+  requirement: CapabilityStageRequirement;
+  messageCode: string | null;
+}
+
+/** Descriptor 驱动的单个本地准备动作。 */
+export interface CapabilityAction {
+  id: string;
+  displayName: string;
+  authority: CapabilityActionAuthority;
+  execution: CapabilityActionExecution;
+}
+
+/** 单个 Provider 的安全 Health 投影。 */
+export interface WorkspaceProviderHealth {
+  displayName: string;
+  installation: CapabilityInstallationState;
+  readiness: CapabilityReadinessState;
+  status: CapabilityAvailability;
+  runtimeState: CapabilityRuntimeState;
+  checkedAt: number;
+  stages: CapabilityStage[];
+  actions: CapabilityAction[];
+}
+
+/** 显式 workspace 的 Capability Health DTO。 */
+export interface WorkspaceCapabilityHealth {
+  workspaceId: string;
+  providers: Record<string, WorkspaceProviderHealth>;
+}
+
+/** 本地 Tauri activity event 的安全投影。 */
+export interface WorkspaceCapabilityActivity {
+  operationId: string;
+  workspaceId: string;
+  providerId: string;
+  actionId: string;
+  stageCode: string;
+  state: "running" | "succeeded" | "failed";
+  revision: number;
+  messageCode: string;
+}
+
+/** 显式准备动作的终态回执。 */
+export interface CapabilityActionResult {
+  operationId: string;
+  readiness: CapabilityReadinessState;
+}
 export interface BrokerState {
   running: boolean;
   startedAt: number | null;

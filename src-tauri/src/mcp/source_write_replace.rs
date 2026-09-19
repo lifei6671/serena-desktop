@@ -162,7 +162,9 @@ mod tests {
             Broker,
             source_write_commit::{LockedTargetCommit, lock_existing_target},
             source_write_delete::delete_lines,
-            source_write_support::{candidate_sha256, set_snapshot_ready_hook_for_test},
+            source_write_support::{
+                candidate_sha256, set_snapshot_ready_hook_for_test, snapshot_hook_test_guard,
+            },
         },
         serena::SupervisorState,
     };
@@ -172,16 +174,9 @@ mod tests {
     use std::{
         fs,
         path::PathBuf,
-        sync::{Arc, Mutex, MutexGuard, OnceLock, mpsc},
+        sync::{Arc, mpsc},
         time::Duration,
     };
-
-    static TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
-
-    /// 获取 P2C-010 handler 测试的唯一 hook ownership，释放后才允许下一条测试安装 hook。
-    fn test_guard() -> MutexGuard<'static, ()> {
-        TEST_SERIAL.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
 
     /// 构造注册但未选择的 Workspace，证明 handler 只使用显式 workspaceId。
     fn fixture() -> (tempfile::TempDir, Arc<SupervisorState>, Workspace, PathBuf) {
@@ -568,14 +563,14 @@ mod tests {
     /// pre-read 后的 external edit 必须由 P2C-003 locked revalidation 拒绝，不能覆盖外部 bytes。
     #[tokio::test]
     async fn external_edit_after_preread_is_not_overwritten() {
-        let _guard = test_guard();
+        let _guard = snapshot_hook_test_guard();
         let (_directory, supervisor, workspace, root) = fixture();
         let target = root.join("race.txt");
         fs::write(&target, b"one\ntwo\n").unwrap();
         let holder =
             existing_lock(supervisor.as_ref(), &workspace, "race.txt", b"one\ntwo\n").await;
         let (ready_tx, ready_rx) = mpsc::channel();
-        set_snapshot_ready_hook_for_test(Arc::new(move || ready_tx.send(()).unwrap()));
+        set_snapshot_ready_hook_for_test(&target, Arc::new(move || ready_tx.send(()).unwrap()));
         let task_supervisor = Arc::clone(&supervisor);
         let task = tokio::spawn(async move {
             replace(
@@ -602,7 +597,7 @@ mod tests {
     /// pre-read 后的 Workspace generation 漂移必须在 commit lock 内 fail closed，原文件保持不变。
     #[tokio::test]
     async fn workspace_authority_drift_after_preread_does_not_commit() {
-        let _guard = test_guard();
+        let _guard = snapshot_hook_test_guard();
         let (_directory, supervisor, workspace, root) = fixture();
         let target = root.join("drift.txt");
         let existing = b"one\ntwo\n";
@@ -610,11 +605,14 @@ mod tests {
         let changed_supervisor = Arc::clone(&supervisor);
         let mut changed_workspace = workspace;
         changed_workspace.generation += 1;
-        set_snapshot_ready_hook_for_test(Arc::new(move || {
-            changed_supervisor
-                .replace_workspaces(vec![changed_workspace.clone()])
-                .unwrap()
-        }));
+        set_snapshot_ready_hook_for_test(
+            &target,
+            Arc::new(move || {
+                changed_supervisor
+                    .replace_workspaces(vec![changed_workspace.clone()])
+                    .unwrap()
+            }),
+        );
         assert_eq!(
             replace(
                 supervisor.as_ref(),

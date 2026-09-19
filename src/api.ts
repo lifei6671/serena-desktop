@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, ExecutionView, RemoteState, RemoteAccessMode, SecurityDeclaration, Workspace, WorkspaceInspection, WorkspaceRegistrySnapshot } from "./types";
+import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, ExecutionView, RemoteState, RemoteAccessMode, SecurityDeclaration, Workspace, WorkspaceInspection, WorkspaceRegistrySnapshot, WorkspaceCapabilityHealth, CapabilityActionResult } from "./types";
 
 export const api = {
   remoteState: () => invoke<RemoteState>("remote_state"),
@@ -24,6 +24,12 @@ export const api = {
   workspaceRename: (id: string, name: string) => invoke<Workspace>("workspace_rename", { id, name }),
   workspaceRemove: (id: string) => invoke<Workspace>("workspace_remove", { id }),
   workspaceReorder: (ids: string[]) => invoke<WorkspaceRegistrySnapshot>("workspace_reorder", { ids }),
+  workspaceCapabilityObserve: (workspaceId: string) =>
+    invoke<WorkspaceCapabilityHealth>("workspace_capability_observe", { workspaceId }),
+  workspaceCapabilityPrepare: (workspaceId: string, providerId: string, actionId: string) =>
+    invoke<CapabilityActionResult>("workspace_capability_prepare", { workspaceId, providerId, actionId }),
+  workspaceCapabilityCancel: (operationId: string) =>
+    invoke<void>("workspace_capability_cancel", { operationId }),
   syncProjects: () => invoke<number>("sync_workspaces"),
   workspaceSelect: (id: string) => invoke<Workspace>("workspace_select", { id }),
   activateProject: (id: string) => invoke<void>("activate_workspace", { id }),

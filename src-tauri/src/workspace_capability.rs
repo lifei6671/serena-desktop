@@ -15,7 +15,10 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant},
 };
+#[cfg(test)]
+use tokio::sync::Notify;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
+use tokio_util::sync::CancellationToken;
 
 mod actions;
 mod health;
@@ -311,6 +314,7 @@ impl CapabilityRuntimeHandle {
 pub(crate) enum CapabilityProviderErrorCode {
     RuntimeIdentityMismatch,
     NotFound,
+    NotPrepared,
     ContractError,
     Unavailable,
     OperationFailed,
@@ -404,6 +408,13 @@ impl WorkspaceCapabilityError {
         }
     }
 
+    /// 返回显式准备后才可启动 Runtime 的统一错误，绝不由 acquire 隐式执行 prepare。
+    fn preparation_required() -> Self {
+        Self {
+            code: WorkspaceCapabilityErrorCode::PreparationRequired,
+        }
+    }
+
     /// 返回 Provider stop 失败但 Slot 已安全保留 Runtime ownership 的错误。
     fn stop_failed() -> Self {
         Self {
@@ -420,11 +431,14 @@ impl WorkspaceCapabilityError {
 }
 
 /// 后续 Adapter 交给 Provider 的最小 Tool envelope，不承载 caller-provided root。
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkspaceToolCall {
     pub(crate) tool_name: String,
     pub(crate) arguments: Value,
+    /// 仅在进程内传递请求取消；不进入 Provider wire payload，也不承载 Workspace authority。
+    #[serde(skip)]
+    pub(crate) cancellation: CancellationToken,
 }
 
 /// Provider 返回给后续 Adapter 的最小结果 envelope。
@@ -970,6 +984,9 @@ enum StopResult {
 pub(crate) struct WorkspaceCapabilityManager {
     registry: Arc<WorkspaceCapabilityRegistry>,
     runtime_slots: Arc<Mutex<RuntimeSlotTable>>,
+    /// 仅测试同步点：确认 shutdown 已封闭 admission，避免并发测试依赖调度时机。
+    #[cfg(test)]
+    shutdown_admission: Arc<Notify>,
 }
 
 impl WorkspaceCapabilityManager {
@@ -984,7 +1001,15 @@ impl WorkspaceCapabilityManager {
                 removing_workspaces: HashSet::new(),
                 shutting_down: false,
             })),
+            #[cfg(test)]
+            shutdown_admission: Arc::new(Notify::new()),
         }
+    }
+
+    /// 返回 shutdown admission 已封闭后的测试同步通知，不形成生产运行时契约。
+    #[cfg(test)]
+    pub(crate) fn shutdown_admission_notifier(&self) -> Arc<Notify> {
+        Arc::clone(&self.shutdown_admission)
     }
 
     /// 返回 Manager 持有的 immutable Registry，供后续阶段读取统一注册表。
@@ -1114,10 +1139,30 @@ impl WorkspaceCapabilityManager {
         if tool_owner != provider.descriptor().provider_id {
             return Err(WorkspaceCapabilityError::contract_error());
         }
-        let guard = self.acquire_runtime(provider_id, lease.clone()).await?;
-        call_with_checked_runtime(provider.as_ref(), &lease, Some(guard.runtime()), tool)
-            .await
-            .map_err(Self::map_provider_call_error)
+        match provider.descriptor().runtime_model {
+            // In-process 与 stateless command Adapter 没有 Provider Runtime，不能创建 RuntimeSlot。
+            CapabilityRuntimeModel::InProcess | CapabilityRuntimeModel::StatelessCommand => {
+                call_with_checked_runtime(provider.as_ref(), &lease, None, tool)
+                    .await
+                    .map_err(Self::map_provider_call_error)
+            }
+            CapabilityRuntimeModel::WorkspaceScopedProcess => {
+                let guard = self.acquire_runtime(provider_id, lease.clone()).await?;
+                call_with_checked_runtime(provider.as_ref(), &lease, Some(guard.runtime()), tool)
+                    .await
+                    .map_err(Self::map_provider_call_error)
+            }
+        }
+    }
+
+    /// 依据 Registry 的唯一 Tool owner 执行调用；调用方不需要、也不能自行选择 Provider ID。
+    pub(crate) async fn call_tool(
+        &self,
+        lease: WorkspaceLease,
+        tool: WorkspaceToolCall,
+    ) -> Result<WorkspaceToolResult, WorkspaceCapabilityError> {
+        let provider_id = self.tool_owner(&tool.tool_name)?;
+        self.call(provider_id.as_str(), lease, tool).await
     }
 
     /// 在 Manager 锁内创建或读取目标 Slot，并将本次 acquire 线性化到容量调度。
@@ -1592,7 +1637,12 @@ impl WorkspaceCapabilityManager {
             .start(lease.clone())
             .await
             .map(Arc::new)
-            .map_err(|_| WorkspaceCapabilityError::start_failed())
+            .map_err(|error| match error.code {
+                CapabilityProviderErrorCode::NotPrepared => {
+                    WorkspaceCapabilityError::preparation_required()
+                }
+                _ => WorkspaceCapabilityError::start_failed(),
+            })
             .and_then(|runtime| {
                 runtime_matches(&provider.descriptor().provider_id, &lease, Some(&runtime))
                     .then_some(runtime)
@@ -1812,6 +1862,8 @@ impl WorkspaceCapabilityManager {
                 .map(|operation| operation.completion.subscribe())
                 .collect::<Vec<_>>()
         };
+        #[cfg(test)]
+        self.shutdown_admission.notify_waiters();
         // 已获授权的 bounded operation 先完成并归还 claim，随后统一停止 warm Runtime。
         for mut completion in operations {
             while completion.borrow_and_update().is_none() {
@@ -1945,6 +1997,9 @@ impl WorkspaceCapabilityManager {
             | CapabilityProviderErrorCode::OperationFailed => WorkspaceCapabilityError {
                 code: WorkspaceCapabilityErrorCode::RuntimeLost,
             },
+            CapabilityProviderErrorCode::NotPrepared => {
+                WorkspaceCapabilityError::preparation_required()
+            }
             CapabilityProviderErrorCode::RuntimeIdentityMismatch
             | CapabilityProviderErrorCode::ContractError => {
                 WorkspaceCapabilityError::contract_error()
@@ -2834,6 +2889,7 @@ mod tests {
                 WorkspaceToolCall {
                     tool_name: "fake_tool".into(),
                     arguments: json!({}),
+                    cancellation: CancellationToken::new(),
                 },
             )
             .await
@@ -2852,6 +2908,7 @@ mod tests {
         let tool = WorkspaceToolCall {
             tool_name: "fake_tool".into(),
             arguments: json!({ "relativePath": "src/lib.rs" }),
+            cancellation: CancellationToken::new(),
         };
         let value = serde_json::to_value(tool).unwrap();
 
@@ -2859,6 +2916,7 @@ mod tests {
         assert_eq!(value["arguments"]["relativePath"], "src/lib.rs");
         assert!(value.get("root").is_none());
         assert!(value.get("canonicalRoot").is_none());
+        assert!(value.get("cancellation").is_none());
     }
 
     #[tokio::test]
@@ -2875,6 +2933,7 @@ mod tests {
                 WorkspaceToolCall {
                     tool_name: "fake_tool".into(),
                     arguments: json!({"relative_path":"src/lib.rs"}),
+                    cancellation: CancellationToken::new(),
                 },
             )
             .await
@@ -2886,6 +2945,77 @@ mod tests {
             lock_unpoisoned(&runtime_slot(&manager, "generic", &workspace_lease).state).in_flight,
             0
         );
+    }
+
+    #[tokio::test]
+    /// 第三个 in-process Provider 只由 descriptor 选中，既不需要 Core 分支也不分配 RuntimeSlot。
+    async fn manager_routes_third_in_process_provider_without_a_runtime_slot() {
+        let mut third_descriptor = descriptor("third");
+        third_descriptor.tool_names = vec!["third_tool".into()];
+        third_descriptor.runtime_model = CapabilityRuntimeModel::InProcess;
+        third_descriptor.runtime_policy.max_instances = 0;
+        let third = Arc::new(FakeProvider::with_descriptor(third_descriptor));
+        let manager = WorkspaceCapabilityManager::new(Arc::new(
+            WorkspaceCapabilityRegistry::new(vec![as_provider(Arc::clone(&third))]).unwrap(),
+        ));
+
+        let result = manager
+            .call_tool(
+                lease("workspace-a", 7),
+                WorkspaceToolCall {
+                    tool_name: "third_tool".into(),
+                    arguments: json!({}),
+                    cancellation: CancellationToken::new(),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.result, json!({"ok":true}));
+        assert_eq!(third.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(third.starts.load(Ordering::SeqCst), 0);
+        assert!(lock_unpoisoned(&manager.runtime_slots).slots.is_empty());
+    }
+
+    #[tokio::test]
+    /// Source 的 in-process 与 Git 的 stateless command 均由 Descriptor 通用路由，绝不启动或保留 RuntimeSlot。
+    async fn manager_routes_source_and_git_stateless_models_without_runtime_slots() {
+        let mut source_descriptor = descriptor("source");
+        source_descriptor.tool_names = vec!["source_tool".into()];
+        source_descriptor.runtime_model = CapabilityRuntimeModel::InProcess;
+        source_descriptor.runtime_policy.max_instances = 0;
+        let source = Arc::new(FakeProvider::with_descriptor(source_descriptor));
+
+        let mut git_descriptor = descriptor("git");
+        git_descriptor.tool_names = vec!["git_tool".into()];
+        git_descriptor.runtime_model = CapabilityRuntimeModel::StatelessCommand;
+        git_descriptor.runtime_policy.max_instances = 0;
+        let git = Arc::new(FakeProvider::with_descriptor(git_descriptor));
+
+        let manager = WorkspaceCapabilityManager::new(Arc::new(
+            WorkspaceCapabilityRegistry::new(vec![
+                as_provider(Arc::clone(&source)),
+                as_provider(Arc::clone(&git)),
+            ])
+            .unwrap(),
+        ));
+        for tool_name in ["source_tool", "git_tool"] {
+            manager
+                .call_tool(
+                    lease("workspace-a", 7),
+                    WorkspaceToolCall {
+                        tool_name: tool_name.into(),
+                        arguments: json!({}),
+                        cancellation: CancellationToken::new(),
+                    },
+                )
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(source.starts.load(Ordering::SeqCst), 0);
+        assert_eq!(git.starts.load(Ordering::SeqCst), 0);
+        assert!(lock_unpoisoned(&manager.runtime_slots).slots.is_empty());
     }
 
     #[tokio::test]
@@ -2902,6 +3032,7 @@ mod tests {
                 WorkspaceToolCall {
                     tool_name: "fake_tool".into(),
                     arguments: json!({}),
+                    cancellation: CancellationToken::new(),
                 },
             )
             .await
@@ -2922,6 +3053,7 @@ mod tests {
                     WorkspaceToolCall {
                         tool_name: "fake_tool".into(),
                         arguments: json!({}),
+                        cancellation: CancellationToken::new(),
                     },
                 )
                 .await
@@ -2945,6 +3077,7 @@ mod tests {
                 WorkspaceToolCall {
                     tool_name: "fake_tool".into(),
                     arguments: json!({}),
+                    cancellation: CancellationToken::new(),
                 },
             )
             .await
@@ -2971,6 +3104,7 @@ mod tests {
                     WorkspaceToolCall {
                         tool_name: "fake_tool".into(),
                         arguments: json!({}),
+                        cancellation: CancellationToken::new(),
                     },
                 )
                 .await

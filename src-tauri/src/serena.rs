@@ -13,8 +13,10 @@ use crate::{
             },
         },
     },
+    codegraph_capability::CodeGraphCapabilityProvider,
     config::{self, AppPaths, ManagerConfig, Workspace},
     logs,
+    mcp::capability_adapters::{GitCapabilityProvider, SourceCapabilityProvider},
     serena_capability::SerenaCapabilityProvider,
     workspace_capability::{
         WorkspaceCapabilityErrorCode, WorkspaceCapabilityManager, WorkspaceCapabilityRegistry,
@@ -232,13 +234,24 @@ impl SupervisorState {
                 }),
                 paths.clone(),
             ));
+        let source_provider: Arc<dyn crate::workspace_capability::WorkspaceCapabilityProvider> =
+            Arc::new(SourceCapabilityProvider::new());
+        let git_provider: Arc<dyn crate::workspace_capability::WorkspaceCapabilityProvider> =
+            Arc::new(GitCapabilityProvider::new());
+        // CodeGraph 在 Provider 内部使用 RuntimeSlot；Remote query tool 仍由 P2D-009 Gate 禁用。
+        let codegraph_provider: Arc<dyn crate::workspace_capability::WorkspaceCapabilityProvider> =
+            Arc::new(CodeGraphCapabilityProvider::new());
         Ok(Self {
             runtime,
             operation: Mutex::new(()),
             capability_manager: Arc::new(WorkspaceCapabilityManager::new(Arc::new(
-                WorkspaceCapabilityRegistry::new([serena_provider]).map_err(|_| {
-                    "workspace capability registry initialization failed".to_owned()
-                })?,
+                WorkspaceCapabilityRegistry::new([
+                    serena_provider,
+                    source_provider,
+                    git_provider,
+                    codegraph_provider,
+                ])
+                .map_err(|_| "workspace capability registry initialization failed".to_owned())?,
             ))),
             workspace_write_guards: Arc::new(Mutex::new(WorkspaceWriteGuardState::default())),
             target_commit_coordinator:
@@ -1280,7 +1293,7 @@ mod tests {
     }
 
     #[test]
-    fn supervisor_registers_the_single_production_serena_capability() {
+    fn supervisor_registers_production_capabilities_in_frozen_order() {
         let directory = tempfile::tempdir().unwrap();
         let paths = AppPaths {
             runtime_directory: directory.path().join("runtime"),
@@ -1295,7 +1308,7 @@ mod tests {
         let supervisor = SupervisorState::new(paths).unwrap();
         let providers = supervisor.capability_manager.providers();
 
-        assert_eq!(providers.len(), 1);
+        assert_eq!(providers.len(), 4);
         assert_eq!(providers[0].descriptor().provider_id.as_str(), "serena");
         assert_eq!(
             providers[0].descriptor().tool_names,
@@ -1304,6 +1317,13 @@ mod tests {
                 "source_find_symbol",
                 "source_find_references"
             ]
+        );
+        assert_eq!(providers[1].descriptor().provider_id.as_str(), "source");
+        assert_eq!(providers[2].descriptor().provider_id.as_str(), "git");
+        assert_eq!(providers[3].descriptor().provider_id.as_str(), "codegraph");
+        assert_eq!(
+            providers[3].descriptor().runtime_model,
+            crate::workspace_capability::CapabilityRuntimeModel::WorkspaceScopedProcess
         );
     }
 

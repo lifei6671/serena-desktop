@@ -44,6 +44,16 @@ pub struct ActivateArgs {
 pub struct WorkspaceIdArgs {
     pub workspace_id: String,
 }
+/// CodeGraph 公开查询只接受请求级 Workspace identity 和既有查询语义。
+#[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[allow(dead_code, reason = "schema and validation own these fields")]
+pub struct CodeGraphExploreArgs {
+    pub workspace_id: String,
+    pub query: String,
+    #[serde(default)]
+    pub max_files: Option<u32>,
+}
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Empty {}
@@ -189,7 +199,13 @@ fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
         output["required"] = json!(["workspace", "text", "truncated", "path", "sha256"]);
     }
     if name == "codegraph_explore" {
-        output = json!({"type":"object", "oneOf":[output, {
+        // CodeGraph 成功结果只公开 request Lease provenance；通用 Workspace schema 含 root，不能用于 Remote。
+        let codegraph_success = json!({"type":"object", "properties":{
+            "workspace":workspace_provenance_schema(),
+            "text":{"type":"string"},
+            "truncated":{"type":"boolean"}
+        }, "required":["workspace","text","truncated"]});
+        output = json!({"type":"object", "oneOf":[codegraph_success, {
             "type":"object", "required":["error"], "properties":{"error":{
                 "type":"object", "required":["code","message","workspace","recoverable"],
                 "properties":{"code":{"type":"string"},"message":{"type":"string"},
@@ -722,6 +738,11 @@ pub fn list(agent_enabled: bool) -> Vec<Tool> {
     );
     media.output_schema = None;
     list.push(media);
+    list.push(tool(
+        "codegraph_explore",
+        "【做什么】\n在指定已登记 Workspace 的 CodeGraph 索引中查询结构化代码图信息。\n\n【什么时候使用】\n需要探索符号、调用关系或相关文件，且该 Workspace 已由本地用户完成 CodeGraph 准备时使用。\n\n【关键约束】\nworkspaceId 和 query 必填。workspaceId 只由服务端解析为 WorkspaceLease；不接受 root、canonicalRoot 或 path 作为 authority。Remote 查询不会初始化、同步或索引；准备动作只可在本地能力界面执行。",
+        schema::<CodeGraphExploreArgs>(),
+    ));
     if agent_enabled {
         list.extend(super::orchestration::descriptors());
     }
@@ -772,6 +793,18 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
         parse_workspace_id(args)?;
         serde_json::from_value::<super::media::MediaReadImageArgs>(args.clone())
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
+    } else if name == "codegraph_explore" {
+        // 先给出 Workspace Authority 的冻结错误分类，再验证查询字段。
+        parse_workspace_id(args)?;
+        let CodeGraphExploreArgs {
+            workspace_id: _,
+            query,
+            max_files: _,
+        } = serde_json::from_value::<CodeGraphExploreArgs>(args.clone())
+            .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
+        if query.trim().is_empty() {
+            return Err("INVALID_PARAMS: query 不能为空".into());
+        }
     } else if name == "workspace_activate" {
         let parsed = serde_json::from_value::<ActivateArgs>(args.clone())
             .map_err(|e| format!("INVALID_PARAMS: {e}"))?;
@@ -967,8 +1000,8 @@ mod tests {
                 .count(),
             4
         );
-        assert_eq!(disabled.len(), 16);
-        assert_eq!(enabled.len(), 20);
+        assert_eq!(disabled.len(), 17);
+        assert_eq!(enabled.len(), 21);
         assert_eq!(
             enabled
                 .iter()
@@ -1013,6 +1046,7 @@ mod tests {
         assert_eq!(
             findings,
             [
+                "codegraph_explore output oneOf",
                 "work_query input oneOf",
                 "work_query output anyOf",
                 "work_query output $defs",
@@ -1034,7 +1068,7 @@ mod tests {
     #[test]
     fn fixed_surface() {
         let tools = list(true);
-        assert_eq!(tools.len(), 20);
+        assert_eq!(tools.len(), 21);
         let mut expected = vec![
             "work_query",
             "work_update",
@@ -1043,6 +1077,7 @@ mod tests {
             "workspace_list",
             "workspace_get",
             "media_read_image",
+            "codegraph_explore",
         ];
         expected.extend(SOURCES.iter().map(|s| s.0));
         expected.extend(GITS.iter().copied());
@@ -1114,7 +1149,7 @@ mod tests {
                 .map(|t| &t.name)
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
-            20
+            21
         );
         assert!(
             validate(
@@ -1130,14 +1165,45 @@ mod tests {
         ] {
             assert!(!names.contains(name), "{name} must not be advertised");
         }
-        assert!(!names.contains("codegraph_explore"));
+        let codegraph = tools
+            .iter()
+            .find(|tool| tool.name == "codegraph_explore")
+            .expect("P2D-009 must advertise the new CodeGraph Adapter route");
+        assert_eq!(
+            codegraph.input_schema["required"],
+            json!(["workspaceId", "query"])
+        );
+        assert!(codegraph.input_schema["properties"].get("root").is_none());
+        assert!(
+            codegraph.input_schema["properties"]
+                .get("canonicalRoot")
+                .is_none()
+        );
         assert_eq!(
             validate(
                 "codegraph_explore",
                 &json!({"query":"symbol", "maxFiles":2})
             ),
-            Err("UNKNOWN_TOOL".into())
+            Err("WORKSPACE_CONTEXT_REQUIRED".into())
         );
+        let output = codegraph.output_schema.as_ref().unwrap();
+        let success = &output["oneOf"][0];
+        assert_eq!(
+            success["required"],
+            json!(["workspace", "text", "truncated"])
+        );
+        assert_eq!(
+            success["properties"]["workspace"]["required"],
+            json!(["id", "generation"])
+        );
+        assert!(
+            success["properties"]["workspace"]["properties"]
+                .get("root")
+                .is_none()
+        );
+        assert_eq!(success["properties"]["text"]["type"], "string");
+        assert_eq!(success["properties"]["truncated"]["type"], "boolean");
+        assert!(!serde_json::to_string(output).unwrap().contains("\"root\""));
     }
 
     #[test]
@@ -1259,8 +1325,20 @@ mod tests {
             assert_eq!(properties["workspaceId"]["type"], "string", "{}", tool.name);
             assert!(required.contains(&json!("workspaceId")), "{}", tool.name);
         }
-        // 2D Adapter 完成前，旧 Global Active CodeGraph 工具不得以任何 Schema 公开。
-        assert!(!tools.iter().any(|tool| tool.name == "codegraph_explore"));
+        let codegraph = tools
+            .iter()
+            .find(|tool| tool.name == "codegraph_explore")
+            .unwrap();
+        assert_eq!(
+            codegraph.input_schema["properties"]["workspaceId"]["type"],
+            "string"
+        );
+        assert!(
+            codegraph.input_schema["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("workspaceId"))
+        );
     }
 
     #[test]

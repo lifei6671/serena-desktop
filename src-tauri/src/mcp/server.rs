@@ -120,13 +120,11 @@ impl ServerHandler for Handler {
                 started.elapsed().as_secs_f64() * 1000.0
             ),
         );
-        Ok(match result {
-            Ok(v) => v,
-            Err(e) => {
+        Ok(result
+            .unwrap_or_else(|e| {
                 CallToolResult::error(vec![ContentBlock::text(json!({"error":e}).to_string())])
-            }
-        }
-        .into())
+            })
+            .into())
     }
 }
 impl Broker {
@@ -358,6 +356,10 @@ mod quick_tunnel_transport_tests {
             })
             .unwrap(),
         )));
+        // 真实 transport 请求使用已登记的 Workspace；Root 仍只能由服务器 Resolver 导出。
+        let workspace = crate::workspace_registry::WorkspaceRegistry::new(&broker.supervisor)
+            .register(root.to_path_buf(), Some("transport-codegraph".into()))
+            .unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let cancel = CancellationToken::new();
@@ -379,12 +381,33 @@ mod quick_tunnel_transport_tests {
         });
         let outcome = tokio::time::timeout(Duration::from_secs(15), async {
             for protocol in ["2025-03-26", "2025-06-18", "2025-11-25"] {
-                for (body, expected) in [
+                let mut requests = vec![
                     (json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":protocol,"capabilities":{},"clientInfo":{"name":"transport-contract-test","version":"1"}}}), "initialize"),
                     (json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}), "tools_list"),
                     (json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"workspace_list","arguments":{}}}), "workspace_list"),
                     (json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"git_status","arguments":{}}}), "workspace_context_required"),
-                ] {
+                    (json!({"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"codegraph_explore","arguments":{"query":"symbol"}}}), "codegraph_context_required"),
+                    (json!({"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"codegraph_explore","arguments":{"workspaceId":"missing","query":"symbol"}}}), "codegraph_workspace_not_found"),
+                    (json!({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"codegraph_explore","arguments":{"workspaceId":workspace.id.clone(),"query":"symbol"}}}), "codegraph_valid_workspace"),
+                ];
+                // 每个冻结名称都必须经真实 Remote transport 在进入 Broker 前被 registry 拒绝。
+                requests.extend(
+                    super::super::source_write_domain::SourceWriteTool::ALL
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, tool)| {
+                            (
+                                json!({
+                                    "jsonrpc":"2.0",
+                                    "id":10 + index,
+                                    "method":"tools/call",
+                                    "params":{"name":tool.code(),"arguments":{}}
+                                }),
+                                "source_write_remote_disabled",
+                            )
+                        }),
+                );
+                for (body, expected) in requests {
                     let request_id = body["id"].clone();
                     let method = body["method"].as_str().unwrap();
                     let text = body.to_string();
@@ -414,17 +437,56 @@ mod quick_tunnel_transport_tests {
                             for name in registry::LOCAL_SOURCES.iter().chain(registry::SEMANTIC_SOURCES) {
                                 assert!(names.contains(name), "{name}: {value}");
                             }
-                            for legacy in ["workspace_activate", "workspace_deactivate", "workspace_current", "codegraph_explore"] {
+                            for legacy in ["workspace_activate", "workspace_deactivate", "workspace_current"] {
                                 assert!(!names.contains(legacy), "{legacy}: {value}");
+                            }
+                            assert!(names.contains("codegraph_explore"), "{value}");
+                            for tool in super::super::source_write_domain::SourceWriteTool::ALL {
+                                assert!(!names.contains(tool.code()), "{}: {value}", tool.code());
                             }
                         }
                         "workspace_list" => {
                             assert_ne!(value["result"]["isError"], true, "{value}");
-                            assert_eq!(value["result"]["structuredContent"]["workspaces"], json!([]), "{value}");
+                            assert_eq!(
+                                value["result"]["structuredContent"]["workspaces"]
+                                    .as_array()
+                                    .unwrap()
+                                    .len(),
+                                1,
+                                "{value}"
+                            );
                         },
                         "workspace_context_required" => {
                             assert_eq!(value["error"]["code"], -32602, "{value}");
                             assert_eq!(value["error"]["message"], "WORKSPACE_CONTEXT_REQUIRED");
+                        }
+                        "codegraph_context_required" => {
+                            assert_eq!(value["error"]["code"], -32602, "{value}");
+                            assert_eq!(value["error"]["message"], "WORKSPACE_CONTEXT_REQUIRED");
+                        }
+                        "codegraph_workspace_not_found" => {
+                            assert_eq!(value["result"]["isError"], true, "{value}");
+                            assert!(value["result"]["content"][0]["text"]
+                                .as_str()
+                                .unwrap()
+                                .contains("WORKSPACE_NOT_FOUND"));
+                        }
+                        "codegraph_valid_workspace" => {
+                            assert_eq!(value["result"]["isError"], true, "{value}");
+                            let error = &value["result"]["structuredContent"]["error"];
+                            assert_eq!(error["code"], "CODEGRAPH_NOT_INITIALIZED", "{value}");
+                            assert_eq!(
+                                error["message"],
+                                "The active workspace has no initialized CodeGraph index.",
+                                "{value}"
+                            );
+                            assert_eq!(error["recoverable"], false, "{value}");
+                            assert!(error["workspace"].is_null(), "{value}");
+                            assert!(!serde_json::to_string(error).unwrap().contains("root"));
+                        }
+                        "source_write_remote_disabled" => {
+                            assert_eq!(value["error"]["code"], -32602, "{value}");
+                            assert_eq!(value["error"]["message"], "UNKNOWN_TOOL", "{value}");
                         }
                         _ => unreachable!(),
                     }

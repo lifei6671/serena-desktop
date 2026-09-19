@@ -3,6 +3,7 @@
     reason = "TASK-001 foundation is retained without production consumers until Agent lifecycle integration"
 )]
 mod agent;
+mod codegraph_capability;
 mod commands;
 mod config;
 mod discovery;

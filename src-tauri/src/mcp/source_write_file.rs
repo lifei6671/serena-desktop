@@ -239,8 +239,9 @@ mod tests {
             registry,
             source_write_commit::{LockedTargetCommit, lock_existing_target},
             source_write_support::{
-                candidate_sha256, set_snapshot_before_resolve_hook_for_test,
+                SnapshotHookTestGuard, candidate_sha256, set_snapshot_before_resolve_hook_for_test,
                 set_snapshot_chunk_hook_for_test, set_snapshot_ready_hook_for_test,
+                snapshot_hook_test_guard,
             },
         },
     };
@@ -249,16 +250,13 @@ mod tests {
         fs,
         path::{Path, PathBuf},
         process::Command,
-        sync::{Arc, Mutex, MutexGuard, OnceLock, mpsc},
+        sync::{Arc, mpsc},
         time::Duration,
     };
 
-    /// snapshot/lock hook 是 process-global test seam；串行化本模块测试避免互相消费一次性 hook。
-    static TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
-
-    /// 获取 P2C-007 handler 测试的唯一 hook ownership，释放后才允许下一条测试安装 hook。
-    fn test_guard() -> MutexGuard<'static, ()> {
-        TEST_SERIAL.get_or_init(|| Mutex::new(())).lock().unwrap()
+    /// whole-file handler 的所有 hook 用例共用 support 中的进程级 snapshot hook 所有权。
+    fn test_guard() -> SnapshotHookTestGuard {
+        snapshot_hook_test_guard()
     }
 
     /// 创建未被 Desktop selection 或 legacy active state 影响的最小已注册 Workspace。
@@ -346,7 +344,7 @@ mod tests {
     /// absent target 无论 fail/overwrite 都以 LF 创建，optional expectedSha256 不改变 create 语义。
     #[tokio::test]
     async fn absent_targets_create_with_lf_for_both_if_exists_values() {
-        let _test_guard = test_guard();
+        let _test_guard = snapshot_hook_test_guard();
         let (_directory, supervisor, _workspace, root) = fixture();
         for (path, if_exists, provided_expected) in [
             ("fail.txt", "fail", None),
@@ -377,7 +375,7 @@ mod tests {
     /// existing fail 与 overwrite 缺少 version 都不能读取或改变现有 bytes。
     #[tokio::test]
     async fn existing_fail_and_missing_version_preserve_bytes() {
-        let _test_guard = test_guard();
+        let _test_guard = snapshot_hook_test_guard();
         let (_directory, supervisor, _workspace, root) = fixture();
         let target = root.join("existing.txt");
         fs::write(&target, b"old\r\ntext\r\n").unwrap();
@@ -404,7 +402,7 @@ mod tests {
     /// overwrite 保留 verified existing text 的 LF、CRLF 与 mixed/tie newline policy。
     #[tokio::test]
     async fn overwrite_preserves_verified_dominant_newline_style() {
-        let _test_guard = test_guard();
+        let _test_guard = snapshot_hook_test_guard();
         let (_directory, supervisor, _workspace, root) = fixture();
         for (path, existing, expected_new) in [
             (
@@ -444,7 +442,7 @@ mod tests {
     /// stale expected、binary target、caller NUL、input/target/result hard limits保持各自冻结 taxonomy。
     #[tokio::test]
     async fn rejects_versions_binary_data_and_all_whole_file_limits() {
-        let _test_guard = test_guard();
+        let _test_guard = snapshot_hook_test_guard();
         let (_directory, supervisor, _workspace, root) = fixture();
         fs::write(root.join("stale.txt"), b"current").unwrap();
         assert_eq!(
@@ -532,7 +530,7 @@ mod tests {
     /// cancellation 在 acquire 前或同 target lock wait 时均返回 CANCELLED，且 canonical target 不变。
     #[tokio::test]
     async fn cancellation_before_acquire_and_while_waiting_lock_preserves_existing_target() {
-        let _test_guard = test_guard();
+        let _test_guard = snapshot_hook_test_guard();
         let (_directory, supervisor, workspace, root) = fixture();
         let target = root.join("held.txt");
         fs::write(&target, b"old\n").unwrap();
@@ -572,14 +570,14 @@ mod tests {
     /// pre-read 分块取消与 lock 成功后 replace 前取消都保留 OLD；两个窗口都不触碰 canonical target。
     #[tokio::test]
     async fn cancellation_during_preread_and_after_existing_lock_preserves_old_bytes() {
-        let _test_guard = test_guard();
+        let _test_guard = snapshot_hook_test_guard();
         let (_directory, supervisor, _workspace, root) = fixture();
         let preread_target = root.join("preread.txt");
         let preread_bytes = vec![b'x'; 128 * 1024];
         fs::write(&preread_target, &preread_bytes).unwrap();
         let preread_cancel = CancellationToken::new();
         let preread_token = preread_cancel.clone();
-        set_snapshot_chunk_hook_for_test(Arc::new(move || preread_token.cancel()));
+        set_snapshot_chunk_hook_for_test(&preread_target, Arc::new(move || preread_token.cancel()));
         assert_eq!(
             write(
                 supervisor.as_ref(),
@@ -623,7 +621,7 @@ mod tests {
         fs::write(&target, b"old\n").unwrap();
         let holder = existing_lock(supervisor.as_ref(), &workspace, "race.txt", b"old\n").await;
         let (ready_tx, ready_rx) = mpsc::channel();
-        set_snapshot_ready_hook_for_test(Arc::new(move || ready_tx.send(()).unwrap()));
+        set_snapshot_ready_hook_for_test(&target, Arc::new(move || ready_tx.send(()).unwrap()));
         let task_supervisor = Arc::clone(&supervisor);
         let task = tokio::spawn(async move {
             write(
@@ -660,16 +658,19 @@ mod tests {
         fs::write(outside.join("source.txt"), b"outside\n").unwrap();
         let hook_inside = inside.clone();
         let hook_outside = outside.clone();
-        set_snapshot_before_resolve_hook_for_test(Arc::new(move || {
-            fs::remove_dir_all(&hook_inside).unwrap();
-            let status = Command::new("cmd.exe")
-                .args(["/c", "mklink", "/J"])
-                .arg(&hook_inside)
-                .arg(&hook_outside)
-                .status()
-                .unwrap();
-            assert!(status.success());
-        }));
+        set_snapshot_before_resolve_hook_for_test(
+            &inside.join("source.txt"),
+            Arc::new(move || {
+                fs::remove_dir_all(&hook_inside).unwrap();
+                let status = Command::new("cmd.exe")
+                    .args(["/c", "mklink", "/J"])
+                    .arg(&hook_inside)
+                    .arg(&hook_outside)
+                    .status()
+                    .unwrap();
+                assert!(status.success());
+            }),
+        );
         assert_eq!(
             write(
                 supervisor.as_ref(),
@@ -701,10 +702,13 @@ mod tests {
         fs::write(outside.join("source.txt"), b"outside\n").unwrap();
         let hook_inside = inside.clone();
         let hook_outside = outside.clone();
-        set_snapshot_before_resolve_hook_for_test(Arc::new(move || {
-            fs::remove_dir_all(&hook_inside).unwrap();
-            symlink(&hook_outside, &hook_inside).unwrap();
-        }));
+        set_snapshot_before_resolve_hook_for_test(
+            &inside.join("source.txt"),
+            Arc::new(move || {
+                fs::remove_dir_all(&hook_inside).unwrap();
+                symlink(&hook_outside, &hook_inside).unwrap();
+            }),
+        );
         assert_eq!(
             write(
                 supervisor.as_ref(),
@@ -729,9 +733,12 @@ mod tests {
         let original = vec![b'a'; 128 * 1024];
         fs::write(&target, &original).unwrap();
         let external_target = target.clone();
-        set_snapshot_chunk_hook_for_test(Arc::new(move || {
-            fs::write(&external_target, b"external change\n").unwrap();
-        }));
+        set_snapshot_chunk_hook_for_test(
+            &target,
+            Arc::new(move || {
+                fs::write(&external_target, b"external change\n").unwrap();
+            }),
+        );
         assert_eq!(
             write(
                 supervisor.as_ref(),

@@ -378,7 +378,7 @@ P0-005 已完成 Serena CLI `1.7.0` 双进程实测：A/B 可使用独立 proces
 
 2026-09-15 当前设备实测 Serena `1.7.0`：`serena start-mcp-server --project <path|name>` 支持在启动时激活项目；`serena project create` 只有显式传入 `--index` 才在创建后索引；`serena project index [project]` 与 Project Creation 独立，并可在缺少 `project.yml` 时自动创建。Serena 官方 [Project Workflow](https://github.com/oraios/serena/blob/main/docs/02-usage/040_workflow.md) 同样把 Project Creation、Project Activation、Onboarding 和 Indexing 分开，并声明首次按目录激活可以使用默认配置隐式创建项目。因此 Target Contract 不再依赖“枚举所有已初始化项目”的全局命令。
 
-当前设备实测 CodeGraph `1.6.0`：`codegraph init [path]` 会初始化并建立首个索引，`-i/--index` 已只是兼容参数；`codegraph status --json [path]` 返回 `initialized`、`projectPath`、`pendingChanges` 和 `index.state/reindexRecommended`，可作为 Adapter 的机器可读 readiness evidence。当前 Broker Binding 仍以 `<root>/.codegraph/codegraph.db` 检查索引可用性；Target 必须改为通过 Provider Adapter 校验 Root identity 与 status schema。
+当前设备实测 CodeGraph `1.6.0`：`codegraph init [path]` 会初始化并建立首个索引，`-i/--index` 已只是兼容参数；`codegraph status --json [path]` 返回 `initialized`、`projectPath`、`pendingChanges` 和 `index.state/reindexRecommended`，可作为 Adapter 的机器可读 readiness evidence。2026-09-19 在隔离 HOME/APPDATA/XDG 临时配置下通过 `install --target=none --yes` 关闭首次配置 gate 后复测：`pendingChanges` 是 `{added,modified,removed}` 计数对象，`reindexRecommended` 位于 `index` 内；`sync` 后即使三个计数为零仍可为 `true`，只有显式 `index` 后回到 `false`。当前 Broker Binding 仍以 `<root>/.codegraph/codegraph.db` 检查索引可用性；Target 必须改为通过 Provider Adapter 校验 Root identity 与 status schema。
 
 ---
 
@@ -1001,7 +1001,7 @@ workspace_capability_prepare(workspaceId, providerId, actionId)
 - Serena `prepare`：`manager_ensure_runtime, warmRuntime=true`；启动或复用该 Workspace 的独立 Runtime，如果缺少 Project Configuration，Adapter 通过官方支持的首次按路径激活/`--project <canonicalRoot>` 默认配置路径完成创建，不执行 index 或 Onboarding；
 - Serena `build_index`：`provider_prepare, warmRuntime=false`；确保 Project Configuration 已存在后，运行受管的 `serena project index <canonicalRoot>`，索引完成后不要求 Runtime 常驻；
 - CodeGraph `build_index`：`provider_prepare, warmRuntime=false`；首次执行受管的 `codegraph init --yes <canonicalRoot>`；
-- CodeGraph `update_index`：`provider_prepare, warmRuntime=false`；对现有 index 执行受管的 `codegraph sync <canonicalRoot>`；只有用户明确选择 rebuild 时才执行 `codegraph index <canonicalRoot>`。
+- CodeGraph `update_index`：`provider_prepare, warmRuntime=false`；对现有 index 执行受管的 `codegraph sync <canonicalRoot>`；只有稳定 actionId `rebuild_index` 被 Local Human 明确选择时才执行 `codegraph index <canonicalRoot>`。
 
 所有动作都必须异步、可取消、输出安全进度并有 Provider-specific bounded timeout；失败只更新对应 Stage/Provider，不回滚 Workspace 注册或 Desktop selection。从 A 选择 B 不得 retarget 或 kill A 的 Provider Process；只有 Tool acquire、用户点击 `[准备]`，或者显式索引动作自身需要短生命周期 Runtime 时才创建资源。
 
@@ -1437,6 +1437,8 @@ runtimePolicy = maxInstances / idleTimeout / perSlotConcurrency
 `action.execution` 只允许 `manager_ensure_runtime | provider_prepare`：前者由 Manager 走与 Tool acquire 相同的 readiness/auto-prepare/start 路径，后者才调用 Adapter `prepare` 执行 Index/Sync 等持久化动作。`warmRuntime` 只决定动作成功后是否保留一个 idle Runtime Slot，不得由 UI 自行拼接调用顺序。
 
 每次 `call` 都显式接收由服务端 Resolver 产生的 `WorkspaceLease`。Source 只以 `lease.canonical_root + tool.relative_path` 解析目标，Git 执行 `git -C lease.canonical_root` 并把可选 `tool.path` 按 Workspace-relative 语义解析，Serena/CodeGraph 使用 WorkspaceLease identity 取得 Workspace-scoped Runtime Slot，并验证 Lease 与 Runtime Handle 的 `(providerId, workspaceId, generation)`；`WorkspaceToolCall` 不包含 caller-provided root，也不能替代 Lease。Source/Git Adapter 不得读取全局状态、Desktop selection 或 Tool payload 中的隐式 Root。
+
+Phase 2D 的 SourceProvider surface 只收敛当前公开、可路由的四个 Rust Source Read。P2C 已冻结的六个 Local Source Write 继续由 Host 内部 Rust handler、WriteGuard 与 CommitCoordinator 负责；本阶段不新增 Tauri Source Write IPC，也不 advertise 或 route Remote Direct Source Write。未来若新增 Local IPC 或 Remote enable，必须另立任务决定是否经 Source Provider 调用，并复用既有 handler 而不复制写逻辑。
 
 Source/Git Adapter 对 `prepare/start/stop` 使用无准备、无 Runtime 语义；只有声明准备动作的 Provider 才能写入自己的受管工件，只有 `workspace_scoped_process` Provider 创建 Runtime Slot。`WorkspaceCapabilityManager` 和 Workspace UI 只能按 Descriptor/trait 调用，不得出现 `if providerId == "serena"` 或 `if providerId == "codegraph"` 的核心分支。Provider-specific readiness、准备命令、启动参数、阶段状态和上游协议全部封装在 Adapter 内。
 
@@ -2356,6 +2358,8 @@ source_delete_lines
 source_replace_lines
 source_replace_content
 ```
+
+Phase 2C 的 Local Source Write authority 是第 13 节已有的 Host 内部 Rust handler；本阶段不要求也不创建 Tauri Source Write IPC。未来若引入 Local IPC，必须复用同一 handler，并按 §10.4 显式传递 `workspaceId`，不得通过 Desktop selection 或其他状态补值。
 
 Remote 仍允许：
 
@@ -4794,7 +4798,7 @@ Gate：
 
 内容：
 
-- Source/Git Adapter；
+- Source/Git Adapter；其中 SourceProvider 仅覆盖四个公开 Rust Source Read，六个 P2C Local Source Write 保持 Host handler authority 且 Remote disabled；
 - Git Tool 显式 `workspaceId`；
 - `git -C canonicalRoot` 在 WorkspaceLease 上运行；
 - Git 的可选 path 参数只接受 Workspace-relative path；

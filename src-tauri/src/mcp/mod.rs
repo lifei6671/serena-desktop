@@ -1,3 +1,4 @@
+pub(crate) mod capability_adapters;
 mod codegraph;
 pub mod git;
 mod media;
@@ -192,7 +193,7 @@ impl Broker {
                 .map(|l| l.lan_endpoints.clone())
                 .unwrap_or_default(),
             active_workspace: current,
-            // 2D Adapter 前不再从 Global ActiveWorkspace 投影 CodeGraph 状态。
+            // P2D-009 Remote Gate 前不从 Global ActiveWorkspace 投影 CodeGraph 状态。
             codegraph: None,
             projects: snapshot
                 .config
@@ -375,11 +376,6 @@ impl Broker {
         if orchestration::contains(name) {
             return Ok(self.orchestration_operation(name, args).await);
         }
-        // 2D Workspace-scoped Adapter 就绪前，旧全局 active.graph 不再是公开 Authority。
-        // 必须在参数校验和任何 Active Workspace 读取之前拒绝，避免旧路由被直接调用恢复。
-        if name == "codegraph_explore" {
-            return Err("UNKNOWN_TOOL".into());
-        }
         registry::validate(name, &args)?;
         match name {
             "workspace_list" => {
@@ -427,21 +423,33 @@ impl Broker {
         }
         if registry::GITS.contains(&name) {
             let lease = registry::resolve_workspace_lease(&self.supervisor, &args)?;
-            let args: git::GitArgs =
-                serde_json::from_value(args).map_err(|e| format!("INVALID_PARAMS: {e}"))?;
             if cancel.is_cancelled() {
                 return Err("CANCELLED".into());
             }
-            let result = git::call(name, &lease, args, cancel).await?;
-            let mut response = json!({
-                "workspace":{"id":lease.workspace_id,"generation":lease.generation},
-                "text":result.text,
-                "truncated":result.truncated
-            });
-            if result.truncated {
-                response["hint"] = json!("请缩小路径、行范围或日志数量");
+            return call_workspace_adapter(
+                self.supervisor.workspace_capability_manager(),
+                lease,
+                name.to_owned(),
+                args,
+                cancel,
+            )
+            .await;
+        }
+        if name == "codegraph_explore" {
+            // 公开 CodeGraph 调用只经过 request -> Resolver -> Lease -> Manager -> Adapter。
+            // 不触碰 legacy active.graph、DesktopSelectedWorkspace 或 transport session。
+            let lease = registry::resolve_workspace_lease(&self.supervisor, &args)?;
+            if cancel.is_cancelled() {
+                return Err("CANCELLED".into());
             }
-            return Ok(response);
+            return call_codegraph_adapter(
+                self.supervisor.workspace_capability_manager(),
+                lease,
+                name.to_owned(),
+                args,
+                cancel,
+            )
+            .await;
         }
         if registry::is_workspace_scoped_source(name) {
             // 全部 Source Authority 只来自本次请求解析出的 Lease，绝不读取 legacy active Workspace。
@@ -455,25 +463,15 @@ impl Broker {
                 .clone();
             arguments.remove("workspaceId");
             let arguments = Value::Object(arguments);
-            if name == "source_read_file" {
-                let source_args: registry::SourceArgs = serde_json::from_value(arguments)
-                    .expect("registry validation verified local Source arguments");
-                return source_read::read(&lease, source_args, cancel).await;
-            }
-            if name == "source_list_dir" {
-                let source_args: registry::SourceArgs = serde_json::from_value(arguments)
-                    .expect("registry validation verified local Source arguments");
-                return source_list::list(&lease, source_args, cancel).await;
-            }
-            if name == "source_find_file" {
-                let source_args: registry::SourceArgs = serde_json::from_value(arguments)
-                    .expect("registry validation verified local Source arguments");
-                return source_find::find(&lease, source_args, cancel).await;
-            }
-            if name == "source_search_pattern" {
-                let source_args: registry::SourceArgs = serde_json::from_value(arguments)
-                    .expect("registry validation verified local Source arguments");
-                return source_search::search(&lease, source_args, cancel).await;
+            if registry::LOCAL_SOURCES.contains(&name) {
+                return call_workspace_adapter(
+                    self.supervisor.workspace_capability_manager(),
+                    lease,
+                    name.to_owned(),
+                    arguments,
+                    cancel,
+                )
+                .await;
             }
             // 此处只会到达三个 Semantic Source；四个基础 Source 已在上方本地完成。
             let text = call_workspace_source(
@@ -519,6 +517,51 @@ fn map_semantic_capability_error(error: WorkspaceCapabilityError) -> String {
     }
 }
 
+/// 在 CodeGraph Adapter compatibility 边界投影统一 Manager 错误，不向公开 MCP 泄露 runtime 细节。
+fn map_codegraph_capability_error(error: WorkspaceCapabilityError) -> String {
+    match error.code {
+        WorkspaceCapabilityErrorCode::Busy => "CODEGRAPH_BUSY".into(),
+        WorkspaceCapabilityErrorCode::NotPrepared
+        | WorkspaceCapabilityErrorCode::PreparationRequired => "CODEGRAPH_NOT_INITIALIZED".into(),
+        WorkspaceCapabilityErrorCode::StartFailed => "CODEGRAPH_RUNTIME_START_FAILED".into(),
+        WorkspaceCapabilityErrorCode::RuntimeLost => "CODEGRAPH_RUNTIME_LOST".into(),
+        WorkspaceCapabilityErrorCode::NotFound => "CODEGRAPH_RUNTIME_START_FAILED".into(),
+        WorkspaceCapabilityErrorCode::ContractError => "WORKSPACE_CAPABILITY_CONTRACT_ERROR".into(),
+        code => serde_json::to_value(code)
+            .expect("WorkspaceCapabilityErrorCode must serialize")
+            .as_str()
+            .expect("WorkspaceCapabilityErrorCode must serialize as string")
+            .to_owned(),
+    }
+}
+
+/// 将已解析 Lease 后的 CodeGraph 能力错误固定投影为公开安全对象。
+/// workspace 为 null 时仍保留 request-scoped 错误语义，且不会因 Remove race 读取或泄露 root。
+fn codegraph_capability_error_value(error: WorkspaceCapabilityError) -> Value {
+    let code = map_codegraph_capability_error(error);
+    let (message, recoverable) = match code.as_str() {
+        "CODEGRAPH_BUSY" => ("CodeGraph is starting for the active workspace.", true),
+        "CODEGRAPH_NOT_INITIALIZED" => (
+            "The active workspace has no initialized CodeGraph index.",
+            false,
+        ),
+        "CODEGRAPH_RUNTIME_START_FAILED" => {
+            ("CodeGraph failed to start for the active workspace.", true)
+        }
+        "CODEGRAPH_RUNTIME_LOST" => ("The CodeGraph runtime connection was lost.", true),
+        "WORKSPACE_CAPABILITY_CONTRACT_ERROR" => {
+            ("CodeGraph returned an invalid capability result.", false)
+        }
+        _ => ("CodeGraph could not complete this request.", false),
+    };
+    json!({"error":{
+        "code":code,
+        "message":message,
+        "workspace":Value::Null,
+        "recoverable":recoverable
+    }})
+}
+
 /// 将三个 Semantic Source 唯一地交给 request Lease 对应的 Serena Slot，并拒绝非文本 Provider 结果。
 async fn call_workspace_source(
     manager: Arc<crate::workspace_capability::WorkspaceCapabilityManager>,
@@ -533,6 +576,7 @@ async fn call_workspace_source(
             WorkspaceToolCall {
                 tool_name,
                 arguments,
+                cancellation: CancellationToken::new(),
             },
         )
         .await
@@ -542,6 +586,62 @@ async fn call_workspace_source(
         .as_str()
         .map(str::to_owned)
         .ok_or("WORKSPACE_CAPABILITY_CONTRACT_ERROR".into())
+}
+
+/// 统一解码无状态 Adapter 的业务结果；Manager 只负责 Provider 选择与 Lease/Runtime 不变量。
+async fn call_workspace_adapter(
+    manager: Arc<crate::workspace_capability::WorkspaceCapabilityManager>,
+    lease: crate::workspace_resolver::WorkspaceLease,
+    tool_name: String,
+    arguments: Value,
+    cancellation: CancellationToken,
+) -> Result<Value, String> {
+    let result = manager
+        .call_tool(
+            lease,
+            WorkspaceToolCall {
+                tool_name,
+                arguments,
+                cancellation,
+            },
+        )
+        .await
+        .map_err(map_semantic_capability_error)?;
+    capability_adapters::decode_tool_result(result)
+}
+
+/// CodeGraph 专用公开边界：Manager 保持 provider-agnostic，只在 Adapter route 映射兼容错误码。
+async fn call_codegraph_adapter(
+    manager: Arc<crate::workspace_capability::WorkspaceCapabilityManager>,
+    lease: crate::workspace_resolver::WorkspaceLease,
+    tool_name: String,
+    arguments: Value,
+    cancellation: CancellationToken,
+) -> Result<Value, String> {
+    let result = match manager
+        .call_tool(
+            lease.clone(),
+            WorkspaceToolCall {
+                tool_name,
+                arguments,
+                cancellation,
+            },
+        )
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => return Ok(codegraph_capability_error_value(error)),
+    };
+    // CodeGraph Provider 保留既有纯文本 Tool family；它不使用 Source/Git 的 AdapterToolResult envelope。
+    let Some(text) = result.result.as_str() else {
+        return Ok(codegraph_capability_error_value(WorkspaceCapabilityError {
+            code: WorkspaceCapabilityErrorCode::ContractError,
+        }));
+    };
+    Ok(
+        json!({"workspace":{"id":lease.workspace_id,"generation":lease.generation},
+        "text":text,"truncated":false}),
+    )
 }
 
 fn append_log(logs: &Mutex<VecDeque<String>>, message: &str) {
@@ -662,6 +762,17 @@ mod integration_tests {
                 observations: std::sync::atomic::AtomicUsize::new(0),
             }
         }
+
+        /// 创建只用于 Remote cutover Gate 的 CodeGraph Adapter fixture，不触发旧 Global Binding。
+        fn codegraph() -> Self {
+            let mut provider = Self::new();
+            provider.descriptor.provider_id = WorkspaceCapabilityProviderId::new("codegraph");
+            provider.descriptor.display_name = "CodeGraph routing fixture".into();
+            provider.descriptor.tool_names = vec!["codegraph_explore".into()];
+            provider.descriptor.preparation_policy = CapabilityPreparationPolicy::ExplicitOnly;
+            provider.descriptor.runtime_policy.idle_timeout_ms = 300_000;
+            provider
+        }
     }
 
     impl WorkspaceCapabilityProvider for SemanticRoutingProvider {
@@ -770,6 +881,19 @@ mod integration_tests {
         dir: &std::path::Path,
         provider: Arc<SemanticRoutingProvider>,
     ) -> (Arc<Broker>, Arc<WorkspaceCapabilityManager>) {
+        semantic_fixture_with_codegraph(
+            dir,
+            provider,
+            Arc::new(SemanticRoutingProvider::codegraph()),
+        )
+    }
+
+    /// 构造可观测 CodeGraph fixture 的 P2D Gate；生产路由仍只看 Registry descriptor 与 Lease。
+    fn semantic_fixture_with_codegraph(
+        dir: &std::path::Path,
+        provider: Arc<SemanticRoutingProvider>,
+        codegraph: Arc<SemanticRoutingProvider>,
+    ) -> (Arc<Broker>, Arc<WorkspaceCapabilityManager>) {
         let paths = AppPaths {
             runtime_directory: dir.join("runtime"),
             config_file: dir.join("config.json"),
@@ -789,8 +913,19 @@ mod integration_tests {
         };
         crate::config::save(&paths.config_file, &config).unwrap();
         let provider_port: Arc<dyn WorkspaceCapabilityProvider> = provider;
+        let source_provider: Arc<dyn WorkspaceCapabilityProvider> =
+            Arc::new(capability_adapters::SourceCapabilityProvider::new());
+        let git_provider: Arc<dyn WorkspaceCapabilityProvider> =
+            Arc::new(capability_adapters::GitCapabilityProvider::new());
+        let codegraph_provider: Arc<dyn WorkspaceCapabilityProvider> = codegraph;
         let manager = Arc::new(WorkspaceCapabilityManager::new(Arc::new(
-            WorkspaceCapabilityRegistry::new(vec![provider_port]).unwrap(),
+            WorkspaceCapabilityRegistry::new(vec![
+                provider_port,
+                source_provider,
+                git_provider,
+                codegraph_provider,
+            ])
+            .unwrap(),
         )));
         let mut supervisor = SupervisorState::new(paths).unwrap();
         supervisor.replace_workspace_capability_manager_for_test(Arc::clone(&manager));
@@ -1320,7 +1455,7 @@ mod integration_tests {
     }
 
     #[tokio::test]
-    async fn legacy_codegraph_is_unavailable_before_any_active_workspace_read() {
+    async fn codegraph_requires_explicit_workspace_before_any_active_workspace_read() {
         let directory = tempfile::tempdir().unwrap();
         let broker = fixture(directory.path(), None);
         let root = directory.path().join("desktop-selected-workspace");
@@ -1329,7 +1464,7 @@ mod integration_tests {
             .register(root.clone(), Some("Desktop selected".into()))
             .unwrap();
 
-        // Desktop selection remains a UI default only and cannot republish the legacy tool.
+        // Desktop selection remains a UI default only and cannot supply CodeGraph authority.
         broker
             .supervisor
             .select_desktop_workspace(&workspace.id)
@@ -1355,10 +1490,10 @@ mod integration_tests {
             )
             .await,
         ] {
-            assert_eq!(result.unwrap(), Err("UNKNOWN_TOOL".into()));
+            assert_eq!(result.unwrap(), Err("WORKSPACE_CONTEXT_REQUIRED".into()));
         }
         drop(active_guard);
-        // 即使旧 ActiveWorkspace 已存在，也不能重新连到 active.graph 或启动 CodeGraph 子进程。
+        // 即使旧 ActiveWorkspace 已存在，缺少 workspaceId 也不能重新连到 active.graph 或启动子进程。
         let active_server = super::orchestration_tests::active(&broker, &root).await;
         assert!(broker.workspace.read().await.is_some());
         let logs_before_direct_call = broker.log_snapshot();
@@ -1370,11 +1505,147 @@ mod integration_tests {
                     CancellationToken::new(),
                 )
                 .await,
-            Err("UNKNOWN_TOOL".into())
+            Err("WORKSPACE_CONTEXT_REQUIRED".into())
         );
         active_server.abort();
         assert!(!root.join(".codegraph").exists());
         assert_eq!(broker.log_snapshot(), logs_before_direct_call);
+    }
+
+    #[tokio::test]
+    /// P2D-009：Remote CodeGraph A/B 只把 Resolver 建立的 Lease 交给 Adapter，不读取 Desktop selection。
+    async fn p2d_009_remote_codegraph_routes_ab_through_explicit_leases() {
+        let directory = tempfile::tempdir().unwrap();
+        let semantic = Arc::new(SemanticRoutingProvider::new());
+        let codegraph = Arc::new(SemanticRoutingProvider::codegraph());
+        let (broker, _manager) =
+            semantic_fixture_with_codegraph(directory.path(), semantic, Arc::clone(&codegraph));
+        let root_a = directory.path().join("codegraph-a");
+        let root_b = directory.path().join("codegraph-b");
+        std::fs::create_dir(&root_a).unwrap();
+        std::fs::create_dir(&root_b).unwrap();
+        let registry = WorkspaceRegistry::new(&broker.supervisor);
+        let workspace_a = registry
+            .register(root_a, Some("CodeGraph A".into()))
+            .unwrap();
+        let workspace_b = registry
+            .register(root_b, Some("CodeGraph B".into()))
+            .unwrap();
+        broker
+            .supervisor
+            .select_desktop_workspace(&workspace_b.id)
+            .unwrap();
+
+        for workspace in [&workspace_a, &workspace_b] {
+            let response = broker
+                .dispatch(
+                    "codegraph_explore",
+                    json!({"workspaceId":workspace.id,"query":"lease route"}),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response,
+                json!({
+                    "workspace":{"id":workspace.id,"generation":workspace.generation},
+                    "text":format!("semantic:{}", workspace.id),
+                    "truncated":false
+                })
+            );
+            let root = workspace.root.to_string_lossy();
+            assert!(
+                !serde_json::to_string(&response)
+                    .unwrap()
+                    .contains(root.as_ref())
+            );
+        }
+        let calls = codegraph.calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].0.workspace_id, workspace_a.id);
+        assert_eq!(calls[1].0.workspace_id, workspace_b.id);
+        assert_eq!(
+            calls[0].0.canonical_root,
+            workspace_a.root.canonicalize().unwrap()
+        );
+        assert_eq!(
+            calls[1].0.canonical_root,
+            workspace_b.root.canonicalize().unwrap()
+        );
+        assert_eq!(calls[0].1.arguments["workspaceId"], workspace_a.id);
+        assert_eq!(calls[1].1.arguments["workspaceId"], workspace_b.id);
+    }
+
+    #[test]
+    /// CodeGraph public compatibility 映射固定在 Broker Adapter 边界，Manager Core 不识别 providerId。
+    fn p2d_009_codegraph_compatibility_mapper_is_stable() {
+        for (input, expected) in [
+            (WorkspaceCapabilityErrorCode::Busy, "CODEGRAPH_BUSY"),
+            (
+                WorkspaceCapabilityErrorCode::NotPrepared,
+                "CODEGRAPH_NOT_INITIALIZED",
+            ),
+            (
+                WorkspaceCapabilityErrorCode::PreparationRequired,
+                "CODEGRAPH_NOT_INITIALIZED",
+            ),
+            (
+                WorkspaceCapabilityErrorCode::StartFailed,
+                "CODEGRAPH_RUNTIME_START_FAILED",
+            ),
+            (
+                WorkspaceCapabilityErrorCode::RuntimeLost,
+                "CODEGRAPH_RUNTIME_LOST",
+            ),
+        ] {
+            assert_eq!(
+                map_codegraph_capability_error(WorkspaceCapabilityError { code: input }),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    /// P2D-009：已进入 CodeGraph compatibility 边界的能力错误必须保持结构化且不泄露 Workspace root。
+    fn p2d_009_codegraph_capability_errors_have_safe_structured_shape() {
+        for (input, code, message, recoverable) in [
+            (
+                WorkspaceCapabilityErrorCode::Busy,
+                "CODEGRAPH_BUSY",
+                "CodeGraph is starting for the active workspace.",
+                true,
+            ),
+            (
+                WorkspaceCapabilityErrorCode::NotPrepared,
+                "CODEGRAPH_NOT_INITIALIZED",
+                "The active workspace has no initialized CodeGraph index.",
+                false,
+            ),
+            (
+                WorkspaceCapabilityErrorCode::PreparationRequired,
+                "CODEGRAPH_NOT_INITIALIZED",
+                "The active workspace has no initialized CodeGraph index.",
+                false,
+            ),
+            (
+                WorkspaceCapabilityErrorCode::ContractError,
+                "WORKSPACE_CAPABILITY_CONTRACT_ERROR",
+                "CodeGraph returned an invalid capability result.",
+                false,
+            ),
+        ] {
+            let value = codegraph_capability_error_value(WorkspaceCapabilityError { code: input });
+            assert_eq!(
+                value,
+                json!({"error":{
+                    "code":code,
+                    "message":message,
+                    "workspace":Value::Null,
+                    "recoverable":recoverable
+                }})
+            );
+            assert!(!serde_json::to_string(&value).unwrap().contains("root"));
+        }
     }
 
     #[tokio::test]
@@ -2040,13 +2311,10 @@ mod integration_tests {
             .await
             .unwrap_err();
         assert!(image.to_string().contains("WORKSPACE_CONTEXT_REQUIRED"));
+        let tools = client.list_all_tools().await.unwrap();
         assert!(
-            client
-                .list_all_tools()
-                .await
-                .unwrap_err()
-                .to_string()
-                .contains("BACKEND_UNAVAILABLE")
+            tools.iter().any(|tool| tool.name == "codegraph_explore"),
+            "CodeGraph discovery is local and must not require an active workspace"
         );
         assert!(
             client
@@ -2063,7 +2331,7 @@ mod integration_tests {
             )
             .await
             .unwrap_err();
-        assert!(graph.to_string().contains("UNKNOWN_TOOL"));
+        assert!(graph.to_string().contains("WORKSPACE_CONTEXT_REQUIRED"));
         let guard = broker.workspace.write().await;
         let (r, ()) = tokio::join!(
             client.call_tool(CallToolRequestParams::new("workspace_deactivate")),
@@ -2675,7 +2943,7 @@ mod integration_tests {
                 .list_all_tools()
                 .await
                 .map_err(|e| e.to_string())?;
-            assert_eq!(tools.len(), if b.config().agent_enabled { 20 } else { 16 });
+            assert_eq!(tools.len(), if b.config().agent_enabled { 21 } else { 17 });
             assert!(!tools.iter().any(|tool| tool.name == "agent"));
             assert_eq!(
                 tools.iter().filter(|tool| orchestration::contains(&tool.name)).count(),
@@ -2713,7 +2981,7 @@ mod integration_tests {
                     CancellationToken::new()
                 )
                 .await,
-                Err("UNKNOWN_TOOL".into())
+                Err("WORKSPACE_CONTEXT_REQUIRED".into())
             );
             assert!(
                 b.activate("missing", CancellationToken::new())
@@ -2728,7 +2996,7 @@ mod integration_tests {
                     CancellationToken::new(),
                 )
                 .await,
-                Err("UNKNOWN_TOOL".into())
+                Err("WORKSPACE_CONTEXT_REQUIRED".into())
             );
             assert_eq!(
                 b.dispatch(
@@ -2761,7 +3029,7 @@ mod integration_tests {
             assert!(
                 serde_json::to_string(&crashed)
                     .unwrap()
-                    .contains("UNKNOWN_TOOL")
+                    .contains("WORKSPACE_CONTEXT_REQUIRED")
             );
             let current = discovery
                 .call_tool(CallToolRequestParams::new("workspace_current"))
@@ -3017,7 +3285,7 @@ mod integration_tests {
                     CancellationToken::new()
                 )
                 .await,
-                Err("UNKNOWN_TOOL".into())
+                Err("WORKSPACE_CONTEXT_REQUIRED".into())
             );
             assert_eq!(
                 b.dispatch(
@@ -3040,7 +3308,7 @@ mod integration_tests {
                     CancellationToken::new()
                 )
                 .await,
-                Err("UNKNOWN_TOOL".into())
+                Err("WORKSPACE_CONTEXT_REQUIRED".into())
             );
             assert!(
                 b.dispatch("git_status", json!({}), CancellationToken::new())
@@ -3207,21 +3475,17 @@ mod integration_tests {
         );
         assert_eq!(work.workspace_generation, workspace_a.generation);
 
-        // tools/list 的公开表不依赖 Serena，保留全部连续后端但绝不重新 advertise legacy CodeGraph。
+        // tools/list 的公开表不依赖 Serena，CodeGraph 只公开新的 WorkspaceLease Adapter route。
         let advertised = registry::list(false);
         for name in registry::LOCAL_SOURCES
             .iter()
             .chain(registry::SEMANTIC_SOURCES)
             .chain(registry::GITS)
+            .chain(["codegraph_explore"].iter())
             .chain(["media_read_image"].iter())
         {
             assert!(advertised.iter().any(|tool| tool.name == *name), "{name}");
         }
-        assert!(
-            !advertised
-                .iter()
-                .any(|tool| tool.name == "codegraph_explore")
-        );
 
         // Discovery 是 catalog-only；已知 ID 仍可直接复用，但遗漏 ID 不得绑定到 A/B 任一方。
         assert_eq!(
@@ -3482,7 +3746,7 @@ mod integration_tests {
             )
             .await
             .unwrap_err();
-        assert!(codegraph.to_string().contains("UNKNOWN_TOOL"));
+        assert!(codegraph.to_string().contains("WORKSPACE_CONTEXT_REQUIRED"));
         reconnected.cancel().await.unwrap();
         broker.stop().await.unwrap();
         legacy.abort();

@@ -479,6 +479,9 @@ test('homepage keeps the real service and endpoint data in its compact shell', a
   const snapshot = { config, desktopSelectedWorkspace: workspace, git: { available: true, status: 'available', version: '2.50.0' }, serverStatus: 'running', installation: null, activeInstallation: { state: 'standard', version: '1.7.0' }, managedRuntimePresent: true, managedProcessPresent: true, activePort: 9121, autostartEnabled: false, codegraphVersion: '1.6.0' };
   api.getState = async () => structuredClone(snapshot);
   api.broker = async () => ({ running: true, port: 9120, listenAddress: '0.0.0.0', lanEndpoints: ['http://10.0.0.2:9120/mcp', 'http://192.168.1.2:9120/mcp'], projects: [{ ...workspace, configured: true }], projectSources: [], syncWarnings: [], activeWorkspace: workspace, codegraph: { status: 'ready' } });
+  api.workspaceCapabilityObserve = async () => ({ workspaceId: workspace.id, providers: {
+    generic: { displayName: 'Generic capability', installation: 'installed', status: 'ready', readiness: 'ready', runtimeState: 'stopped', checkedAt: 1, stages: [], actions: [] },
+  } });
   api.workspaceImportSerena = async () => 1;
   api.agentHistory = async () => ({ executions: [], nextCursor: null });
   api.codexVersion = async () => 'test-version';
@@ -490,7 +493,8 @@ test('homepage keeps the real service and endpoint data in its compact shell', a
   assert.doesNotMatch(document.querySelector('nav[aria-label="主导航"]').textContent, /Agent 编排/);
   assert.equal(document.querySelector('nav[aria-label="主导航"] [aria-current="page"]').textContent, '首页');
   assert.match(document.querySelector('.workspace-summary').textContent, /serena-desktop/);
-  assert.equal(document.querySelectorAll('.service-list > .service-row').length, 4);
+  assert.equal(document.querySelectorAll('#services-title').length, 1);
+  assert.match(document.querySelector('[data-capability-workspace]').textContent, /Generic capability/);
   assert.equal(document.querySelector('.connection-endpoint-card code').textContent, 'http://127.0.0.1:9120/mcp');
   assert.equal(document.querySelectorAll('.lan-endpoint-row').length, 2);
   assert.equal(document.querySelector('footer .mono').textContent, 'Serena 内部端口：9121');

@@ -1707,9 +1707,9 @@ Forbidden scope: 新 enable 机制、token/permission 设计。
 Contract references: §14～§14.1；§50 Source  
 Implementation requirements: 默认 schema/list/call 均 unavailable。  
 Non-goals: 实现 Remote enable。  
-Tests required: remote list/call disabled，Local IPC 可用。  
+Tests required: remote list/call disabled；代表性 Local Host Rust handler 可用。
 Evidence required: MCP contract tests。  
-Acceptance criteria: 默认 Remote 无写 Tool。  
+Acceptance criteria: 默认 Remote 无写 Tool，且不影响既有 Local Host Rust handler。
 Rollback / failure behavior: exposure 不确定时继续禁用。  
 Risk: high  
 Estimated blast radius: small  
@@ -1744,15 +1744,15 @@ Can run in parallel with: None
 
 Phase: Phase 2D  
 Type: implementation  
-Goal: 用通用 Provider Port 包装已完成的 Rust Source。  
+Goal: 用通用 Provider Port 包装当前公开、可路由的四个 Rust Source Read。
 Why now: 完成最终 Capability routing，不改 Source 业务语义。  
 Dependencies: P2C-013、P2A3-013 (H)  
 Blocked by: None  
-Allowed scope: Source adapter registration/routing/tests。  
+Allowed scope: 四个 Source Read adapter registration/routing/tests，以及 P2C Local Source Write Host authority 的边界说明。
 Forbidden scope: 改四读六写契约。  
 Contract references: §10.7；§12～§13；§52 Phase 2D  
-Implementation requirements: `call` 显式接收 Lease；无 providerId 特判。  
-Non-goals: Git/CodeGraph。  
+Implementation requirements: `call` 显式接收 Lease；无 providerId 特判；Provider surface 仅包含四个公开 Read。六个 P2C Local Source Write 继续使用既有 Host 内部 handler/WriteGuard/CommitCoordinator，不新增 Tauri IPC，不 advertise 或 route Remote Direct Source Write。
+Non-goals: Git/CodeGraph；将六个 Local Source Write 纳入 Provider surface。
 Tests required: third-provider registry、Source regression、lease mismatch。  
 Evidence required: adapter tests。  
 Acceptance criteria: Source 业务测试原样通过。  

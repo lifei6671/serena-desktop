@@ -17,7 +17,7 @@ use crate::{
 };
 use sha2::{Digest, Sha256};
 #[cfg(test)]
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::{
     fs::{self, File},
     io::{ErrorKind, Read},
@@ -35,76 +35,147 @@ type SnapshotReadyHook = Arc<dyn Fn() + Send + Sync>;
 #[cfg(test)]
 type SnapshotBeforeResolveHook = Arc<dyn Fn() + Send + Sync>;
 #[cfg(test)]
-static SNAPSHOT_CHUNK_HOOK: OnceLock<Mutex<Option<SnapshotChunkHook>>> = OnceLock::new();
+struct SnapshotTestHook<Hook> {
+    target: std::path::PathBuf,
+    action: Hook,
+}
 #[cfg(test)]
-static SNAPSHOT_READY_HOOK: OnceLock<Mutex<Option<SnapshotReadyHook>>> = OnceLock::new();
-#[cfg(test)]
-static SNAPSHOT_BEFORE_RESOLVE_HOOK: OnceLock<Mutex<Option<SnapshotBeforeResolveHook>>> =
+static SNAPSHOT_CHUNK_HOOK: OnceLock<Mutex<Option<SnapshotTestHook<SnapshotChunkHook>>>> =
     OnceLock::new();
+#[cfg(test)]
+static SNAPSHOT_READY_HOOK: OnceLock<Mutex<Option<SnapshotTestHook<SnapshotReadyHook>>>> =
+    OnceLock::new();
+#[cfg(test)]
+static SNAPSHOT_BEFORE_RESOLVE_HOOK: OnceLock<
+    Mutex<Option<SnapshotTestHook<SnapshotBeforeResolveHook>>>,
+> = OnceLock::new();
+/// 三类 snapshot hook 都是 test binary 进程级 seam，安装期间必须由同一 RAII guard 独占。
+#[cfg(test)]
+static SNAPSHOT_HOOK_TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
+
+/// 独占一次性 snapshot hook，并在测试提前返回或 panic 时清除未消费的 hook。
+#[cfg(test)]
+pub(crate) struct SnapshotHookTestGuard {
+    _serial: MutexGuard<'static, ()>,
+}
+
+/// 取得全局 snapshot hook 的测试所有权；仅 hook 相关用例串行，普通用例仍可并行。
+#[cfg(test)]
+pub(crate) fn snapshot_hook_test_guard() -> SnapshotHookTestGuard {
+    SnapshotHookTestGuard {
+        _serial: SNAPSHOT_HOOK_TEST_SERIAL
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+    }
+}
+
+#[cfg(test)]
+impl Drop for SnapshotHookTestGuard {
+    /// 不让失败或提前返回的测试把未消费 hook 泄漏给后续测试。
+    fn drop(&mut self) {
+        *SNAPSHOT_CHUNK_HOOK
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .expect("snapshot chunk hook mutex poisoned") = None;
+        *SNAPSHOT_READY_HOOK
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .expect("snapshot ready hook mutex poisoned") = None;
+        *SNAPSHOT_BEFORE_RESOLVE_HOOK
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .expect("snapshot before-resolve hook mutex poisoned") = None;
+    }
+}
 
 /// 设置一次性 snapshot chunk hook，供 P2C-007 cancellation regression 精确取消 pre-read。
 #[cfg(test)]
-pub(crate) fn set_snapshot_chunk_hook_for_test(hook: SnapshotChunkHook) {
+pub(crate) fn set_snapshot_chunk_hook_for_test(target: &Path, hook: SnapshotChunkHook) {
     *SNAPSHOT_CHUNK_HOOK
         .get_or_init(|| Mutex::new(None))
         .lock()
-        .unwrap() = Some(hook);
+        .unwrap() = Some(SnapshotTestHook {
+        target: fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf()),
+        action: hook,
+    });
 }
 
 /// 设置一次性 snapshot ready hook，供 P2C-007 精确制造 pre-read 后的外部编辑。
 #[cfg(test)]
-pub(crate) fn set_snapshot_ready_hook_for_test(hook: SnapshotReadyHook) {
+pub(crate) fn set_snapshot_ready_hook_for_test(target: &Path, hook: SnapshotReadyHook) {
     *SNAPSHOT_READY_HOOK
         .get_or_init(|| Mutex::new(None))
         .lock()
-        .unwrap() = Some(hook);
+        .unwrap() = Some(SnapshotTestHook {
+        target: fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf()),
+        action: hook,
+    });
 }
 
 /// 设置一次性 pre-resolve hook，精确覆盖旧绝对路径 pre-read 的 junction/symlink race。
 #[cfg(test)]
-pub(crate) fn set_snapshot_before_resolve_hook_for_test(hook: SnapshotBeforeResolveHook) {
+pub(crate) fn set_snapshot_before_resolve_hook_for_test(
+    target: &Path,
+    hook: SnapshotBeforeResolveHook,
+) {
     *SNAPSHOT_BEFORE_RESOLVE_HOOK
         .get_or_init(|| Mutex::new(None))
         .lock()
-        .unwrap() = Some(hook);
+        .unwrap() = Some(SnapshotTestHook {
+        target: fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf()),
+        action: hook,
+    });
 }
 
 /// 取走并调用一次 chunk hook，避免并行后续读取或后续测试重复触发。
 #[cfg(test)]
-fn run_snapshot_chunk_hook_for_test() {
-    if let Some(hook) = SNAPSHOT_CHUNK_HOOK
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .unwrap()
-        .take()
-    {
-        hook();
+fn run_snapshot_chunk_hook_for_test(target: &Path) {
+    let hook = {
+        let mut slot = SNAPSHOT_CHUNK_HOOK
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap();
+        slot.as_ref()
+            .is_some_and(|hook| hook.target == target)
+            .then(|| slot.take().expect("matching snapshot chunk hook"))
+    };
+    if let Some(hook) = hook {
+        (hook.action)();
     }
 }
 
 /// 取走并调用一次 ready hook，保证外部编辑发生在已验证 snapshot 与 commit lock 之间。
 #[cfg(test)]
-fn run_snapshot_ready_hook_for_test() {
-    if let Some(hook) = SNAPSHOT_READY_HOOK
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .unwrap()
-        .take()
-    {
-        hook();
+fn run_snapshot_ready_hook_for_test(target: &Path) {
+    let hook = {
+        let mut slot = SNAPSHOT_READY_HOOK
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap();
+        slot.as_ref()
+            .is_some_and(|hook| hook.target == target)
+            .then(|| slot.take().expect("matching snapshot ready hook"))
+    };
+    if let Some(hook) = hook {
+        (hook.action)();
     }
 }
 
 /// 在 snapshot 自己重新解析 Lease-relative path 前执行一次测试重定向，production 不包含此路径。
 #[cfg(test)]
-fn run_snapshot_before_resolve_hook_for_test() {
-    if let Some(hook) = SNAPSHOT_BEFORE_RESOLVE_HOOK
-        .get_or_init(|| Mutex::new(None))
-        .lock()
-        .unwrap()
-        .take()
-    {
-        hook();
+fn run_snapshot_before_resolve_hook_for_test(target: &Path) {
+    let hook = {
+        let mut slot = SNAPSHOT_BEFORE_RESOLVE_HOOK
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap();
+        slot.as_ref()
+            .is_some_and(|hook| hook.target == target)
+            .then(|| slot.take().expect("matching snapshot before-resolve hook"))
+    };
+    if let Some(hook) = hook {
+        (hook.action)();
     }
 }
 
@@ -182,7 +253,7 @@ fn read_existing_text_snapshot_blocking(
     cancel: &CancellationToken,
 ) -> Result<ExistingTextSnapshot, ExistingTextSnapshotError> {
     #[cfg(test)]
-    run_snapshot_before_resolve_hook_for_test();
+    run_snapshot_before_resolve_hook_for_test(&lease.canonical_root.join(relative_path));
     let canonical_target = resolve_snapshot_target(lease, relative_path)?;
     let metadata = fs::symlink_metadata(&canonical_target).map_err(map_snapshot_io_error)?;
     if !is_plain_target(&metadata) {
@@ -213,7 +284,7 @@ fn read_existing_text_snapshot_blocking(
         bytes.extend_from_slice(&buffer[..read]);
         validate_target_text_file_size(bytes.len()).map_err(ExistingTextSnapshotError::Source)?;
         #[cfg(test)]
-        run_snapshot_chunk_hook_for_test();
+        run_snapshot_chunk_hook_for_test(&canonical_target);
         if cancel.is_cancelled() {
             return Err(ExistingTextSnapshotError::Cancelled);
         }
@@ -239,7 +310,7 @@ fn read_existing_text_snapshot_blocking(
         ));
     }
     #[cfg(test)]
-    run_snapshot_ready_hook_for_test();
+    run_snapshot_ready_hook_for_test(&canonical_target);
     Ok(ExistingTextSnapshot { text, sha256 })
 }
 
