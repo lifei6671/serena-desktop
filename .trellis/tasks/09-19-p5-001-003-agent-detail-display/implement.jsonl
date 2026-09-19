@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "前端层规则入口"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "ExecutionView DTO 同步与类型安全"}
