@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Check, Copy, Play, ShieldAlert } from "lucide-react";
-import { executionDuration, executionStatus, resultText, taskTitle } from "./agentPresentation";
+import { activityLabel, activitySilenceLabel, executionDuration, executionStatus, formatTokenCount, providerLabel, recentActivity, resultText, taskTitle, usageCompletenessLabel } from "./agentPresentation";
 import { agentRequests } from "./agentRequests";
 import type { AgentAction, ExecutionView } from "./types";
 
@@ -24,34 +24,6 @@ function timeWithSeconds(value: number) {
   const date = new Date(value);
   const pad = (part: number) => String(part).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
-function activityLabel(row: ExecutionView) {
-  const progress = row.progress;
-  const categories: Record<string, string> = {
-    build: "构建", test: "测试", command: "命令", read: "读取", edit: "编辑", tool: "工具调用",
-  };
-  const category = categories[progress?.toolCategory ?? ""];
-  if (category) return category;
-  if (progress?.activityPhase === "tool") return "工具执行";
-  if (progress?.activityPhase === "provider") return "Agent 处理";
-  return ({
-    pending: "等待执行", dispatching: "正在派发", running: "执行中", finalizing: "正在整理结果", reconciling: "正在恢复执行状态", terminal: "已结束",
-  } as Record<string, string>)[progress?.phase ?? ""] ?? "暂无活动数据";
-}
-
-function recentActivity(row: ExecutionView, now = Date.now()) {
-  const progress = row.progress;
-  const age = progress?.activityAgeMs ?? (progress?.lastActivityAt === null || progress?.lastActivityAt === undefined ? null : Math.max(0, now - progress.lastActivityAt));
-  if (age === null) return "暂无活动数据";
-  if (age < 5_000) return "刚刚";
-  const seconds = Math.floor(age / 1_000);
-  if (seconds < 60) return `${seconds}秒前`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}小时前`;
-  return progress.lastActivityAt === null || progress.lastActivityAt === undefined ? "暂无活动数据" : timeWithSeconds(progress.lastActivityAt);
 }
 
 function technicalValue(value: string | number | null | undefined) {
@@ -80,8 +52,10 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
   const runningDuration = isActiveExecution ? `已运行 ${duration}` : `耗时 ${duration}`;
   const durationLabel = isActiveExecution ? "已运行" : "总耗时";
   const showResult = row.resultAvailable || row.status === "completed";
+  const provider = providerLabel(row);
+  const usageCompleteness = usageCompletenessLabel(row.usage.completeness);
   const technicalFields: Array<[string, string | number | null | undefined]> = [
-    ["Execution ID", row.executionId], ["Agent ID", row.agentId], ["Workspace ID", row.workspaceId], ["Dispatch State", row.dispatchState],
+    ["Execution ID", row.executionId], ["Agent ID", row.agentId], ["Workspace ID", row.workspaceId], ["Provider", provider], ["Provider Session", row.providerSessionLabel], ["Dispatch State", row.dispatchState],
     ["Thread ID", row.threadId], ["Thread Name", row.threadName], ["Turn ID", row.turnId], ["Provider Terminal Status", row.providerTerminalStatus],
     ["Result Completeness", row.resultCompleteness], ["Control Revision", row.controlRevision], ["Activity Revision", row.activityRevision], ["Next Action", row.nextAction?.action],
   ];
@@ -98,7 +72,7 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
     <form onSubmit={event => { event.preventDefault(); if (!disabled && !loading && !error && continuation.trim()) void onOperate(agentRequests.continuation(row.executionId, continuation)).then(ok => { if (ok) setDraft({ executionId: row.executionId, text: "" }); }); }}>
       <label className="sr-only" htmlFor="agent-continuation">后续任务内容</label>
       <textarea id="agent-continuation" className="agent-input" value={continuation} disabled={disabled} onChange={event => setDraft({ executionId: row.executionId, text: event.target.value })} placeholder="在当前任务上下文中开始新的后续 Execution…" />
-      <footer className="agent-continuation-footer"><span>Codex · 当前工作区 ({workspaceName}) · 继承当前上下文</span><Button className="agent-detail-primary" disabled={disabled || loading || !!error || !continuation.trim()} type="submit"><Play aria-hidden="true" />继续任务</Button></footer>
+      <footer className="agent-continuation-footer"><span>{provider} · 当前工作区 ({workspaceName}) · 继承当前上下文</span><Button className="agent-detail-primary" disabled={disabled || loading || !!error || !continuation.trim()} type="submit"><Play aria-hidden="true" />继续任务</Button></footer>
     </form>
   </div>;
 
@@ -106,7 +80,7 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
     <header className="agent-detail-header">
       <div>
         <div className="agent-detail-title"><h1>{taskTitle(row)}</h1><span className={`agent-status tone-${state.tone}`}><i className={running ? "agent-task-pulse" : undefined} aria-hidden="true" />{state.label}</span></div>
-        <p className="agent-detail-meta"><span>工作区: <code>{workspaceName}</code></span><span aria-hidden="true">·</span><span>创建于 {timeWithSeconds(row.createdAt)}</span><span aria-hidden="true">·</span><span>{runningDuration}</span><span aria-hidden="true">·</span><span>引擎: <strong>Codex Local Runner</strong></span></p>
+        <p className="agent-detail-meta"><span>工作区: <code>{workspaceName}</code></span><span aria-hidden="true">·</span><span>创建于 {timeWithSeconds(row.createdAt)}</span><span aria-hidden="true">·</span><span>{runningDuration}</span><span aria-hidden="true">·</span><span>引擎: <strong>{provider}</strong></span></p>
       </div>
       <div className="agent-detail-actions">
         {row.availableActions.canResumePending && <Button variant="outline" disabled={disabled || loading || !!error} onClick={() => void onOperate({ action: "resume_pending", executionId: row.executionId })}>恢复任务</Button>}
@@ -127,8 +101,10 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
         <div className="agent-detail-info-card">
           <div className="agent-detail-live-grid">
             <div><span>执行状态</span><strong className={`agent-status tone-${state.tone}`}><i className={running ? "agent-task-pulse" : undefined} aria-hidden="true" />{state.label}</strong></div>
+            <div><span>Provider</span><strong>{provider}</strong>{row.providerSessionLabel && <code>{row.providerSessionLabel}</code>}</div>
             <div><span>当前活动</span><strong>{activityLabel(row)}</strong></div>
             <div><span>最近活动</span><strong>{recentActivity(row)}</strong></div>
+            <div><span>活跃状态</span><strong>{activitySilenceLabel(row)}</strong></div>
             <div><span>{durationLabel}</span><code>{duration}</code></div>
           </div>
           <div className="agent-detail-facts-grid">
@@ -138,6 +114,21 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
               {row.completedAt !== null && <div><span>结束时间</span><code>{timeWithSeconds(row.completedAt)}</code></div>}
             </div>
           </div>
+        </div>
+      </section>
+      <section className="agent-detail-section agent-usage-section">
+        <h2>Token 用量</h2>
+        <div className="agent-usage-card">
+          <div className="agent-usage-total"><span>Total Tokens</span><strong>{formatTokenCount(row.usage.totalTokens)}</strong><em data-completeness={row.usage.completeness}>{usageCompleteness}</em></div>
+          <div className="agent-usage-grid">
+            <div><span>Input</span><strong>{formatTokenCount(row.usage.inputTokens)}</strong></div>
+            <div><span>Cached Input</span><strong>{formatTokenCount(row.usage.cachedInputTokens)}</strong></div>
+            <div><span>Cache Write</span><strong>{formatTokenCount(row.usage.cacheWriteInputTokens)}</strong></div>
+            <div><span>Output</span><strong>{formatTokenCount(row.usage.outputTokens)}</strong></div>
+            <div><span>Reasoning</span><strong>{formatTokenCount(row.usage.reasoningTokens)}</strong></div>
+            <div><span>Context Window</span><strong>{formatTokenCount(row.usage.modelContextWindow)}</strong></div>
+          </div>
+          {row.usage.updatedAt !== null && <small>统计更新于 {timeWithSeconds(row.usage.updatedAt)}</small>}
         </div>
       </section>
       {(row.attention !== "none" || ["failed", "reconciling", "interrupted"].includes(row.status) || row.interruptTimedOut || row.errorCode || row.errorMessage) && <section className="agent-detail-section agent-recovery-section">

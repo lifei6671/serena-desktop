@@ -202,15 +202,29 @@ export type AgentAction =
 export interface ExecutionView {
   prompt: string; canonicalWorkspaceRoot: string;
   executionId: string; agentId: string; workspaceId: string; status: string;
+  provider: { id: string; displayName: string; version: string | null };
+  usage: {
+    inputTokens: number | null; cachedInputTokens: number | null; cacheWriteInputTokens: number | null;
+    outputTokens: number | null; reasoningTokens: number | null; totalTokens: number | null;
+    modelContextWindow: number | null; completeness: "unknown" | "partial" | "complete";
+    usageRevision: number; updatedAt: number | null;
+  };
   dispatchState: string; threadId: string | null; threadName: string | null; turnId: string | null;
+  providerSessionLabel: string | null;
   providerTerminalStatus: string | null; resultCompleteness: string; finalResult?: unknown;
   /** Last diagnostic, independent of lifecycle status and Provider terminal. */
   errorCode: string | null; errorMessage: string | null;
   /** Legacy alias of controlRevision. */
   revision: string; controlRevision: string; activityRevision: string;
-  unchanged?: boolean; resultAvailable: boolean;
+  unchanged?: boolean;
+  /** Observe 的唤醒原因仅作兼容投影，不参与页面控制判断。 */
+  wakeReason?: "initial_mismatch" | "control" | "activity" | "terminal" | "result" | "timeout";
+  /** 首次 Observe token 不匹配类别，仅作兼容投影。 */
+  mismatchKind?: "control" | "activity";
+  resultAvailable: boolean;
   progress: {
     phase: "pending" | "dispatching" | "running" | "finalizing" | "reconciling" | "terminal";
+    summaryCode: string | null;
     activityPhase: "provider" | "tool" | null;
     toolCategory: "build" | "test" | "command" | "read" | "edit" | "tool" | null;
     lastActivityAt: number | null;

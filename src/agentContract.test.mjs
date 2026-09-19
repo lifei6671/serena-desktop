@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import ts from 'typescript';
-import { resultText, taskSummary, executionStatus, executionTime, executionDuration, executionWorkspace } from './agentPresentation.ts';
+import { activityLabel, activitySilenceLabel, formatTokenCount, providerLabel, recentActivity, resultText, taskSummary, usageCompletenessLabel, executionStatus, executionTime, executionDuration, executionWorkspace } from './agentPresentation.ts';
 
 test('history uses local full dates, friendly elapsed time and frozen workspace identity', () => {
   assert.equal(executionTime(new Date(2026, 8, 9, 22, 14).getTime()), '2026-09-09 22:14');
@@ -25,6 +25,7 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
     void [invoked, booleanOnly, invalidCertainty];
     declare const row: ExecutionView;
     declare const nullableString: string | null;
+    declare const nullableNumber: number | null;
     const threadName: string | null = row.threadName;
     const errorCode: string | null = row.errorCode;
     const errorMessage: string | null = row.errorMessage;
@@ -43,11 +44,46 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
     const lastActivityAt: number | null = row.progress.lastActivityAt;
     const activityAgeMs: number | null = row.progress.activityAgeMs;
     const silenceLevel: 'fresh' | 'quiet' | 'prolonged' | null = row.progress.silenceLevel;
+    const summaryCode: string | null = row.progress.summaryCode;
+    const providerId: string = row.provider.id;
+    const providerVersion: string | null = row.provider.version;
+    const providerSessionLabel: string | null = row.providerSessionLabel;
+    const providerVersionAcceptsNullable: ExecutionView['provider']['version'] = nullableString;
+    const providerSessionLabelAcceptsNullable: ExecutionView['providerSessionLabel'] = nullableString;
+    const inputTokens: number | null = row.usage.inputTokens;
+    const cachedInputTokens: number | null = row.usage.cachedInputTokens;
+    const cacheWriteInputTokens: number | null = row.usage.cacheWriteInputTokens;
+    const outputTokens: number | null = row.usage.outputTokens;
+    const reasoningTokens: number | null = row.usage.reasoningTokens;
+    const totalTokens: number | null = row.usage.totalTokens;
+    const modelContextWindow: number | null = row.usage.modelContextWindow;
+    const completeness: 'unknown' | 'partial' | 'complete' = row.usage.completeness;
+    const usageRevision: number = row.usage.usageRevision;
+    const usageUpdatedAt: number | null = row.usage.updatedAt;
+    const inputTokensAcceptNullable: ExecutionView['usage']['inputTokens'] = nullableNumber;
+    const cachedInputTokensAcceptNullable: ExecutionView['usage']['cachedInputTokens'] = nullableNumber;
+    const cacheWriteInputTokensAcceptNullable: ExecutionView['usage']['cacheWriteInputTokens'] = nullableNumber;
+    const outputTokensAcceptNullable: ExecutionView['usage']['outputTokens'] = nullableNumber;
+    const reasoningTokensAcceptNullable: ExecutionView['usage']['reasoningTokens'] = nullableNumber;
+    const totalTokensAcceptNullable: ExecutionView['usage']['totalTokens'] = nullableNumber;
+    const modelContextWindowAcceptNullable: ExecutionView['usage']['modelContextWindow'] = nullableNumber;
+    const usageUpdatedAtAcceptsNullable: ExecutionView['usage']['updatedAt'] = nullableNumber;
+    const summaryCodeAcceptsNullable: ExecutionView['progress']['summaryCode'] = nullableString;
+    // @ts-expect-error provider 是必填 Product descriptor
+    const noProvider: ExecutionView = {} as Omit<ExecutionView, 'provider'>;
+    // @ts-expect-error usage 是必填 Product projection
+    const noUsage: ExecutionView = {} as Omit<ExecutionView, 'usage'>;
+    // @ts-expect-error summaryCode 是 required nullable Product 字段
+    const noSummaryCode: ExecutionView['progress'] = {} as Omit<ExecutionView['progress'], 'summaryCode'>;
     // @ts-expect-error activity is a hint, never a lifecycle phase
     const invalidPhase: ExecutionView['progress']['phase'] = 'stalled';
     void [threadName, errorCode, errorMessage, threadNameAcceptsNullable, errorCodeAcceptsNullable,
       errorMessageAcceptsNullable, noThreadName, noErrorCode, noErrorMessage,
-      pendingPhase, activityPhase, toolCategory, lastActivityAt, activityAgeMs, silenceLevel, invalidPhase];
+      pendingPhase, activityPhase, toolCategory, lastActivityAt, activityAgeMs, silenceLevel, summaryCode,
+      providerId, providerVersion, providerSessionLabel, inputTokens, cachedInputTokens, cacheWriteInputTokens, outputTokens, reasoningTokens,
+      totalTokens, modelContextWindow, completeness, usageRevision, usageUpdatedAt, providerVersionAcceptsNullable, providerSessionLabelAcceptsNullable,
+      inputTokensAcceptNullable, cachedInputTokensAcceptNullable, cacheWriteInputTokensAcceptNullable, outputTokensAcceptNullable, reasoningTokensAcceptNullable,
+      totalTokensAcceptNullable, modelContextWindowAcceptNullable, usageUpdatedAtAcceptsNullable, summaryCodeAcceptsNullable, noProvider, noUsage, noSummaryCode, invalidPhase];
     const prompt: string = row.prompt;
     const revision: string = row.revision;
     const controlRevision: string = row.controlRevision;
@@ -95,6 +131,23 @@ test('summary truncates Unicode safely and attention states remain distinct', ()
   assert.equal(executionStatus({status:'dispatch_pending',attention:'pending_explicit_resume'}).label, '等待恢复');
   assert.equal(executionStatus({status:'reconciling',attention:'none'}).label, '正在恢复执行状态');
   assert.equal(executionStatus({status:'unknown',attention:'manual_resolution_required'}).label, '需要处理');
+});
+
+test('provider, activity and usage presentation preserve Product facts', () => {
+  assert.equal(providerLabel({ provider: { id: 'codex', displayName: ' Codex Local ', version: '0.153.4' } }), 'Codex Local · v0.153.4');
+  assert.equal(providerLabel({ provider: { id: 'legacy', displayName: ' ', version: null } }), 'legacy');
+  assert.equal(providerLabel({ provider: null }), '未知 Provider');
+  const baseProgress = { phase: 'running', activityPhase: 'tool', toolCategory: 'command', lastActivityAt: 900_000, activityAgeMs: null, silenceLevel: 'fresh' };
+  const known = ['execution.finalizing', 'execution.reconciling', 'provider.processing', 'tool.read', 'tool.edit', 'tool.command', 'tool.build', 'tool.test', 'tool.other'];
+  const labels = ['正在整理结果', '正在恢复执行状态', 'Agent 处理中', '正在读取', '正在修改文件', '正在执行命令', '正在构建', '正在测试', '正在调用工具'];
+  assert.deepEqual(known.map(summaryCode => activityLabel({ progress: { ...baseProgress, summaryCode } })), labels);
+  assert.equal(activityLabel({ progress: { ...baseProgress, summaryCode: 'provider.private' } }), '执行中');
+  assert.equal(activityLabel({ progress: { ...baseProgress, phase: 'mystery', toolCategory: null, summaryCode: null } }), '暂无活动数据');
+  assert.deepEqual(['fresh', 'quiet', 'prolonged', null].map(silenceLevel => activitySilenceLabel({ progress: { ...baseProgress, silenceLevel } })), ['刚刚有活动', '暂时没有新活动', '一段时间没有新活动', '暂无活动数据']);
+  assert.deepEqual([recentActivity({ progress: { ...baseProgress, activityAgeMs: 0 } }, 1_000_000), recentActivity({ progress: { ...baseProgress, activityAgeMs: 5_000 } }, 1_000_000), recentActivity({ progress: { ...baseProgress, activityAgeMs: 60_000 } }, 1_000_000), recentActivity({ progress: { ...baseProgress, activityAgeMs: 3_600_000 } }, 1_000_000)], ['刚刚', '5秒前', '1分钟前', '1小时前']);
+  assert.deepEqual([formatTokenCount(null), formatTokenCount(0), formatTokenCount(12_531)], ['—', '0', '12,531']);
+  assert.deepEqual(['unknown', 'partial', 'complete'].map(usageCompletenessLabel), ['未知', '统计不完整', '完整']);
+  assert.doesNotMatch(`${activitySilenceLabel({ progress: { ...baseProgress, silenceLevel: 'prolonged' } })} ${activityLabel({ progress: { ...baseProgress, summaryCode: null } })}`, /stalled|卡住|失败/iu);
 });
 
 test('pending dispatch labels never imply a provider invocation', () => {

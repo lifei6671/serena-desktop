@@ -1,5 +1,8 @@
 import type { ExecutionView, Workspace } from "./types";
 
+type ProviderDisplaySource = { provider?: { id?: string | null; displayName?: string | null; version?: string | null } | null };
+type ActivityDisplaySource = Pick<ExecutionView, "progress">;
+
 // Presentation only. Never use these labels or tones to authorize an operation.
 const states: Record<string, { label: string; description: string; tone: string }> = {
   dispatch_pending: { label: "等待执行", description: "任务已保存，等待发送给 Agent。", tone: "amber" },
@@ -28,6 +31,74 @@ export function executionStatus(row: ExecutionView) {
     if (row.progress?.phase === "running") return states.running;
   }
   return states[row.status] ?? { label: "状态待确认", description: "请查看技术详情中的原始状态。", tone: "gray" };
+}
+
+/** 将冻结的 Provider descriptor 转换为纯展示标签，不参与任何控制判断。 */
+export function providerLabel(row: ProviderDisplaySource) {
+  const provider = row.provider;
+  const name = provider?.displayName?.trim() || provider?.id?.trim() || "未知 Provider";
+  const version = provider?.version?.trim();
+  return version ? `${name} · v${version}` : name;
+}
+
+/** 将 Product 的封闭 summaryCode 优先映射为安全的当前活动文案。 */
+export function activityLabel(row: ActivityDisplaySource) {
+  const progress = row.progress;
+  const summaryLabels: Record<string, string> = {
+    "execution.finalizing": "正在整理结果", "execution.reconciling": "正在恢复执行状态",
+    "provider.processing": "Agent 处理中", "tool.read": "正在读取", "tool.edit": "正在修改文件",
+    "tool.command": "正在执行命令", "tool.build": "正在构建", "tool.test": "正在测试", "tool.other": "正在调用工具",
+  };
+  const summary = progress.summaryCode === null ? undefined : summaryLabels[progress.summaryCode];
+  if (summary) return summary;
+  const phaseLabels: Record<string, string> = {
+    pending: "等待执行", dispatching: "正在派发", running: "执行中", finalizing: "正在整理结果", reconciling: "正在恢复执行状态", terminal: "已结束",
+  };
+  const phase = phaseLabels[progress.phase];
+  if (phase) return phase;
+  const categoryLabels: Record<string, string> = {
+    read: "正在读取", edit: "正在修改文件", command: "正在执行命令", build: "正在构建", test: "正在测试", tool: "正在调用工具",
+  };
+  return progress.toolCategory === null ? "暂无活动数据" : categoryLabels[progress.toolCategory] ?? "暂无活动数据";
+}
+
+/** 仅根据 silenceLevel 呈现中性的活动间隔，不把时间间隔解释为错误。 */
+export function activitySilenceLabel(row: ActivityDisplaySource) {
+  const labels: Record<string, string> = { fresh: "刚刚有活动", quiet: "暂时没有新活动", prolonged: "一段时间没有新活动" };
+  return labels[row.progress.silenceLevel ?? ""] ?? "暂无活动数据";
+}
+
+/** 格式化活动年龄；传入时间只用于展示，不改变后端的 silence 语义。 */
+export function recentActivity(row: ActivityDisplaySource, now = Date.now()) {
+  const progress = row.progress;
+  const age = progress.activityAgeMs ?? (progress.lastActivityAt === null || progress.lastActivityAt === undefined ? null : Math.max(0, now - progress.lastActivityAt));
+  if (age === null) return "暂无活动数据";
+  if (age < 5_000) return "刚刚";
+  const seconds = Math.floor(age / 1_000);
+  if (seconds < 60) return `${seconds}秒前`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}小时前`;
+  return progress.lastActivityAt === null || progress.lastActivityAt === undefined ? "暂无活动数据" : executionTime(progress.lastActivityAt);
+}
+
+/** 格式化事实 Token 值；null 与真实零必须保持语义不同。 */
+export function formatTokenCount(value: number | null | undefined) {
+  return value === null || value === undefined ? "—" : new Intl.NumberFormat("zh-CN").format(value);
+}
+
+/** 仅展示 Summary DTO 的总 Token；未知和真实零保持不同语义。 */
+export function usageTotalLabel(row: Pick<ExecutionView, "usage">) {
+  const { completeness, totalTokens } = row.usage;
+  if (completeness === "unknown" || totalTokens === null || totalTokens === undefined) return "—";
+  const total = formatTokenCount(totalTokens);
+  return completeness === "partial" ? `${total} · ${usageCompletenessLabel(completeness)}` : total;
+}
+
+/** 将后端 completeness 枚举转换为展示文本，不从数字字段重新推导。 */
+export function usageCompletenessLabel(completeness: ExecutionView["usage"]["completeness"]) {
+  return ({ unknown: "未知", partial: "统计不完整", complete: "完整" } as const)[completeness];
 }
 
 export function taskSummary(prompt: string) {

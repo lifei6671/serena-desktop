@@ -1300,7 +1300,7 @@ h3 {
 .agent-task-prompt { padding: 13px 14px; border: 1px solid var(--console-line); border-radius: 6px; background: color-mix(in srgb, var(--muted) 42%, #fff); }
 .agent-task-prompt .agent-prose { margin: 0; }
 .agent-detail-info-card { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--console-line); border-radius: 7px; background: #fff; }
-.agent-detail-live-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, var(--console-line) 72%, #fff); }
+.agent-detail-live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, var(--console-line) 72%, #fff); }
 .agent-detail-live-grid > div { display: grid; align-items: center; gap: 5px; min-width: 0; }
 .agent-detail-live-grid > div > span, .agent-detail-location > span, .agent-detail-time-grid span { color: var(--console-muted); font-size: 11px; }
 .agent-detail-live-grid strong { min-width: 0; color: #334155; font-size: 12px; overflow-wrap: anywhere; }
@@ -1313,6 +1313,17 @@ h3 {
 .agent-detail-location code { padding: 2px 5px; border-radius: 3px; background: color-mix(in srgb, var(--muted) 45%, #fff); }
 .agent-detail-time-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 18px; }
 .agent-detail-time-grid > div { display: grid; gap: 3px; min-width: 0; }
+.agent-detail-live-grid code { color: var(--console-muted); font: 500 11px/1.4 Consolas, 'Cascadia Code', monospace; overflow-wrap: anywhere; }
+.agent-usage-card { display: grid; gap: 12px; padding: 13px 14px; border: 1px solid var(--console-line); border-radius: 7px; background: #fff; }
+.agent-usage-total { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.agent-usage-total > span, .agent-usage-grid span, .agent-usage-card small { color: var(--console-muted); font-size: 11px; }
+.agent-usage-total > strong { color: var(--console-ink); font-size: 20px; line-height: 1; letter-spacing: -.02em; }
+.agent-usage-total > em { padding: 2px 6px; border-radius: 999px; background: var(--muted); color: #64748b; font-size: 11px; font-style: normal; }
+.agent-usage-total > em[data-completeness="partial"] { background: color-mix(in srgb, var(--signal-amber) 15%, #fff); color: #a16207; }
+.agent-usage-total > em[data-completeness="complete"] { background: color-mix(in srgb, var(--signal-green) 12%, #fff); color: #15803d; }
+.agent-usage-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px 14px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--console-line) 72%, #fff); }
+.agent-usage-grid > div { display: grid; gap: 3px; min-width: 0; }
+.agent-usage-grid strong { color: #334155; font: 600 12px/1.4 Consolas, 'Cascadia Code', monospace; overflow-wrap: anywhere; }
 .agent-recovery-section h2 { display: flex; align-items: center; gap: 7px; }
 .agent-recovery-section h2 svg { width: 16px; height: 16px; color: var(--signal-amber); }
 .agent-detail-warning { display: grid; gap: 8px; margin-top: 10px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--signal-amber) 32%, var(--console-line)); border-left: 3px solid var(--signal-amber); border-radius: 6px; background: color-mix(in srgb, var(--signal-amber) 6%, #fff); }
@@ -1356,6 +1367,7 @@ h3 {
 @media (max-width: 850px) {
   .agent-detail-header { flex-direction: column; }
   .agent-detail-live-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .agent-usage-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .agent-technical-grid { grid-template-columns: 1fr; }
   .agent-workspace-bar { margin-inline: -16px; padding-inline: 16px; }
   .agent-task-card { align-items: flex-start; flex-direction: column; }
@@ -1370,6 +1382,7 @@ h3 {
 }
 @media (max-width: 560px) {
   .agent-detail-live-grid { grid-template-columns: 1fr; }
+  .agent-usage-grid { grid-template-columns: 1fr; }
   .agent-detail-location { align-items: flex-start; flex-wrap: wrap; }
   .agent-detail-location > div { flex-basis: 100%; justify-content: flex-start; }
   .agent-detail-time-grid { grid-template-columns: 1fr; }
@@ -1410,10 +1423,13 @@ h3 {
 .project-task-heading { transition: background-color 140ms ease; }
 .project-task[data-selected=true] { background: var(--project-selected); }
 .project-task[data-selected=true]:hover, .project-task[data-selected=true]:focus-within { background: var(--project-selected-hover); }
-.sidebar .project-task-navigation .project-task-link { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 30px; padding: 6px 10px 6px 36px; border-radius: inherit; color: #334155; font-size: 12px; font-weight: 500; line-height: 18px; text-align: left; }
+.sidebar .project-task-navigation .project-task-link { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 64px; padding: 6px 10px 6px 36px; border-radius: inherit; color: #334155; font-size: 12px; font-weight: 500; line-height: 18px; text-align: left; }
 .sidebar .project-task-navigation .project-task-link[aria-current="page"] { background: transparent; color: #0f172a; }
-.project-task[data-selected=true] .project-task-link > span { font-weight: 600; }
-.project-task-link > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-task[data-selected=true] .project-task-title { font-weight: 600; }
+.project-task-content { display: flex; flex: 1; min-width: 0; flex-direction: column; overflow: hidden; }
+.project-task-content > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-task-title { color: #334155; }
+.project-task-summary, .project-task-usage { color: #64748b; font-size: 10px; line-height: 14px; }
 .project-task-state-icon { position: absolute; left: 14px; width: 14px; height: 14px; pointer-events: none; }
 .sidebar .project-task-navigation .project-task-state-icon.tone-blue { color: var(--agent-blue); }
 .sidebar .project-task-navigation .project-task-state-icon.tone-red { color: var(--signal-red); }
