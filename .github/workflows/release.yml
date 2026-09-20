@@ -21,6 +21,7 @@ jobs:
         shell: pwsh
     env:
       RUSTUP_TOOLCHAIN: stable
+      VITE_APP_VERSION: ${{ github.ref_name }}
 
     steps:
       - name: Checkout tagged source
@@ -40,6 +41,11 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Apply release tag version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/apply-release-version.mjs --tag "$env:RELEASE_TAG"
+
       - name: Lint frontend
         run: npm run lint
 
@@ -50,7 +56,7 @@ jobs:
         run: npm test
 
       - name: Test release contracts
-        run: node --test scripts/check-version.test.mjs scripts/release-workflow.test.mjs scripts/verify-installer.test.mjs scripts/verify-uninstall-policy.test.mjs
+        run: node --test scripts/apply-release-version.test.mjs scripts/check-version.test.mjs scripts/release-workflow.test.mjs scripts/verify-installer.test.mjs scripts/verify-uninstall-policy.test.mjs
 
       - name: Check Rust formatting
         working-directory: src-tauri

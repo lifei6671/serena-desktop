@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useEffect, useId, useRef, useState } from "react";
-import { HoverCard } from "radix-ui";
+import { HoverCard, Popover } from "radix-ui";
 import { CalendarDays, ChevronDown, CircleAlert, Ellipsis, Folder, LoaderCircle, Monitor, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { api } from "./api";
 import { executionStatus, executionTime, providerLabel, taskTitle, usageTotalLabel } from "./agentPresentation";
@@ -144,26 +144,30 @@ function ProjectTasks({ workspace, hiddenIds, selectedId, onSelect, onDelete, me
 
   const visible = rows.filter(row => !hiddenIds.includes(row.executionId));
   return <section className="project-task-group" aria-label={workspace.name}>
-    <div className="project-task-header">
+    <div className="project-task-header" data-menu-open={menuOpen || undefined}>
       <TooltipHint content="拖动可排序；也可使用 Alt + ↑/↓"><button className="project-task-heading" aria-expanded={expanded} aria-controls={listId} onClick={() => { setExpanded(!expanded); setLoadingMore(false); }}>
         <Folder aria-hidden="true" /><span>{workspace.name}</span>
       </button></TooltipHint>
-      <div className="project-workspace-menu">
-        <button
-          className="project-workspace-more"
-          aria-label={`打开工作区菜单：${workspace.name}`}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          onClick={(event) => { event.stopPropagation(); onMenuOpenChange(!menuOpen); }}
-          onKeyDown={(event) => { if (event.key === "Escape") onMenuOpenChange(false); }}
-        >
-          <Ellipsis aria-hidden="true" />
-        </button>
-        {menuOpen && <div className="project-workspace-menu-content" role="menu" onKeyDown={(event) => { if (event.key === "Escape") onMenuOpenChange(false); }}>
-          <button role="menuitem" onClick={() => { onMenuOpenChange(false); onEditWorkspace(workspace); }}><Pencil aria-hidden="true" />编辑</button>
-          <button role="menuitem" className="project-workspace-menu-delete" onClick={() => { onMenuOpenChange(false); onRemoveWorkspace(workspace); }}><Trash2 aria-hidden="true" />删除</button>
-        </div>}
-      </div>
+      <Popover.Root open={menuOpen} onOpenChange={onMenuOpenChange}>
+        <Popover.Trigger asChild>
+          <button
+            className="project-workspace-more"
+            aria-label={`打开工作区菜单：${workspace.name}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <Ellipsis aria-hidden="true" />
+          </button>
+        </Popover.Trigger>
+        <Popover.Portal>
+          {/* Portal 脱离侧栏滚动容器，菜单可以从右侧跨过滚动条展示。 */}
+          <Popover.Content className="project-workspace-menu-content" role="menu" side="right" align="start" sideOffset={8} collisionPadding={12}>
+            <button role="menuitem" onClick={() => { onMenuOpenChange(false); onEditWorkspace(workspace); }}><Pencil aria-hidden="true" />编辑</button>
+            <button role="menuitem" className="project-workspace-menu-delete" onClick={() => { onMenuOpenChange(false); onRemoveWorkspace(workspace); }}><Trash2 aria-hidden="true" />删除</button>
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
       <button
         className="project-workspace-collapse"
         aria-label={`${expanded ? "折叠" : "展开"}工作区：${workspace.name}`}
@@ -208,14 +212,6 @@ export function ProjectTaskNavigation({ workspaces, onWorkspaceRename, onWorkspa
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const drag = useRef<{root: string; y: number; active: boolean} | null>(null);
   const suppressClick = useRef(false);
-  useEffect(() => {
-    if (!openWorkspaceMenuId) return;
-    const closeMenu = (event: PointerEvent) => {
-      if (!(event.target instanceof Element) || !event.target.closest(".project-workspace-menu")) setOpenWorkspaceMenuId(null);
-    };
-    window.addEventListener("pointerdown", closeMenu);
-    return () => window.removeEventListener("pointerdown", closeMenu);
-  }, [openWorkspaceMenuId]);
   const sorted = [...workspaces].sort((a,b) => {
     const rank = (id: string) => { const index = order.indexOf(id); return index < 0 ? order.length : index; };
     return rank(a.root) - rank(b.root);

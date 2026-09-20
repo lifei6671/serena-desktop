@@ -10,6 +10,7 @@ const initialConfig: ManagerConfig = {
   remoteAccess: { mode: "mcp_only", selfHosted: { provider: "custom_https", publicOrigin: null }, mcpOnly: { securityDeclaration: "external_auth", publicOrigin: null } },
   broker: { enabled: false, port: 9120, allowLan: false },
   workspaces: [],
+  remoteSourceWriteEnabled: false,
   workspaceRegistryRevision: 1,
   desktopSelectedWorkspaceId: null,
   serenaPath: null,

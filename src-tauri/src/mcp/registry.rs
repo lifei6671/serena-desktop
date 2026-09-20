@@ -1,3 +1,4 @@
+use super::source_write_domain::{SourceWriteError, SourceWriteTool};
 use crate::{
     serena::SupervisorState,
     workspace_resolver::{WorkspaceLease, WorkspaceResolver},
@@ -114,6 +115,24 @@ pub(crate) const LOCAL_SOURCES: &[&str] = &[
     "source_find_file",
     "source_search_pattern",
 ];
+
+/// 判断名称是否属于六个由本地用户统一授权的 Source Write Tool。
+pub(crate) fn is_source_write_tool(name: &str) -> bool {
+    SourceWriteTool::ALL
+        .into_iter()
+        .any(|tool| tool.code() == name)
+}
+
+/// 在公开与分派边界复用同一 capability 判定，避免旧 catalog 绕过本地开关。
+pub(crate) fn authorize_source_write(
+    remote_source_write_enabled: bool,
+    name: &str,
+) -> Result<(), SourceWriteError> {
+    if is_source_write_tool(name) && !remote_source_write_enabled {
+        return Err(SourceWriteError::WriteRemoteDisabled);
+    }
+    Ok(())
+}
 
 /// 所有公开 Source Tool 都只能由 request-resolved WorkspaceLease 承载 Authority。
 pub(crate) fn is_workspace_scoped_source(name: &str) -> bool {
@@ -709,7 +728,13 @@ pub fn orchestration_contract_diagnostic(enabled: bool, descriptors: &[Tool]) ->
     )
 }
 /// 返回完全由 Broker 本地定义的公开 Tool surface；Discovery 不连接 Serena。
+#[cfg(test)]
 pub fn list(agent_enabled: bool) -> Vec<Tool> {
+    list_with_source_write(agent_enabled, false)
+}
+
+/// 返回当前 Broker 配置允许公开的 Tool surface；写工具仅受本地持久化开关控制。
+pub fn list_with_source_write(agent_enabled: bool, remote_source_write_enabled: bool) -> Vec<Tool> {
     let mut list = vec![
         tool(
             "workspace_list",
@@ -739,6 +764,9 @@ pub fn list(agent_enabled: bool) -> Vec<Tool> {
                 .push(json!("workspaceId"));
         }
         list.push(tool(name, source_description(name), s));
+    }
+    if remote_source_write_enabled {
+        list.extend(SourceWriteTool::ALL.into_iter().map(source_write_tool));
     }
     for &name in GITS {
         let mut s = schema::<super::git::GitArgs>();
@@ -791,7 +819,38 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
     if super::orchestration::contains(name) {
         return super::orchestration::validate(name, args);
     }
-    if let Some((_, allowed, required)) = SOURCES.iter().find(|t| t.0 == name) {
+    if is_source_write_tool(name) {
+        // 先冻结 Workspace Authority 的错误分类，再委托既有 Handler DTO 做全部参数校验。
+        parse_workspace_id(args)?;
+        match name {
+            "source_create_text_file" => serde_json::from_value::<
+                super::source_write_create::SourceCreateTextFileInput,
+            >(args.clone())
+            .map(|_| ()),
+            "source_write_text_file" => serde_json::from_value::<
+                super::source_write_file::SourceWriteTextFileInput,
+            >(args.clone())
+            .map(|_| ()),
+            "source_insert_lines" => serde_json::from_value::<
+                super::source_write_insert::SourceInsertLinesInput,
+            >(args.clone())
+            .map(|_| ()),
+            "source_delete_lines" => serde_json::from_value::<
+                super::source_write_delete::SourceDeleteLinesInput,
+            >(args.clone())
+            .map(|_| ()),
+            "source_replace_lines" => serde_json::from_value::<
+                super::source_write_replace::SourceReplaceLinesInput,
+            >(args.clone())
+            .map(|_| ()),
+            "source_replace_content" => serde_json::from_value::<
+                super::source_write_content::SourceReplaceContentInput,
+            >(args.clone())
+            .map(|_| ()),
+            _ => unreachable!("source write membership was checked above"),
+        }
+        .map_err(|error| format!("INVALID_PARAMS: {error}"))?;
+    } else if let Some((_, allowed, required)) = SOURCES.iter().find(|t| t.0 == name) {
         let object = args.as_object().ok_or("INVALID_PARAMS: 参数必须是对象")?;
         let workspace_scoped = is_workspace_scoped_source(name);
         if workspace_scoped {
@@ -864,6 +923,155 @@ pub fn validate(name: &str, args: &Value) -> Result<(), String> {
         return Err("UNKNOWN_TOOL".into());
     }
     Ok(())
+}
+
+/// 构造六个既有写入 Handler 的公开 descriptor；schema 只描述既有 wire DTO，不复制校验或写入语义。
+fn source_write_tool(tool_name: SourceWriteTool) -> Tool {
+    let (description, input_schema) = match tool_name {
+        SourceWriteTool::CreateTextFile => (
+            "【做什么】\n在指定 Workspace 内新建 UTF-8 文本文件。\n\n【关键约束】\nworkspaceId 与 relative_path 必填；路径只能相对服务器解析出的 Workspace 根目录。目标已存在时拒绝，不接受 root 或绝对路径。",
+            source_write_schema(
+                &["workspaceId", "relative_path", "content"],
+                json!({
+                    "relative_path":{"type":"string"}, "content":{"type":"string"}
+                }),
+            ),
+        ),
+        SourceWriteTool::WriteTextFile => (
+            "【做什么】\n创建或覆盖指定 Workspace 内的 UTF-8 文本文件。\n\n【关键约束】\n覆盖既有文件时必须提供读取结果中的 expectedSha256；完整复用既有 OCC、边界和原子替换校验。",
+            source_write_schema(
+                &["workspaceId", "relative_path", "content", "ifExists"],
+                json!({
+                    "relative_path":{"type":"string"}, "content":{"type":"string"},
+                    "ifExists":{"type":"string","enum":["fail","overwrite"]},
+                    "expectedSha256":expected_sha256_schema()
+                }),
+            ),
+        ),
+        SourceWriteTool::InsertLines => (
+            "【做什么】\n在指定 Workspace 文本文件的行号前插入内容。\n\n【关键约束】\n必须提供 expectedSha256；行号为 1-based，完整复用既有 OCC、UTF-8、newline 和原子替换校验。",
+            source_write_schema(
+                &[
+                    "workspaceId",
+                    "relative_path",
+                    "expectedSha256",
+                    "beforeLine",
+                    "content",
+                ],
+                json!({
+                    "relative_path":{"type":"string"}, "expectedSha256":expected_sha256_schema(),
+                    "beforeLine":{"type":"integer","minimum":1}, "content":{"type":"string"}
+                }),
+            ),
+        ),
+        SourceWriteTool::DeleteLines => (
+            "【做什么】\n删除指定 Workspace 文本文件的闭合行范围。\n\n【关键约束】\n必须提供 expectedSha256；行号为 1-based inclusive，完整复用既有 OCC、边界和原子替换校验。",
+            source_write_schema(
+                &[
+                    "workspaceId",
+                    "relative_path",
+                    "expectedSha256",
+                    "startLine",
+                    "endLine",
+                ],
+                json!({
+                    "relative_path":{"type":"string"}, "expectedSha256":expected_sha256_schema(),
+                    "startLine":{"type":"integer","minimum":1}, "endLine":{"type":"integer","minimum":1}
+                }),
+            ),
+        ),
+        SourceWriteTool::ReplaceLines => (
+            "【做什么】\n替换指定 Workspace 文本文件的闭合行范围。\n\n【关键约束】\n必须提供 expectedSha256；行号为 1-based inclusive，完整复用既有 OCC、UTF-8、newline 和原子替换校验。",
+            source_write_schema(
+                &[
+                    "workspaceId",
+                    "relative_path",
+                    "expectedSha256",
+                    "startLine",
+                    "endLine",
+                    "content",
+                ],
+                json!({
+                    "relative_path":{"type":"string"}, "expectedSha256":expected_sha256_schema(),
+                    "startLine":{"type":"integer","minimum":1}, "endLine":{"type":"integer","minimum":1}, "content":{"type":"string"}
+                }),
+            ),
+        ),
+        SourceWriteTool::ReplaceContent => (
+            "【做什么】\n按 literal 内容替换指定 Workspace 文本文件中的一个或全部匹配项。\n\n【关键约束】\n必须提供 expectedSha256；完整复用既有 OCC、UTF-8、newline、匹配计数和原子替换校验。",
+            source_write_schema(
+                &[
+                    "workspaceId",
+                    "relative_path",
+                    "expectedSha256",
+                    "oldContent",
+                    "newContent",
+                    "mode",
+                ],
+                json!({
+                    "relative_path":{"type":"string"}, "expectedSha256":expected_sha256_schema(),
+                    "oldContent":{"type":"string"}, "newContent":{"type":"string"},
+                    "mode":{"type":"string","enum":["first","all"]},
+                    "expectedMatches":{"type":"integer","minimum":1}, "maxReplacements":{"type":"integer","minimum":1}
+                }),
+            ),
+        ),
+    };
+    let mut descriptor = Tool::new(tool_name.code(), description, input_schema);
+    descriptor.annotations = Some(
+        ToolAnnotations::default()
+            .read_only(false)
+            .destructive(true)
+            .idempotent(false)
+            .open_world(false),
+    );
+    descriptor.output_schema = Some(source_write_output_schema().into());
+    descriptor
+}
+
+/// 统一注入受服务端解析的 Workspace authority，绝不公开 caller-provided root。
+fn source_write_schema(required: &[&str], properties: Value) -> serde_json::Map<String, Value> {
+    let mut properties = properties
+        .as_object()
+        .expect("source write properties must be an object")
+        .clone();
+    properties.insert(
+        "workspaceId".into(),
+        json!({"type":"string","description":"必须由服务端解析为 WorkspaceLease 的目标 Workspace。"}),
+    );
+    json!({
+        "type":"object",
+        "properties":properties,
+        "required":required,
+        "additionalProperties":false
+    })
+    .as_object()
+    .expect("source write schema must be an object")
+    .clone()
+}
+
+/// 既有 OCC token 的冻结格式。
+fn expected_sha256_schema() -> Value {
+    json!({"type":"string","pattern":"^[0-9a-f]{64}$"})
+}
+
+/// 六个既有 Handler 共用的成功结果序列化形状。
+fn source_write_output_schema() -> serde_json::Map<String, Value> {
+    json!({
+        "type":"object",
+        "properties":{
+            "path":{"type":"string"}, "workspaceId":{"type":"string"},
+            "generation":{"type":"integer","minimum":0},
+            "beforeSha256":expected_sha256_schema(), "afterSha256":expected_sha256_schema(),
+            "changedRange":{"type":"object","properties":{"startLine":{"type":"integer","minimum":1},"endLine":{"type":"integer","minimum":1}},"required":["startLine","endLine"],"additionalProperties":false},
+            "changedCount":{"type":"integer","minimum":0}
+        },
+        "required":["path","workspaceId","generation","afterSha256"],
+        "additionalProperties":false
+    })
+    .as_object()
+    .expect("source write output schema must be an object")
+    .clone()
 }
 #[cfg(test)]
 mod tests {
@@ -1153,6 +1361,62 @@ mod tests {
                 .collect::<Vec<_>>(),
             disabled
         );
+    }
+
+    #[test]
+    fn source_write_toggle_only_adds_the_six_existing_write_descriptors() {
+        let disabled = list_with_source_write(true, false);
+        let enabled = list_with_source_write(true, true);
+        let disabled_names = disabled
+            .iter()
+            .map(|tool| tool.name.as_ref())
+            .collect::<std::collections::HashSet<_>>();
+        let enabled_names = enabled
+            .iter()
+            .map(|tool| tool.name.as_ref())
+            .collect::<std::collections::HashSet<_>>();
+
+        for write_tool in SourceWriteTool::ALL {
+            assert!(
+                !disabled_names.contains(write_tool.code()),
+                "{}",
+                write_tool.code()
+            );
+            let descriptor = enabled
+                .iter()
+                .find(|tool| tool.name == write_tool.code())
+                .unwrap();
+            assert_eq!(
+                descriptor.annotations.as_ref().unwrap().read_only_hint,
+                Some(false)
+            );
+            assert_eq!(
+                descriptor.annotations.as_ref().unwrap().destructive_hint,
+                Some(true)
+            );
+            assert_eq!(descriptor.input_schema["additionalProperties"], false);
+            assert!(
+                descriptor.input_schema["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("workspaceId"))
+            );
+            assert!(descriptor.input_schema["properties"].get("root").is_none());
+            assert_eq!(
+                descriptor.output_schema.as_ref().unwrap()["properties"]["afterSha256"]["pattern"],
+                "^[0-9a-f]{64}$"
+            );
+        }
+        assert_eq!(
+            enabled_names.len(),
+            disabled_names.len() + SourceWriteTool::ALL.len()
+        );
+        for name in disabled_names {
+            assert!(enabled_names.contains(name), "{name}");
+        }
+        assert!(authorize_source_write(false, "source_write_text_file").is_err());
+        assert!(authorize_source_write(false, "source_read_file").is_ok());
+        assert!(authorize_source_write(true, "source_write_text_file").is_ok());
     }
 
     #[test]

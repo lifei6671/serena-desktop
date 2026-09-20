@@ -154,8 +154,9 @@ async fn p2b_007_source_gate_mcp_ab_lease_isolation_without_serena_or_legacy_loc
         let b_text = b["text"].as_str().unwrap();
         match name {
             "source_read_file" => {
-                assert_eq!(a_text, "SOURCE-A");
-                assert_eq!(b_text, "SOURCE-B");
+                // 完整读取保留文件真实的终止换行，仍由各自请求 Lease 隔离。
+                assert_eq!(a_text, "SOURCE-A\n");
+                assert_eq!(b_text, "SOURCE-B\n");
             }
             "source_list_dir" | "source_find_file" => {
                 assert!(a_text.contains("only-A.rs"), "{name}: {a_text}");
@@ -227,6 +228,22 @@ async fn source_read_file_honors_utf8_budget_boundaries_and_truncation() {
     }
 }
 
+/// 完整读取的终止换行也必须受 UTF-8 预算约束，不能在可见正文后越过预算追加。
+#[tokio::test]
+async fn source_read_file_truncates_preserved_terminal_newline_by_budget() {
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(directory.path().join("text.txt"), "a\n").unwrap();
+    let lease = lease(directory.path(), "workspace-a", 12);
+
+    for (budget, text, truncated) in [(1, "a", true), (2, "a\n", false)] {
+        let mut args = arguments("text.txt");
+        args.max_bytes = Some(budget);
+        let output = read_at(&lease, args).await.unwrap();
+        assert_eq!(output["text"], text);
+        assert_eq!(output["truncated"], truncated);
+    }
+}
+
 /// 完整原始 bytes 的 SHA 必须跨 line range、正文预算与多 chunk 文件保持不变。
 #[tokio::test]
 async fn source_read_file_hashes_complete_raw_bytes_across_ranges_and_budgets() {
@@ -261,6 +278,39 @@ async fn source_read_file_hashes_complete_raw_bytes_across_ranges_and_budgets() 
     }
 }
 
+/// 无行范围的完整读取必须保留终止分隔符，同时 SHA 仍对应未经规范化的原始 bytes。
+#[tokio::test]
+async fn source_read_file_preserves_complete_text_terminal_newline_semantics() {
+    let directory = tempfile::tempdir().unwrap();
+    let lease = lease(directory.path(), "workspace-a", 12);
+
+    for (name, raw, expected_text) in [
+        ("empty.txt", b"".as_slice(), ""),
+        ("no-terminal-newline.txt", b"alpha".as_slice(), "alpha"),
+        ("trailing-lf.txt", b"alpha\n".as_slice(), "alpha\n"),
+        (
+            "trailing-empty-lines.txt",
+            b"alpha\n\n\n".as_slice(),
+            "alpha\n\n\n",
+        ),
+        (
+            "trailing-crlf.txt",
+            b"alpha\r\n\r\n".as_slice(),
+            "alpha\n\n",
+        ),
+    ] {
+        fs::write(directory.path().join(name), raw).unwrap();
+        let output = read_at(&lease, arguments(name)).await.unwrap();
+        let expected_hash = Sha256::digest(raw)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        assert_eq!(output["text"], expected_text, "{name}");
+        assert_eq!(output["truncated"], false, "{name}");
+        assert_eq!(output["sha256"], expected_hash, "{name}");
+    }
+}
+
 /// 读取行号延续既有零基、包含两端、CRLF 规范化和空行连接语义。
 #[tokio::test]
 async fn source_read_file_preserves_start_and_end_line_semantics() {
@@ -269,8 +319,9 @@ async fn source_read_file_preserves_start_and_end_line_semantics() {
     let lease = lease(directory.path(), "workspace-a", 12);
 
     for (start_line, end_line, expected) in [
-        (None, None, "zero\none\n\ntwo"),
+        (None, None, "zero\none\n\ntwo\n"),
         (Some(0), Some(0), "zero"),
+        (Some(0), None, "zero\none\n\ntwo"),
         (Some(1), Some(2), "one\n"),
         (Some(3), Some(2), ""),
     ] {
@@ -357,6 +408,7 @@ fn source_read_file_stops_when_cancelled_during_chunked_read() {
             "large.txt",
             0,
             None,
+            false,
             DEFAULT_MAX_BYTES,
             &worker_cancel,
             move |_| {
@@ -392,6 +444,7 @@ fn source_read_file_rejects_atomic_path_replacement_after_old_handle_starts_read
         "target.txt",
         0,
         None,
+        false,
         DEFAULT_MAX_BYTES,
         &CancellationToken::new(),
         |_| {
@@ -422,6 +475,7 @@ fn source_read_file_rejects_in_place_content_or_metadata_change() {
         "target.txt",
         0,
         None,
+        false,
         DEFAULT_MAX_BYTES,
         &CancellationToken::new(),
         |_| {
@@ -458,6 +512,7 @@ fn source_read_file_stops_when_cancelled_during_post_read_recapture() {
             "large.txt",
             0,
             None,
+            false,
             DEFAULT_MAX_BYTES,
             &worker_cancel,
             |_| {},
@@ -553,6 +608,7 @@ fn source_read_file_maps_post_read_junction_escape_to_source_read_changed() {
         "inside/target.txt",
         0,
         None,
+        false,
         DEFAULT_MAX_BYTES,
         &CancellationToken::new(),
         |_| {

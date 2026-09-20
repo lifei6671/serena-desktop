@@ -742,11 +742,21 @@ test('workspace menu exposes icon actions that rename or remove only the selecte
   assert.match(readFileSync('src/styles.css', 'utf8'), /\.project-task-navigation h2 \{ position: sticky;/);
   const trigger = host.querySelector(`[aria-label="打开工作区菜单：${project.name}"]`);
   await act(async () => trigger.click());
-  const menu = host.querySelector('[role="menu"]');
+  const menu = document.querySelector('[role="menu"]');
   assert.match(menu.textContent, /编辑.*删除/);
+  assert.equal(host.contains(menu), false, '菜单通过 Portal 脱离侧栏滚动容器');
+  assert.equal(menu.dataset.side, 'right');
   assert.ok(menu.querySelector('svg.lucide-pencil'));
   assert.ok(menu.querySelector('svg.lucide-trash-2'));
-  await click('编辑', host);
+  assert.equal(host.querySelector('.project-task-header').dataset.menuOpen, 'true');
+  const styles = readFileSync('src/styles.css', 'utf8');
+  assert.match(styles, /\.project-workspace-more:hover, \.project-workspace-more\[aria-expanded="true"\] \{ background: transparent;/);
+  assert.match(styles, /\.project-workspace-menu-content \{[^}]*z-index: 70;[^}]*min-width: 176px;/);
+  assert.match(styles, /\.project-task-header\[data-menu-open="true"\] \{ background: var\(--project-hover\); \}/);
+  await act(async () => menu.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  assert.equal(document.querySelector('[role="menu"]'), null, 'Escape 关闭 Portal 菜单');
+  await act(async () => trigger.click());
+  await click('编辑', document);
   const editDialog = document.querySelector('[role="dialog"]');
   const input = editDialog.querySelector('[aria-label="工作区名称"]');
   await act(async () => {
@@ -756,7 +766,7 @@ test('workspace menu exposes icon actions that rename or remove only the selecte
   await click('保存', editDialog);
   assert.deepEqual(renamed, [[project.id, '重命名工作区']]);
   await act(async () => trigger.click());
-  await click('删除', host);
+  await click('删除', document);
   const removeDialog = document.querySelector('[role="dialog"]');
   assert.match(removeDialog.textContent, /不会删除本地目录/);
   await click('删除', removeDialog);

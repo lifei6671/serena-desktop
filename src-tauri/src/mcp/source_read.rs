@@ -35,6 +35,7 @@ pub(super) async fn read(
         .relative_path
         .ok_or("INVALID_PARAMS: 缺少 relative_path")?;
     let max_bytes = max_bytes(arguments.max_bytes)?;
+    let preserve_terminal_newline = arguments.start_line.is_none() && arguments.end_line.is_none();
     let start_line = arguments.start_line.unwrap_or(0);
     let end_line = arguments.end_line;
     let lease = lease.clone();
@@ -46,6 +47,7 @@ pub(super) async fn read(
             &relative_path,
             start_line,
             end_line,
+            preserve_terminal_newline,
             max_bytes,
             &worker_cancel,
         )
@@ -82,6 +84,7 @@ fn read_and_recapture(
     relative_path: &str,
     start_line: u32,
     end_line: Option<u32>,
+    preserve_terminal_newline: bool,
     max_bytes: usize,
     cancel: &CancellationToken,
 ) -> Result<ReadResult, String> {
@@ -90,6 +93,7 @@ fn read_and_recapture(
         relative_path,
         start_line,
         end_line,
+        preserve_terminal_newline,
         max_bytes,
         cancel,
         |_| {},
@@ -107,6 +111,7 @@ fn read_and_recapture_with_hooks<ReadHook, CaptureHook>(
     relative_path: &str,
     start_line: u32,
     end_line: Option<u32>,
+    preserve_terminal_newline: bool,
     max_bytes: usize,
     cancel: &CancellationToken,
     on_read_chunk: ReadHook,
@@ -121,6 +126,7 @@ where
         relative_path,
         start_line,
         end_line,
+        preserve_terminal_newline,
         max_bytes,
         cancel,
         on_read_chunk,
@@ -140,6 +146,7 @@ fn read_file_with_chunk_hook<Hook>(
     relative_path: &str,
     start_line: u32,
     end_line: Option<u32>,
+    preserve_terminal_newline: bool,
     max_bytes: usize,
     cancel: &CancellationToken,
     mut on_chunk: Hook,
@@ -161,7 +168,8 @@ where
     let mut file = fs::File::open(&resolved).map_err(|_| "INVALID_PATH: target is unavailable")?;
     let mut remaining = initial_len;
     let mut hash = Sha256::new();
-    let mut collector = TextCollector::new(start_line, end_line, max_bytes);
+    let mut collector =
+        TextCollector::new(start_line, end_line, preserve_terminal_newline, max_bytes);
     let mut utf8_tail = Vec::new();
     let mut chunk = [0; READ_CHUNK_BYTES];
 
@@ -351,11 +359,18 @@ struct TextCollector {
     emitted_line: bool,
     line_has_content: bool,
     pending_cr: bool,
+    preserve_terminal_newline: bool,
+    ended_with_line_terminator: bool,
 }
 
 impl TextCollector {
     /// 创建仅收集目标行范围、且正文永不超过 byte budget 的流式收集器。
-    fn new(start_line: u32, end_line: Option<u32>, max_bytes: usize) -> Self {
+    fn new(
+        start_line: u32,
+        end_line: Option<u32>,
+        preserve_terminal_newline: bool,
+        max_bytes: usize,
+    ) -> Self {
         Self {
             text: String::new(),
             truncated: false,
@@ -367,6 +382,8 @@ impl TextCollector {
             emitted_line: false,
             line_has_content: false,
             pending_cr: false,
+            preserve_terminal_newline,
+            ended_with_line_terminator: false,
         }
     }
 
@@ -386,10 +403,12 @@ impl TextCollector {
                 '\r' => {
                     self.line_has_content = true;
                     self.pending_cr = true;
+                    self.ended_with_line_terminator = false;
                 }
                 '\n' => self.finish_line(),
                 character => {
                     self.line_has_content = true;
+                    self.ended_with_line_terminator = false;
                     self.append_character(character);
                 }
             }
@@ -397,7 +416,7 @@ impl TextCollector {
         Ok(())
     }
 
-    /// 刷新末尾的 lone CR；以 `str::lines()` 语义省略仅由结尾换行产生的虚拟空行。
+    /// 刷新末尾的 lone CR；完整读取保留真实终止分隔符，行范围继续采用既有连接语义。
     fn finish(&mut self) {
         if self.pending_cr {
             self.pending_cr = false;
@@ -405,6 +424,9 @@ impl TextCollector {
         }
         if self.line_has_content && self.selected_line() {
             self.begin_line();
+        }
+        if self.preserve_terminal_newline && self.ended_with_line_terminator {
+            self.append('\n');
         }
     }
 
@@ -416,6 +438,7 @@ impl TextCollector {
         self.line_index += 1;
         self.line_started = false;
         self.line_has_content = false;
+        self.ended_with_line_terminator = true;
     }
 
     /// 启动一个选择到的行，并只在相邻的已选择行之间写入规范换行符。

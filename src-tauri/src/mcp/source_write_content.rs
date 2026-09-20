@@ -160,7 +160,8 @@ fn validate_replace_content_input(
         return Err(SourceWriteError::InvalidArgument);
     }
     match input.mode {
-        ReplaceContentMode::First if input.max_replacements.is_some() => {
+        // first 的可选上限只能显式确认其固定的一次替换，不接受 0 或更大的值。
+        ReplaceContentMode::First if input.max_replacements.is_some_and(|value| value != 1) => {
             Err(SourceWriteError::InvalidArgument)
         }
         ReplaceContentMode::All => {
@@ -380,8 +381,8 @@ mod tests {
             "one",
             "two",
             "first",
-            None,
-            None,
+            Some(3),
+            Some(1),
             CancellationToken::new(),
         )
         .await
@@ -421,6 +422,33 @@ mod tests {
             Err("SOURCE_CONTENT_NOT_FOUND".into())
         );
         assert_eq!(fs::read(root.join("first.txt")).unwrap(), existing);
+    }
+
+    /// first 省略 optional 上限仍合法，expectedMatches 继续校验全文而非单次替换数量。
+    #[tokio::test]
+    async fn first_accepts_omitted_max_replacements_with_multiple_expected_matches() {
+        let (_directory, supervisor, _workspace, root) = fixture();
+        let existing = b"one one";
+        fs::write(root.join("first.txt"), existing).unwrap();
+
+        let result = replace_content(
+            supervisor.as_ref(),
+            json!({
+                "workspaceId":"workspace",
+                "relative_path":"first.txt",
+                "expectedSha256":expected(existing),
+                "oldContent":"one",
+                "newContent":"two",
+                "mode":"first",
+                "expectedMatches":2,
+            }),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.changed_count, Some(1));
+        assert_eq!(fs::read(root.join("first.txt")).unwrap(), b"two one");
     }
 
     /// all 只在匹配数与上限均满足时提交全部 non-overlapping replacement。
@@ -479,7 +507,8 @@ mod tests {
             json!({"workspaceId":"missing","relative_path":"never.txt","expectedSha256":"a".repeat(64),"oldContent":"x","newContent":"y","mode":"first","expectedMatches":0}),
             json!({"workspaceId":"missing","relative_path":"never.txt","expectedSha256":"a".repeat(64),"oldContent":"x","newContent":"y","mode":"all"}),
             json!({"workspaceId":"missing","relative_path":"never.txt","expectedSha256":"a".repeat(64),"oldContent":"x","newContent":"y","mode":"all","maxReplacements":0}),
-            json!({"workspaceId":"missing","relative_path":"never.txt","expectedSha256":"a".repeat(64),"oldContent":"x","newContent":"y","mode":"first","maxReplacements":1}),
+            json!({"workspaceId":"missing","relative_path":"never.txt","expectedSha256":"a".repeat(64),"oldContent":"x","newContent":"y","mode":"first","maxReplacements":0}),
+            json!({"workspaceId":"missing","relative_path":"never.txt","expectedSha256":"a".repeat(64),"oldContent":"x","newContent":"y","mode":"first","maxReplacements":2}),
             json!({"workspaceId":"missing","relative_path":"never.txt","expectedSha256":"a".repeat(64),"oldContent":"x","newContent":"y","mode":"all","expectedMatches":2,"maxReplacements":1}),
         ] {
             assert_eq!(

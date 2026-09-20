@@ -20,7 +20,7 @@ test("release workflow is tag-only and runs the full quality and version gates",
     "npm run lint",
     "npm run build",
     "npm test",
-    "node --test scripts/check-version.test.mjs scripts/release-workflow.test.mjs scripts/verify-installer.test.mjs scripts/verify-uninstall-policy.test.mjs",
+    "node --test scripts/apply-release-version.test.mjs scripts/check-version.test.mjs scripts/release-workflow.test.mjs scripts/verify-installer.test.mjs scripts/verify-uninstall-policy.test.mjs",
     "cargo fmt --all -- --check",
     "cargo check --locked",
     "cargo clippy --locked --all-targets -- -D warnings",
@@ -32,6 +32,8 @@ test("release workflow is tag-only and runs the full quality and version gates",
   }
   assert.doesNotMatch(workflow, /continue-on-error\s*:/u);
   assert.doesNotMatch(workflow, /\|\|\s*true/u);
+  assert.match(workflow, /VITE_APP_VERSION: \$\{\{ github\.ref_name \}\}/u);
+  assert.match(workflow, /node scripts\/apply-release-version\.mjs --tag "\$env:RELEASE_TAG"/u);
 });
 
 test("release workflow builds and publishes only the verified NSIS installer", async () => {

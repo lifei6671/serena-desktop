@@ -118,6 +118,7 @@ impl AppPaths {
 pub struct ManagerConfig {
     pub remote_access: crate::remote::RemoteAccessConfig,
     pub agent_enabled: bool,
+    pub remote_source_write_enabled: bool,
     pub broker: BrokerConfig,
     pub workspaces: Vec<Workspace>,
     pub workspace_registry_revision: u64,
@@ -136,6 +137,7 @@ impl Default for ManagerConfig {
             broker: BrokerConfig::default(),
             remote_access: crate::remote::RemoteAccessConfig::default(),
             agent_enabled: false,
+            remote_source_write_enabled: false,
             workspaces: Vec::new(),
             workspace_registry_revision: 1,
             desktop_selected_workspace_id: None,
@@ -640,6 +642,21 @@ mod tests {
         save(&path, &config).unwrap();
         assert!(load(&path).unwrap().agent_enabled);
         assert_eq!(serde_json::to_value(&config).unwrap()["agentEnabled"], true);
+    }
+
+    #[test]
+    fn remote_source_write_is_opt_in_and_persisted() {
+        let mut config: ManagerConfig = serde_json::from_str("{}").unwrap();
+        assert!(!config.remote_source_write_enabled);
+        config.remote_source_write_enabled = true;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        save(&path, &config).unwrap();
+        assert!(load(&path).unwrap().remote_source_write_enabled);
+        assert_eq!(
+            serde_json::to_value(&config).unwrap()["remoteSourceWriteEnabled"],
+            true
+        );
     }
 
     #[test]

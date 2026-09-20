@@ -34,6 +34,7 @@ export interface RemoteState {
 export interface ManagerConfig {
   remoteAccess: RemoteAccessConfig;
   agentEnabled: boolean;
+  remoteSourceWriteEnabled: boolean;
   broker: { enabled: boolean; port: number; allowLan: boolean };
   workspaces: Workspace[];
   workspaceRegistryRevision: number;

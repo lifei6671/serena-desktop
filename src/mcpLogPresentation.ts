@@ -5,7 +5,10 @@ export type McpLogEntry = {
   level: string | null;
   source: string | null;
   message: string;
+  details: McpLogDetails | null;
 };
+
+export type McpLogDetails = Record<string, unknown>;
 
 export type McpLogFilter = {
   source: string;
@@ -14,10 +17,28 @@ export type McpLogFilter = {
 };
 
 const structuredLog = /^(?<level>[A-Z]+)\s+(?<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) \[(?<source>[^\]]+)\] (?<message>[\s\S]*)$/;
+const detailMarker = "\t@serena-details=";
+
+// 结构化诊断仅供详情面板使用，无法解析时必须保留历史原文。
+function extractDetails(message: string): { message: string; details: McpLogDetails | null } {
+  const markerIndex = message.lastIndexOf(detailMarker);
+  if (markerIndex < 0) return { message, details: null };
+
+  try {
+    const details: unknown = JSON.parse(message.slice(markerIndex + detailMarker.length));
+    if (details && typeof details === "object" && !Array.isArray(details)) {
+      return { message: message.slice(0, markerIndex), details: details as McpLogDetails };
+    }
+  } catch {
+    // 无法识别的旧日志或手工日志必须完整保留，不能因详情标记丢失正文。
+  }
+  return { message, details: null };
+}
 
 export function parseMcpLogLine(raw: string, index: number, id = `${index}:${raw}`): McpLogEntry {
   const match = structuredLog.exec(raw);
   const groups = match?.groups;
+  const parsed = extractDetails(groups?.message ?? raw);
 
   return {
     id,
@@ -25,7 +46,8 @@ export function parseMcpLogLine(raw: string, index: number, id = `${index}:${raw
     timestamp: groups?.timestamp ?? null,
     level: groups?.level ?? null,
     source: groups?.source ?? null,
-    message: groups?.message ?? raw,
+    message: parsed.message,
+    details: parsed.details,
   };
 }
 
@@ -59,7 +81,7 @@ export function filterMcpLogs(entries: McpLogEntry[], filter: McpLogFilter) {
     if (filter.level && entry.level !== filter.level) return false;
     if (!query) return true;
 
-    return [entry.raw, entry.message, entry.source, entry.level]
+    return [entry.raw, entry.message, entry.source, entry.level, entry.details && JSON.stringify(entry.details)]
       .filter((value): value is string => value !== null)
       .some((value) => value.toLocaleLowerCase().includes(query));
   });

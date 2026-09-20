@@ -70,12 +70,8 @@ export function ProjectPanel({
   const [registering, setRegistering] = useState(false);
   const importing = busy === "从 Serena 导入中";
   const [importFeedback, setImportFeedback] = useState<"idle" | "pending" | "success">("idle");
-  const [editingWorkspace, setEditingWorkspace] = useState<{ id: string; name: string } | null>(null);
-  const [renamingWorkspaceId, setRenamingWorkspaceId] = useState<string | null>(null);
-  const [removeConfirmation, setRemoveConfirmation] = useState<{ id: string; name: string; root: string } | null>(null);
-  const [removingWorkspaceId, setRemovingWorkspaceId] = useState<string | null>(null);
-  const [reorderingWorkspaceId, setReorderingWorkspaceId] = useState<string | null>(null);
-  const feedbackTimers = useRef(new Set<ReturnType<typeof window.setTimeout>>());
+  // 浏览器定时器 ID 固定为数字，避免 Node 类型污染 Tauri 前端编译。
+  const feedbackTimers = useRef(new Set<number>());
   const mounted = useRef(true);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [selecting, setSelecting] = useState(false);
@@ -231,47 +227,6 @@ export function ProjectPanel({
     });
     if (registered && mounted.current) setCandidate(null);
     if (mounted.current) setRegistering(false);
-  };
-  const renameWorkspace = async () => {
-    if (!editingWorkspace || renamingWorkspaceId || !editingWorkspace.name.trim()) return;
-    let renamed = false;
-    setRenamingWorkspaceId(editingWorkspace.id);
-    await perform("重命名项目", async () => {
-      await api.workspaceRename(editingWorkspace.id, editingWorkspace.name.trim());
-      renamed = true;
-    });
-    if (renamed && mounted.current) setEditingWorkspace(null);
-    if (mounted.current) setRenamingWorkspaceId(null);
-  };
-  const removeWorkspace = async () => {
-    if (!removeConfirmation || removingWorkspaceId) return;
-    const workspace = removeConfirmation;
-    let removed = false;
-    setRemovingWorkspaceId(workspace.id);
-    await perform("移除项目", async () => {
-      try {
-        await api.workspaceRemove(workspace.id);
-        removed = true;
-      } catch (reason) {
-        if (String(reason).includes("WORKSPACE_IN_USE")) {
-          throw new Error("项目正在被 Agent 任务使用，当前不能移除");
-        }
-        throw reason;
-      }
-    });
-    if (removed && mounted.current) setRemoveConfirmation(null);
-    if (mounted.current) setRemovingWorkspaceId(null);
-  };
-  const reorderWorkspace = async (index: number, direction: -1 | 1) => {
-    if (reorderingWorkspaceId) return;
-    const targetIndex = index + direction;
-    const workspaces = state.config.workspaces;
-    if (targetIndex < 0 || targetIndex >= workspaces.length) return;
-    const ids = workspaces.map((workspace) => workspace.id);
-    [ids[index], ids[targetIndex]] = [ids[targetIndex], ids[index]];
-    setReorderingWorkspaceId(workspaces[index].id);
-    await perform("调整项目顺序", () => api.workspaceReorder(ids));
-    if (mounted.current) setReorderingWorkspaceId(null);
   };
   const importVisualState = importFeedback === "success"
     ? "success"
@@ -577,132 +532,6 @@ export function ProjectPanel({
           </Field>
           {!state.config.workspaces.length && (
             <p>暂无已登记工作区。</p>
-          )}
-          {!!state.config.workspaces.length && (
-            <section className="workspace-management" aria-labelledby="workspace-management-title">
-              <h3 id="workspace-management-title">项目管理</h3>
-              {state.config.workspaces.map((workspace, index) => {
-                const editor = editingWorkspace?.id === workspace.id
-                  ? editingWorkspace
-                  : null;
-                const removal = removeConfirmation?.id === workspace.id
-                  ? removeConfirmation
-                  : null;
-                const renaming = renamingWorkspaceId === workspace.id;
-                const removing = removingWorkspaceId === workspace.id;
-                const reordering = reorderingWorkspaceId === workspace.id;
-                const orderingLocked = !!reorderingWorkspaceId;
-                return (
-                  <div className="workspace-management-row" data-workspace-id={workspace.id} key={workspace.id}>
-                    {editor ? (
-                      <div className="workspace-rename-editor">
-                        <Input
-                          id={`workspace-rename-${workspace.id}`}
-                          value={editor.name}
-                          disabled={renaming}
-                          onChange={(event) => setEditingWorkspace({
-                            id: workspace.id,
-                            name: event.target.value,
-                          })}
-                        />
-                        <div className="workspace-management-actions">
-                          <Button
-                            disabled={renaming || !editor.name.trim()}
-                            aria-busy={renaming}
-                            onClick={() => void renameWorkspace()}
-                          >
-                            {renaming && <Spinner data-icon="inline-start" aria-hidden="true" />}
-                            {renaming ? "保存中…" : "保存"}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            disabled={renaming}
-                            onClick={() => setEditingWorkspace(null)}
-                          >
-                            取消
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="workspace-management-identity">
-                          <strong>{workspace.name}</strong>
-                          <code className="project-path">{displayProjectPath(workspace.root)}</code>
-                        </div>
-                        <div className="workspace-management-actions">
-                          <Button
-                            variant="outline"
-                            disabled={index === 0 || orderingLocked}
-                            aria-busy={reordering}
-                            onClick={() => void reorderWorkspace(index, -1)}
-                          >
-                            {reordering && <Spinner data-icon="inline-start" aria-hidden="true" />}
-                            {reordering ? "调整中…" : "上移"}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            disabled={index === state.config.workspaces.length - 1 || orderingLocked}
-                            aria-busy={reordering}
-                            onClick={() => void reorderWorkspace(index, 1)}
-                          >
-                            {reordering && <Spinner data-icon="inline-start" aria-hidden="true" />}
-                            {reordering ? "调整中…" : "下移"}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            disabled={removing}
-                            onClick={() => setEditingWorkspace({
-                              id: workspace.id,
-                              name: workspace.name,
-                            })}
-                          >
-                            重命名
-                          </Button>
-                          <Button
-                            variant="outline"
-                            disabled={removing}
-                            onClick={() => setRemoveConfirmation({
-                              id: workspace.id,
-                              name: workspace.name,
-                              root: workspace.root,
-                            })}
-                          >
-                            移除
-                          </Button>
-                        </div>
-                      </>
-                    )}
-                    {removal && (
-                      <div className="workspace-remove-confirmation" role="alertdialog" aria-label={`确认移除 ${workspace.name}`}>
-                        <p>
-                          确定移除“{removal.name}”吗？仅从 Serena Desktop 项目列表移除，
-                          不会删除本地目录、源码、Git 仓库、.serena 或 .codegraph 内容。
-                        </p>
-                        <code className="project-path">{displayProjectPath(removal.root)}</code>
-                        <div className="workspace-management-actions">
-                          <Button
-                            variant="destructive"
-                            disabled={removing}
-                            aria-busy={removing}
-                            onClick={() => void removeWorkspace()}
-                          >
-                            {removing && <Spinner data-icon="inline-start" aria-hidden="true" />}
-                            {removing ? "移除中…" : "确认移除"}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            disabled={removing}
-                            onClick={() => setRemoveConfirmation(null)}
-                          >
-                            取消
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </section>
           )}
           {project && (
             <>

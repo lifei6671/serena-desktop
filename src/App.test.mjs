@@ -43,7 +43,7 @@ let root;
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; });
 test('lazy pages preserve settings draft and keep project navigation mounted', async () => {
   const project = { id: 'W', name: 'Persistent project', root: 'E:/project', generation: 1 };
-  const config = { agentEnabled: false, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [project], desktopSelectedWorkspaceId: project.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+  const config = { agentEnabled: false, remoteSourceWriteEnabled: false, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [project], desktopSelectedWorkspaceId: project.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
   const snapshot = { config, desktopSelectedWorkspace: project, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
   api.getState = async () => structuredClone(snapshot);
   api.broker = async () => ({ running: false, projects: [{ ...project, configured: true }], projectSources: [], syncWarnings: [], activeWorkspace: null, codegraph: null });
@@ -52,6 +52,9 @@ test('lazy pages preserve settings draft and keep project navigation mounted', a
   api.remoteState = async () => ({ mode: 'quick_tunnel', status: 'stopped', publicContext: null, lastError: null, authorizedClients: 0, pending: [], active: false });
   root = createRoot(document.getElementById('root'));
   await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
+  const brand = document.querySelector('.brand');
+  assert.match(brand.textContent, /SerenaDesktop/u);
+  assert.match(brand.textContent, /开发版本/u);
   const navigation = document.querySelector('.project-navigation-slot');
   assert.match(navigation.textContent, /Persistent project/);
   async function navigate(label) {
@@ -61,6 +64,8 @@ test('lazy pages preserve settings draft and keep project navigation mounted', a
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
   }
   await navigate('设置');
+  assert.match(document.querySelector('.settings-page').textContent, /允许远程修改项目文件/u);
+  assert.match(document.querySelector('.settings-page').textContent, /远程 MCP 客户端只能读取项目文件。/u);
   const port = document.getElementById('broker-port');
   assert.ok(port);
   await act(async () => {
@@ -78,7 +83,7 @@ test('lazy pages preserve settings draft and keep project navigation mounted', a
 
 test('MCP Only App controls use the broker controller to start and stop the local listener', async () => {
   const originals = { ...api };
-  const config = { agentEnabled: false, broker: { enabled: true, port: 9342, allowLan: true }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
+  const config = { agentEnabled: false, remoteSourceWriteEnabled: false, broker: { enabled: true, port: 9342, allowLan: true }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
   const snapshot = { config, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
   let brokerRunning = true;
   let resolveSetBroker;

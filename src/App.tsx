@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { ProjectPanel } from "./ProjectPanel";
 import { useAppController } from "./app/useAppController";
 import { api } from "./api";
+import { appVersion } from "./appVersion";
 import type { ServerStatus } from "./types";
 
 const StatusPage = lazy(() => import("./features/status/StatusPage"));
@@ -67,7 +68,7 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <img className="brand-mark" src={appLogo} alt="" />
-          <span>Serena<small>Desktop</small></span>
+          <span>SerenaDesktop <small className="brand-version">{appVersion}</small></span>
         </div>
         <nav aria-label="主导航">
           <Button

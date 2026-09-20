@@ -148,6 +148,14 @@ impl Broker {
     pub fn log_tool(&self, level: &str, message: &str) {
         append_log_level(&self.logs, level, "TOOL", message);
     }
+    /// 为本地日志详情附加结构化诊断，列表仍保留精简的普通消息。
+    pub fn log_tool_detail(&self, level: &str, message: &str, details: &Value) {
+        append_log_level_detail(&self.logs, level, "TOOL", message, details);
+    }
+    /// 为本地日志详情附加 HTTP 请求诊断，调用方负责先移除敏感字段。
+    pub fn log_http_detail(&self, level: &str, message: &str, details: &Value) {
+        append_log_level_detail(&self.logs, level, "MCP", message, details);
+    }
     pub fn log_snapshot(&self) -> Vec<String> {
         self.logs.lock().unwrap().iter().cloned().collect()
     }
@@ -376,6 +384,16 @@ impl Broker {
         if orchestration::contains(name) {
             return Ok(self.orchestration_operation(name, args).await);
         }
+        if let Err(reason) =
+            registry::authorize_source_write(self.config().remote_source_write_enabled, name)
+        {
+            // 对旧 catalog 保持 UNKNOWN_TOOL wire contract，同时在本地日志保留 disabled 原因。
+            self.log_tool(
+                "WARN",
+                &format!("source write rejected by local policy error_code={reason}"),
+            );
+            return Err("UNKNOWN_TOOL".into());
+        }
         registry::validate(name, &args)?;
         match name {
             "workspace_list" => {
@@ -450,6 +468,32 @@ impl Broker {
                 cancel,
             )
             .await;
+        }
+        if registry::is_source_write_tool(name) {
+            // 只负责 capability 分派；具体 Handler 保持既有 WorkspaceLease、OCC 和原子写入路径。
+            let success = match name {
+                "source_create_text_file" => {
+                    source_write_create::create_text_file(&self.supervisor, args, cancel).await
+                }
+                "source_write_text_file" => {
+                    source_write_file::write_text_file(&self.supervisor, args, cancel).await
+                }
+                "source_insert_lines" => {
+                    source_write_insert::insert_lines(&self.supervisor, args, cancel).await
+                }
+                "source_delete_lines" => {
+                    source_write_delete::delete_lines(&self.supervisor, args, cancel).await
+                }
+                "source_replace_lines" => {
+                    source_write_replace::replace_lines(&self.supervisor, args, cancel).await
+                }
+                "source_replace_content" => {
+                    source_write_content::replace_content(&self.supervisor, args, cancel).await
+                }
+                _ => unreachable!("source write membership was checked above"),
+            }?;
+            return serde_json::to_value(success)
+                .map_err(|error| format!("SOURCE_WRITE_SERIALIZATION_ERROR: {error}"));
         }
         if registry::is_workspace_scoped_source(name) {
             // 全部 Source Authority 只来自本次请求解析出的 Lease，绝不读取 legacy active Workspace。
@@ -656,6 +700,22 @@ fn append_log_level(logs: &Mutex<VecDeque<String>>, level: &str, category: &str,
         "{level:<5} {} [{category}] {message}",
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f")
     ));
+}
+fn append_log_level_detail(
+    logs: &Mutex<VecDeque<String>>,
+    level: &str,
+    category: &str,
+    message: &str,
+    details: &Value,
+) {
+    // 该标记只由 Desktop 详情面板解析；原始日志仍可完整复制和导出。
+    let details = serde_json::to_string(details).unwrap_or_else(|_| "{}".into());
+    append_log_level(
+        logs,
+        level,
+        category,
+        &format!("{message}\t@serena-details={details}"),
+    );
 }
 pub fn get(app: &AppHandle) -> Arc<Broker> {
     app.state::<Arc<Broker>>().inner().clone()
@@ -1457,6 +1517,130 @@ mod integration_tests {
     }
 
     #[tokio::test]
+    async fn remote_source_write_toggle_controls_registry_and_dispatch_without_changing_other_tools()
+     {
+        let directory = tempfile::tempdir().unwrap();
+        let broker = fixture(directory.path(), None);
+        let root = directory.path().join("workspace");
+        std::fs::create_dir(&root).unwrap();
+        let workspace = WorkspaceRegistry::new(&broker.supervisor)
+            .register(root.clone(), Some("Source Write".into()))
+            .unwrap();
+
+        let disabled_catalog = registry::list_with_source_write(false, false);
+        for tool in source_write_domain::SourceWriteTool::ALL {
+            assert!(
+                !disabled_catalog
+                    .iter()
+                    .any(|entry| entry.name == tool.code())
+            );
+            assert_eq!(
+                broker
+                    .dispatch(tool.code(), json!({}), CancellationToken::new())
+                    .await,
+                Err("UNKNOWN_TOOL".into()),
+                "{}",
+                tool.code()
+            );
+        }
+        assert!(!root.join("old-catalog.txt").exists());
+        assert_eq!(
+            broker
+                .dispatch("save_config", json!({}), CancellationToken::new())
+                .await,
+            Err("UNKNOWN_TOOL".into())
+        );
+
+        let mut enabled_config = broker.config();
+        enabled_config.remote_source_write_enabled = true;
+        broker.supervisor.replace_config(enabled_config).unwrap();
+        let enabled_catalog = registry::list_with_source_write(false, true);
+        for tool in source_write_domain::SourceWriteTool::ALL {
+            assert!(
+                enabled_catalog
+                    .iter()
+                    .any(|entry| entry.name == tool.code())
+            );
+        }
+        for name in registry::LOCAL_SOURCES
+            .iter()
+            .chain(registry::SEMANTIC_SOURCES)
+            .chain(registry::GITS)
+        {
+            assert_eq!(
+                disabled_catalog.iter().any(|entry| entry.name == *name),
+                enabled_catalog.iter().any(|entry| entry.name == *name),
+                "{name}"
+            );
+        }
+
+        let created = broker
+            .dispatch(
+                "source_create_text_file",
+                json!({"workspaceId":workspace.id,"relative_path":"toggle.txt","content":"before\n"}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let written = broker
+            .dispatch(
+                "source_write_text_file",
+                json!({"workspaceId":workspace.id,"relative_path":"toggle.txt","content":"written\n","ifExists":"overwrite","expectedSha256":created["afterSha256"]}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let replaced = broker
+            .dispatch(
+                "source_replace_content",
+                json!({"workspaceId":workspace.id,"relative_path":"toggle.txt","expectedSha256":written["afterSha256"],"oldContent":"written","newContent":"replaced","mode":"first"}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(replaced["path"], "toggle.txt");
+        assert_eq!(
+            std::fs::read_to_string(root.join("toggle.txt")).unwrap(),
+            "replaced\n"
+        );
+
+        broker.start().await.unwrap();
+        let port = broker.snapshot().await.port;
+        let client = ()
+            .serve(StreamableHttpClientTransport::from_uri(format!(
+                "http://127.0.0.1:{port}/mcp"
+            )))
+            .await
+            .unwrap();
+        assert!(
+            client
+                .list_all_tools()
+                .await
+                .unwrap()
+                .iter()
+                .any(|tool| tool.name == "source_write_text_file")
+        );
+
+        let mut disabled_config = broker.config();
+        disabled_config.remote_source_write_enabled = false;
+        broker.supervisor.replace_config(disabled_config).unwrap();
+        let old_catalog_error = client
+            .call_tool(
+                CallToolRequestParams::new("source_write_text_file").with_arguments(
+                    json!({"workspaceId":workspace.id,"relative_path":"old-catalog.txt","content":"blocked","ifExists":"fail"})
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                ),
+            )
+            .await
+            .unwrap_err();
+        assert!(old_catalog_error.to_string().contains("UNKNOWN_TOOL"));
+        assert!(!root.join("old-catalog.txt").exists());
+        broker.stop().await.unwrap();
+    }
+
+    #[tokio::test]
     async fn codegraph_requires_explicit_workspace_before_any_active_workspace_read() {
         let directory = tempfile::tempdir().unwrap();
         let broker = fixture(directory.path(), None);
@@ -2175,13 +2359,20 @@ mod integration_tests {
             .unwrap();
         let logs = broker.log_snapshot().join("\n");
         assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 404"));
-        assert!(logs.contains("HTTP GET · 404 Not Found · path=\"/missing/resource\""));
+        assert!(logs.contains("HTTP GET · 404 Not Found"));
         assert!(!logs.contains("token="));
-        assert!(logs.contains(&format!("peer={peer}")));
-        assert!(logs.contains(&format!("host=\"127.0.0.1:{port}\"")));
-        assert!(logs.contains("cf-connecting-ip=\"203.0.113.8\""));
-        assert!(logs.contains("x-forwarded-for=\"203.0.113.8, 192.0.2.1\""));
-        assert!(logs.contains("x-forwarded-host=\"serena.example.com\""));
+        let request_log = logs
+            .lines()
+            .find(|line| line.contains("HTTP GET · 404 Not Found"))
+            .unwrap();
+        let (_, raw_details) = request_log.rsplit_once("\t@serena-details=").unwrap();
+        let details: Value = serde_json::from_str(raw_details).unwrap();
+        assert_eq!(details["path"], "/missing/resource");
+        assert_eq!(details["peer"], peer.to_string());
+        assert_eq!(details["host"], format!("127.0.0.1:{port}"));
+        assert_eq!(details["cfConnectingIp"], "203.0.113.8");
+        assert_eq!(details["forwardedFor"], "203.0.113.8, 192.0.2.1");
+        assert_eq!(details["forwardedHost"], "serena.example.com");
         assert!(!logs.contains("do-not-log"));
         broker.stop().await.unwrap();
     }
@@ -2397,7 +2588,16 @@ mod integration_tests {
                 .iter()
                 .find(|line| line.contains(&format!("tool={tool:?}")) && line.contains(outcome))
                 .unwrap();
-            let elapsed: f64 = line.split("duration_ms=").nth(1).unwrap().parse().unwrap();
+            // 结构化详情使用制表符后缀，耗时字段只解析其前的数值部分。
+            let elapsed: f64 = line
+                .split("duration_ms=")
+                .nth(1)
+                .unwrap()
+                .split('\t')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap();
             assert!(elapsed >= 0.0);
             if tool == "workspace_deactivate" {
                 // Includes time waiting for the workspace lock, not just HTTP headers.

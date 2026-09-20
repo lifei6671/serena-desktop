@@ -360,6 +360,8 @@ async fn all_modes_share_json_transport_and_reject_cross_site_origin() {
         assert_eq!(call.send().await.unwrap().status(), 200);
         let logs = broker.log_snapshot().join("\n");
         assert!(logs.contains("source_search_pattern"));
+        assert!(logs.contains(r#""kind":"tool_call""#));
+        assert!(logs.contains(r#""substring_pattern":"[已隐藏]""#));
         assert!(!logs.contains(secret));
         if let Some(token) = &token {
             assert!(!logs.contains(token));

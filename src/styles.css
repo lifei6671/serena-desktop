@@ -151,12 +151,13 @@ h3 {
   flex-shrink: 0;
 }
 .sidebar .brand { min-height: 0; margin: 0 6px 14px; padding: 8px 10px; }
-.brand small {
-  display: block;
+.brand-version {
+  display: inline;
+  margin-left: 4px;
   font-size: 11px;
   font-weight: 400;
   color: #64748b;
-  margin-top: 1px;
+  font-family: "Cascadia Code", Consolas, monospace;
 }
 .sidebar > nav[aria-label="主导航"] {
   display: flex;
@@ -486,50 +487,6 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-.workspace-management {
-  display: grid;
-  gap: 8px;
-  margin-top: 16px;
-}
-.workspace-management h3 {
-  margin: 0;
-  color: #475569;
-  font-size: 13px;
-}
-.workspace-management-row {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-}
-.workspace-management-identity,
-.workspace-rename-editor {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-.workspace-management-identity strong {
-  color: #334155;
-  font-size: 13px;
-}
-.workspace-management-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.workspace-remove-confirmation {
-  display: grid;
-  gap: 10px;
-  padding-top: 10px;
-  border-top: 1px solid #e2e8f0;
-}
-.workspace-remove-confirmation p {
-  margin: 0;
-  color: #475569;
-  font-size: 13px;
-  line-height: 1.5;
 }
 .selection-action {
   display: flex;
@@ -1029,12 +986,14 @@ h3 {
 .log-details-content { overflow: auto; padding: 12px; }
 .log-details section { margin: 0 0 14px; }
 .log-details h2 { margin: 0 0 6px; color: #94a3b8; font: 600 10px/1.2 Consolas, "Microsoft YaHei UI", monospace; letter-spacing: .06em; text-transform: uppercase; }
-.log-detail-card, .log-detail-body, .log-detail-raw { margin: 0; border: 1px solid #e2e8f0; border-radius: 5px; background: #f8fafc; color: #334155; font: 11px/1.55 Consolas, "Microsoft YaHei UI", monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
+.log-detail-card, .log-detail-body, .log-detail-raw, .log-detail-value { margin: 0; border: 1px solid #e2e8f0; border-radius: 5px; background: #f8fafc; color: #334155; font: 11px/1.55 Consolas, "Microsoft YaHei UI", monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
 .log-detail-card { padding: 6px 9px; }
 .log-detail-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 26px; border-bottom: 1px solid #e2e8f0; }
 .log-detail-field:last-child { border-bottom: 0; }
 .log-detail-field > span:first-child { color: #64748b; }
 .log-detail-field > span:last-child { min-width: 0; color: #1e293b; text-align: right; overflow-wrap: anywhere; }
+.log-detail-diagnostics .log-detail-field { align-items: flex-start; padding: 5px 0; }
+.log-detail-value { max-height: 180px; margin-left: auto; padding: 6px; overflow: auto; text-align: left; }
 .log-detail-body { padding: 9px; background: #f8fafc; }
 .log-detail-raw { padding: 9px; color: #64748b; }
 .log-status-bar { display: flex; min-height: 28px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 11px; border: 1px solid #e2e8f0; border-top: 0; border-radius: 0 0 8px 8px; background: #f8fafc; color: #64748b; font: 11px/1 Consolas, "Microsoft YaHei UI", monospace; }
@@ -1448,9 +1407,9 @@ h3 {
 .project-workspace-collapse .collapsed { transform: rotate(-90deg); }
 .project-workspace-more { opacity: 0; pointer-events: none; }
 .project-task-group:hover .project-workspace-more, .project-task-group:focus-within .project-workspace-more { opacity: 1; pointer-events: auto; }
-.project-workspace-more:hover, .project-workspace-more[aria-expanded="true"] { background: #cbd5e1; color: #0f172a; }
-.project-workspace-menu { position: relative; flex: none; }
-.project-workspace-menu-content { position: absolute; z-index: 20; top: calc(100% + 3px); right: 0; display: grid; min-width: 112px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; box-shadow: 0 8px 16px rgb(15 23 42 / 12%); }
+.project-workspace-more:hover, .project-workspace-more[aria-expanded="true"] { background: transparent; color: #0f172a; }
+/* Radix Portal 脱离侧栏滚动容器，定位由 Popover 从三点按钮右侧计算。 */
+.project-workspace-menu-content { z-index: 70; display: grid; min-width: 176px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; box-shadow: 0 8px 16px rgb(15 23 42 / 12%); }
 .project-workspace-menu-content button { display: flex; align-items: center; gap: 7px; min-height: 28px; padding: 0 8px; border-radius: 4px; color: #334155; font-size: 12px; text-align: left; }
 .project-workspace-menu-content button svg { width: 14px; height: 14px; }
 .project-workspace-menu-content button:hover, .project-workspace-menu-content button:focus-visible { background: #f1f5f9; color: #0f172a; }
@@ -1459,6 +1418,7 @@ h3 {
 .project-task-group ul { display: flex; flex-direction: column; gap: 2px; list-style: none; margin: 3px 0; padding: 0; }
 .project-task { position: relative; border-radius: 7px; transition: background-color 140ms ease; }
 .project-task:hover, .project-task:focus-within, .project-task-header:hover, .project-task-header:focus-within { background: var(--project-hover); }
+.project-task-header[data-menu-open="true"] { background: var(--project-hover); }
 .project-task-header { transition: background-color 140ms ease; }
 .project-task[data-selected=true] { background: var(--project-selected); }
 .project-task[data-selected=true]:hover, .project-task[data-selected=true]:focus-within { background: var(--project-selected-hover); }

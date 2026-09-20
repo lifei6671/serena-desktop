@@ -93,6 +93,18 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                   hint="允许 MCP 客户端使用 Agent 工具。关闭后拒绝新的工具请求；不取消已有任务，桌面端仍可管理任务。客户端需刷新工具列表。"
                 />
                 <SettingSwitch
+                  checked={draft.remoteSourceWriteEnabled}
+                  onChange={value => saveToggle(
+                    { remoteSourceWriteEnabled: value },
+                    value ? "已允许远程修改项目文件；重新连接 MCP 客户端后生效。" : "已关闭远程项目文件修改。",
+                  )}
+                  disabled={busy !== null}
+                  label="允许远程修改项目文件"
+                  hint={draft.remoteSourceWriteEnabled
+                    ? "允许远程 MCP 客户端使用文件创建、写入、插入、删除和替换工具。重新连接 MCP 客户端后生效。"
+                    : "远程 MCP 客户端只能读取项目文件。"}
+                />
+                <SettingSwitch
                   checked={state.autostartEnabled ?? false}
                   onChange={setAutostart}
                   disabled={busy !== null || state.autostartEnabled === null}

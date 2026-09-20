@@ -10,15 +10,8 @@ pub(crate) const TARGET_TEXT_FILE_MAX: usize = 8 * 1024 * 1024;
 /// 变更后结果文本文件允许产生的 Server hard byte limit。
 pub(crate) const RESULT_TEXT_FILE_MAX: usize = 8 * 1024 * 1024;
 
-/// 尚未路由的六个 Source Write Tool 的稳定 domain identity。
+/// 由本地 capability 开关统一控制的六个 Source Write Tool 的稳定 domain identity。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "六个未公开 Source Write 的冻结 domain identity 仅由契约回归保留。"
-    )
-)]
 pub(crate) enum SourceWriteTool {
     #[serde(rename = "source_create_text_file")]
     CreateTextFile,
@@ -34,15 +27,8 @@ pub(crate) enum SourceWriteTool {
     ReplaceContent,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "冻结的 Tool 列表和 wire 名称仅用于未公开 Source Write 的契约回归。"
-    )
-)]
 impl SourceWriteTool {
-    /// 以冻结顺序返回全部未来 Tool 名称，仅供内部 domain identity 使用。
+    /// 以冻结顺序返回全部受开关控制的 Tool 名称。
     pub(crate) const ALL: [Self; 6] = [
         Self::CreateTextFile,
         Self::WriteTextFile,
@@ -396,9 +382,9 @@ mod tests {
         }
     }
 
-    /// 六个名称仅是 domain identity，不能成为 registry descriptor 或 dispatch 入口。
+    /// 默认关闭时六个名称不可 advertise，且 policy 必须在任何 Handler 之前拒绝。
     #[test]
-    fn source_write_tools_remain_unregistered_and_unavailable() {
+    fn source_write_tools_remain_unadvertised_and_policy_disabled_by_default() {
         let tools = registry::list(true);
         for tool in SourceWriteTool::ALL {
             assert_eq!(tool.to_string(), tool.code());
@@ -408,8 +394,8 @@ mod tests {
                     .any(|descriptor| descriptor.name == tool.code())
             );
             assert_eq!(
-                registry::validate(tool.code(), &json!({})),
-                Err("UNKNOWN_TOOL".into())
+                registry::authorize_source_write(false, tool.code()),
+                Err(SourceWriteError::WriteRemoteDisabled)
             );
         }
     }
