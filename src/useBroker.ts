@@ -56,10 +56,12 @@ export function useBroker(onChanged: () => Promise<unknown>) {
     action: () => Promise<unknown>,
     success?: string,
   ) => {
+    let succeeded = false;
     epoch.current++;
     setBusy(label);
     try {
       await action();
+      succeeded = true;
       if (success) toast.success(success, { id: "broker-feedback" });
     } catch (reason) {
       toast.error(String(reason), { id: "broker-feedback" });
@@ -76,6 +78,7 @@ export function useBroker(onChanged: () => Promise<unknown>) {
         setBusy("");
       }
     }
+    return succeeded;
   };
   return { broker, busy, perform };
 }

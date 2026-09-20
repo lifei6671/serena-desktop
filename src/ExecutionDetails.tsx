@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Check, Copy, Play, ShieldAlert } from "lucide-react";
-import { activityLabel, activitySilenceLabel, executionDuration, executionStatus, formatTokenCount, providerLabel, recentActivity, resultText, taskTitle, usageCompletenessLabel } from "./agentPresentation";
+import { activityLabel, activitySilenceLabel, executionDuration, executionStatus, formatTokenCount, providerLabel, recentActivity, resultText, taskTitle } from "./agentPresentation";
 import { agentRequests } from "./agentRequests";
 import type { AgentAction, ExecutionView } from "./types";
 
@@ -56,7 +56,6 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
   const durationLabel = isActiveExecution ? "已运行" : "总耗时";
   const showResult = row.resultAvailable || row.status === "completed";
   const provider = providerLabel(row);
-  const usageCompleteness = usageCompletenessLabel(row.usage.completeness);
   const technicalFields: Array<[string, string | number | null | undefined]> = [
     ["Execution ID", row.executionId], ["Agent ID", row.agentId], ["Workspace ID", row.workspaceId], ["Provider", provider], ["Provider Session", row.providerSessionLabel], ["Dispatch State", row.dispatchState],
     ["Thread ID", row.threadId], ["Thread Name", row.threadName], ["Turn ID", row.turnId], ["Provider Terminal Status", row.providerTerminalStatus],
@@ -105,11 +104,12 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
         <div className="agent-detail-info-card">
           <div className="agent-detail-live-grid">
             <div><span>执行状态</span><strong className={`agent-status tone-${state.tone}`}><i className={running ? "agent-task-pulse" : undefined} aria-hidden="true" />{state.label}</strong></div>
-            <div><span>Provider</span><strong>{provider}</strong>{row.providerSessionLabel && <code>{row.providerSessionLabel}</code>}</div>
+            <div><span>Provider</span><strong>{provider}</strong></div>
             <div><span>当前活动</span><strong>{activityLabel(row)}</strong></div>
             <div><span>最近活动</span><strong>{recentActivity(row)}</strong></div>
             <div><span>活跃状态</span><strong>{activitySilenceLabel(row)}</strong></div>
             <div><span>{durationLabel}</span><code>{duration}</code></div>
+            <div><span>当前轮次总 Token</span><code>{formatTokenCount(row.usage.totalTokens)}</code></div>
           </div>
           <div className="agent-detail-facts-grid">
             <div className="agent-detail-location"><span>执行位置</span><div><strong>{workspaceName}</strong><code>{row.canonicalWorkspaceRoot}</code></div></div>
@@ -118,21 +118,6 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
               {row.completedAt !== null && <div><span>结束时间</span><code>{timeWithSeconds(row.completedAt)}</code></div>}
             </div>
           </div>
-        </div>
-      </section>
-      <section className="agent-detail-section agent-usage-section">
-        <h2>Token 用量</h2>
-        <div className="agent-usage-card">
-          <div className="agent-usage-total"><span>Total Tokens</span><strong>{formatTokenCount(row.usage.totalTokens)}</strong><em data-completeness={row.usage.completeness}>{usageCompleteness}</em></div>
-          <div className="agent-usage-grid">
-            <div><span>Input</span><strong>{formatTokenCount(row.usage.inputTokens)}</strong></div>
-            <div><span>Cached Input</span><strong>{formatTokenCount(row.usage.cachedInputTokens)}</strong></div>
-            <div><span>Cache Write</span><strong>{formatTokenCount(row.usage.cacheWriteInputTokens)}</strong></div>
-            <div><span>Output</span><strong>{formatTokenCount(row.usage.outputTokens)}</strong></div>
-            <div><span>Reasoning</span><strong>{formatTokenCount(row.usage.reasoningTokens)}</strong></div>
-            <div><span>Context Window</span><strong>{formatTokenCount(row.usage.modelContextWindow)}</strong></div>
-          </div>
-          {row.usage.updatedAt !== null && <small>统计更新于 {timeWithSeconds(row.usage.updatedAt)}</small>}
         </div>
       </section>
       {(row.attention !== "none" || ["failed", "reconciling", "interrupted"].includes(row.status) || row.interruptTimedOut || row.errorCode || row.errorMessage) && <section className="agent-detail-section agent-recovery-section">

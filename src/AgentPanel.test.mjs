@@ -497,20 +497,22 @@ test('workspace display name stays consistent between history and details', asyn
   assert.equal(location.querySelector('code').textContent, 'E:\\named-folder');
 });
 
-test('running detail shares blue pulse and keeps execution location left aligned', async () => {
+test('running detail keeps its blue pulse and left-aligned location', async () => {
   await mount([row({canonicalWorkspaceRoot:'E:\\named-folder', status:'running', attention:'none', progress:{phase:'running'}})], undefined, {workspaces:[{id:'project-4',name:'实际工作区名',root:'E:\\named-folder'}]});
   await click('详情');
   for (const selector of ['.agent-detail-title .agent-status', '.agent-detail-live-grid .agent-status']) {
     const status = document.querySelector(selector);
     assert.equal(status.textContent, '执行中');
-    assert.ok(status.classList.contains('tone-blue'));
     assert.ok(status.querySelector('i.agent-task-pulse[aria-hidden="true"]'));
   }
+  assert.ok(document.querySelector('.agent-detail-title .agent-status').classList.contains('tone-blue'));
+  assert.ok(document.querySelector('.agent-detail-live-grid .agent-status').classList.contains('tone-blue'));
   const location = document.querySelector('.agent-detail-location');
   assert.equal(location.querySelector('strong').textContent, '实际工作区名');
   assert.equal(location.querySelector('code').textContent, 'E:\\named-folder');
   const styles = readFileSync('src/styles.css', 'utf8');
   assert.match(styles, /\.agent-detail-live-grid \.agent-status\.tone-blue \{ color: var\(--agent-blue\); \}/);
+  assert.match(styles, /\.agent-detail-live-grid \.agent-status\.tone-green \{ color: var\(--signal-green\); \}/);
   assert.match(styles, /\.agent-detail-location \{[^}]*justify-content: flex-start;/);
   assert.match(styles, /\.agent-detail-location > div \{[^}]*justify-content: flex-start;/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\s*\.agent-page[^}]*\.agent-task-pulse \{ animation: none; \}/);
@@ -533,9 +535,11 @@ test('Agent detail presents only real execution fields and gates header actions 
     const page = document.querySelector('.agent-page');
     assert.ok(page.classList.contains('agent-detail-view')); assert.equal(page.classList.contains('agent-list-view'), false);
     assert.match(document.querySelector('.agent-detail-header').textContent, /真实线程标题.*执行中.*Provider A · v2\.0/);
-    assert.match(document.querySelector('.agent-detail-info-card').textContent, /Provider.*Provider A · v2\.0.*legacy-session.*当前活动正在测试.*最近活动暂无活动数据.*活跃状态暂无活动数据.*执行位置.*E:\\frozen-A/);
-    assert.match(document.querySelector('.agent-usage-section').textContent, /Token 用量.*Total Tokens.*12,531.*统计不完整.*Input.*1.*Context Window.*—.*统计更新于/);
-    assert.doesNotMatch(document.querySelector('.agent-usage-section').textContent, /15/);
+    const infoCard = document.querySelector('.agent-detail-info-card');
+    assert.match(infoCard.textContent, /执行状态.*执行中.*Provider.*Provider A · v2\.0.*当前活动正在测试.*最近活动暂无活动数据.*活跃状态暂无活动数据.*当前轮次总 Token.*12,531.*执行位置.*E:\\frozen-A/);
+    assert.ok(infoCard.querySelector('.agent-status.tone-blue'));
+    assert.doesNotMatch(infoCard.textContent, /legacy-session/);
+    assert.equal(document.querySelector('.agent-usage-section'), null);
     assert.match(document.querySelector('.agent-recovery-section').textContent, /AGENT_REAL_ERROR.*后端实际错误/);
     assert.doesNotMatch(document.querySelector('.agent-detail').textContent, /PID|CPU|RAM|Git branch/);
     await click('复制内容'); assert.equal(copiedText, execution.prompt);
@@ -556,8 +560,9 @@ test('historical detail safely falls back to Provider ID and unknown usage proje
   await mount([historical]); await click('详情');
   const detail = document.querySelector('.agent-detail');
   assert.match(detail.querySelector('.agent-detail-header').textContent, /引擎: legacy-provider/);
+  assert.match(detail.querySelector('.agent-detail-info-card').textContent, /当前轮次总 Token.*—/);
   assert.doesNotMatch(detail.querySelector('.agent-detail-info-card').textContent, /legacy-session/);
-  assert.match(detail.querySelector('.agent-usage-section').textContent, /Total Tokens.*—.*未知/);
+  assert.equal(detail.querySelector('.agent-usage-section'), null);
 });
 
 test('Agent detail copies only a real result and continues with the original execution ID', async () => {
@@ -567,6 +572,7 @@ test('Agent detail copies only a real result and continues with the original exe
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copiedText = text; } } });
   try {
     const calls = await mount([execution]); await click('详情');
+    assert.ok(document.querySelector('.agent-detail-info-card .agent-status.tone-green'));
     const resultSection = document.querySelector('.agent-result-section');
     const continuationSection = document.querySelector('.agent-continuation-section');
     assert.match(resultSection.textContent, /已完成 · 耗时/);
@@ -723,6 +729,40 @@ test('project navigation groups tasks and opens a non-modal right content pane',
   assert.equal(calls.some(c=>['start','continue','cancel','resume_pending'].includes(c.action)),false);
 });
 
+test('workspace menu exposes icon actions that rename or remove only the selected workspace', async () => {
+  const host = navigationHost(); const project = workspace('A');
+  const renamed = []; const removed = [];
+  await mount([], undefined, {
+    workspaces: [project],
+    sidebarContainer: host,
+    onWorkspaceRename: async (...args) => { renamed.push(args); return true; },
+    onWorkspaceRemove: async id => { removed.push(id); return true; },
+  });
+  assert.equal(host.querySelector('.project-task-navigation h2').textContent, '工作区');
+  assert.match(readFileSync('src/styles.css', 'utf8'), /\.project-task-navigation h2 \{ position: sticky;/);
+  const trigger = host.querySelector(`[aria-label="打开工作区菜单：${project.name}"]`);
+  await act(async () => trigger.click());
+  const menu = host.querySelector('[role="menu"]');
+  assert.match(menu.textContent, /编辑.*删除/);
+  assert.ok(menu.querySelector('svg.lucide-pencil'));
+  assert.ok(menu.querySelector('svg.lucide-trash-2'));
+  await click('编辑', host);
+  const editDialog = document.querySelector('[role="dialog"]');
+  const input = editDialog.querySelector('[aria-label="工作区名称"]');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input, '重命名工作区');
+    input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  });
+  await click('保存', editDialog);
+  assert.deepEqual(renamed, [[project.id, '重命名工作区']]);
+  await act(async () => trigger.click());
+  await click('删除', host);
+  const removeDialog = document.querySelector('[role="dialog"]');
+  assert.match(removeDialog.textContent, /不会删除本地目录/);
+  await click('删除', removeDialog);
+  assert.deepEqual(removed, [project.id]);
+});
+
 test('task detail view follows host navigation and has no in-page return', async () => {
   const host = navigationHost(); const project = workspace('A');
   let shownTask = 0; let shownAgent = 0;
@@ -744,7 +784,7 @@ test('task detail view follows host navigation and has no in-page return', async
   assert.equal(shownAgent, 0);
 });
 
-test('sidebar dates use local calendar boundaries instead of elapsed 24 hours', async () => {
+test('sidebar dates use local calendar boundaries and display today as local time', async () => {
   const originalNow = Date.now;
   Date.now = () => new Date(2026, 0, 1, 0, 5).getTime();
   try {
@@ -754,7 +794,7 @@ test('sidebar dates use local calendar boundaries instead of elapsed 24 hours', 
       row({ executionId: 'yesterday', canonicalWorkspaceRoot: project.root, updatedAt: new Date(2025, 11, 31, 23, 59).getTime() }),
       row({ executionId: 'older', canonicalWorkspaceRoot: project.root, updatedAt: new Date(2025, 11, 30, 23, 59).getTime() }),
     ], undefined, { workspaces: [project], sidebarContainer: host });
-    assert.deepEqual([...host.querySelectorAll('time')].map(item => item.textContent), ['今天', '昨天', '2天前']);
+    assert.deepEqual([...host.querySelectorAll('time')].map(item => item.textContent), ['00:01', '昨天', '2天前']);
   } finally { Date.now = originalNow; }
 });
 
@@ -778,7 +818,7 @@ test('task focus shows basic information; only delete is offered and deletion st
   assert.equal(calls.some(c=>['cancel','resume_pending'].includes(c.action)),false);
 });
 
-test('sidebar Provider and Token usage stay on Summary DTO without detail requests', async () => {
+test('sidebar tasks retain only titles and compact times while hover keeps Summary DTO facts', async () => {
   const host = navigationHost(); const project = workspace('A');
   const tasks = [
     row({ executionId: 'complete', canonicalWorkspaceRoot: project.root, prompt: '完整统计', status: 'completed', attention: 'none', usage: { totalTokens: 12531, completeness: 'complete' } }),
@@ -794,12 +834,9 @@ test('sidebar Provider and Token usage stay on Summary DTO without detail reques
   api.agentHistory = async (...args) => { listQueries++; return originalHistory(...args); };
   const group = host.querySelector('.project-task-group');
   const visible = [...group.querySelectorAll('.project-task')];
-  assert.match(visible[0].textContent, /已完成 · Codex/);
-  assert.match(visible[0].textContent, /总 Token：12,531/);
-  assert.match(visible[1].textContent, /12,531 · 统计不完整/);
-  assert.match(visible[2].textContent, /总 Token：—/);
-  assert.match(visible[3].textContent, /总 Token：0/);
-  assert.match(visible[4].textContent, /总 Token：—/);
+  for (const item of visible) {
+    assert.equal(item.querySelectorAll('.project-task-summary, .project-task-usage').length, 0);
+  }
   await act(async () => visible[0].querySelector('.project-task-link').focus());
   assert.match(document.querySelector('.project-task-preview').textContent, /完整统计/);
   assert.match(document.querySelector('.project-task-preview').textContent, /Codex/);
@@ -815,7 +852,6 @@ test('sidebar Provider and Token usage stay on Summary DTO without detail reques
   await click('查看更多', group);
   assert.equal(listQueries, 1);
   const custom = group.querySelectorAll('.project-task')[5];
-  assert.match(custom.textContent, /custom-agent/);
   await act(async () => custom.querySelector('.project-task-link').focus());
   assert.match(document.querySelector('.project-task-preview').textContent, /custom-agent/);
   assert.equal(listQueries, 1);
@@ -837,19 +873,19 @@ test('Phase 5 gate keeps Provider, Activity and Usage truthful across list, hove
   const historical = row({ executionId: 'p5-historical', canonicalWorkspaceRoot: project.root, prompt: '历史任务', provider: { id: 'legacy-provider', displayName: '', version: null }, usage: { totalTokens: null, completeness: 'unknown' } });
   const calls = await mount([complete, partial, unknown, historical], undefined, { workspaces: [project], sidebarContainer: host });
   const tasks = [...host.querySelectorAll('.project-task')];
-  assert.match(tasks[0].textContent, /Acme Worker · v2\.4\.1.*总 Token：0/);
-  assert.match(tasks[1].textContent, /12,531 · 统计不完整/);
-  assert.match(tasks[2].textContent, /总 Token：—/);
-  assert.match(tasks[3].textContent, /legacy-provider.*总 Token：—/);
+  for (const task of tasks) {
+    assert.equal(task.querySelectorAll('.project-task-summary, .project-task-usage').length, 0);
+  }
   await act(async () => tasks[0].querySelector('.project-task-link').focus());
   assert.match(document.querySelector('.project-task-preview').textContent, /Acme Worker · v2\.4\.1.*总 Token：0/);
   assert.equal(calls.every(call => call.action === 'list'), true);
 
   await click('详情');
   const detail = document.querySelector('.agent-detail');
-  assert.match(detail.querySelector('.agent-detail-info-card').textContent, /Provider.*Acme Worker · v2\.4\.1.*续接会话 · S-42.*当前活动正在整理结果.*活跃状态一段时间没有新活动/);
-  assert.match(detail.querySelector('.agent-usage-section').textContent, /Total Tokens.*0.*完整.*Context Window.*128,000/);
-  assert.doesNotMatch(detail.querySelector('.agent-usage-section').textContent, /118/);
+  assert.match(detail.querySelector('.agent-detail-info-card').textContent, /Provider.*Acme Worker · v2\.4\.1.*当前活动正在整理结果.*活跃状态一段时间没有新活动.*当前轮次总 Token.*0/);
+  assert.doesNotMatch(detail.querySelector('.agent-detail-info-card').textContent, /续接会话 · S-42/);
+  assert.ok(detail.querySelector('.agent-detail-info-card .agent-status.tone-blue'));
+  assert.equal(detail.querySelector('.agent-usage-section'), null);
   assert.match(detail.querySelector('.agent-continuation-footer').textContent, /Acme Worker · v2\.4\.1/);
   assert.doesNotMatch(detail.textContent, /PRIVATE_REASONING|stdout|source code/iu);
   assert.equal(calls.filter(call => call.action === 'observe').length, 1);
@@ -954,7 +990,7 @@ test('sidebar load-more button follows the real pending request and recovers to 
   assert.equal(more.dataset.state, 'idle');
   const styles = readFileSync('src/styles.css', 'utf8');
   assert.match(styles, /\.project-task-more\[data-state="loading"\] \.project-task-more-icon-loading \{ animation: agent-control-spin/);
-  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\r?\n  \.project-task, \.project-task-heading, \.project-task-more-icon-slot svg \{ transition: none; \}\r?\n  \.project-task-more\[data-state="loading"\] \.project-task-more-icon-loading, \.project-task-more-label \{ animation: none; \}\r?\n\}/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\r?\n  \.project-task, \.project-task-header, \.project-task-more-icon-slot svg \{ transition: none; \}\r?\n  \.project-task-more\[data-state="loading"\] \.project-task-more-icon-loading, \.project-task-more-label \{ animation: none; \}\r?\n\}/);
 });
 
 test('sidebar load-more keeps pagination retry separate from its background refresh', async () => {
@@ -1034,6 +1070,8 @@ test('task and final result render GFM while technical data stays original', asy
     assert.match(block.querySelector('pre code').textContent,/const value = 1/);
     assert.equal(block.querySelector('a').target,'_blank');
   }
+  const styles = readFileSync('src/styles.css', 'utf8');
+  assert.match(styles, /\.agent-markdown-table \{[^}]*inline-size: 100%;[^}]*overflow-x: auto;[^}]*overflow-y: hidden;/);
   assert.equal(JSON.parse(document.querySelector('[aria-label="原始执行数据"]').textContent).prompt,markdown);
 });
 

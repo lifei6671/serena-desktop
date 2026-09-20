@@ -69,7 +69,6 @@ function App() {
           <img className="brand-mark" src={appLogo} alt="" />
           <span>Serena<small>Desktop</small></span>
         </div>
-        <p className="sidebar-section-label">NAVIGATION</p>
         <nav aria-label="主导航">
           <Button
             variant={tab === "console" ? "secondary" : "ghost"}
@@ -144,7 +143,7 @@ function App() {
           <SettingsPage {...controller} state={state} />
         )}
         </Suspense>
-        <div hidden={tab !== "agent" && tab !== "task"}><AgentPanel detailView={tab === "task"} sidebarContainer={projectNavigation} onShowTask={() => setTab("task")} onShowAgent={() => setTab("agent")} workspace={state.desktopSelectedWorkspace} workspaces={state.config.workspaces} onSelectWorkspace={() => setTab("console")} /></div>
+        <div hidden={tab !== "agent" && tab !== "task"}><AgentPanel detailView={tab === "task"} sidebarContainer={projectNavigation} onShowTask={() => setTab("task")} onShowAgent={() => setTab("agent")} workspace={state.desktopSelectedWorkspace} workspaces={state.config.workspaces} onSelectWorkspace={() => setTab("console")} onWorkspaceRename={(id, name) => brokerController.perform("重命名工作区", () => api.workspaceRename(id, name), "工作区名称已更新。")} onWorkspaceRemove={(id) => brokerController.perform("删除工作区", () => api.workspaceRemove(id), "工作区已删除。")} /></div>
         <RemoteApprovalDialog controller={remote} />
       </main>
 

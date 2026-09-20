@@ -5,24 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { TooltipHint } from "@/components/TooltipHint";
 import { api } from "../../api";
-import type { AppState, BrokerState, ServerStatus } from "../../types";
+import type { AppState } from "../../types";
 import type { AppController } from "../../app/useAppController";
 
 type ComponentStatus = { label: string; tone: "healthy" | "pending" | "warning" | "error" | "inactive" };
-const statusCopy: Record<ServerStatus, ComponentStatus & { detail: string }> = {
-  stopped: { label: "已停止", detail: "Serena 内部端口未监听", tone: "inactive" },
-  starting: { label: "启动中", detail: "正在等待本机端口响应", tone: "pending" },
-  running: { label: "运行中", detail: "Serena 本机链路可用", tone: "healthy" },
-  error: { label: "异常", detail: "Serena 未能保持运行", tone: "error" },
-};
-const codegraphCopy: Record<NonNullable<BrokerState["codegraph"]>["status"], ComponentStatus> = {
-  ready: { label: "已就绪", tone: "healthy" },
-  starting: { label: "启动中", tone: "pending" },
-  not_initialized: { label: "未初始化", tone: "warning" },
-  unavailable: { label: "不可用", tone: "error" },
-  start_failed: { label: "启动失败", tone: "error" },
-  runtime_lost: { label: "连接丢失", tone: "error" },
-};
 
 function StatusActionButton({ children, ...props }: Omit<ComponentProps<typeof Button>, "children"> & { children: string }) {
   return <Button {...props} className="status-action-button" aria-label={children}>
@@ -62,47 +48,43 @@ function EnvironmentValue({ name, value, copyable }: { name: string; value: stri
 }
 
 export default function StatusPage({ state, busy, codexLoading, codexVersion, codexError, brokerController, run, detectCodex, runSideEffect }: { state: AppState } & Pick<AppController, "busy" | "codexLoading" | "codexVersion" | "codexError" | "brokerController" | "run" | "detectCodex" | "runSideEffect">) {
-  const status = statusCopy[state.serverStatus];
-  const isRunning = state.serverStatus === "running" || state.serverStatus === "starting" || state.managedProcessPresent;
   const installation = state.activeInstallation;
-  const isInstalled = installation?.state === "standard";
-  const canStart = state.installation?.state === "standard" && state.git.available;
-  const installationLabel = installation
-    ? ({ missing: "未安装", standard: "官方 Serena", invalid: "安装不兼容或已损坏" } as const)[installation.state]
-    : "检测中";
-  const runtimeStatus = isRunning || isInstalled ? status : {
-    label: installationLabel,
-    tone: installation?.state === "invalid" ? "error" : installation ? "inactive" : "pending",
-  };
-  const runtimeDetail = isRunning || isInstalled ? status.detail
-    : installation?.error || (installation ? installationLabel : "正在检测官方 Serena。");
+  const serenaStatus: ComponentStatus = installation?.state === "standard"
+    ? { label: "已发现", tone: "healthy" }
+    : installation?.state === "invalid"
+      ? { label: "安装异常", tone: "error" }
+      : installation
+        ? { label: "未检测到", tone: "inactive" }
+        : { label: "检测中", tone: "pending" };
+  const gitStatus: ComponentStatus = state.git.available
+    ? { label: "已发现", tone: "healthy" }
+    : state.git.status === "error"
+      ? { label: "检测失败", tone: "error" }
+      : { label: "未检测到", tone: "inactive" };
   const broker = brokerController.broker;
   const brokerEndpoint = broker?.running ? `http://127.0.0.1:${broker.port}/mcp` : null;
   const brokerStatus: ComponentStatus = broker
     ? { label: broker.running ? "运行中" : "已停止", tone: broker.running ? "healthy" : "inactive" }
     : { label: "状态不可用", tone: "inactive" };
-  const workspace = broker?.activeWorkspace;
   const codexStatus: ComponentStatus = codexLoading ? { label: "检测中", tone: "pending" }
     : codexError ? { label: "不可用", tone: "error" }
     : codexVersion ? { label: "CLI 可用", tone: "healthy" } : { label: "未检测到", tone: "inactive" };
-  const codegraphStatus: ComponentStatus = broker?.codegraph ? codegraphCopy[broker.codegraph.status]
-    : { label: state.codegraphVersion ? (workspace ? "已安装" : "待激活") : "未检测到", tone: "inactive" };
-  const codegraphDetail = broker?.codegraph
-    ? `${workspace?.name ?? "工作区"} · ${codegraphStatus.label}`
-    : workspace ? "工作区运行状态不可用" : "未激活工作区";
+  const codegraphStatus: ComponentStatus = state.codegraphVersion
+    ? { label: "已发现", tone: "healthy" }
+    : { label: "未检测到", tone: "inactive" };
   const components = [
-    { name: "Serena Runtime", icon: Server, ...runtimeStatus, value: installation?.version || "版本未检测到", detail: `内部端口 ${state.activePort} · ${installation?.context ?? runtimeDetail}` },
+    { name: "Serena", icon: Server, ...serenaStatus, value: installation?.version || "版本未检测到", detail: installation?.path || installation?.error || "仅检测本机安装，不管理启动状态" },
     { name: "MCP Broker", icon: Network, ...brokerStatus, value: broker ? `HTTP · ${broker.port}` : "端口不可用", detail: brokerEndpoint ?? brokerStatus.label },
     { name: "Codex CLI", icon: SquareTerminal, ...codexStatus, value: codexLoading ? "正在检测…" : codexVersion || "版本未检测到", detail: codexLoading ? "正在检测本地 CLI" : codexError || "本地 CLI 可用性" },
-    { name: "CodeGraph", icon: GitBranch, ...codegraphStatus, value: state.codegraphVersion ?? "版本未检测到", detail: codegraphDetail },
+    { name: "CodeGraph CLI", icon: GitBranch, ...codegraphStatus, value: state.codegraphVersion ?? "版本未检测到", detail: "仅检测本机命令，不初始化或启动工作区能力" },
+    { name: "Git CLI", icon: GitBranch, ...gitStatus, value: state.git.version || "版本未检测到", detail: state.git.path || state.git.error || "仅检测本机命令" },
   ];
   const environment = [
-    { name: "Serena", value: installation?.version || installationLabel, detail: installation?.path || installation?.error || "尚未发现可执行文件", copyable: !!installation?.path },
+    { name: "Serena", value: installation?.version || serenaStatus.label, detail: installation?.path || installation?.error || "尚未发现可执行文件", copyable: !!installation?.path },
     { name: "MCP Broker", value: broker ? `HTTP · ${broker.port}` : "端口不可用", detail: brokerEndpoint ?? brokerStatus.label, copyable: !!brokerEndpoint },
     { name: "Codex", value: codexLoading ? "正在检测…" : codexVersion || codexStatus.label, detail: codexLoading ? "正在检测本地 CLI" : codexError || "本地 CLI 可用性", error: !codexLoading && !!codexError },
-    { name: "CodeGraph", value: state.codegraphVersion ?? "版本未检测到", detail: codegraphDetail, error: codegraphStatus.tone === "error" },
-    { name: "Git", value: state.git.version || (state.git.status === "error" ? "检测失败" : "未检测到"), detail: state.git.path || state.git.error || (state.git.available ? "可用" : "必需依赖未就绪"), error: !state.git.available, copyable: !!state.git.path },
-    { name: "Dashboard", value: state.dashboardEnabled ? "已启用" : "已关闭", detail: state.dashboardEnabled ? state.dashboardUrl : "已关闭", copyable: state.dashboardEnabled && !!state.dashboardUrl },
+    { name: "CodeGraph", value: state.codegraphVersion ?? codegraphStatus.label, detail: "本机命令检测结果", copyable: false },
+    { name: "Git", value: state.git.version || gitStatus.label, detail: state.git.path || state.git.error || "尚未发现 Git 命令", error: gitStatus.tone === "error", copyable: !!state.git.path },
   ];
   const redetect = () => run("detect", async () => {
     const [next] = await Promise.all([api.detect(), detectCodex(true)]);
@@ -112,7 +94,7 @@ export default function StatusPage({ state, busy, codexLoading, codexVersion, co
   return (
     <section className="serena-page status-page">
       <div className="page-heading">
-        <div><h1>状态</h1><p>确认本机服务链路、运行组件与开发环境状态。</p></div>
+        <div><h1>状态</h1><p>查看本机命令和服务是否已发现；项目请求会单独携带工作区。</p></div>
         <Button variant="outline" disabled={busy !== null || codexLoading} onClick={redetect} aria-busy={busy === "detect"}>
           {busy === "detect" ? <Spinner aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
           重新检测
@@ -122,23 +104,21 @@ export default function StatusPage({ state, busy, codexLoading, codexVersion, co
       <section className="status-overview" aria-label="当前状态">
         <div className="status-overview-state">
           <span className="status-section-label">当前状态</span>
-          <strong className="status-component-state" data-tone={runtimeStatus.tone}><i aria-hidden="true" />{runtimeStatus.label}</strong>
-          <TooltipHint content={runtimeDetail}><span className="status-truncate" tabIndex={0}>{runtimeDetail}</span></TooltipHint>
+          <strong className="status-component-state" data-tone={brokerStatus.tone}><i aria-hidden="true" />{brokerStatus.label}</strong>
+          <TooltipHint content={brokerEndpoint ?? brokerStatus.label}><span className="status-truncate" tabIndex={0}>{brokerEndpoint ?? brokerStatus.label}</span></TooltipHint>
         </div>
         <dl className="status-overview-facts">
           {[
-            { label: "Serena Endpoint", value: state.endpoint },
             { label: "MCP Broker", value: brokerEndpoint ?? brokerStatus.label },
-            { label: "当前工作区", value: workspace?.name ?? "未激活" },
           ].map(item => <div key={item.label}>
             <dt>{item.label}</dt>
-            <dd><TooltipHint content={item.value}><span className={item.label === "当前工作区" ? "status-truncate" : "status-truncate mono"} tabIndex={0}>{item.value}</span></TooltipHint></dd>
+            <dd><TooltipHint content={item.value}><span className="status-truncate mono" tabIndex={0}>{item.value}</span></TooltipHint></dd>
           </div>)}
         </dl>
       </section>
 
       <section className="status-section" aria-labelledby="status-components-heading">
-        <h2 id="status-components-heading">运行组件</h2>
+        <h2 id="status-components-heading">本机命令与服务</h2>
         <div className="status-table-container">
           <table className="status-component-table">
             <colgroup><col /><col /><col /><col /></colgroup>
@@ -183,7 +163,6 @@ export default function StatusPage({ state, busy, codexLoading, codexVersion, co
                     打开 Git 下载页面 ↗
                   </StatusActionButton>
                 )}
-                {!state.git.available && (
                 <StatusActionButton
                   variant="ghost"
                   disabled={busy !== null}
@@ -191,51 +170,6 @@ export default function StatusPage({ state, busy, codexLoading, codexVersion, co
                   aria-busy={busy === "git"}
                 >
                   重新检测 Git
-                </StatusActionButton>
-                )}
-                {state.managedRuntimePresent && isInstalled && (
-                  <StatusActionButton
-                    variant="ghost"
-                    disabled={
-                      busy !== null || isRunning || !state.git.available
-                    }
-                    onClick={() =>
-                      run(
-                        "repair",
-                        api.repair,
-                        "Managed 官方 Serena 修复完成。",
-                      )
-                    }
-                    aria-busy={busy === "repair"}
-                  >
-                    修复 Managed Serena
-                  </StatusActionButton>
-                )}
-                {!isInstalled && (
-                  <StatusActionButton
-                    variant="ghost"
-                    disabled={busy !== null}
-                    onClick={() =>
-                      runSideEffect("open-uv", () => api.openExternal("uv"))
-                    }
-                    aria-busy={busy === "open-uv"}
-                  >
-                    uv 安装说明 ↗
-                  </StatusActionButton>
-                )}
-                <StatusActionButton
-                  variant="ghost"
-                  disabled={
-                    !state.dashboardEnabled ||
-                    state.serverStatus !== "running" ||
-                    busy !== null
-                  }
-                  onClick={() =>
-                    runSideEffect("open-dashboard", api.openDashboard)
-                  }
-                  aria-busy={busy === "open-dashboard"}
-                >
-                  打开 Dashboard
                 </StatusActionButton>
                 <StatusActionButton
                   variant="ghost"
@@ -245,18 +179,6 @@ export default function StatusPage({ state, busy, codexLoading, codexVersion, co
                 >
                   打开日志目录
                 </StatusActionButton>
-                {!isInstalled && (
-                  <StatusActionButton
-                    variant="ghost"
-                    disabled={busy !== null}
-                    onClick={() =>
-                      runSideEffect("open-docs", () => api.openExternal("docs"))
-                    }
-                    aria-busy={busy === "open-docs"}
-                  >
-                    官方安装说明 ↗
-                  </StatusActionButton>
-                )}
                   <StatusActionButton
                     variant="ghost"
                     disabled={busy !== null}
@@ -275,45 +197,6 @@ export default function StatusPage({ state, busy, codexLoading, codexVersion, co
                 <StatusActionButton variant="ghost" disabled={busy !== null} aria-busy={busy === "open-codegraph"} onClick={() => runSideEffect("open-codegraph", () => api.openExternal("codegraph"))}>
                   CodeGraph GitHub ↗
                 </StatusActionButton>
-          </div>
-          <div className="status-lifecycle-action">
-                  {isInstalled || isRunning ? (
-                    <>
-                      {!isRunning ? (
-                        <StatusActionButton
-                          variant="default"
-                          disabled={busy !== null || !canStart}
-                          onClick={() =>
-                            run("start", api.start, "Serena 已启动。")
-                          }
-                          aria-busy={busy === "start"}
-                        >
-                          启动 Serena
-                        </StatusActionButton>
-                      ) : null}
-                    </>
-                  ) : (
-                    <StatusActionButton
-                      variant="default"
-                      disabled={busy !== null || !state.git.available}
-                      onClick={() =>
-                        run(
-                          "install",
-                          state.managedRuntimePresent
-                            ? api.repair
-                            : api.install,
-                          state.config.serenaPath
-                            ? "Managed 官方 Serena 已就绪；请在设置中清空外部路径以使用它。"
-                            : "官方 Serena 已就绪。",
-                        )
-                      }
-                      aria-busy={busy === "install"}
-                    >
-                      {state.managedRuntimePresent
-                          ? "修复 官方 Serena"
-                          : "安装 官方 Serena"}
-                    </StatusActionButton>
-                  )}
           </div>
         </div>
       </section>

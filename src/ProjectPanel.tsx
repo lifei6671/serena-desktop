@@ -27,9 +27,8 @@ import { Check, ChevronDownIcon, Folder, RefreshCw } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
-import type { AppState, WorkspaceCapabilityActivity, WorkspaceCapabilityHealth } from "./types";
+import type { AppState } from "./types";
 import type { useBroker } from "./useBroker";
 
 function displayProjectPath(path: string): string {
@@ -40,45 +39,6 @@ function displayProjectPath(path: string): string {
 const SYNC_MIN_PENDING_MS = 600;
 const COPY_MIN_PENDING_MS = 500;
 const SUCCESS_FEEDBACK_MS = 1500;
-
-/** 将安全枚举投影为紧凑本地标签，不依赖 Provider identity。 */
-function capabilityLabel(value: string): string {
-  return ({
-    installed: "已安装",
-    not_installed: "未安装",
-    check_failed: "检测失败",
-    not_prepared: "未准备",
-    preparing: "准备中",
-    ready: "就绪",
-    degraded: "需更新",
-    error: "异常",
-    unknown: "未知",
-    unavailable: "不可用",
-    stopped: "已停止",
-    starting: "启动中",
-    stopping: "停止中",
-    absent: "未建立",
-    pending: "等待中",
-    running: "执行中",
-    stale: "已过期",
-  } as Record<string, string>)[value] ?? value;
-}
-
-/** 为任意 DTO 状态选择通用 Badge 色调，不检查 Provider ID。 */
-function capabilityBadgeVariant(value: string): "success" | "warning" | "destructive" | "secondary" {
-  if (["ready", "installed"].includes(value)) return "success";
-  if (["error", "unavailable", "not_installed", "check_failed"].includes(value)) return "destructive";
-  if (["starting", "stopping", "preparing", "running", "pending", "stale", "degraded"].includes(value)) return "warning";
-  return "secondary";
-}
-
-type CapabilityActionFeedback = {
-  workspaceId: string;
-  providerId: string;
-  actionId: string;
-  phase: "pending" | "success" | "error" | "cancelled";
-  operationId: string | null;
-};
 
 export function ProjectPanel({
   state,
@@ -115,22 +75,13 @@ export function ProjectPanel({
   const [removeConfirmation, setRemoveConfirmation] = useState<{ id: string; name: string; root: string } | null>(null);
   const [removingWorkspaceId, setRemovingWorkspaceId] = useState<string | null>(null);
   const [reorderingWorkspaceId, setReorderingWorkspaceId] = useState<string | null>(null);
-  const [capabilityHealth, setCapabilityHealth] = useState<WorkspaceCapabilityHealth | null>(null);
-  const [capabilityHealthError, setCapabilityHealthError] = useState(false);
-  const [capabilityActivityReady, setCapabilityActivityReady] = useState(false);
-  const [capabilityActionFeedback, setCapabilityActionFeedback] = useState<CapabilityActionFeedback | null>(null);
-  const [capabilityActionInFlightWorkspaceId, setCapabilityActionInFlightWorkspaceId] = useState<string | null>(null);
   const feedbackTimers = useRef(new Set<ReturnType<typeof window.setTimeout>>());
   const mounted = useRef(true);
-  const selectedWorkspaceId = state.desktopSelectedWorkspace?.id ?? null;
-  const selectedWorkspaceIdRef = useRef<string | null>(selectedWorkspaceId);
-  const cancelledCapabilityOperationId = useRef<string | null>(null);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [helpOpen, setHelpOpen] = useState<boolean | undefined>(undefined);
   const project = state.config.workspaces.find((workspace) => workspace.id === selected);
   const selectedWorkspace = state.desktopSelectedWorkspace;
-  selectedWorkspaceIdRef.current = selectedWorkspaceId;
   const pending = !!busy || !!broker?.operation || selecting;
   const current = !!project && project.id === selectedWorkspace?.id;
   const endpoint = broker?.running
@@ -145,63 +96,6 @@ export function ProjectPanel({
       timers.clear();
     };
   }, []);
-  useEffect(() => {
-    let disposed = false;
-    let unlistenActivity: (() => void) | undefined;
-    setCapabilityHealth(null);
-    setCapabilityHealthError(false);
-    setCapabilityActivityReady(false);
-    setCapabilityActionFeedback(null);
-    setCapabilityActionInFlightWorkspaceId(null);
-    cancelledCapabilityOperationId.current = null;
-    if (!selectedWorkspaceId) return;
-
-    const observe = async () => {
-      try {
-        const health = await api.workspaceCapabilityObserve(selectedWorkspaceId);
-        if (!disposed && selectedWorkspaceIdRef.current === selectedWorkspaceId) {
-          setCapabilityHealth(health);
-        }
-      } catch {
-        if (!disposed && selectedWorkspaceIdRef.current === selectedWorkspaceId) {
-          setCapabilityHealthError(true);
-        }
-      }
-    };
-    const subscribe = async () => {
-      try {
-        unlistenActivity = await listen<WorkspaceCapabilityActivity>(
-          "workspace-capability-activity",
-          ({ payload }) => {
-            if (payload.workspaceId !== selectedWorkspaceId) return;
-            setCapabilityActionFeedback((currentFeedback) => {
-              if (
-                !currentFeedback
-                || currentFeedback.workspaceId !== payload.workspaceId
-                || currentFeedback.providerId !== payload.providerId
-                || currentFeedback.actionId !== payload.actionId
-              ) return currentFeedback;
-              return {
-                ...currentFeedback,
-                operationId: payload.operationId,
-                phase: payload.state === "failed" ? "error" : currentFeedback.phase,
-              };
-            });
-          },
-        );
-        if (disposed) unlistenActivity();
-        else setCapabilityActivityReady(true);
-      } catch {
-        // Activity 订阅失败不影响显式 Health 查询与动作调用。
-      }
-    };
-    void observe();
-    void subscribe();
-    return () => {
-      disposed = true;
-      unlistenActivity?.();
-    };
-  }, [selectedWorkspaceId]);
   const waitForFeedback = (duration: number) =>
     new Promise<void>((resolve) => {
       const timer = window.setTimeout(() => {
@@ -226,76 +120,6 @@ export function ProjectPanel({
       toast.error(String(reason));
     } finally {
       setCancelling(false);
-    }
-  };
-  const refreshCapabilityHealth = async (workspaceId: string) => {
-    try {
-      const health = await api.workspaceCapabilityObserve(workspaceId);
-      if (mounted.current && selectedWorkspaceIdRef.current === workspaceId) {
-        setCapabilityHealth(health);
-        setCapabilityHealthError(false);
-      }
-    } catch {
-      if (mounted.current && selectedWorkspaceIdRef.current === workspaceId) {
-        setCapabilityHealthError(true);
-      }
-    }
-  };
-  const prepareCapabilityAction = async (providerId: string, actionId: string) => {
-    if (!selectedWorkspaceId || capabilityActionInFlightWorkspaceId) return;
-    const workspaceId = selectedWorkspaceId;
-    cancelledCapabilityOperationId.current = null;
-    setCapabilityActionInFlightWorkspaceId(workspaceId);
-    setCapabilityActionFeedback({
-      workspaceId,
-      providerId,
-      actionId,
-      phase: "pending",
-      operationId: null,
-    });
-    try {
-      const result = await api.workspaceCapabilityPrepare(workspaceId, providerId, actionId);
-      if (mounted.current && selectedWorkspaceIdRef.current === workspaceId) {
-        setCapabilityActionFeedback({
-          workspaceId,
-          providerId,
-          actionId,
-          phase: "success",
-          operationId: result.operationId,
-        });
-      }
-    } catch {
-      if (mounted.current && selectedWorkspaceIdRef.current === workspaceId) {
-        setCapabilityActionFeedback((currentFeedback) => currentFeedback && {
-          ...currentFeedback,
-          phase: cancelledCapabilityOperationId.current !== null
-            && cancelledCapabilityOperationId.current === currentFeedback.operationId
-            ? "cancelled"
-            : "error",
-        });
-      }
-    } finally {
-      setCapabilityActionInFlightWorkspaceId((currentWorkspaceId) =>
-        currentWorkspaceId === workspaceId ? null : currentWorkspaceId,
-      );
-      await refreshCapabilityHealth(workspaceId);
-    }
-  };
-  const cancelCapabilityAction = async () => {
-    const operationId = capabilityActionFeedback?.operationId;
-    if (!operationId || capabilityActionFeedback.phase !== "pending") return;
-    try {
-      await api.workspaceCapabilityCancel(operationId);
-      cancelledCapabilityOperationId.current = operationId;
-      setCapabilityActionFeedback((currentFeedback) => currentFeedback && {
-        ...currentFeedback,
-        phase: "cancelled",
-      });
-    } catch {
-      setCapabilityActionFeedback((currentFeedback) => currentFeedback && {
-        ...currentFeedback,
-        phase: "error",
-      });
     }
   };
   const copyEndpoint = async (address: string) => {
@@ -462,34 +286,36 @@ export function ProjectPanel({
             <h1>开始使用</h1>
             <p>选择一个工作区，作为当前查看和新任务的默认项目。</p>
           </div>
-          <Button
-            variant="outline"
-            disabled={pickingDirectory || registering}
-            aria-busy={pickingDirectory}
-            onClick={() => void pickDirectory()}
-          >
-            {pickingDirectory && <Spinner data-icon="inline-start" aria-hidden="true" />}
-            {pickingDirectory ? "选择并检查目录中…" : "添加项目"}
-          </Button>
-          <Button
-            className="sync-project-button"
-            disabled={importVisualState !== "idle"}
-            aria-busy={importVisualState === "pending"}
-            onClick={() => void importSerena()}
-          >
-            {importVisualState === "pending" ? (
-              <Spinner data-icon="inline-start" aria-hidden="true" />
-            ) : importVisualState === "success" ? (
-              <Check data-icon="inline-start" aria-hidden="true" />
-            ) : (
-              <RefreshCw data-icon="inline-start" aria-hidden="true" />
-            )}
-            {importVisualState === "pending"
-              ? "导入中…"
-              : importVisualState === "success"
-                ? "已导入"
-                : "从 Serena 导入"}
-          </Button>
+          <div className="page-heading-actions">
+            <Button
+              className="sync-project-button"
+              variant="outline"
+              disabled={importVisualState !== "idle"}
+              aria-busy={importVisualState === "pending"}
+              onClick={() => void importSerena()}
+            >
+              {importVisualState === "pending" ? (
+                <Spinner data-icon="inline-start" aria-hidden="true" />
+              ) : importVisualState === "success" ? (
+                <Check data-icon="inline-start" aria-hidden="true" />
+              ) : (
+                <RefreshCw data-icon="inline-start" aria-hidden="true" />
+              )}
+              {importVisualState === "pending"
+                ? "导入中…"
+                : importVisualState === "success"
+                  ? "已导入"
+                  : "从 Serena 导入"}
+            </Button>
+            <Button
+              disabled={pickingDirectory || registering}
+              aria-busy={pickingDirectory}
+              onClick={() => void pickDirectory()}
+            >
+              {pickingDirectory && <Spinner data-icon="inline-start" aria-hidden="true" />}
+              {pickingDirectory ? "选择并检查目录中…" : "添加项目"}
+            </Button>
+          </div>
         </div>
         {candidate && (
           <section className="project-registration" aria-labelledby="register-project-title">
@@ -520,9 +346,8 @@ export function ProjectPanel({
             </div>
           </section>
         )}
-        <section className="home-section" aria-labelledby="workspace-title">
-          <h2 id="workspace-title">当前工作区</h2>
-          <div className="workspace-summary">
+        <section className="home-section workspace-overview" aria-labelledby="workspace-title">
+          <div className="workspace-summary workspace-overview-summary">
             <div className="workspace-identity">
               {selectedWorkspace ? (
                 <div className="workspace-active-identity">
@@ -531,7 +356,7 @@ export function ProjectPanel({
                   </span>
                   <div className="workspace-active-details">
                     <div className="workspace-name">
-                      <strong>{selectedWorkspace.name}</strong>
+                      <h2 id="workspace-title">项目能力 · {selectedWorkspace.name}</h2>
                       <Badge className="workspace-active-badge" variant="secondary">
                         已选择
                       </Badge>
@@ -544,9 +369,9 @@ export function ProjectPanel({
               ) : (
                 <>
                   <div className="workspace-name">
-                    <strong>尚未选择工作区</strong>
+                    <h2 id="workspace-title">项目能力</h2>
                   </div>
-                  <p>选择一个工作区后，新任务会默认使用它。</p>
+                  <p>尚未选择工作区。选择一个工作区后，新任务会默认使用它。</p>
                 </>
               )}
             </div>
@@ -588,93 +413,6 @@ export function ProjectPanel({
             </div>
           )}
         </section>
-        {selectedWorkspace && (
-          <section className="home-section" aria-labelledby="capability-health-title">
-            <div className="section-heading">
-              <h2 id="capability-health-title">能力状态</h2>
-              <Button
-                variant="link"
-                disabled={!selectedWorkspaceId}
-                onClick={() => selectedWorkspaceId && void refreshCapabilityHealth(selectedWorkspaceId)}
-              >
-                刷新 →
-              </Button>
-            </div>
-            {capabilityHealthError ? (
-              <p className="helper" role="status">暂时无法读取能力状态，请稍后刷新。</p>
-            ) : !capabilityHealth ? (
-              <p className="helper" role="status">正在读取能力状态…</p>
-            ) : (
-              <div className="service-list" data-capability-workspace={capabilityHealth.workspaceId}>
-                {Object.entries(capabilityHealth.providers).map(([providerId, provider]) => {
-                  const feedback = capabilityActionFeedback?.workspaceId === capabilityHealth.workspaceId
-                    && capabilityActionFeedback.providerId === providerId
-                    ? capabilityActionFeedback
-                    : null;
-                  return (
-                    <div className="service-row" key={providerId} data-capability-provider={providerId}>
-                      <div>
-                        <h3>{provider.displayName}</h3>
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          <Badge variant={capabilityBadgeVariant(provider.installation)}>
-                            安装：{capabilityLabel(provider.installation)}
-                          </Badge>
-                          <Badge variant={capabilityBadgeVariant(provider.status)}>
-                            可用性：{capabilityLabel(provider.status)}
-                          </Badge>
-                          <Badge variant={capabilityBadgeVariant(provider.readiness)}>
-                            准备：{capabilityLabel(provider.readiness)}
-                          </Badge>
-                          <Badge variant={capabilityBadgeVariant(provider.runtimeState)}>
-                            运行：{capabilityLabel(provider.runtimeState)}
-                          </Badge>
-                        </div>
-                        {provider.stages.map((stage) => (
-                          <p className="service-detail" key={stage.id}>
-                            {stage.displayName}：{capabilityLabel(stage.state)}
-                            （{capabilityLabel(stage.requirement)}）
-                          </p>
-                        ))}
-                        {feedback && (
-                          <p className="service-detail" role="status">
-                            {feedback.phase === "pending"
-                              ? "正在执行…"
-                              : feedback.phase === "success"
-                                ? "操作已完成"
-                                : feedback.phase === "cancelled"
-                                  ? "已请求取消"
-                                  : "操作未完成"}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {provider.actions.map((action) => (
-                          <Button
-                            key={action.id}
-                            variant="outline"
-                            disabled={!capabilityActivityReady || capabilityActionInFlightWorkspaceId !== null}
-                            aria-busy={feedback?.actionId === action.id && feedback.phase === "pending"}
-                            onClick={() => void prepareCapabilityAction(providerId, action.id)}
-                          >
-                            {feedback?.actionId === action.id && feedback.phase === "pending" && (
-                              <Spinner data-icon="inline-start" aria-hidden="true" />
-                            )}
-                            {action.displayName}
-                          </Button>
-                        ))}
-                        {feedback?.phase === "pending" && feedback.operationId && (
-                          <Button variant="ghost" onClick={() => void cancelCapabilityAction()}>
-                            取消
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        )}
         <section className="home-section project-help" aria-labelledby="project-sync-title">
           <Collapsible
             open={helpOpen ?? broker?.projects.length === 0}
@@ -689,7 +427,7 @@ export function ProjectPanel({
             <CollapsibleContent className="flex flex-col gap-3 pt-3">
               <p>
                 “添加项目”支持普通本地目录，不要求 Git，也不要求已有 .serena。
-                选择项目后，可在“能力状态”中按当前 Provider 提供的动作准备或更新项目。
+                新建请求会显式使用所选项目的工作区；本机命令与服务请在“服务状态”中查看。
               </p>
               <Collapsible>
                 <CollapsibleTrigger asChild>
@@ -712,37 +450,6 @@ export function ProjectPanel({
               </Collapsible>
             </CollapsibleContent>
           </Collapsible>
-        </section>
-        <section className="home-section" aria-labelledby="services-title">
-          <div className="section-heading">
-            <h2 id="services-title">本机服务</h2>
-          </div>
-          <div className="service-list">
-            <div className="service-row">
-              <h3>Git</h3>
-              <Badge variant={state.git.available ? "success" : "destructive"}>
-                {state.git.available
-                  ? "可用"
-                  : state.git.status === "error"
-                    ? "检测失败"
-                    : "不可用"}
-              </Badge>
-              <span className="service-detail">{state.git.version || "—"}</span>
-            </div>
-            <div className="service-row">
-              <h3>MCP 连接入口</h3>
-              <Badge
-                variant={
-                  !broker ? "warning" : broker.running ? "success" : "secondary"
-                }
-              >
-                {!broker ? "读取中" : broker.running ? "监听中" : "已停止"}
-              </Badge>
-              <span className="service-detail">
-                {broker?.running ? `:${broker.port}` : "—"}
-              </span>
-            </div>
-          </div>
         </section>
         <section
           className="home-section connection"

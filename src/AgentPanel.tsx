@@ -23,7 +23,7 @@ function StatusIcon({ tone }: { tone: string }) {
   return <Clock3 aria-hidden="true" />;
 }
 
-export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, sidebarContainer, onShowTask, onShowAgent, detailView = true }: { detailView?: boolean; sidebarContainer?: HTMLElement | null; onShowTask?: () => void; onShowAgent?: () => void; workspace: Workspace | null; workspaces?: Workspace[]; onSelectWorkspace?: () => void }) {
+export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, sidebarContainer, onShowTask, onShowAgent, onWorkspaceRename = async () => false, onWorkspaceRemove = async () => false, detailView = true }: { detailView?: boolean; sidebarContainer?: HTMLElement | null; onShowTask?: () => void; onShowAgent?: () => void; workspace: Workspace | null; workspaces?: Workspace[]; onSelectWorkspace?: () => void; onWorkspaceRename?: (id: string, name: string) => Promise<boolean>; onWorkspaceRemove?: (id: string) => Promise<boolean> }) {
   const [prompt, setPrompt] = useState("");
   const [rows, setRows] = useState<ExecutionView[]>([]);
   const visibleRows = useRef<ExecutionView[]>([]);
@@ -274,7 +274,7 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
     </div>;
 
   return <>
-    {sidebarContainer && createPortal(<ProjectTaskNavigation workspaces={workspaces} hiddenIds={hiddenIds} selectedId={detailView ? detail?.executionId : undefined} onDelete={requestDelete} onSelect={(row, trigger) => { opener.current = trigger; void openDetails(row.executionId, row); }} />, sidebarContainer)}
+    {sidebarContainer && createPortal(<ProjectTaskNavigation workspaces={workspaces} hiddenIds={hiddenIds} selectedId={detailView ? detail?.executionId : undefined} onDelete={requestDelete} onSelect={(row, trigger) => { opener.current = trigger; void openDetails(row.executionId, row); }} onWorkspaceRename={onWorkspaceRename} onWorkspaceRemove={onWorkspaceRemove} />, sidebarContainer)}
     <Dialog open={deleteRequest !== null} onOpenChange={open => { if (!open) setDeleteRequest(null); }}>
       <DialogContent showCloseButton={false} onCloseAutoFocus={event => { event.preventDefault(); if (deleteTrigger.current?.isConnected) deleteTrigger.current.focus(); }}>
         <DialogHeader><DialogTitle>从列表删除正在处理的任务？</DialogTitle>
