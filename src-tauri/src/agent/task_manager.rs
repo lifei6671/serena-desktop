@@ -29,6 +29,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+mod automatic_recovery;
 pub mod recovery;
 
 #[derive(Clone)]
@@ -39,10 +40,29 @@ pub struct AgentTaskManager {
     owner: String,
     pub(crate) runtime_pool: std::sync::Arc<super::codex::pool::CodexRuntimePool>,
     registry: Arc<Mutex<Option<Arc<ProviderRegistry>>>>,
+    auto_recovery: Arc<AutoRecoveryWorker>,
     #[cfg(test)]
     pub(crate) test_handoff: Option<std::sync::Arc<(tokio::sync::Notify, tokio::sync::Notify)>>,
     #[cfg(test)]
     pub(crate) test_client: Option<(std::sync::Arc<super::codex::app_server::Client>, PathBuf)>,
+}
+
+/// Host 唯一持有恢复消息接收端；Clone 的 Manager 仅共享同步投递端。
+struct AutoRecoveryWorker {
+    sender: tokio::sync::mpsc::UnboundedSender<String>,
+    receiver: Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<String>>>,
+    join: Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+
+impl Default for AutoRecoveryWorker {
+    fn default() -> Self {
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        Self {
+            sender,
+            receiver: Mutex::new(Some(receiver)),
+            join: Mutex::new(None),
+        }
+    }
 }
 
 enum AcceptanceState {
@@ -217,11 +237,64 @@ impl AgentTaskManager {
             owner: Self::id("host"),
             runtime_pool: Default::default(),
             registry: Default::default(),
+            auto_recovery: Default::default(),
             #[cfg(test)]
             test_handoff: None,
             #[cfg(test)]
             test_client: None,
         }
+    }
+
+    /// 在已存在 Tokio Runtime 的 Host 发布屏障后启动唯一恢复 worker。
+    pub(crate) fn start_auto_recovery_worker(&self) -> bool {
+        if self.runtime_pool.stop.is_cancelled() {
+            return false;
+        }
+        let receiver = self.auto_recovery.receiver.lock().unwrap().take();
+        let Some(mut receiver) = receiver else {
+            return false;
+        };
+        let manager = self.clone();
+        let join = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = manager.runtime_pool.stop.cancelled() => break,
+                    Some(execution_id) = receiver.recv() => {
+                        if manager.schedule_auto_recovery(&execution_id).await.is_err() {
+                            // 只记录固定安全诊断，避免将 Provider 原始错误写入公共边界。
+                            eprintln!("AGENT_AUTO_RECOVERY_SCHEDULE_FAILED");
+                        }
+                    }
+                    else => break,
+                }
+            }
+        });
+        *self.auto_recovery.join.lock().unwrap() = Some(join);
+        true
+    }
+
+    /// dispatch 终态 hook 只投递 ID；它不读 Store、不创建 child，也不会 await。
+    fn notify_auto_recovery(&self, execution_id: &str) {
+        let _ = self.auto_recovery.sender.send(execution_id.into());
+    }
+
+    /// Runtime shutdown 已发出取消后等待 Host-owned worker 退出。
+    pub(crate) async fn wait_auto_recovery_worker(&self) {
+        let join = self.auto_recovery.join.lock().unwrap().take();
+        if let Some(join) = join {
+            let _ = join.await;
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn wait_for_auto_recovery_worker_for_test(&self) {
+        self.wait_auto_recovery_worker().await;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn notify_auto_recovery_for_test(&self, execution_id: &str) {
+        self.notify_auto_recovery(execution_id);
     }
     fn build_registry(&self) -> Result<ProviderRegistry, ProviderError> {
         let mut registry = ProviderRegistry::new();
@@ -488,6 +561,108 @@ impl AgentTaskManager {
         .map_err(|e| e.to_string())?
     }
 
+    /// 仅依据已持久化事实判断自动恢复资格；本函数不会创建或派发 child Execution。
+    pub(crate) async fn evaluate_auto_recovery(
+        &self,
+        execution_id: &str,
+    ) -> Result<automatic_recovery::AutoRecoveryDecision, String> {
+        let Some(execution) = self.store.execution(execution_id.into()).await? else {
+            return Ok(automatic_recovery::AutoRecoveryDecision::NotEligible(
+                automatic_recovery::AutoRecoveryIneligibleReason::ExecutionMissing,
+            ));
+        };
+        let Some(link) = self.store.work_execution_link(execution.id.clone()).await? else {
+            return Ok(automatic_recovery::AutoRecoveryDecision::NotEligible(
+                automatic_recovery::AutoRecoveryIneligibleReason::WorkLinkMissing,
+            ));
+        };
+        let Some(work) = self.store.work_run(link.work_run_id.clone()).await? else {
+            return Ok(automatic_recovery::AutoRecoveryDecision::NotEligible(
+                automatic_recovery::AutoRecoveryIneligibleReason::WorkRunMissing,
+            ));
+        };
+        let parent = if let Some(parent_execution_id) = link.parent_execution_id.as_deref() {
+            let parent_execution = self.store.execution(parent_execution_id.into()).await?;
+            let parent_link = self
+                .store
+                .work_execution_link(parent_execution_id.into())
+                .await?;
+            match (parent_execution, parent_link) {
+                (Some(execution), Some(link)) => Some(automatic_recovery::AutoRecoveryParent {
+                    execution_id: execution.id,
+                    work_run_id: link.work_run_id,
+                    parent_execution_id: link.parent_execution_id,
+                    delegation_context_json: link.delegation_context_json,
+                }),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let claim_absent = self
+            .store
+            .workspace_claim(execution.canonical_workspace_root.clone())
+            .await?
+            .is_none();
+        Ok(automatic_recovery::evaluate(
+            &execution,
+            &link,
+            &work,
+            claim_absent,
+            parent.as_ref(),
+        ))
+    }
+
+    /// Worker 仅通过既有 Continue 管线创建恢复 child；父 Execution 不在此处被修改。
+    async fn schedule_auto_recovery(
+        &self,
+        execution_id: &str,
+    ) -> Result<automatic_recovery::AutoRecoverySchedule, String> {
+        let decision = self.evaluate_auto_recovery(execution_id).await?;
+        let automatic_recovery::AutoRecoveryDecision::Eligible {
+            work_run_id,
+            parent_execution_id,
+            ..
+        } = &decision
+        else {
+            let automatic_recovery::AutoRecoveryDecision::NotEligible(reason) = decision else {
+                unreachable!("auto recovery decision must be eligible or skipped");
+            };
+            return Ok(automatic_recovery::AutoRecoverySchedule::Skipped(reason));
+        };
+        let Some(work) = self.store.work_run(work_run_id.clone()).await? else {
+            return Ok(automatic_recovery::AutoRecoverySchedule::Skipped(
+                automatic_recovery::AutoRecoveryIneligibleReason::WorkRunMissing,
+            ));
+        };
+        if work.status != "active" {
+            return Ok(automatic_recovery::AutoRecoverySchedule::Skipped(
+                automatic_recovery::AutoRecoveryIneligibleReason::WorkRunNotActive,
+            ));
+        }
+        let plan = automatic_recovery::build_plan(&decision, &work)
+            .expect("eligible auto recovery decision must build a plan");
+        let child_id = self
+            .product_submit_with_work(
+                super::product::Action::Continue {
+                    execution_id: parent_execution_id.clone(),
+                    request_key: plan.request_key,
+                    prompt: plan.prompt,
+                },
+                None,
+                Some(super::store::transactions::product::WorkExecutionContext {
+                    work_run_id: work.id,
+                    parent_execution_id: Some(parent_execution_id.clone()),
+                    delegation_context_json: Some(plan.delegation_context_json),
+                }),
+            )
+            .await
+            .map_err(|error| error.code)?;
+        Ok(automatic_recovery::AutoRecoverySchedule::Scheduled {
+            execution_id: child_id,
+        })
+    }
+
     /// 交接后的 dispatch 继续由 Host 拥有，调用方丢弃等待不会取消已创建的 Execution。
     async fn handoff_created_outcome(
         &self,
@@ -633,6 +808,10 @@ impl AgentTaskManager {
                 ))
             }
             Err(error) => {
+                let terminal_failed = matches!(
+                    &error,
+                    ProviderExecutionFailure::State(code) if code == "PROVIDER_TERMINAL_failed"
+                );
                 let receipt_error = match &error {
                     ProviderExecutionFailure::State(error)
                         if error == "AGENT_PROVIDER_UNAVAILABLE" =>
@@ -645,6 +824,9 @@ impl AgentTaskManager {
                     }
                 };
                 acceptance.reject(receipt_error);
+                if terminal_failed {
+                    self.notify_auto_recovery(execution_id);
+                }
                 Err(error)
             }
         }

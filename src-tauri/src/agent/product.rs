@@ -560,7 +560,9 @@ impl AgentProductService {
     }
 
     pub async fn shutdown(&self) -> Result<(), String> {
-        self.manager.runtime_pool.shutdown().await
+        let result = self.manager.runtime_pool.shutdown().await;
+        self.manager.wait_auto_recovery_worker().await;
+        result
     }
 
     /// 只供 Local Desktop Human Authority 调用；reason 从不写入持久化状态或诊断。
@@ -635,6 +637,7 @@ impl AgentProductService {
         mut manager: AgentTaskManager,
     ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
         let report = manager.reconcile_startup().await?;
+        manager.start_auto_recovery_worker();
         Ok((Self { store, manager }, report))
     }
     #[cfg(test)]

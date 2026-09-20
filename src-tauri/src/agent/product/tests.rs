@@ -102,6 +102,21 @@ async fn workspace_claim_exists_forwards_the_authoritative_store_lookup() {
 }
 
 #[tokio::test]
+async fn initialize_starts_exactly_one_auto_recovery_worker() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let (service, _) = TEST_DISCOVERY
+        .scope(
+            Err("BACKEND_UNAVAILABLE: fixture".into()),
+            AgentProductService::initialize(store),
+        )
+        .await
+        .unwrap();
+    assert!(!service.manager.start_auto_recovery_worker());
+    service.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn thread_names_are_shared_persistent_without_control_revision_change() {
     let dir = tempfile::tempdir().unwrap();
     let store = StateStore::open(dir.path().into()).await.unwrap();

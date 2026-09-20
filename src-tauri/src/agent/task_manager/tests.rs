@@ -1,3 +1,4 @@
+use super::automatic_recovery::{AutoRecoveryDecision, AutoRecoveryIneligibleReason};
 use super::*;
 use crate::agent::provider::{
     ProviderCapabilities, ProviderDescriptor, ProviderOutcome, ProviderResultCompleteness,
@@ -9,6 +10,7 @@ use crate::agent::provider::{
     },
     registry::ProviderHealth,
 };
+use crate::agent::store::transactions::product::{WorkExecutionContext, WorkspaceSnapshot};
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -21,6 +23,10 @@ struct FakeProvider {
     can_cancel: bool,
     can_recover: bool,
     runtime_failure: Option<(&'static str, &'static str)>,
+    state_failure: Option<&'static str>,
+    terminal_failed_db: Option<std::path::PathBuf>,
+    terminal_failed_once: AtomicBool,
+    child_completed: Option<Arc<tokio::sync::Notify>>,
     recovery_result: Option<Result<ProviderReconcileSummary, ProviderError>>,
     release: Option<Arc<tokio::sync::Notify>>,
     execute_calls: AtomicUsize,
@@ -41,6 +47,10 @@ impl FakeProvider {
             can_cancel,
             can_recover: false,
             runtime_failure: None,
+            state_failure: None,
+            terminal_failed_db: None,
+            terminal_failed_once: AtomicBool::new(false),
+            child_completed: None,
             recovery_result: None,
             release: None,
             execute_calls: AtomicUsize::new(0),
@@ -53,6 +63,23 @@ impl FakeProvider {
 
     fn with_runtime_failure(mut self, code: &'static str, message: &'static str) -> Self {
         self.runtime_failure = Some((code, message));
+        self
+    }
+
+    fn with_state_failure(mut self, code: &'static str) -> Self {
+        self.state_failure = Some(code);
+        self
+    }
+
+    /// 仅模拟 Provider 已安全写入 failed 终态后的稳定错误码。
+    fn with_terminal_failed_once(mut self, database: std::path::PathBuf) -> Self {
+        self.terminal_failed_db = Some(database);
+        self.terminal_failed_once.store(true, Ordering::SeqCst);
+        self
+    }
+
+    fn with_child_completion(mut self, completed: Arc<tokio::sync::Notify>) -> Self {
+        self.child_completed = Some(completed);
         self
     }
 
@@ -111,6 +138,17 @@ impl AgentProvider for FakeProvider {
                     message: message.into(),
                 });
             }
+            if let Some(code) = self.state_failure {
+                return Err(ProviderExecutionFailure::State(code.into()));
+            }
+            if self.terminal_failed_once.swap(false, Ordering::SeqCst) {
+                let database = self.terminal_failed_db.as_ref().unwrap();
+                let connection = rusqlite::Connection::open(database).unwrap();
+                mark_safe_failed(&connection, &context.execution_id);
+                return Err(ProviderExecutionFailure::State(
+                    "PROVIDER_TERMINAL_failed".into(),
+                ));
+            }
             if let Some(release) = &self.release {
                 release.notified().await;
             }
@@ -122,6 +160,9 @@ impl AgentProvider for FakeProvider {
                 .await
                 .map_err(ProviderExecutionFailure::State)?;
             self.terminal.store(true, Ordering::SeqCst);
+            if let Some(completed) = &self.child_completed {
+                completed.notify_waiters();
+            }
             Ok(ProviderRunResult {
                 execution_id: context.execution_id,
                 outcome: ProviderOutcome::Cancelled,
@@ -199,6 +240,526 @@ fn manager_with_provider(
     let mut manager = AgentTaskManager::new(store, "must-not-launch.exe".into());
     manager.use_registry(registry);
     manager
+}
+
+/// 建立可由纯控制面判定的 Work-linked Execution；不会启动 Provider。
+async fn automatic_recovery_root(store: &StateStore, root: &std::path::Path, id: &str) {
+    store
+        .create_work_run(
+            "work".into(),
+            "workspace".into(),
+            root.to_string_lossy().into(),
+            1,
+            "goal".into(),
+            Some("recover goal".into()),
+            1,
+        )
+        .await
+        .unwrap();
+    store
+        .product_create_fresh_with_work(
+            id.into(),
+            "agent".into(),
+            "initial".into(),
+            "original prompt must not be read by decision".into(),
+            "workspace".into(),
+            Some(WorkspaceSnapshot {
+                id: "workspace".into(),
+                root: root.to_string_lossy().into(),
+                generation: 1,
+            }),
+            Some(WorkExecutionContext {
+                work_run_id: "work".into(),
+                parent_execution_id: None,
+                delegation_context_json: None,
+            }),
+            1,
+        )
+        .await
+        .unwrap();
+}
+
+/// 测试 fixture 直接写入已完成的安全终态，避免把 Provider/Runtime 逻辑混入判定单测。
+fn mark_safe_failed(db: &rusqlite::Connection, id: &str) {
+    db.execute(
+        "UPDATE executions SET status='failed', dispatch_state='dispatched', \
+         provider_terminal_status='failed', release_evidence_state='complete', \
+         release_evidence_kind='same_runtime_cleanup', release_evidence_json='{}', \
+         completed_at=2, interrupt_requested_at=NULL WHERE id=?1",
+        [id],
+    )
+    .unwrap();
+    db.execute("DELETE FROM workspace_claims WHERE execution_id=?1", [id])
+        .unwrap();
+}
+
+fn auto_marker(root: &str, attempt: u8) -> String {
+    format!(
+        "{{\"kind\":\"auto_recovery\",\"rootExecutionId\":{},\"attempt\":{attempt}}}",
+        serde_json::to_string(root).unwrap()
+    )
+}
+
+async fn automatic_recovery_child(
+    store: &StateStore,
+    id: &str,
+    parent: &str,
+    context: Option<String>,
+) {
+    store
+        .product_create_continuation_with_work(
+            id.into(),
+            parent.into(),
+            format!("continue-{id}"),
+            "unused continuation prompt".into(),
+            Some(WorkExecutionContext {
+                work_run_id: "work".into(),
+                parent_execution_id: Some(parent.into()),
+                delegation_context_json: context,
+            }),
+            None,
+            3,
+        )
+        .await
+        .unwrap();
+}
+
+/// 等待已有 Continue handoff 完成创建，避免以时间睡眠假设调度顺序。
+async fn wait_for_work_links(store: &StateStore, expected: usize) {
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if store
+                .work_execution_links("work".into())
+                .await
+                .unwrap()
+                .len()
+                >= expected
+            {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[test]
+fn automatic_recovery_plan_is_deterministic_and_safe() {
+    let work = crate::agent::store::WorkRunRecord {
+        id: "work".into(),
+        workspace_id: "workspace".into(),
+        canonical_workspace_root: "root".into(),
+        workspace_generation: 1,
+        title: "Recover title".into(),
+        goal: Some("Recover goal".into()),
+        status: "active".into(),
+        revision: 1,
+        acceptance_json: None,
+        created_at: 1,
+        updated_at: 1,
+        completed_at: None,
+    };
+    let decision = AutoRecoveryDecision::Eligible {
+        work_run_id: "work".into(),
+        root_execution_id: "E1".into(),
+        parent_execution_id: "E2".into(),
+        next_attempt: 2,
+    };
+    let first = super::automatic_recovery::build_plan(&decision, &work).unwrap();
+    let second = super::automatic_recovery::build_plan(&decision, &work).unwrap();
+    assert_eq!(first, second);
+    assert_eq!(first.request_key, "auto-recovery:E1:2");
+    assert_eq!(first.delegation_context_json, auto_marker("E1", 2));
+    assert!(first.prompt.contains("Recover title"));
+    assert!(first.prompt.contains("Recover goal"));
+    assert!(first.prompt.contains("provider_terminal_failed"));
+    assert!(!first.prompt.contains("original prompt"));
+    assert!(!first.prompt.contains("raw stderr"));
+}
+
+#[tokio::test]
+async fn automatic_recovery_decision_uses_persisted_lineage_and_survives_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    automatic_recovery_root(&store, directory.path(), "E1").await;
+    let db = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+    mark_safe_failed(&db, "E1");
+    let manager = AgentTaskManager::new(store.clone(), "unused".into());
+    assert_eq!(
+        manager.evaluate_auto_recovery("E1").await.unwrap(),
+        AutoRecoveryDecision::Eligible {
+            work_run_id: "work".into(),
+            root_execution_id: "E1".into(),
+            parent_execution_id: "E1".into(),
+            next_attempt: 1,
+        }
+    );
+
+    automatic_recovery_child(&store, "E2", "E1", Some(auto_marker("E1", 1))).await;
+    mark_safe_failed(&db, "E2");
+    let reopened = StateStore::open(directory.path().into()).await.unwrap();
+    let reopened_manager = AgentTaskManager::new(reopened.clone(), "unused".into());
+    assert_eq!(
+        reopened_manager.evaluate_auto_recovery("E2").await.unwrap(),
+        AutoRecoveryDecision::Eligible {
+            work_run_id: "work".into(),
+            root_execution_id: "E1".into(),
+            parent_execution_id: "E2".into(),
+            next_attempt: 2,
+        }
+    );
+    db.execute(
+        "UPDATE work_execution_links SET delegation_context_json=?1 WHERE execution_id='E2'",
+        [auto_marker("forged-root", 1)],
+    )
+    .unwrap();
+    assert_eq!(
+        reopened_manager.evaluate_auto_recovery("E2").await.unwrap(),
+        AutoRecoveryDecision::NotEligible(AutoRecoveryIneligibleReason::LineageInconsistent)
+    );
+    db.execute(
+        "UPDATE work_execution_links SET delegation_context_json=?1 WHERE execution_id='E2'",
+        [auto_marker("E1", 1)],
+    )
+    .unwrap();
+
+    automatic_recovery_child(&reopened, "E3", "E2", Some(auto_marker("E1", 2))).await;
+    mark_safe_failed(&db, "E3");
+    assert_eq!(
+        reopened_manager.evaluate_auto_recovery("E3").await.unwrap(),
+        AutoRecoveryDecision::NotEligible(AutoRecoveryIneligibleReason::BudgetExhausted)
+    );
+}
+
+#[tokio::test]
+async fn automatic_recovery_decision_does_not_count_manual_continuation() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    automatic_recovery_root(&store, directory.path(), "E1").await;
+    let db = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+    mark_safe_failed(&db, "E1");
+    automatic_recovery_child(&store, "manual-E2", "E1", None).await;
+    mark_safe_failed(&db, "manual-E2");
+    let manager = AgentTaskManager::new(store, "unused".into());
+    assert_eq!(
+        manager.evaluate_auto_recovery("manual-E2").await.unwrap(),
+        AutoRecoveryDecision::Eligible {
+            work_run_id: "work".into(),
+            root_execution_id: "manual-E2".into(),
+            parent_execution_id: "manual-E2".into(),
+            next_attempt: 1,
+        }
+    );
+}
+
+#[tokio::test]
+async fn automatic_recovery_decision_rejects_incomplete_or_malformed_facts() {
+    let cases = [
+        (
+            "status='completed'",
+            AutoRecoveryIneligibleReason::StatusNotFailed,
+        ),
+        (
+            "status='cancelled'",
+            AutoRecoveryIneligibleReason::StatusNotFailed,
+        ),
+        (
+            "status='interrupted'",
+            AutoRecoveryIneligibleReason::StatusNotFailed,
+        ),
+        (
+            "status='reconciling'",
+            AutoRecoveryIneligibleReason::StatusNotFailed,
+        ),
+        (
+            "status='unknown'",
+            AutoRecoveryIneligibleReason::StatusNotFailed,
+        ),
+        (
+            "provider_terminal_status='completed'",
+            AutoRecoveryIneligibleReason::ProviderTerminalNotFailed,
+        ),
+        (
+            "dispatch_state='uncertain'",
+            AutoRecoveryIneligibleReason::DispatchNotDispatched,
+        ),
+        (
+            "release_evidence_state='incomplete'",
+            AutoRecoveryIneligibleReason::ReleaseEvidenceIncomplete,
+        ),
+        (
+            "interrupt_requested_at=9",
+            AutoRecoveryIneligibleReason::InterruptRequested,
+        ),
+    ];
+    for (change, expected) in cases {
+        let directory = tempfile::tempdir().unwrap();
+        let store = StateStore::open(directory.path().into()).await.unwrap();
+        automatic_recovery_root(&store, directory.path(), "E1").await;
+        let db = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+        mark_safe_failed(&db, "E1");
+        db.execute(&format!("UPDATE executions SET {change} WHERE id='E1'"), [])
+            .unwrap();
+        let manager = AgentTaskManager::new(store, "unused".into());
+        assert_eq!(
+            manager.evaluate_auto_recovery("E1").await.unwrap(),
+            AutoRecoveryDecision::NotEligible(expected),
+            "{change}"
+        );
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    automatic_recovery_root(&store, directory.path(), "E1").await;
+    let db = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+    mark_safe_failed(&db, "E1");
+    db.execute(
+        "INSERT INTO workspace_claims(canonical_workspace_root,execution_id,claim_type,acquired_at) \
+         VALUES (?1,'E1','exclusive_execution',3)",
+        [directory.path().to_string_lossy().as_ref()],
+    )
+    .unwrap();
+    let manager = AgentTaskManager::new(store.clone(), "unused".into());
+    assert_eq!(
+        manager.evaluate_auto_recovery("E1").await.unwrap(),
+        AutoRecoveryDecision::NotEligible(AutoRecoveryIneligibleReason::WorkspaceClaimPresent)
+    );
+    db.execute("DELETE FROM workspace_claims WHERE execution_id='E1'", [])
+        .unwrap();
+    db.execute(
+        "UPDATE work_runs SET status='completed' WHERE id='work'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        manager.evaluate_auto_recovery("E1").await.unwrap(),
+        AutoRecoveryDecision::NotEligible(AutoRecoveryIneligibleReason::WorkRunNotActive)
+    );
+    db.execute("UPDATE work_runs SET status='active' WHERE id='work'", [])
+        .unwrap();
+    db.execute(
+        "UPDATE work_execution_links SET delegation_context_json='{\"kind\":\"auto_recovery\",\"attempt\":\"bad\"}' WHERE execution_id='E1'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        manager.evaluate_auto_recovery("E1").await.unwrap(),
+        AutoRecoveryDecision::NotEligible(AutoRecoveryIneligibleReason::LineageMalformed)
+    );
+    db.execute(
+        "DELETE FROM work_execution_links WHERE execution_id='E1'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        manager.evaluate_auto_recovery("E1").await.unwrap(),
+        AutoRecoveryDecision::NotEligible(AutoRecoveryIneligibleReason::WorkLinkMissing)
+    );
+}
+
+#[tokio::test]
+async fn automatic_recovery_worker_notifies_terminal_failure_and_reuses_continue() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    automatic_recovery_root(&store, directory.path(), "E1").await;
+    let child_completed = Arc::new(tokio::sync::Notify::new());
+    let provider = Arc::new(
+        FakeProvider::new(store.clone(), "codex", true, true)
+            .with_terminal_failed_once(directory.path().join("agent-state.db"))
+            .with_child_completion(child_completed.clone()),
+    );
+    let manager = manager_with_provider(store.clone(), provider, ProviderHealth::Available);
+    assert!(manager.start_auto_recovery_worker());
+    assert!(!manager.start_auto_recovery_worker());
+
+    let first_child = child_completed.notified();
+    tokio::pin!(first_child);
+    assert_eq!(
+        manager
+            .dispatch_with_receipt("E1", None, false)
+            .await
+            .unwrap_err(),
+        ProviderExecutionFailure::State("PROVIDER_TERMINAL_failed".into())
+    );
+    first_child.await;
+    wait_for_work_links(&store, 2).await;
+    let parent = store.execution("E1".into()).await.unwrap().unwrap();
+    assert_eq!(parent.status, "failed");
+    assert_eq!(parent.release_evidence_state, "complete");
+    let links = store.work_execution_links("work".into()).await.unwrap();
+    let child_id = links[1].execution_id.clone();
+    let child = store.execution(child_id.clone()).await.unwrap().unwrap();
+    assert_eq!(child.workspace_id, parent.workspace_id);
+    assert_eq!(
+        child.canonical_workspace_root,
+        parent.canonical_workspace_root
+    );
+    assert_eq!(child.workspace_generation, parent.workspace_generation);
+    assert_eq!(links[1].parent_execution_id.as_deref(), Some("E1"));
+    assert_eq!(links[1].delegation_context_json, Some(auto_marker("E1", 1)));
+
+    // 同一终态重复投递仍复用 requestKey 对应的同一个 child。
+    manager.notify_auto_recovery_for_test("E1");
+    tokio::task::yield_now().await;
+    wait_for_work_links(&store, 2).await;
+    assert_eq!(
+        store
+            .work_execution_links("work".into())
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+
+    let db = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+    mark_safe_failed(&db, &child_id);
+    let second_child = child_completed.notified();
+    tokio::pin!(second_child);
+    manager.notify_auto_recovery_for_test(&child_id);
+    second_child.await;
+    wait_for_work_links(&store, 3).await;
+    let third_id = store.work_execution_links("work".into()).await.unwrap()[2]
+        .execution_id
+        .clone();
+    let third_link = store
+        .work_execution_link(third_id.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        third_link.parent_execution_id.as_deref(),
+        Some(child_id.as_str())
+    );
+    assert_eq!(
+        third_link.delegation_context_json,
+        Some(auto_marker("E1", 2))
+    );
+
+    mark_safe_failed(&db, &third_id);
+    assert_eq!(
+        manager.schedule_auto_recovery(&third_id).await.unwrap(),
+        super::automatic_recovery::AutoRecoverySchedule::Skipped(
+            AutoRecoveryIneligibleReason::BudgetExhausted
+        )
+    );
+    manager.notify_auto_recovery_for_test(&third_id);
+    tokio::task::yield_now().await;
+    assert_eq!(
+        store
+            .work_execution_links("work".into())
+            .await
+            .unwrap()
+            .len(),
+        3
+    );
+
+    manager.runtime_pool.stop.cancel();
+    manager.wait_for_auto_recovery_worker_for_test().await;
+}
+
+#[tokio::test]
+async fn automatic_recovery_worker_rejects_non_terminal_and_shutdown_notifications() {
+    for kind in ["runtime", "protocol", "unavailable"] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = StateStore::open(directory.path().into()).await.unwrap();
+        automatic_recovery_root(&store, directory.path(), "E1").await;
+        let provider = match kind {
+            "runtime" => FakeProvider::new(store.clone(), "codex", true, true)
+                .with_runtime_failure("CODEX_RUNTIME_TEST_FAILED", "safe"),
+            "protocol" => FakeProvider::new(store.clone(), "codex", true, true)
+                .with_state_failure("CODEX_PROTOCOL_INVALID_MESSAGE"),
+            _ => FakeProvider::new(store.clone(), "codex", true, true),
+        };
+        let health = if kind == "unavailable" {
+            ProviderHealth::Unavailable
+        } else {
+            ProviderHealth::Available
+        };
+        let manager = manager_with_provider(store.clone(), Arc::new(provider), health);
+        assert!(manager.start_auto_recovery_worker());
+        assert!(
+            manager
+                .dispatch_with_receipt("E1", None, false)
+                .await
+                .is_err()
+        );
+        tokio::task::yield_now().await;
+        assert_eq!(
+            store
+                .work_execution_links("work".into())
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        manager.runtime_pool.stop.cancel();
+        manager.wait_for_auto_recovery_worker_for_test().await;
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    automatic_recovery_root(&store, directory.path(), "E1").await;
+    let db = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+    mark_safe_failed(&db, "E1");
+    let manager = manager_with_provider(
+        store.clone(),
+        Arc::new(FakeProvider::new(store.clone(), "codex", true, true)),
+        ProviderHealth::Available,
+    );
+    assert!(manager.start_auto_recovery_worker());
+    manager.runtime_pool.stop.cancel();
+    manager.notify_auto_recovery_for_test("E1");
+    manager.wait_for_auto_recovery_worker_for_test().await;
+    assert_eq!(
+        store
+            .work_execution_links("work".into())
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn automatic_recovery_schedule_failure_preserves_parent_facts() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    automatic_recovery_root(&store, directory.path(), "E1").await;
+    let db = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+    mark_safe_failed(&db, "E1");
+    let provider = Arc::new(
+        FakeProvider::new(store.clone(), "codex", true, true).with_ineligible_continuation(),
+    );
+    let manager = manager_with_provider(store.clone(), provider.clone(), ProviderHealth::Available);
+    let parent = store.execution("E1".into()).await.unwrap().unwrap();
+    assert!(manager.start_auto_recovery_worker());
+    manager.notify_auto_recovery_for_test("E1");
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while provider.continuation_calls.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(store.execution("E1".into()).await.unwrap().unwrap(), parent);
+    assert!(
+        store
+            .workspace_claim(parent.canonical_workspace_root.clone())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        store
+            .work_execution_links("work".into())
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    manager.runtime_pool.stop.cancel();
+    manager.wait_for_auto_recovery_worker_for_test().await;
 }
 
 #[tokio::test]
