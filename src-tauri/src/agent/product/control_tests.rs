@@ -706,3 +706,57 @@ async fn start_workspace_id_is_required_and_retry_cannot_rebind() {
     no_dispatch(&rejected["control"], false);
     assert_eq!(count(dir.path(), "executions"), 1);
 }
+
+#[tokio::test]
+async fn local_manual_resolution_returns_the_durable_interrupted_snapshot() {
+    let (dir, store, service) = fixture().await;
+    store
+        .product_create_fresh(
+            "e".into(),
+            "a".into(),
+            "k".into(),
+            "hello".into(),
+            "W".into(),
+            w(dir.path(), "W"),
+            1,
+        )
+        .await
+        .unwrap();
+    rusqlite::Connection::open(dir.path().join("agent-state.db"))
+        .unwrap()
+        .execute(
+            "UPDATE executions SET status='unknown',dispatch_state='not_dispatched',error_code='CODEX_PROVIDER_FAILURE',error_message='CODEX_PROTOCOL_INVALID_MESSAGE: fixture' WHERE id='e'",
+            [],
+        )
+        .unwrap();
+
+    let view = service
+        .manual_resolve(
+            "e".into(),
+            LocalManualResolution::InterruptAndRelease,
+            Some("operator note must not persist".into()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(view.status, "interrupted");
+    assert_eq!(view.attention, "none");
+    assert_eq!(view.result_completeness, "unknown");
+    assert!(
+        store
+            .workspace_claim("root".into())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let row = store.execution("e".into()).await.unwrap().unwrap();
+    assert_eq!(
+        row.release_evidence_kind.as_deref(),
+        Some("operator_override")
+    );
+    assert!(
+        !row.release_evidence_json
+            .as_deref()
+            .unwrap()
+            .contains("operator note")
+    );
+}

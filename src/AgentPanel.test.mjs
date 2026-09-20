@@ -92,6 +92,24 @@ test('unknown has only details, no retry or recovery; IDs and JSON stay out of l
   assert.equal(document.querySelector('literal'), null);
 });
 
+test('manual resolution stays in task details, requires confirmation, and uses Local IPC', async () => {
+  await mount([row({ dispatchState: 'not_dispatched' })]);
+  const localCalls = [];
+  api.agentManualResolve = async (...args) => {
+    localCalls.push(args);
+    return row({ status: 'interrupted', attention: 'none', dispatchState: 'not_dispatched', completedAt: 3000 });
+  };
+  await click('详情');
+  await click('人工结束并释放工作区');
+  const dialog = document.querySelector('[role="dialog"]');
+  assert.match(dialog.textContent, /系统无法自动证明上一次 Runtime 的最终状态/);
+  assert.match(dialog.textContent, /确认该执行不会继续修改工作区/);
+  assert.equal(localCalls.length, 0);
+  await click('确认结束并释放', dialog);
+  assert.deepEqual(localCalls, [['old-E1', 'interrupt_and_release']]);
+  assert.equal([...document.querySelectorAll('article button')].some(button => button.textContent === '人工结束并释放工作区'), false);
+});
+
 test('pending resume uses exact ID and only backend capability', async () => {
   const calls = await mount([row({ status: 'dispatch_pending', attention: 'pending_explicit_resume', availableActions: { canCancel: true, canContinue: false, canResumePending: true } })]);
   assert.match(document.body.textContent, /等待恢复/);

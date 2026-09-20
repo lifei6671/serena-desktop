@@ -12,6 +12,9 @@ export const api = {
   remoteApprove: (id: string, allow: boolean) => invoke<void>("remote_approve", { id, allow }),
   codexVersion: () => invoke<string>("get_codex_version"),
   agent: (request: AgentAction) => invoke<AgentEnvelope>("agent_operation", { request }),
+  // 专用 Local Tauri IPC；不得复用 Remote MCP 的 agent_execute action。
+  agentManualResolve: (executionId: string, resolution: "interrupt_and_release", reason?: string) =>
+    invoke<ExecutionView>("agent_manual_resolve", { executionId, resolution, reason }),
   agentHistory: (before: string | null = null, workspace: string | null = null) => invoke<{ executions: ExecutionView[]; nextCursor: string | null }>("agent_history", { before, workspace }),
   mcpLogs: () => invoke<string[]>("get_mcp_logs"),
   downloadMcpLogs: () => invoke<boolean>("download_mcp_logs"),

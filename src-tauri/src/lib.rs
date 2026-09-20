@@ -240,6 +240,7 @@ pub fn run() {
             remote::remote_probe,
             remote::remote_approve,
             commands::agent_operation,
+            commands::agent_manual_resolve,
             commands::agent_history,
             commands::get_app_state,
             commands::workspace_list,

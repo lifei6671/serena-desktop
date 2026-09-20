@@ -412,6 +412,28 @@ impl StateStore {
         .await
     }
 
+    /// 本机人工确认未知且从未派发的 Execution 后，原子收口并释放其唯一 Claim。
+    pub(crate) async fn manual_resolve_and_release(
+        &self,
+        id: String,
+        reason_provided: bool,
+        now: i64,
+    ) -> Result<(), String> {
+        self.write(move |tx| {
+            let row = execution_record(tx, &id)
+                .map_err(|error| error.to_string())?
+                .ok_or("EXECUTION_NOT_FOUND")?;
+            transition_execution(
+                tx,
+                &id,
+                row.revision,
+                Mutation::ManualResolve { reason_provided },
+                now,
+            )
+        })
+        .await
+    }
+
     /// Classify durable Claims before publishing the startup Product service.
     pub async fn recover_claims(&self, now: i64) -> Result<Vec<ClaimRecovery>, String> {
         self.write(move |tx| {
@@ -577,6 +599,8 @@ struct Row {
     dispatch: DispatchState,
     revision: i64,
     runtime: Option<String>,
+    thread: Option<String>,
+    turn: Option<String>,
     runtime_evidence_at: Option<i64>,
     terminal: Option<String>,
     terminal_runtime: Option<String>,
@@ -745,15 +769,15 @@ fn project_lifecycle_activity_semantics(
 }
 
 fn load(tx: &Transaction<'_>, id: &str) -> Result<Row, String> {
-    tx.query_row("SELECT status,dispatch_state,revision,runtime_instance_id,runtime_termination_evidence_at,
+    tx.query_row("SELECT status,dispatch_state,revision,runtime_instance_id,thread_id,turn_id,runtime_termination_evidence_at,
         provider_terminal_status,provider_terminal_evidence_runtime_instance_id,provider_terminal_evidence_at,
         background_cleanup_state,background_cleanup_runtime_instance_id,background_cleanup_evidence_at,
         release_evidence_state,release_evidence_kind,release_evidence_json FROM executions WHERE id=?1", [id], |r| {
         let parse = |index| -> rusqlite::Result<serde_json::Value> { Ok(serde_json::Value::String(r.get(index)?)) };
         Ok(Row { status: serde_json::from_value(parse(0)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0,rusqlite::types::Type::Text,Box::new(e)))?,
             dispatch: serde_json::from_value(parse(1)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(1,rusqlite::types::Type::Text,Box::new(e)))?,
-            revision:r.get(2)?,runtime:r.get(3)?,runtime_evidence_at:r.get(4)?,terminal:r.get(5)?,terminal_runtime:r.get(6)?,terminal_at:r.get(7)?,
-            cleanup:r.get(8)?,cleanup_runtime:r.get(9)?,cleanup_at:r.get(10)?,release_state:r.get(11)?,release_kind:r.get(12)?,release_json:r.get(13)? })
+            revision:r.get(2)?,runtime:r.get(3)?,thread:r.get(4)?,turn:r.get(5)?,runtime_evidence_at:r.get(6)?,terminal:r.get(7)?,terminal_runtime:r.get(8)?,terminal_at:r.get(9)?,
+            cleanup:r.get(10)?,cleanup_runtime:r.get(11)?,cleanup_at:r.get(12)?,release_state:r.get(13)?,release_kind:r.get(14)?,release_json:r.get(15)? })
     }).map_err(|e| e.to_string())
 }
 
@@ -761,6 +785,10 @@ enum Mutation {
     Event(Transition),
     Finalize(Finalization),
     CancelBeforeDispatch,
+    /// 只从 Local Desktop Human Authority 入口调用，绝不由 Provider/Recovery 自动触发。
+    ManualResolve {
+        reason_provided: bool,
+    },
 }
 
 pub(super) fn owns_claim(tx: &Transaction<'_>, id: &str) -> Result<(), String> {
@@ -809,6 +837,8 @@ fn transition_execution(
     let mut dispatch = row.dispatch;
     let mut runtime = row.runtime.clone();
     let mut release: Option<(&str, String)> = None;
+    let mut operator_override = false;
+    let mut reset_result_completeness = false;
     match mutation {
         Mutation::CancelBeforeDispatch => {
             if row.status != Status::DispatchPending
@@ -857,6 +887,8 @@ fn transition_execution(
                     tx.execute("UPDATE executions SET runtime_termination_evidence_runtime_instance_id=?2,runtime_termination_evidence_at=?3 WHERE id=?1",params![id,original,at]).map_err(|e|e.to_string())?;
                     ("runtime_terminated", at)
                 }
+                // 这个 Basis 只能由下方 Local ManualResolve mutation 写入。
+                ReleaseBasis::OperatorOverride => return Err("OPERATOR_OVERRIDE_LOCAL_ONLY".into()),
             };
             next = finalization.terminal;
             release = Some((
@@ -886,6 +918,47 @@ fn transition_execution(
                 ],
             )
             .map_err(|e| e.to_string())?;
+        }
+        Mutation::ManualResolve { reason_provided } => {
+            // 未绑定 Runtime 的尝试仅发生在 Provider dispatch 前；已绑定 Runtime 一律拒绝。
+            if row.status != Status::Unknown
+                || row.dispatch != DispatchState::NotDispatched
+                || row.runtime.is_some()
+                || row.thread.is_some()
+                || row.turn.is_some()
+                || row.terminal.is_some()
+                || row.terminal_runtime.is_some()
+                || row.terminal_at.is_some()
+                || row.cleanup != "unknown"
+                || row.cleanup_runtime.is_some()
+                || row.cleanup_at.is_some()
+                || row.release_state != "incomplete"
+                || row.release_kind.is_some()
+                || row.release_json.is_some()
+            {
+                return Err("MANUAL_RESOLUTION_NOT_ALLOWED".into());
+            }
+            owns_claim(tx, id)?;
+            let basis = ReleaseBasis::OperatorOverride;
+            let kind = match basis {
+                ReleaseBasis::OperatorOverride => "operator_override",
+                _ => return Err("OPERATOR_OVERRIDE_LOCAL_ONLY".into()),
+            };
+            next = Status::Interrupted;
+            operator_override = true;
+            reset_result_completeness = true;
+            // 不保留调用方的自由文本，避免把本机用户的敏感说明写入 durable evidence。
+            release = Some((
+                kind,
+                json!({
+                    "schema":"operator_override.v1",
+                    "authority":"local_desktop_human",
+                    "resolution":"interrupt_and_release",
+                    "reason_provided":reason_provided,
+                    "at":now
+                })
+                .to_string(),
+            ));
         }
         Mutation::Event(event) => {
             if matches!(
@@ -1034,7 +1107,7 @@ fn transition_execution(
         }
     }
     if next != row.status {
-        if !row.status.allows(next) {
+        if !row.status.allows(next) && !operator_override {
             return Err("INVALID_EXECUTION_TRANSITION".into());
         }
         if row.terminal.is_some()
@@ -1061,6 +1134,13 @@ fn transition_execution(
         params![id,next.as_str(),dispatch.as_str(),runtime,now,revision,row.status.as_str(),row.dispatch.as_str()]).map_err(|e|e.to_string())?;
     if changed != 1 {
         return Err("EXECUTION_REVISION_CONFLICT".into());
+    }
+    if reset_result_completeness {
+        tx.execute(
+            "UPDATE executions SET result_completeness='unknown' WHERE id=?1",
+            [id],
+        )
+        .map_err(|error| error.to_string())?;
     }
     if let Some((kind, evidence)) = release {
         #[cfg(test)]

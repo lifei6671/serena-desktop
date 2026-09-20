@@ -67,6 +67,13 @@ pub enum Action {
         limit: Option<u32>,
     },
 }
+
+/// Local Tauri IPC 专用的人类收口决议；不属于 MCP `agent_execute` 契约。
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalManualResolution {
+    InterruptAndRelease,
+}
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductError {
@@ -555,6 +562,24 @@ impl AgentProductService {
     pub async fn shutdown(&self) -> Result<(), String> {
         self.manager.runtime_pool.shutdown().await
     }
+
+    /// 只供 Local Desktop Human Authority 调用；reason 从不写入持久化状态或诊断。
+    pub async fn manual_resolve(
+        &self,
+        execution_id: String,
+        resolution: LocalManualResolution,
+        reason: Option<String>,
+    ) -> Result<ExecutionView, String> {
+        let reason_provided = reason.is_some_and(|value| !value.trim().is_empty());
+        match resolution {
+            LocalManualResolution::InterruptAndRelease => {
+                self.store
+                    .manual_resolve_and_release(execution_id.clone(), reason_provided, now())
+                    .await?
+            }
+        }
+        self.observe(execution_id, false).await
+    }
     /// Desktop-only read pagination; MCP Action/list stays unchanged.
     pub async fn history_page(
         &self,
@@ -618,6 +643,14 @@ impl AgentProductService {
             manager: AgentTaskManager::new(store.clone(), std::path::PathBuf::new()),
             store,
         }
+    }
+    /// 构造在 Provider 接受前确定性拒绝派发的测试专用服务。
+    #[cfg(test)]
+    pub(crate) fn new_with_rejected_dispatch_for_test(store: StateStore) -> Self {
+        let mut manager = AgentTaskManager::new(store.clone(), std::path::PathBuf::new());
+        // 固定 Registry 为不可用，避免测试发现或启动用户安装的 Codex。
+        manager.backend_error = Some("TEST_DISPATCH_REJECTED".into());
+        Self { store, manager }
     }
     pub async fn operation(&self, value: Value, workspace: Option<WorkspaceSnapshot>) -> Value {
         let action = match parse(value) {

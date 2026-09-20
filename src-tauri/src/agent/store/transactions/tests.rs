@@ -1621,3 +1621,172 @@ fn interrupt_timeout_validates_context_before_any_write() {
         }
     }
 }
+
+fn manual_resolution_fixture(store: &StateStore) {
+    create_one(store);
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET status='unknown',dispatch_state='not_dispatched',error_code='CODEX_PROVIDER_FAILURE',error_message='CODEX_PROTOCOL_INVALID_MESSAGE: fixture' WHERE id='e'",
+            [],
+        )
+        .unwrap();
+}
+
+#[test]
+fn manual_resolution_interrupts_and_releases_in_one_transaction() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    manual_resolution_fixture(&store);
+
+    block(store.manual_resolve_and_release("e".into(), true, 9)).unwrap();
+    let row = status(&store);
+    assert_eq!(row.status, "interrupted");
+    assert_eq!(row.result_completeness, "unknown");
+    assert_eq!(row.error_code.as_deref(), Some("CODEX_PROVIDER_FAILURE"));
+    assert_eq!(
+        row.error_message.as_deref(),
+        Some("CODEX_PROTOCOL_INVALID_MESSAGE: fixture")
+    );
+    assert_eq!(row.release_evidence_state, "complete");
+    assert_eq!(
+        row.release_evidence_kind.as_deref(),
+        Some("operator_override")
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(row.release_evidence_json.as_deref().unwrap())
+            .unwrap(),
+        json!({"schema":"operator_override.v1","authority":"local_desktop_human","resolution":"interrupt_and_release","reason_provided":true,"at":9})
+    );
+    assert!(
+        block(store.workspace_claim("root".into()))
+            .unwrap()
+            .is_none()
+    );
+    drop(store);
+
+    let reopened = open(dir.path());
+    assert_eq!(
+        block(reopened.recover_claims(10)).unwrap(),
+        Vec::<ClaimRecovery>::new()
+    );
+    assert_eq!(status(&reopened).status, "interrupted");
+    assert!(
+        block(reopened.workspace_claim("root".into()))
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn manual_resolution_rolls_back_execution_and_claim_when_release_delete_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    manual_resolution_fixture(&store);
+    let before = execution_snapshot(&store);
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute_batch("CREATE TRIGGER manual_resolution_fault BEFORE DELETE ON workspace_claims BEGIN SELECT RAISE(ABORT,'fault'); END;")
+        .unwrap();
+
+    assert!(block(store.manual_resolve_and_release("e".into(), false, 9)).is_err());
+    assert_eq!(execution_snapshot(&store), before);
+    assert_eq!(
+        block(store.workspace_claim("root".into()))
+            .unwrap()
+            .unwrap()
+            .execution_id,
+        "e"
+    );
+}
+
+#[test]
+fn manual_resolution_rejects_every_non_safe_execution_state() {
+    for status in [
+        "dispatch_pending",
+        "running",
+        "finalizing",
+        "reconciling",
+        "completed",
+        "failed",
+        "cancelled",
+        "interrupted",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(dir.path());
+        manual_resolution_fixture(&store);
+        store
+            .connection
+            .lock()
+            .unwrap()
+            .execute("UPDATE executions SET status=?1 WHERE id='e'", [status])
+            .unwrap();
+        let before = execution_snapshot(&store);
+        assert_eq!(
+            block(store.manual_resolve_and_release("e".into(), false, 9)).unwrap_err(),
+            "MANUAL_RESOLUTION_NOT_ALLOWED",
+            "{status}"
+        );
+        assert_eq!(execution_snapshot(&store), before, "{status}");
+    }
+}
+
+#[test]
+fn manual_resolution_rejects_provider_identity_and_claim_inconsistencies() {
+    for mutation in [
+        "UPDATE executions SET provider_terminal_status='failed' WHERE id='e'",
+        "UPDATE executions SET thread_id='thread' WHERE id='e'",
+        "UPDATE executions SET turn_id='turn' WHERE id='e'",
+        "UPDATE executions SET runtime_instance_id='runtime' WHERE id='e'",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(dir.path());
+        manual_resolution_fixture(&store);
+        if mutation.contains("runtime_instance_id") {
+            store.connection.lock().unwrap().execute("INSERT INTO runtime_instances (id,owner_host_instance_id,state,created_at,updated_at) VALUES ('runtime','host','running',1,1)", []).unwrap();
+        }
+        store
+            .connection
+            .lock()
+            .unwrap()
+            .execute(mutation, [])
+            .unwrap();
+        assert_eq!(
+            block(store.manual_resolve_and_release("e".into(), false, 9)).unwrap_err(),
+            "MANUAL_RESOLUTION_NOT_ALLOWED"
+        );
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    manual_resolution_fixture(&store);
+    store.connection.lock().unwrap().execute("INSERT INTO runtime_instances (id,owner_host_instance_id,state,created_at,updated_at) VALUES ('runtime','host','running',1,1)", []).unwrap();
+    store.connection.lock().unwrap().execute("UPDATE executions SET provider_terminal_evidence_runtime_instance_id='runtime',provider_terminal_evidence_at=1 WHERE id='e'", []).unwrap();
+    assert_eq!(
+        block(store.manual_resolve_and_release("e".into(), false, 9)).unwrap_err(),
+        "MANUAL_RESOLUTION_NOT_ALLOWED"
+    );
+
+    for mutation in [
+        "DELETE FROM workspace_claims WHERE execution_id='e'",
+        "PRAGMA foreign_keys=OFF; UPDATE workspace_claims SET execution_id='missing'; PRAGMA foreign_keys=ON;",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(dir.path());
+        manual_resolution_fixture(&store);
+        store
+            .connection
+            .lock()
+            .unwrap()
+            .execute_batch(mutation)
+            .unwrap();
+        assert_eq!(
+            block(store.manual_resolve_and_release("e".into(), false, 9)).unwrap_err(),
+            "WORKSPACE_CLAIM_INCONSISTENT"
+        );
+    }
+}

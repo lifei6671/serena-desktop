@@ -229,6 +229,33 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
     }
   }
 
+  // 此请求只能走专用 Local Tauri IPC，不能被包装为 agent_operation action。
+  async function manualResolve(executionId: string): Promise<boolean> {
+    if (agentRequests.inFlight) return false;
+    agentRequests.inFlight = true; epoch.current++;
+    setBusy(true); setOperationError(""); setErrorExecutionId(undefined);
+    try {
+      const row = await api.agentManualResolve(executionId, "interrupt_and_release");
+      if (!mounted.current) return true;
+      if (workspaceFilter === "all" || row.canonicalWorkspaceRoot === workspaceFilter) {
+        const sorted = [row, ...rows.filter(value => value.executionId !== row.executionId)].sort((a, b) => b.createdAt - a.createdAt || b.executionId.localeCompare(a.executionId));
+        setRows(moreFailed.current ? sorted : sorted.slice(0, pageCount.current * 5));
+      }
+      setDetail(old => old?.executionId === row.executionId ? row : old);
+      toast.success("任务已人工结束，工作区已释放");
+      return true;
+    } catch (error) {
+      if (mounted.current) {
+        setOperationError(String(error)); setErrorExecutionId(executionId);
+        toast.error("人工结束未能完成，请查看错误信息");
+      }
+      return false;
+    } finally {
+      agentRequests.inFlight = false;
+      if (mounted.current) { setBusy(false); void refresh(); }
+    }
+  }
+
   const disabled = busy || !!retry;
   const listed = rows.filter(row => !hiddenIds.includes(row.executionId));
   const visible = listed.filter(row => filter === "all"
@@ -306,6 +333,6 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
       {(nextCursor || loadingMore) && <div className="agent-load-more"><Button className="agent-load-more-button" variant="outline" disabled={loadingMore || refreshing || busy} aria-busy={loadingMore} data-state={loadingMore ? "loading" : moreError ? "retry" : "idle"} onClick={() => void loadMore()}><span className="agent-load-more-icon-slot" aria-hidden="true"><ChevronDown className="agent-load-more-icon-idle" /><LoaderCircle className="agent-load-more-icon-loading" /><RefreshCw className="agent-load-more-icon-retry" /></span><span className="agent-load-more-label">{loadingMore ? "正在加载…" : moreError ? "重试加载更多" : "展开更多（5条）"}</span></Button></div>}
     </section>
     </div>
-    {detail && detailView && <Suspense fallback={<p role="status">正在加载任务详情…</p>}><ExecutionDetails row={detail} workspaceName={executionWorkspace(detail, [...workspaces, ...(workspace ? [workspace] : [])])} feedback={feedback} busy={busy} loading={detailLoading} error={detailError} disabled={disabled} onReload={() => void openDetails(detail.executionId, detail)} onOperate={operate} /></Suspense>}
+    {detail && detailView && <Suspense fallback={<p role="status">正在加载任务详情…</p>}><ExecutionDetails row={detail} workspaceName={executionWorkspace(detail, [...workspaces, ...(workspace ? [workspace] : [])])} feedback={feedback} busy={busy} loading={detailLoading} error={detailError} disabled={disabled} onReload={() => void openDetails(detail.executionId, detail)} onOperate={operate} onManualResolve={manualResolve} /></Suspense>}
   </section></>;
 }

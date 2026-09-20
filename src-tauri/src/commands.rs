@@ -1016,6 +1016,19 @@ pub async fn agent_operation(app: AppHandle, request: serde_json::Value) -> serd
     crate::mcp::get(&app).agent_operation(request).await
 }
 
+/// 仅本机 Tauri IPC 可达的人工收口；Remote MCP 不注册此 mutation。
+#[tauri::command]
+pub async fn agent_manual_resolve(
+    app: AppHandle,
+    execution_id: String,
+    resolution: crate::agent::product::LocalManualResolution,
+    reason: Option<String>,
+) -> Result<crate::agent::product::ExecutionView, String> {
+    app.state::<std::sync::Arc<AgentProductService>>()
+        .manual_resolve(execution_id, resolution, reason)
+        .await
+}
+
 #[tauri::command]
 pub async fn agent_history(
     app: AppHandle,

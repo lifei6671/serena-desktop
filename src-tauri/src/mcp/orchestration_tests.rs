@@ -166,7 +166,9 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     assert!(
         broker
             .product
-            .set(Arc::new(AgentProductService::new(store.clone())))
+            .set(Arc::new(
+                AgentProductService::new_with_rejected_dispatch_for_test(store.clone()),
+            ))
             .is_ok()
     );
     let mut config = broker.config();
@@ -231,14 +233,17 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
             json!({"action":"start","workRunId":work_run_id,"workspaceId":workspace_id,"requestKey":"key","prompt":"p"}),
         )
         .await;
-        // This fixture deliberately has no Provider; durable creation precedes its failed dispatch.
+        // 测试专用 Provider 在接受前拒绝；durable 创建先于派发失败完成。
+        assert_eq!(response["ok"], false);
         assert_eq!(response["error"]["code"], "AGENT_OPERATION_FAILED");
+        assert_eq!(response["control"]["requestAccepted"], true);
         let link = store
             .work_execution_links(work_run_id.into())
             .await
             .unwrap()
             .pop()
             .unwrap();
+        assert_eq!(response["error"]["executionId"], link.execution_id);
         let execution = store.execution(link.execution_id).await.unwrap().unwrap();
         assert_eq!(execution.workspace_id, workspace_id);
         assert_eq!(execution.canonical_workspace_root, root.to_string_lossy());
@@ -260,6 +265,8 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     )
     .await;
     assert_eq!(retry["ok"], true);
+    assert_eq!(before_retry.len(), 1);
+    assert_eq!(retry["data"]["executionId"], before_retry[0].execution_id);
     assert_eq!(
         store.work_execution_links("work-a".into()).await.unwrap(),
         before_retry
@@ -416,7 +423,9 @@ async fn local_agent_start_resolves_explicit_workspace_without_global_active_wor
     assert!(
         broker
             .product
-            .set(Arc::new(AgentProductService::new(store.clone())))
+            .set(Arc::new(
+                AgentProductService::new_with_rejected_dispatch_for_test(store.clone()),
+            ))
             .is_ok()
     );
     let mut config = broker.config();
@@ -468,8 +477,10 @@ async fn local_agent_start_resolves_explicit_workspace_without_global_active_wor
     let response = broker
         .agent_operation(json!({"action":"start","workspaceId":"A","agentId":"local","requestKey":"key","prompt":"p"}))
         .await;
-    // 此 fixture 没有 Provider；创建已冻结后，派发失败是预期边界。
+    // 测试专用 Provider 在接受前拒绝；创建已冻结后，派发失败是预期边界。
+    assert_eq!(response["ok"], false);
     assert_eq!(response["error"]["code"], "AGENT_OPERATION_FAILED");
+    assert_eq!(response["control"]["requestAccepted"], true);
     let execution = store
         .product_read(None, None, None, 100)
         .await
@@ -477,6 +488,7 @@ async fn local_agent_start_resolves_explicit_workspace_without_global_active_wor
         .pop()
         .unwrap()
         .execution;
+    assert_eq!(response["error"]["executionId"], execution.id);
     assert_eq!(execution.workspace_id, "A");
     assert_eq!(execution.canonical_workspace_root, root_a.to_string_lossy());
     assert_eq!(execution.workspace_generation, 3);
@@ -499,7 +511,9 @@ async fn local_agent_start_holds_supervisor_operation_mutex_from_lease_to_create
     let root = std::fs::canonicalize(root).unwrap();
     let broker = fixture(dir.path());
     let store = StateStore::open(dir.path().join("state")).await.unwrap();
-    let product = Arc::new(AgentProductService::new(store.clone()));
+    let product = Arc::new(AgentProductService::new_with_rejected_dispatch_for_test(
+        store.clone(),
+    ));
     assert!(broker.product.set(product.clone()).is_ok());
     let mut config = broker.config();
     config.workspaces = vec![Workspace {
@@ -556,7 +570,9 @@ async fn local_agent_start_holds_supervisor_operation_mutex_from_lease_to_create
     let response = tokio::task::spawn_blocking(move || start.join().unwrap())
         .await
         .unwrap();
+    assert_eq!(response["ok"], false);
     assert_eq!(response["error"]["code"], "AGENT_OPERATION_FAILED");
+    assert_eq!(response["control"]["requestAccepted"], true);
     let execution = store
         .product_read(None, None, None, 10)
         .await
@@ -564,6 +580,7 @@ async fn local_agent_start_holds_supervisor_operation_mutex_from_lease_to_create
         .pop()
         .unwrap()
         .execution;
+    assert_eq!(response["error"]["executionId"], execution.id);
     assert_eq!(execution.workspace_id, "W");
     assert_eq!(execution.canonical_workspace_root, root.to_string_lossy());
     assert_eq!(execution.workspace_generation, 9);
@@ -1443,4 +1460,20 @@ fn work_output_requires_all_fields_and_preserves_nullable_values() {
         assert_eq!(schema["anyOf"][0]["properties"]["ok"]["const"], true);
         assert_eq!(schema["anyOf"][1]["properties"]["ok"]["const"], false);
     }
+}
+
+#[test]
+fn manual_resolution_is_not_a_remote_mcp_mutation() {
+    assert!(
+        !orchestration::descriptors()
+            .iter()
+            .any(|tool| tool.name.contains("manual_resolve"))
+    );
+    assert!(
+        registry::validate(
+            "agent_execute",
+            &json!({"action":"manual_resolution","executionId":"e"}),
+        )
+        .is_err()
+    );
 }

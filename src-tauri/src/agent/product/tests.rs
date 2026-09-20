@@ -644,6 +644,25 @@ async fn fake_service(
     tokio::sync::oneshot::Sender<()>,
     tokio::task::JoinHandle<Vec<String>>,
 ) {
+    let (service, release, fake, _turn_started) =
+        fake_service_with_turn_started(store, db, runtime, turn, resume, mode).await;
+    (service, release, fake)
+}
+
+/// 构造可显式观察首个 turn/start 的进程内 Provider 测试服务。
+async fn fake_service_with_turn_started(
+    store: StateStore,
+    db: std::path::PathBuf,
+    runtime: &str,
+    turn: &str,
+    resume: bool,
+    mode: &str,
+) -> (
+    AgentProductService,
+    tokio::sync::oneshot::Sender<()>,
+    tokio::task::JoinHandle<Vec<String>>,
+    tokio::sync::oneshot::Receiver<()>,
+) {
     let (wire, server) = tokio::io::duplex(128 * 1024);
     let (read, write) = tokio::io::split(wire);
     let client = Arc::new(Client::product_test_transport(
@@ -657,12 +676,14 @@ async fn fake_service(
     let prompt_runtime = runtime.to_string();
     manager.test_client = Some((client.clone(), db));
     let (release, wait) = tokio::sync::oneshot::channel();
+    let (turn_started_tx, turn_started) = tokio::sync::oneshot::channel();
     let turn = turn.to_string();
     let mode = mode.to_string();
     let fake = tokio::spawn(async move {
         let mut io = BufReader::new(server);
         let mut methods = Vec::new();
         let mut wait = Some(wait);
+        let mut turn_started_tx = Some(turn_started_tx);
         loop {
             let mut line = String::new();
             if io.read_line(&mut line).await.unwrap() == 0 {
@@ -729,6 +750,10 @@ async fn fake_service(
                             "excludeSlashTmp":false
                         })
                     );
+                    // acceptance 不代表 Turn 已开始；仅在 fake 收到请求后通知等待者。
+                    if let Some(turn_started_tx) = turn_started_tx.take() {
+                        let _ = turn_started_tx.send(());
+                    }
                     wait.take().unwrap().await.unwrap();
                     let notification = json!({"method":"turn/completed","params":{"threadId":"THREAD","turn":terminal}});
                     io.write_all(format!("{notification}\n").as_bytes())
@@ -754,7 +779,12 @@ async fn fake_service(
         }
         methods
     });
-    (AgentProductService { store, manager }, release, fake)
+    (
+        AgentProductService { store, manager },
+        release,
+        fake,
+        turn_started,
+    )
 }
 #[test]
 fn async_receipt_idempotency_and_exact_continuation() {
