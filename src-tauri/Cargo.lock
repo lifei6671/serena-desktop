@@ -4499,7 +4499,7 @@ dependencies = [
 
 [[package]]
 name = "serena-desktop"
-version = "0.3.0"
+version = "1.1.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -4537,6 +4537,7 @@ dependencies = [
  "webview2-com",
  "windows 0.61.3",
  "windows-sys 0.61.2",
+ "winreg 0.10.1",
 ]
 
 [[package]]
@@ -5112,8 +5113,6 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-autostart"
 version = "2.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "459383cebc193cdd03d1ba4acc40f2c408a7abce419d64bdcd2d745bc2886f70"
 dependencies = [
  "auto-launch",
  "serde",
@@ -5168,8 +5167,6 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-single-instance"
 version = "2.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cd0cb5c412a5071b69bab6a6df1583cbb89460d4a83b6a24769b08d15b6b1e1"
 dependencies = [
  "serde",
  "serde_json",

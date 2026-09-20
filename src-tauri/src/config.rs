@@ -310,6 +310,62 @@ pub(crate) fn verify_workspace_serena_home(home: &Path, context: &Path) -> Resul
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    fn app_paths_resolve_from_tauri_identity_and_preserve_unicode_suffixes() {
+        use tauri::Manager;
+
+        let mut context = tauri::generate_context!();
+        context.config_mut().app.windows.clear();
+        let app = tauri::Builder::default()
+            .any_thread()
+            .build(context)
+            .expect("测试应用上下文必须可构建");
+        let handle = app.handle();
+        let paths = AppPaths::resolve(handle).expect("生产 Path API 必须能解析应用路径");
+        let config_dir = handle
+            .path()
+            .app_config_dir()
+            .expect("生产 Path API 必须能解析配置目录");
+        let data_dir = handle
+            .path()
+            .app_data_dir()
+            .expect("生产 Path API 必须能解析数据目录");
+        let log_dir = handle
+            .path()
+            .app_log_dir()
+            .expect("生产 Path API 必须能解析日志目录");
+
+        assert_eq!(paths.config_file, config_dir.join("config.json"));
+        assert_eq!(paths.runtime_directory, data_dir.join("runtime"));
+        assert_eq!(paths.log_directory, log_dir);
+        assert_eq!(
+            paths.runtime_directory.join("oauth-state.json"),
+            data_dir.join("runtime").join("oauth-state.json")
+        );
+
+        // Unicode fixture verifies the production PathBuf suffixes do not use ANSI conversion.
+        let unicode_data =
+            PathBuf::from(r"C:\Users\张三\AppData\Roaming\io.github.lifei6671.serena-desktop");
+        assert_eq!(
+            unicode_data.join("runtime").join("oauth-state.json"),
+            PathBuf::from(
+                r"C:\Users\张三\AppData\Roaming\io.github.lifei6671.serena-desktop\runtime\oauth-state.json"
+            )
+        );
+
+        println!(
+            "P6-003_PATH_SNAPSHOT identifier={} configDir={} dataDir={} logDir={} managerConfig={} agentStateDb={} oauthState={}",
+            handle.config().identifier,
+            config_dir.display(),
+            data_dir.display(),
+            log_dir.display(),
+            paths.config_file.display(),
+            data_dir.join("agent-state.db").display(),
+            paths.runtime_directory.join("oauth-state.json").display(),
+        );
+    }
+
     #[test]
     fn workspace_root_missing_returns_stable_error() {
         let directory = tempfile::tempdir().unwrap();

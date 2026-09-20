@@ -1,6 +1,6 @@
 [package]
 name = "serena-desktop"
-version = "0.3.0"
+version = "1.1.0"
 description = "A lightweight desktop supervisor for Serena MCP Server"
 authors = ["lifei6671"]
 edition = "2024"
@@ -47,9 +47,17 @@ regex = "1.13.1"
 webview2-com = "0.38.2"
 windows = "0.61.3"
 windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_RemoteDesktop", "Win32_System_SystemServices", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Win32_Globalization", "Win32_Storage_FileSystem"] }
+winreg = "0.10"
 
 [dev-dependencies]
 rcgen = "0.14.10"
+tauri = { version = "2.11.5", features = ["test"] }
 tokio = { version = "1.53.1", features = ["test-util"] }
 rustls = "0.23.43"
 tokio-rustls = "0.26.4"
+
+[patch.crates-io]
+# 固定 Windows single-instance ownership/IPC 竞态的本地上游补丁。
+tauri-plugin-single-instance = { path = "vendor/tauri-plugin-single-instance" }
+# 固定 Windows Run entry 的可执行文件引号，避免安装路径中的空格被截断。
+tauri-plugin-autostart = { path = "vendor/tauri-plugin-autostart" }

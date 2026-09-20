@@ -3,6 +3,8 @@
     reason = "TASK-001 foundation is retained without production consumers until Agent lifecycle integration"
 )]
 mod agent;
+#[cfg(windows)]
+mod autostart;
 mod codegraph_capability;
 mod commands;
 mod config;
@@ -111,6 +113,8 @@ pub fn run() {
         .setup(|app| {
             #[cfg(windows)]
             load_error::install(&app.get_webview_window("main").expect("main window"))?;
+            #[cfg(windows)]
+            autostart::refresh_enabled_registration(app.handle()).map_err(std::io::Error::other)?;
             #[cfg(windows)]
             app.get_webview_window("main")
                 .expect("main webview window must exist")

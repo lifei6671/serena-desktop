@@ -3,9 +3,7 @@ fn main() {
     if std::env::var("PROFILE").as_deref() == Ok("release")
         && std::env::var("DEP_TAURI_DEV").as_deref() == Ok("true")
     {
-        panic!(
-            "Production builds must embed the frontend. Run: npm run tauri -- build --no-bundle"
-        );
+        panic!("Production builds must embed the frontend. Run: npm run tauri -- build");
     }
     tauri_build::build();
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
