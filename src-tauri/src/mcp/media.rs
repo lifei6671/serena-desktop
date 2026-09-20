@@ -44,11 +44,9 @@ impl Broker {
             let root = lease.canonical_root;
             let worker_cancel = cancel.clone();
             // 图片读取和 CPU 编解码只持有本次请求解析出的 Root，不需要 Serena Runtime。
-            let result =
-                tokio::task::spawn_blocking(move || read(&root, &args.path, &worker_cancel))
-                    .await
-                    .map_err(|e| format!("IMAGE_DECODE_FAILED: {e}"))?;
-            result
+            tokio::task::spawn_blocking(move || read(&root, &args.path, &worker_cancel))
+                .await
+                .map_err(|e| format!("IMAGE_DECODE_FAILED: {e}"))?
         };
         tokio::select! {
             result = tokio::time::timeout(Duration::from_secs(60), work) => result.unwrap_or_else(|_| { cancel.cancel(); Err("TOOL_TIMEOUT".into()) }),

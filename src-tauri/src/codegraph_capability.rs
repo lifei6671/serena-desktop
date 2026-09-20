@@ -230,6 +230,7 @@ impl CodeGraphCapabilityProvider {
     }
 
     /// 用可控 probe 构造 Provider，供本模块测试验证 JSON、argv 和取消边界。
+    #[cfg(test)]
     fn with_probes(
         installation_probe: InstallationProbe,
         command_runner: CodeGraphCommandRunner,
@@ -913,7 +914,7 @@ mod tests {
         let calls = calls.lock().unwrap();
         let root = target.canonical_root.clone().into_os_string();
         assert_eq!(calls.len(), 6);
-        for (pair, expected) in calls.chunks_exact(2).zip([
+        for (pair, expected) in calls.as_chunks::<2>().0.iter().zip([
             ["init", "--yes"].as_slice(),
             ["sync"].as_slice(),
             ["index"].as_slice(),

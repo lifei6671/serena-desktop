@@ -410,10 +410,9 @@ async fn concurrent_finish_and_cancel_commit_exactly_one_terminal_revision() {
         ),
         other.work_terminal("work".into(), TerminalAction::Cancel, 20)
     );
-    let (winner, loser) = if finished.is_ok() {
-        (finished.unwrap(), cancelled.unwrap_err())
-    } else {
-        (cancelled.unwrap(), finished.unwrap_err())
+    let (winner, loser) = match finished {
+        Ok(winner) => (winner, cancelled.unwrap_err()),
+        Err(loser) => (cancelled.unwrap(), loser),
     };
     assert_eq!(loser, "WORK_NOT_ACTIVE");
     assert_eq!(winner.revision, 1);

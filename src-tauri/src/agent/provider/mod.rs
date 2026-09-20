@@ -76,6 +76,10 @@ pub struct ProviderStartupContext {}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[expect(
+    clippy::enum_variant_names,
+    reason = "五个变体名称与冻结的 AGENT_PROVIDER_* wire 错误码一一对应。"
+)]
 pub enum ProviderErrorCode {
     AgentProviderNotFound,
     AgentProviderUnavailable,

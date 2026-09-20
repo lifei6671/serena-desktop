@@ -501,16 +501,15 @@ mod tests {
         ];
         let (_directory, paths, supervisor) = fixture(config.clone());
         let bytes = fs::read(&paths.config_file).unwrap();
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(true);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
+        let original_permissions = fs::metadata(&paths.config_file).unwrap().permissions();
+        let mut readonly_permissions = original_permissions.clone();
+        readonly_permissions.set_readonly(true);
+        fs::set_permissions(&paths.config_file, readonly_permissions).unwrap();
 
         let result = supervisor.select_desktop_workspace("two");
 
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
         assert!(result.is_err());
+        fs::set_permissions(&paths.config_file, original_permissions).unwrap();
         assert_eq!(supervisor.workspace_registry_config(), config);
         assert_eq!(fs::read(&paths.config_file).unwrap(), bytes);
     }
@@ -525,19 +524,18 @@ mod tests {
         config.workspaces = vec![workspace("one", "One", "C:/one", 5)];
         let (_directory, paths, supervisor) = fixture(config.clone());
         let bytes = fs::read(&paths.config_file).unwrap();
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(true);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
+        let original_permissions = fs::metadata(&paths.config_file).unwrap().permissions();
+        let mut readonly_permissions = original_permissions.clone();
+        readonly_permissions.set_readonly(true);
+        fs::set_permissions(&paths.config_file, readonly_permissions).unwrap();
 
         let result = WorkspaceRegistry::new(&supervisor).mutate(|workspaces| {
             workspaces.push(workspace("two", "Two", "C:/two", 1));
             Ok(())
         });
 
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
         assert!(result.is_err());
+        fs::set_permissions(&paths.config_file, original_permissions).unwrap();
         assert_eq!(
             WorkspaceRegistry::new(&supervisor).list().registry_revision,
             13
@@ -735,7 +733,12 @@ mod tests {
         };
         let registry = WorkspaceRegistry::new(&supervisor);
 
-        assert_eq!(registry.import_serena(&[candidate.clone()]).unwrap(), 1);
+        assert_eq!(
+            registry
+                .import_serena(std::slice::from_ref(&candidate))
+                .unwrap(),
+            1
+        );
         let first = registry.list().workspaces.pop().unwrap();
         assert_generated_workspace_id(&first.id);
         assert_eq!(registry.remove(&first.id).unwrap(), first);
@@ -758,9 +761,10 @@ mod tests {
         let registry = WorkspaceRegistry::new(&supervisor);
         let before = registry.list();
         let bytes = fs::read(&paths.config_file).unwrap();
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(true);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
+        let original_permissions = fs::metadata(&paths.config_file).unwrap().permissions();
+        let mut readonly_permissions = original_permissions.clone();
+        readonly_permissions.set_readonly(true);
+        fs::set_permissions(&paths.config_file, readonly_permissions).unwrap();
 
         let result =
             WorkspaceRegistry::new(&supervisor).import_serena(&[WorkspaceImportCandidate {
@@ -768,10 +772,8 @@ mod tests {
                 name: "Imported".into(),
             }]);
 
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
         assert!(result.is_err());
+        fs::set_permissions(&paths.config_file, original_permissions).unwrap();
         assert_eq!(WorkspaceRegistry::new(&supervisor).list(), before);
         assert_eq!(fs::read(paths.config_file).unwrap(), bytes);
     }
@@ -911,16 +913,15 @@ mod tests {
             .join("persist-failure");
         fs::create_dir(&root).unwrap();
         let bytes = fs::read(&paths.config_file).unwrap();
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(true);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
+        let original_permissions = fs::metadata(&paths.config_file).unwrap().permissions();
+        let mut readonly_permissions = original_permissions.clone();
+        readonly_permissions.set_readonly(true);
+        fs::set_permissions(&paths.config_file, readonly_permissions).unwrap();
 
         let result = WorkspaceRegistry::new(&supervisor).register(root, None);
 
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
         assert!(result.is_err());
+        fs::set_permissions(&paths.config_file, original_permissions).unwrap();
         assert_eq!(
             WorkspaceRegistry::new(&supervisor).list().registry_revision,
             13
@@ -1105,25 +1106,22 @@ mod tests {
         let registry = WorkspaceRegistry::new(&supervisor);
         let bytes = fs::read(&paths.config_file).unwrap();
 
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(true);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
+        let original_permissions = fs::metadata(&paths.config_file).unwrap().permissions();
+        let mut readonly_permissions = original_permissions.clone();
+        readonly_permissions.set_readonly(true);
+        fs::set_permissions(&paths.config_file, readonly_permissions).unwrap();
         let rename = registry.rename("second", "Renamed".into());
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
         assert!(rename.is_err());
+        fs::set_permissions(&paths.config_file, original_permissions.clone()).unwrap();
         assert_eq!(registry.list().registry_revision, 13);
         assert_eq!(fs::read(&paths.config_file).unwrap(), bytes);
 
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(true);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
+        let mut readonly_permissions = original_permissions.clone();
+        readonly_permissions.set_readonly(true);
+        fs::set_permissions(&paths.config_file, readonly_permissions).unwrap();
         let reorder = registry.reorder(vec!["second".into(), "first".into()]);
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
         assert!(reorder.is_err());
+        fs::set_permissions(&paths.config_file, original_permissions).unwrap();
         assert_eq!(registry.list().registry_revision, 13);
         assert_eq!(fs::read(&paths.config_file).unwrap(), bytes);
         assert_eq!(
@@ -1256,16 +1254,15 @@ mod tests {
         config::save(&paths.config_file, &config).unwrap();
         let supervisor = SupervisorState::new(paths.clone()).unwrap();
         let bytes = fs::read(&paths.config_file).unwrap();
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(true);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
+        let original_permissions = fs::metadata(&paths.config_file).unwrap().permissions();
+        let mut readonly_permissions = original_permissions.clone();
+        readonly_permissions.set_readonly(true);
+        fs::set_permissions(&paths.config_file, readonly_permissions).unwrap();
 
         let result = WorkspaceRegistry::new(&supervisor).remove("only");
 
-        let mut permissions = fs::metadata(&paths.config_file).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(&paths.config_file, permissions).unwrap();
         assert!(result.is_err());
+        fs::set_permissions(&paths.config_file, original_permissions).unwrap();
         assert_eq!(
             WorkspaceRegistry::new(&supervisor).list().registry_revision,
             13

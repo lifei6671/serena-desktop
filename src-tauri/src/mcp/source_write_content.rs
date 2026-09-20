@@ -288,6 +288,10 @@ mod tests {
     }
 
     /// 以冻结 local DTO 调用 handler；测试不经由 Remote registry 或 Broker dispatch 进入 write 路径。
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "test-only helper explicitly carries write inputs, expected SHA, match constraints, cancellation/fault-injection control, and the local write boundary; a DTO would obscure fixture intent"
+    )]
     async fn replace(
         supervisor: &SupervisorState,
         relative_path: &str,

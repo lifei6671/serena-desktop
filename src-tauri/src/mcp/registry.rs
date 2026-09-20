@@ -225,7 +225,7 @@ fn source_description(name: &str) -> &'static str {
             "【做什么】\n读取指定 Workspace 中一个文本文件的全部或指定行范围，并返回已验证相对路径、完整文件 SHA-256 与 Workspace provenance。\n\n【什么时候使用】\n需要查看已登记 Workspace 内的源文件或文本配置时使用。\n\n【关键约束】\nworkspaceId 与 relative_path 必填；路径只能相对该 Workspace 根目录且不得越界。只支持 UTF-8 文本，max_bytes 默认 32768、范围 1–131072；超限时返回 truncated。"
         }
         "source_list_dir" => {
-            "【做什么】\n列出指定 Workspace 内目录的文件和子目录，可选择递归返回。\n\n【什么时候使用】\n需要浏览某个源码目录的结构、确认文件或子目录时使用。\n\n【关键约束】\nworkspaceId 与 relative_path 必填；路径只能相对该 Workspace 根目录且不得越界。recursive 默认 false；max_bytes 默认 65536、范围 1–262144；超限时返回 truncated。"
+            "【做什么】\n列出指定 Workspace 内目录的文件和子目录，可选择递归返回。\n\n【什么时候使用】\n需要浏览某个源码目录的结构、确认文件或子目录时使用；relative_path 传 `.` 可列出该 Workspace 根目录。\n\n【关键约束】\nworkspaceId 与 relative_path 必填；`.` 仅表示该 workspaceId 解析出的 Workspace root，其他路径只能相对该根目录且不得越界。recursive 默认 false；max_bytes 默认 65536、范围 1–262144；超限时返回 truncated。"
         }
         "source_find_file" => {
             "【做什么】\n在指定 Workspace 内按文件名 glob 查找文件，返回 Workspace-relative 路径。\n\n【什么时候使用】\n已知文件名、扩展名或通配模式，需要定位候选文件时使用。\n\n【关键约束】\nworkspaceId 与 file_mask 必填；relative_path 可限制搜索子树。搜索不会跟随 Workspace 外链接，并遵循本地忽略和隐藏文件规则；max_bytes 默认 65536、范围 1–262144。"

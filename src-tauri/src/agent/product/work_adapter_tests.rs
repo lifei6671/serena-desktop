@@ -168,12 +168,13 @@ async fn start_durable_receipt_retry_lineage_and_continuation_reuse_existing_wor
     assert_eq!(next.prompt, "next");
     assert_eq!(retry.unwrap().execution_id, next.execution_id);
     assert_ne!(next.execution_id, id);
-    assert_eq!(next.thread_id, terminal.thread_id);
     let child = store
         .execution(next.execution_id.clone())
         .await
         .unwrap()
         .unwrap();
+    // 并发重试的返回顺序不决定创建者；两者完成后从持久化行读取 Provider 已绑定的线程。
+    assert_eq!(child.thread_id, terminal.thread_id);
     // Continue 只继承父 Execution 的冻结快照，不接受调用端 Workspace。
     assert_eq!(child.workspace_id, parent.workspace_id);
     assert_eq!(
@@ -1153,7 +1154,7 @@ async fn resolver_start_and_remove_share_supervisor_operation_exclusion() {
         .await
         .unwrap();
     create_work(&store, &root, "work").await;
-    let (service, release, fake) = fake_service(
+    let (service, release, fake, turn_started) = fake_service_with_turn_started(
         store.clone(),
         directory.path().join("agent-state").join("agent-state.db"),
         "REMOVE_RACE",
@@ -1164,6 +1165,8 @@ async fn resolver_start_and_remove_share_supervisor_operation_exclusion() {
     .await;
     let (entered_tx, entered_rx) = std::sync::mpsc::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let (start_result_tx, start_result_rx) = std::sync::mpsc::channel();
+    let (runtime_release_tx, runtime_release_rx) = std::sync::mpsc::channel();
     let release_rx = Arc::new(std::sync::Mutex::new(release_rx));
     let hook_release = release_rx.clone();
     *supervisor.workspace_start_hook.lock().unwrap() = Some(Arc::new(move || {
@@ -1178,9 +1181,14 @@ async fn resolver_start_and_remove_share_supervisor_operation_exclusion() {
         tokio::runtime::Runtime::new()
             .unwrap()
             .block_on(async move {
-                start_service
+                let result = start_service
                     .agent_execute(start_work("work", "key"), start_supervisor.as_ref())
+                    .await;
+                start_result_tx.send(result).unwrap();
+                // 保持发起方 runtime 存活，直到 fake 已证明后台 worker 收到 turn/start。
+                tokio::task::spawn_blocking(move || runtime_release_rx.recv().unwrap())
                     .await
+                    .unwrap();
             })
     });
     tokio::task::spawn_blocking(move || entered_rx.recv().unwrap())
@@ -1212,13 +1220,18 @@ async fn resolver_start_and_remove_share_supervisor_operation_exclusion() {
     .await
     .unwrap();
     assert_eq!(remove.await.unwrap(), Err(WORKSPACE_IN_USE.into()));
+    let started = tokio::task::spawn_blocking(move || start_result_rx.recv().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    // accepted receipt 之后，显式等待 fake 收到 turn/start，而非假设其已经开始。
+    turn_started.await.unwrap();
     release.send(()).unwrap();
-    assert!(
-        tokio::task::spawn_blocking(move || start.join().unwrap())
-            .await
-            .unwrap()
-            .is_ok()
-    );
+    final_row(service.as_ref(), &started.execution_id).await;
+    runtime_release_tx.send(()).unwrap();
+    tokio::task::spawn_blocking(move || start.join().unwrap())
+        .await
+        .unwrap();
     drop(service);
     assert!(
         fake.await

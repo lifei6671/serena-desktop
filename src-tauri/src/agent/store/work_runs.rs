@@ -30,6 +30,10 @@ pub struct WorkExecutionLinkRecord {
 }
 
 impl StateStore {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "stable Work creation persistence API boundary; changing it for one lint would churn established call sites"
+    )]
     pub async fn create_work_run(
         &self,
         id: String,

@@ -439,7 +439,7 @@ impl CodexProvider {
             return Err(ExecutionFailure::Runtime(failure));
         }
         let row = self.row(id).await?;
-        if result.is_err()
+        if let Err(result_error) = &result
             && !matches!(
                 row.status.as_str(),
                 "completed" | "failed" | "cancelled" | "interrupted"
@@ -463,7 +463,7 @@ impl CodexProvider {
                     mark_unknown(&self.store, id).await?;
                     return Err(ExecutionFailure::State(format!(
                         "{}; reconciliation: {error}",
-                        result.unwrap_err()
+                        result_error
                     )));
                 }
             }

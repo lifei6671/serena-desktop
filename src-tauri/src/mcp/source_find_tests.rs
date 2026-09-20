@@ -2,7 +2,7 @@ use super::*;
 use serde_json::json;
 use std::{
     fs,
-    path::{MAIN_SEPARATOR, Path},
+    path::{MAIN_SEPARATOR_STR, Path},
     sync::mpsc,
     time::Duration,
 };
@@ -39,7 +39,7 @@ fn files(output: &Value) -> Value {
 
 /// 当前平台的相对路径分隔符必须与既有 Source 文本兼容。
 fn path(parts: &[&str]) -> String {
-    parts.join(&MAIN_SEPARATOR.to_string())
+    parts.join(MAIN_SEPARATOR_STR)
 }
 
 /// exact、wildcard、no-match 与 basename-only 均不读取文件正文。

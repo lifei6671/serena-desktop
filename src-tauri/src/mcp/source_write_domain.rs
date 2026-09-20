@@ -12,6 +12,13 @@ pub(crate) const RESULT_TEXT_FILE_MAX: usize = 8 * 1024 * 1024;
 
 /// 尚未路由的六个 Source Write Tool 的稳定 domain identity。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "六个未公开 Source Write 的冻结 domain identity 仅由契约回归保留。"
+    )
+)]
 pub(crate) enum SourceWriteTool {
     #[serde(rename = "source_create_text_file")]
     CreateTextFile,
@@ -27,6 +34,13 @@ pub(crate) enum SourceWriteTool {
     ReplaceContent,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "冻结的 Tool 列表和 wire 名称仅用于未公开 Source Write 的契约回归。"
+    )
+)]
 impl SourceWriteTool {
     /// 以冻结顺序返回全部未来 Tool 名称，仅供内部 domain identity 使用。
     pub(crate) const ALL: [Self; 6] = [
@@ -167,6 +181,7 @@ impl ExpectedSha256 {
     }
 
     /// 返回可用于 JSON 或日志边界的冻结小写 token。
+    #[cfg(test)]
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
@@ -207,6 +222,7 @@ impl VersionedSourceWriteTarget {
     }
 
     /// 消费 versioned 输入并取出 Workspace authority，供后续纯校验与路径解析复用。
+    #[cfg(test)]
     pub(crate) fn into_target(self) -> SourceWriteTarget {
         SourceWriteTarget {
             workspace_id: self.workspace_id,

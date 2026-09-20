@@ -211,12 +211,16 @@ fn failure_projection(
         status: CapabilityAvailability::Error,
         runtime_state,
         checked_at: current_checked_at(),
-        stages: descriptor_valid
-            .then(|| descriptor_stages(descriptor, CapabilityStageState::Unknown))
-            .unwrap_or_default(),
-        actions: descriptor_valid
-            .then(|| descriptor_actions(descriptor))
-            .unwrap_or_default(),
+        stages: if descriptor_valid {
+            descriptor_stages(descriptor, CapabilityStageState::Unknown)
+        } else {
+            Default::default()
+        },
+        actions: if descriptor_valid {
+            descriptor_actions(descriptor)
+        } else {
+            Default::default()
+        },
     }
 }
 

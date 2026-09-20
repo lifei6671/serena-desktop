@@ -98,6 +98,10 @@ fn read_and_recapture(
 }
 
 /// 执行 before/after 一致性检查；两个测试 hook 精确控制正文读取与 post-capture 的并发时序。
+#[expect(
+    clippy::too_many_arguments,
+    reason = "测试 seam 需显式保留读取参数、取消 token 与两个并发时序 hook，避免改变版本捕获语义"
+)]
 fn read_and_recapture_with_hooks<ReadHook, CaptureHook>(
     lease: &WorkspaceLease,
     relative_path: &str,

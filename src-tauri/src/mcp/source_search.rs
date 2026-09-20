@@ -124,6 +124,10 @@ fn search_with_limits(
 }
 
 /// 测试 hook 精确控制 traversal 与文件读取取消时序；production 均为无操作。
+#[expect(
+    clippy::too_many_arguments,
+    reason = "测试 seam 需显式保留搜索预算、取消 token 与 traversal/读取 hook，避免改变预算边界"
+)]
 fn search_with_limits_and_hooks<EntryHook, ReadHook>(
     lease: &WorkspaceLease,
     relative_path: Option<&str>,
@@ -353,6 +357,10 @@ where
 }
 
 /// 只在完整行命中后提交；超出预算或 match hard limit 时撤回并通知上层停止。
+#[expect(
+    clippy::too_many_arguments,
+    reason = "流式搜索必须在单行提交点聚合 CRLF、regex、JSON byte budget 与 match limit 状态"
+)]
 fn submit_line(
     line: &mut Vec<u8>,
     line_number: usize,
@@ -518,7 +526,7 @@ fn is_reparse_point(metadata: &fs::Metadata) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
-        return metadata.file_attributes() & 0x400 != 0;
+        metadata.file_attributes() & 0x400 != 0
     }
     #[cfg(not(windows))]
     {

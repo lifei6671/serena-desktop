@@ -2,7 +2,7 @@ use super::*;
 use serde_json::json;
 use std::{
     fs,
-    path::{MAIN_SEPARATOR, Path},
+    path::{MAIN_SEPARATOR_STR, Path},
     sync::mpsc,
     time::Duration,
 };
@@ -31,7 +31,7 @@ async fn search_at(lease: &WorkspaceLease, arguments: SourceArgs) -> Result<Valu
 
 /// 当前平台分隔符必须保持 Source compatibility 的相对路径文本形态。
 fn path(parts: &[&str]) -> String {
-    parts.join(&MAIN_SEPARATOR.to_string())
+    parts.join(MAIN_SEPARATOR_STR)
 }
 
 /// 搜索 text 是没有包装字段的稳定 JSON map，不能泄露 absolute root。

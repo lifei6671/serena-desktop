@@ -145,7 +145,7 @@ fn runtime_failure(code: &'static str) -> super::super::runtime::RuntimeFailure 
 
 #[test]
 fn recovery_outcomes_map_all_frozen_kinds_in_input_order() {
-    let outcomes = vec![
+    let outcomes = [
         RecoveryOutcome::OrphanRuntime {
             runtime_id: "orphan-recovered".into(),
             failure: None,

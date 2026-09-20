@@ -450,6 +450,13 @@ impl SupervisorState {
         result
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "仅供 Source Write workspace-generation drift 回归替换 workspace registry。"
+        )
+    )]
     pub fn replace_workspaces(
         &self,
         workspaces: Vec<crate::config::Workspace>,

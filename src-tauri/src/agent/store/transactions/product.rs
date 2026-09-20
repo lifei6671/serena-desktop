@@ -473,6 +473,10 @@ impl StateStore {
             .await
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "stable atomic continuation creation transaction boundary; changing it for one lint would churn established call sites"
+    )]
     pub(crate) async fn product_create_continuation_with_work(
         &self,
         id: String,

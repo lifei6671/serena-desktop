@@ -337,7 +337,7 @@ pub(crate) async fn reconcile_execution_after_runtime_end(
     // R2 is read-only and cannot be created until original Job recovery succeeded.
     if row.thread_id.is_some() && row.turn_id.is_some() {
         let recovery_id = AgentTaskManager::id("recovery-runtime");
-        let scope = RecoveryScope::after_termination_for_execution(&store, &id, &recovery_id).await;
+        let scope = RecoveryScope::after_termination_for_execution(store, &id, &recovery_id).await;
         match scope {
             Err(error) => diagnostic = Some(error.to_string()),
             Ok(scope) => {

@@ -1007,18 +1007,19 @@ mod integration_tests {
         assert_eq!(result_a["workspace"]["generation"], workspace_a.generation);
         assert_eq!(result_b["workspace"]["id"], workspace_b.id);
         assert_eq!(result_b["workspace"]["generation"], workspace_b.generation);
-        let calls = provider.calls.lock().unwrap();
-        assert_eq!(calls.len(), 2);
-        assert_eq!(calls[0].0.workspace_id, workspace_a.id);
-        assert_eq!(calls[1].0.workspace_id, workspace_b.id);
-        for (_, tool) in calls.iter() {
-            let arguments = tool.arguments.as_object().unwrap();
-            assert!(arguments.get("workspaceId").is_none());
-            for forbidden in ["root", "canonicalRoot", "projectPath"] {
-                assert!(arguments.get(forbidden).is_none(), "{forbidden}");
+        {
+            let calls = provider.calls.lock().unwrap();
+            assert_eq!(calls.len(), 2);
+            assert_eq!(calls[0].0.workspace_id, workspace_a.id);
+            assert_eq!(calls[1].0.workspace_id, workspace_b.id);
+            for (_, tool) in calls.iter() {
+                let arguments = tool.arguments.as_object().unwrap();
+                assert!(arguments.get("workspaceId").is_none());
+                for forbidden in ["root", "canonicalRoot", "projectPath"] {
+                    assert!(arguments.get(forbidden).is_none(), "{forbidden}");
+                }
             }
         }
-        drop(calls);
         for arguments in [
             json!({
                 "workspaceId":workspace_a.id,
@@ -1092,16 +1093,17 @@ mod integration_tests {
             );
         }
         drop(legacy_active_lock);
-        let calls = provider.calls.lock().unwrap();
-        // 四个基础 Source 均只走本地 Rust；本段调用不应触发 Serena Provider。
-        assert_eq!(calls.len(), 2);
-        assert!(calls.iter().all(|(_, tool)| {
-            tool.tool_name != "source_read_file"
-                && tool.tool_name != "source_list_dir"
-                && tool.tool_name != "source_find_file"
-                && tool.tool_name != "source_search_pattern"
-        }));
-        drop(calls);
+        {
+            let calls = provider.calls.lock().unwrap();
+            // 四个基础 Source 均只走本地 Rust；本段调用不应触发 Serena Provider。
+            assert_eq!(calls.len(), 2);
+            assert!(calls.iter().all(|(_, tool)| {
+                tool.tool_name != "source_read_file"
+                    && tool.tool_name != "source_list_dir"
+                    && tool.tool_name != "source_find_file"
+                    && tool.tool_name != "source_search_pattern"
+            }));
+        }
         for relative_path in ["../outside", "C:/outside", "\\\\server\\share"] {
             assert!(
                 broker

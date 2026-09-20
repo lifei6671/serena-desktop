@@ -443,16 +443,15 @@ pub fn notification(method: String, params: Value) -> Result<Notification> {
                 .ok_or_else(|| {
                     ProtocolError::incompatible("ErrorNotification requires an error object")
                 })?;
-            if let Some(details) = error.get("misalignment").filter(|value| !value.is_null()) {
-                if !details.is_object()
+            if let Some(details) = error.get("misalignment").filter(|value| !value.is_null())
+                && (!details.is_object()
                     || details
                         .get("steer")
-                        .is_some_and(|steer| !steer.is_null() && !steer.is_object())
-                {
-                    return Err(ProtocolError::incompatible(
-                        "Misalignment details and steer must be objects",
-                    ));
-                }
+                        .is_some_and(|steer| !steer.is_null() && !steer.is_object()))
+            {
+                return Err(ProtocolError::incompatible(
+                    "Misalignment details and steer must be objects",
+                ));
             }
             // Serde also accepts {"unitVariant":null}; the fixed schema does not.
             if let Some(info) = params
@@ -476,12 +475,12 @@ pub fn notification(method: String, params: Value) -> Result<Notification> {
                         "Invalid codexErrorInfo object variant",
                     ));
                 }
-                if let Some(active) = info.get("activeTurnNotSteerable") {
-                    if !active.get("turnKind").is_some_and(Value::is_string) {
-                        return Err(ProtocolError::incompatible(
-                            "turnKind must be a schema enum string",
-                        ));
-                    }
+                if let Some(active) = info.get("activeTurnNotSteerable")
+                    && !active.get("turnKind").is_some_and(Value::is_string)
+                {
+                    return Err(ProtocolError::incompatible(
+                        "turnKind must be a schema enum string",
+                    ));
                 }
             }
             let notification: ErrorNotification = from_value(params)?;

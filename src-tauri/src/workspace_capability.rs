@@ -958,6 +958,9 @@ struct RuntimeStop {
     flight: Arc<StopFlight>,
 }
 
+/// idle stop 选中的 Runtime ownership 与其唯一 Provider 配对返回。
+type IdleRuntimeStop = (RuntimeStop, Arc<dyn WorkspaceCapabilityProvider>);
+
 /// stop 成功后由同一调度边界执行的后续动作，避免容量交接出现可见窗口。
 enum StopCompletion {
     /// idle timeout 仅将 Slot 收敛为 stopped，不产生 replacement。
@@ -1402,10 +1405,7 @@ impl WorkspaceCapabilityManager {
     }
 
     /// 在 Manager 锁内选中一个已超过 timeout 的 idle Slot，并原子转移其 stop ownership。
-    fn begin_idle_stop(
-        &self,
-    ) -> Result<Option<(RuntimeStop, Arc<dyn WorkspaceCapabilityProvider>)>, WorkspaceCapabilityError>
-    {
+    fn begin_idle_stop(&self) -> Result<Option<IdleRuntimeStop>, WorkspaceCapabilityError> {
         let now = Instant::now();
         let table = lock_unpoisoned(&self.runtime_slots);
         let mut candidate = None;
@@ -1477,10 +1477,10 @@ impl WorkspaceCapabilityManager {
         let flight = Arc::clone(&stop.flight);
         tokio::spawn(async move {
             let result = Self::complete_slot_stop(runtime_slots, stop, provider, completion).await;
-            if let Err(result) = completion_sender.send(result) {
-                if let Ok(StopResult::ResumeAcquire(decision)) = result {
-                    Self::cancel_unclaimed_acquire(decision);
-                }
+            if let Err(result) = completion_sender.send(result)
+                && let Ok(StopResult::ResumeAcquire(decision)) = result
+            {
+                Self::cancel_unclaimed_acquire(decision);
             }
         });
         tokio::time::timeout(flight.remaining(), completion_receiver)
@@ -2273,12 +2273,12 @@ mod tests {
             let plan = lock_unpoisoned(&self.prepare_plans).pop_front();
             Box::pin(async move {
                 self.prepare_entered.notify_one();
-                if let Some(plan) = plan {
-                    if matches!(plan.await, Ok(CallPlan::Failure) | Err(_)) {
-                        return Err(CapabilityProviderError {
-                            code: CapabilityProviderErrorCode::OperationFailed,
-                        });
-                    }
+                if let Some(plan) = plan
+                    && matches!(plan.await, Ok(CallPlan::Failure) | Err(_))
+                {
+                    return Err(CapabilityProviderError {
+                        code: CapabilityProviderErrorCode::OperationFailed,
+                    });
                 }
                 Ok(CapabilityPrepareResult {
                     readiness: CapabilityReadinessState::Ready,
@@ -2843,9 +2843,10 @@ mod tests {
         ] {
             assert_eq!(serde_json::to_value(value).unwrap(), expected);
         }
-        for (value, expected) in [(CapabilityActionAuthority::LocalHuman, "local_human")] {
-            assert_eq!(serde_json::to_value(value).unwrap(), expected);
-        }
+        assert_eq!(
+            serde_json::to_value(CapabilityActionAuthority::LocalHuman).unwrap(),
+            "local_human"
+        );
         for (value, expected) in [
             (
                 CapabilityActionExecution::ManagerEnsureRuntime,
@@ -3773,10 +3774,11 @@ mod tests {
         assert_eq!(provider.starts.load(Ordering::SeqCst), 1);
         assert_eq!(provider.stops.load(Ordering::SeqCst), 1);
         let original = runtime_slot(&manager, "generic", &workspace_a);
-        let original_state = lock_unpoisoned(&original.state);
-        assert_eq!(original_state.lifecycle, CapabilityRuntimeState::Error);
-        assert!(original_state.runtime.is_some());
-        drop(original_state);
+        {
+            let original_state = lock_unpoisoned(&original.state);
+            assert_eq!(original_state.lifecycle, CapabilityRuntimeState::Error);
+            assert!(original_state.runtime.is_some());
+        }
         assert_eq!(
             WorkspaceCapabilityManager::allocated_capacity(
                 &lock_unpoisoned(&manager.runtime_slots),
@@ -3873,10 +3875,11 @@ mod tests {
         );
         stop.send(StopPlan::Failure).unwrap();
         completion.await;
-        let state = lock_unpoisoned(&original.state);
-        assert_eq!(state.lifecycle, CapabilityRuntimeState::Error);
-        assert!(state.runtime.is_some());
-        drop(state);
+        {
+            let state = lock_unpoisoned(&original.state);
+            assert_eq!(state.lifecycle, CapabilityRuntimeState::Error);
+            assert!(state.runtime.is_some());
+        }
 
         let retained_error = match manager.acquire_runtime("generic", workspace_a).await {
             Err(error) => error,
@@ -4016,10 +4019,11 @@ mod tests {
         };
         assert_eq!(error.code, WorkspaceCapabilityErrorCode::StopFailed);
         let slot = runtime_slot(&manager, "generic", &workspace);
-        let state = lock_unpoisoned(&slot.state);
-        assert_eq!(state.lifecycle, CapabilityRuntimeState::Error);
-        assert!(state.runtime.is_some());
-        drop(state);
+        {
+            let state = lock_unpoisoned(&slot.state);
+            assert_eq!(state.lifecycle, CapabilityRuntimeState::Error);
+            assert!(state.runtime.is_some());
+        }
         let acquire_error = match manager.acquire_runtime("generic", workspace).await {
             Err(error) => error,
             Ok(_) => panic!("retained handle must reject replacement acquire"),
@@ -4046,10 +4050,11 @@ mod tests {
         };
         assert_eq!(error.code, WorkspaceCapabilityErrorCode::StopFailed);
         let slot = runtime_slot(&manager, "generic", &workspace);
-        let state = lock_unpoisoned(&slot.state);
-        assert_eq!(state.lifecycle, CapabilityRuntimeState::Stopping);
-        assert!(state.runtime.is_none());
-        drop(state);
+        {
+            let state = lock_unpoisoned(&slot.state);
+            assert_eq!(state.lifecycle, CapabilityRuntimeState::Stopping);
+            assert!(state.runtime.is_none());
+        }
         let acquire_error = match manager.acquire_runtime("generic", workspace.clone()).await {
             Err(error) => error,
             Ok(_) => panic!("timed-out stop must retain its admission ownership"),

@@ -923,9 +923,10 @@ mod tests {
         let (_directory, supervisor, workspace, root, _paths) = fixture();
         let target = root.join("readonly.txt");
         fs::write(&target, b"OLD complete file").unwrap();
-        let mut permissions = fs::metadata(&target).unwrap().permissions();
-        permissions.set_readonly(true);
-        fs::set_permissions(&target, permissions).unwrap();
+        let original_permissions = fs::metadata(&target).unwrap().permissions();
+        let mut readonly_permissions = original_permissions.clone();
+        readonly_permissions.set_readonly(true);
+        fs::set_permissions(&target, readonly_permissions).unwrap();
         let locked = lock_target(
             supervisor.as_ref(),
             &workspace,
@@ -940,9 +941,7 @@ mod tests {
         );
         assert_eq!(fs::read(&target).unwrap(), b"OLD complete file");
         assert!(replace_temp_paths(&root).is_empty());
-        let mut permissions = fs::metadata(&target).unwrap().permissions();
-        permissions.set_readonly(false);
-        fs::set_permissions(target, permissions).unwrap();
+        fs::set_permissions(target, original_permissions).unwrap();
     }
 
     /// Windows 独占 target handle 的真实 sharing violation 必须保持 OLD，且失败不能留下本次 temp。

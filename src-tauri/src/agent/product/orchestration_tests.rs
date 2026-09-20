@@ -656,8 +656,7 @@ async fn public_vertical_work_source_start_continue_acceptance_e2e() {
         initial_work
     );
 
-    let read_args =
-        json!({"relative_path":"context.txt","start_line":1,"end_line":1,"max_bytes":6});
+    let read_args = json!({"workspaceId":"W","relative_path":"context.txt","start_line":1,"end_line":1,"max_bytes":6});
     let source = call(&broker, "source_read_file", read_args.clone()).await;
     assert_eq!(source["path"], "context.txt");
     assert_eq!(source["text"], "second");
@@ -676,7 +675,7 @@ async fn public_vertical_work_source_start_continue_acceptance_e2e() {
     let full_source = call(
         &broker,
         "source_read_file",
-        json!({"relative_path":"context.txt"}),
+        json!({"workspaceId":"W","relative_path":"context.txt"}),
     )
     .await;
     assert_eq!(full_source["sha256"], source["sha256"]);

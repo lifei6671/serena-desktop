@@ -906,7 +906,7 @@ async fn pre_c2_null_parent_row_has_only_exact_legacy_retry_compatibility() {
         .unwrap(),
     )
     .unwrap();
-    let legacy = legacy_pre_c2_continuation_hash(&request.input(), &source.thread_id).unwrap();
+    let legacy = legacy_pre_c2_continuation_hash(request.input(), &source.thread_id).unwrap();
     store
         .connection
         .lock()
