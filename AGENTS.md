@@ -3,6 +3,7 @@
 ## 代码规范
 
 - 所有代码必须有中文注释包括函数注释和核心逻辑注释
+- 涉及到 UI 实现的必须严格遵守 `docs/ui/DESIGN.md` 规范
 
 <!-- TRELLIS:START -->
 # Trellis Instructions
