@@ -2,7 +2,7 @@ use super::*;
 use serde_json::json;
 use std::{
     fs,
-    path::{MAIN_SEPARATOR, Path},
+    path::{MAIN_SEPARATOR_STR, Path},
     sync::mpsc,
     time::Duration,
 };
@@ -40,7 +40,7 @@ fn listing(output: &Value) -> Value {
 
 /// 当前平台的相对路径分隔符必须与既有 list_dir 文本契约一致。
 fn path(parts: &[&str]) -> String {
-    parts.join(&MAIN_SEPARATOR.to_string())
+    parts.join(MAIN_SEPARATOR_STR)
 }
 
 /// empty directory 必须以完整 JSON object 而非空文本返回。
@@ -60,6 +60,31 @@ async fn source_list_dir_lists_an_empty_directory() {
     );
     assert_eq!(listing(&output), json!({"dirs":[],"files":[]}));
     assert_eq!(output["truncated"], false);
+}
+
+/// `.` 只能枚举各自 captured Lease 的 root，不能因进程目录或全局选择串到另一个 Workspace。
+#[tokio::test]
+async fn source_list_dir_uses_captured_lease_root_for_dot() {
+    let directory = tempfile::tempdir().unwrap();
+    let root_a = directory.path().join("a");
+    let root_b = directory.path().join("b");
+    fs::create_dir(&root_a).unwrap();
+    fs::create_dir(&root_b).unwrap();
+    fs::write(root_a.join("only-a.txt"), "a").unwrap();
+    fs::write(root_b.join("only-b.txt"), "b").unwrap();
+    let lease_a = lease(&root_a, "workspace-a", 12);
+    let lease_b = lease(&root_b, "workspace-b", 31);
+
+    let (a, b) = tokio::join!(
+        list_at(&lease_a, arguments(".")),
+        list_at(&lease_b, arguments(".")),
+    );
+    let a = a.unwrap();
+    let b = b.unwrap();
+    assert_eq!(a["workspace"], json!({"id":"workspace-a","generation":12}));
+    assert_eq!(b["workspace"], json!({"id":"workspace-b","generation":31}));
+    assert_eq!(listing(&a)["files"], json!(["only-a.txt"]));
+    assert_eq!(listing(&b)["files"], json!(["only-b.txt"]));
 }
 
 /// direct 与 recursive 两种模式必须有确定的分组、排序和层级语义。
@@ -150,7 +175,7 @@ async fn source_list_dir_enforces_budget_and_never_breaks_json() {
     }
 }
 
-/// 空路径、root、绝对、UNC、drive 与 parent 均由唯一 Resolver 拒绝，文件目标则报稳定目录错误。
+/// 空路径、绝对、UNC、drive 与 parent 均由唯一 Resolver 拒绝，文件目标则报稳定目录错误。
 #[tokio::test]
 async fn source_list_dir_rejects_invalid_paths_and_non_directories() {
     let directory = tempfile::tempdir().unwrap();
@@ -159,14 +184,7 @@ async fn source_list_dir_rejects_invalid_paths_and_non_directories() {
     fs::write(root.join("file.txt"), "file").unwrap();
     let lease = lease(&root, "workspace-a", 12);
 
-    for path in [
-        "",
-        ".",
-        "..",
-        "../outside",
-        "C:/outside",
-        "\\\\server\\share",
-    ] {
+    for path in ["", "..", "../outside", "C:/outside", "\\\\server\\share"] {
         assert!(
             list_at(&lease, arguments(path))
                 .await

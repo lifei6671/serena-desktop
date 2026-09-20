@@ -133,7 +133,12 @@ where
 {
     source_read_support::check_cancelled(cancel)?;
     let root = source_read_support::workspace_root(lease)?;
-    let target = source_read_support::resolve_relative_path(lease, relative_path)?;
+    // `.` 只表示已捕获 Lease 的根目录，不能借此接受调用方目录或其他绝对路径。
+    let target = if relative_path == "." {
+        root.clone()
+    } else {
+        source_read_support::resolve_relative_path(lease, relative_path)?
+    };
     let metadata = fs::metadata(&target).map_err(|_| "INVALID_PATH: target is unavailable")?;
     if !metadata.is_dir() {
         return Err("INVALID_PATH: expected a directory".into());
@@ -144,7 +149,11 @@ where
     if truncated {
         return finish_listing(listing, true);
     }
-    let target_relative = workspace_relative_path(&root, &target)?;
+    let target_relative = if target == root {
+        ".".into()
+    } else {
+        workspace_relative_path(&root, &target)?
+    };
     let mut pending = VecDeque::from([PendingDirectory {
         relative_path: target_relative,
         depth: 0,
@@ -158,7 +167,11 @@ where
             break;
         }
         // 重新解析 queue item，防止其在入队后被替换为 root 外的链接目标。
-        let directory = source_read_support::resolve_relative_path(lease, &current.relative_path)?;
+        let directory = if current.relative_path == "." {
+            root.clone()
+        } else {
+            source_read_support::resolve_relative_path(lease, &current.relative_path)?
+        };
         let directory_metadata =
             fs::symlink_metadata(&directory).map_err(|_| "INVALID_PATH: target is unavailable")?;
         if is_reparse_point(&directory_metadata) {
@@ -290,7 +303,7 @@ fn is_reparse_point(metadata: &fs::Metadata) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
-        return metadata.file_attributes() & 0x400 != 0;
+        metadata.file_attributes() & 0x400 != 0
     }
     #[cfg(not(windows))]
     {
