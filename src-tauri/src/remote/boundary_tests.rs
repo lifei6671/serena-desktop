@@ -575,7 +575,7 @@ fn disconnected_quick_tunnel_keeps_configured_mode_without_context_or_restart() 
 }
 
 #[tokio::test]
-async fn metadata_and_401_without_working_handler_cannot_be_ready() {
+async fn broker_handshake_without_serena_fixture_reaches_ready() {
     let directory = tempfile::tempdir().unwrap();
     let paths = paths(directory.path());
     let config = configuration();
@@ -606,15 +606,16 @@ async fn metadata_and_401_without_working_handler_cannot_be_ready() {
     };
     drop(probe_guard);
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        while broker.remote.snapshot().status != Status::Error {
+        while broker.remote.snapshot().status != Status::Ready {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     })
     .await
     .unwrap();
-    assert!(broker.remote.snapshot().public_context.is_none());
+    assert!(broker.remote.snapshot().public_context.is_some());
     assert_eq!(broker.remote.policy(), McpAuthPolicy::EmbeddedOAuth);
-    assert!(broker.remote.probe().await.is_err());
+    broker.remote.probe().await.unwrap();
+    assert!(broker.remote.snapshot().status == Status::Ready);
     broker.stop().await.unwrap();
 }
 
@@ -1038,7 +1039,7 @@ async fn self_hosted_startup_waits_for_delayed_serena_before_probe() {
 }
 
 #[tokio::test]
-async fn quick_manual_probe_failure_hides_url_and_retry_restores_ready() {
+async fn quick_manual_probe_ready_is_independent_of_serena_fixture_lifecycle() {
     let directory = tempfile::tempdir().unwrap();
     let paths = paths(directory.path());
     let config = configuration();
@@ -1062,9 +1063,9 @@ async fn quick_manual_probe_failure_hides_url_and_retry_restores_ready() {
     let fixture = crate::serena::remote_fixture::attach(broker.supervisor.clone()).await;
     broker.remote.probe().await.unwrap();
     drop(fixture);
-    assert!(broker.remote.probe().await.is_err());
-    assert!(broker.remote.snapshot().status == Status::Error);
-    assert!(broker.remote.snapshot().public_context.is_none());
+    broker.remote.probe().await.unwrap();
+    assert!(broker.remote.snapshot().status == Status::Ready);
+    assert!(broker.remote.snapshot().public_context.is_some());
     assert!(!cancel.is_cancelled());
     assert_eq!(broker.remote.policy(), McpAuthPolicy::EmbeddedOAuth);
     assert!(broker.remote.inner.lock().unwrap().oauth.is_some());

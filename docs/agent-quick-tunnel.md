@@ -96,7 +96,7 @@ Probe 失败只返回 `REMOTE_PUBLIC_PROBE_FAILED: stage=... category=... host=.
 
 Quick Tunnel 仍在同一个 Tunnel 中使用固定 45 秒总验证 deadline、每请求 10 秒 timeout、2 秒间隔及最后诊断；进程退出立即中断等待，绝不自动创建新 Tunnel。Ready 仍要求本机通过公网 URL 完成全部 Probe；不因本机 DNS/代理/回环问题降级为 PID 或 401 就绪。
 
-内部凭据通过本机内存创建，仅保存散列，60 秒失效；不创建 Client、Pending 或用户 Grant，不弹授权框，不增加公开 probe/免认证 endpoint。Probe 串行，正常结束、错误、取消或 Runtime 更换都会撤销凭据。HTTPS 不跟随重定向；每次请求 10 秒，metadata 上限 16 KiB，MCP 响应上限 4 MiB。真实 Serena 不可用时不会假 Ready；本地测试的 upstream fixture 明确不代表真实 Serena 或 ChatGPT。
+内部凭据通过本机内存创建，仅保存散列，60 秒失效；不创建 Client、Pending 或用户 Grant，不弹授权框，不增加公开 probe/免认证 endpoint。Probe 串行，正常结束、错误、取消或 Runtime 更换都会撤销凭据。HTTPS 不跟随重定向；每次请求 10 秒，metadata 上限 16 KiB，MCP 响应上限 4 MiB。Ready 只证明公网 Transport、OAuth 边界及 MCP surface 已通过 Probe；`tools/list` 成功只证明 Broker 能返回本地公开工具描述，不代表 Serena、CodeGraph 或其他 Capability healthy。Serena/Capability 健康独立展示；Serena 未就绪时 Broker 仍可提供管理与本地能力。本地测试的 upstream fixture 明确不代表真实 Serena 或 ChatGPT。
 
 本机授权对话框与浏览器显示同一确认码。浏览器只能等待/轮询；允许或拒绝来自本机 IPC。OAuth 响应保留 no-store、no-referrer、CSP、DENY 等保护。
 

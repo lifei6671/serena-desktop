@@ -6,7 +6,7 @@
 
 选择卡片只阅读说明，点击应用才修改配置。操作进行中禁用卡片和重复提交；运行中的自建地址不可修改。应用任一不同连接方式时，单次操作会先停止现有远程运行时并撤销旧授权，再保存并启动目标方式；无需用户先手动停止。应用仅 MCP 后解除本机 OAuth，并按所选声明恢复 Passthrough。
 
-快捷隧道显示组件检查/安装、URL 发现、公网验证、Ready、失败、断连或停止状态。Ready 之前不提供可复制公网 MCP 地址。Ready 表示公网 metadata、认证挑战和使用短期内部凭据的真实 `initialize`/`tools/list` 成功，不代表 ChatGPT 已完成授权。后台 Serena 不可用会令 Probe 失败。
+快捷隧道显示组件检查/安装、URL 发现、公网验证、Ready、失败、断连或停止状态。Ready 之前不提供可复制公网 MCP 地址。Ready 表示公网 metadata、认证挑战和使用短期内部凭据的真实 `initialize`/`tools/list` 成功，不代表 ChatGPT 已完成授权，也不代表 Serena、CodeGraph 或其他 Capability healthy；`tools/list` 只证明 Broker 的本地公开工具描述可用。Broker 在 Serena 未就绪时仍可提供管理与本地能力，Serena/Capability 健康独立展示，不能由 Remote Ready 推断。
 
 断线清除 Public Context 与 OAuth，保留 `mode=quick_tunnel`、`status=disconnected`、`active=false`，不自动重新创建 Tunnel。用户可主动重开并更新客户端中的临时地址。停止后保留配置模式和 OAuth 拒绝边界；显式应用仅 MCP 才解除保护。
 
