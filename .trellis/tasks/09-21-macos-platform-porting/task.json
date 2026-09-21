@@ -25,7 +25,8 @@
     "09-21-macos-p3-cli-process-tree",
     "09-21-macos-p4-desktop-integration",
     "09-21-macos-p5-packaging-release",
-    "09-21-macos-p6-regression-acceptance"
+    "09-21-macos-p6-regression-acceptance",
+    "09-21-macos-p1b-app-bundle"
   ],
   "parent": null,
   "relatedFiles": [],
