@@ -338,11 +338,12 @@ async fn source_read_file_preserves_start_and_end_line_semantics() {
 #[tokio::test]
 async fn source_read_file_rejects_binary_input_with_the_existing_backend_error_category() {
     let directory = tempfile::tempdir().unwrap();
-    fs::write(directory.path().join("nul.bin"), b"safe\0text").unwrap();
+    // Windows 将 NUL 及带扩展名的 NUL.* 保留为设备名，fixture 必须使用普通文件名。
+    fs::write(directory.path().join("contains-nul.bin"), b"safe\0text").unwrap();
     fs::write(directory.path().join("invalid.bin"), [b'a', 0xff, b'b']).unwrap();
     let lease = lease(directory.path(), "workspace-a", 12);
 
-    for path in ["nul.bin", "invalid.bin"] {
+    for path in ["contains-nul.bin", "invalid.bin"] {
         assert_eq!(
             read_at(&lease, arguments(path)).await,
             Err("BACKEND_ERROR: source_read_file only supports UTF-8 text".into())

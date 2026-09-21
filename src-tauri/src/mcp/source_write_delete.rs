@@ -461,7 +461,8 @@ mod tests {
         );
         assert_eq!(fs::read(&stale).unwrap(), b"current\n");
         for (path, bytes) in [
-            ("nul.txt", b"one\0two\n".as_slice()),
+            // Windows 将 NUL 及带扩展名的 NUL.* 保留为设备名，fixture 使用普通文件名。
+            ("contains-nul.txt", b"one\0two\n".as_slice()),
             ("invalid-utf8.txt", b"one\xfftwo\n".as_slice()),
         ] {
             fs::write(root.join(path), bytes).unwrap();

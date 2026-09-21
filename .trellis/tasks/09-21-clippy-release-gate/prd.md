@@ -47,6 +47,16 @@
 - 修复后六个目标测试 6/6 PASS；`cargo test --locked --lib`: PASS（1129 passed、
   0 failed、28 ignored）；严格 Clippy、fmt、cargo check、npm lint/build/test
   （116 passed）均 PASS；记录写入后 `git diff --check` 亦为 PASS。
+- 后续 CI 根因确认：两个二进制 fixture 使用 Windows 保留设备名 `NUL.*`，使
+  `fs::write` 不保证建立预期普通文件。仅改为 `contains-nul.bin` 与
+  `contains-nul.txt`，保留原始 bytes 与冻结错误码；两个真实目标各连续运行 5 次均
+  PASS。随后 `cargo test --locked --lib`（1129 passed、0 failed、28 ignored）、
+  严格 Clippy、fmt、cargo check、npm lint/build/test（116 passed）均 PASS。
+- 新增 `.github/workflows/ci.yml`：仅在手动、`master` push 与指向 `master` 的 PR
+  上运行 Windows 质量 Gate，权限仅 `contents: read`，不包含 tag、安装包或发布副作用。
+  `scripts/ci-workflow.test.mjs` 固定其触发器、Gate 与禁止项；新旧 workflow 契约测试
+  3/3 PASS，完整 `cargo test --locked`（1129 passed、0 failed、28 ignored）及其余
+  指定 Gate 均 PASS。
 
 ## Notes
 
