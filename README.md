@@ -227,3 +227,7 @@ npm run tauri build
 [下载 Serena Desktop](https://github.com/lifei6671/serena-desktop/releases)，让 ChatGPT 读懂你的本地项目，让 Codex 接手明确的开发任务。
 
 欢迎通过 [Issues](https://github.com/lifei6671/serena-desktop/issues) 分享使用反馈。如果这正是你需要的协作方式，也欢迎点亮 **Star**。
+
+## 致谢
+
+感谢 [LINUX DO](https://linux.do/) 社区提供友好的技术交流与开源分享环境。
