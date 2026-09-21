@@ -15,6 +15,16 @@ pub mod runtime;
 #[cfg(windows)]
 pub mod windows_launcher;
 
+#[cfg(target_os = "macos")]
+// Phase 2A 冻结私有进程契约，Phase 2B 才接入产品路径。
+#[allow(dead_code)]
+pub(crate) mod macos_launcher;
+
+#[cfg(target_os = "macos")]
+// Phase 2A 只冻结当前 Host 连续 ownership 的 Runtime 收口；Phase 2B 才处理恢复与 Claim。
+#[allow(dead_code)]
+pub(crate) mod macos_runtime;
+
 #[cfg(windows)]
 pub mod discovery;
 #[cfg(not(windows))]
