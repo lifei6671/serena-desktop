@@ -21,14 +21,14 @@
 
 ## Acceptance Criteria
 
-- [ ] macOS launcher 对固定 executable + argv、cwd、stdio 和输入边界具有自动化测试。
-- [ ] launcher 在 `exec` 前建立独立 Session/Process Group，并验证 `SID == PGID == PID`。
-- [ ] 私有 identity adapter 能产生并校验不暴露 libproc 类型的启动令牌；伪造 PID/token 或不完整身份不能通过。
-- [ ] shutdown 按 `SIGTERM → bounded grace → SIGKILL` 收口，并验证直接 child 与受管 Process Group 均退出。
-- [ ] 启动完成后立即 shutdown 和运行期 shutdown 均不遗留未主动脱离 containment 的 child/grandchild。
-- [ ] 无法确认终止时只返回 `unknown` 并保留 Runtime ownership，不产生完整终止证据。
-- [ ] Windows Runtime 源文件、行为和错误码保持不变，现有验证不回归。
-- [ ] 在目标 macOS 12+、Apple Silicon 环境完成 launcher、identity 和 process-group 真实测试。
+- [x] macOS launcher 对固定 executable + argv、cwd、stdio 和输入边界具有自动化测试。
+- [x] launcher 在 `exec` 前建立独立 Session/Process Group，并验证 `SID == PGID == PID`。
+- [x] 私有 identity adapter 能产生并校验不暴露 libproc 类型的启动令牌；伪造 PID/token 或不完整身份不能通过。
+- [x] shutdown 按 `SIGTERM → bounded grace → SIGKILL` 收口，并验证直接 child 与受管 Process Group 均退出。
+- [x] 启动完成后立即 shutdown 和运行期 shutdown 均不遗留未主动脱离 containment 的 child/grandchild。
+- [x] 无法确认终止时只返回 `unknown` 并保留 Runtime ownership，不产生完整终止证据。
+- [x] Windows Runtime 源文件、行为和错误码保持不变，现有验证不回归。
+- [x] 在目标 macOS 12+、Apple Silicon 环境完成 launcher、identity 和 process-group 真实测试。
 
 ## Deferred to Phase 2B
 

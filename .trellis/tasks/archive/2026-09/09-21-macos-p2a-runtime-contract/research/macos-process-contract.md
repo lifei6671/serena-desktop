@@ -7,6 +7,8 @@
 - Apple `waitpid(2)`：父进程可按 PID 回收直接 child；Process Group 中的非直接后代不能仅靠 `waitpid` 证明已退出。来源：本机 macOS `man 2 waitpid`。
 - macOS SDK `libproc.h` 提供 `proc_pidinfo` 与 `proc_listpgrppids`，声明至少从 macOS 10.5/10.7 可用。
 - macOS SDK `sys/proc_info.h` 的 `proc_bsdinfo` 包含 `pbi_pid`、`pbi_pgid`、`pbi_start_tvsec` 与 `pbi_start_tvusec`，可作为私有 identity adapter 的候选内核事实。
+- Apple 开源 `libproc.c` 显示 `proc_listpgrppids` 返回 PID 数量，而 `proc_pidinfo` 在底层失败时返回 `0`；adapter 必须清除并读取线程局部 errno，不能把所有 `0` 都解释为空组。来源：<https://github.com/apple-oss-distributions/xnu/blob/main/libsyscall/wrappers/libproc/libproc.c>
+- 当前锁定的 `libc 0.2.189` 已提供 `proc_bsdinfo`、`PROC_PIDTBSDINFO`、`proc_pidinfo`、`proc_listpgrppids`、`setsid`、`getsid`、`getpgid` 与 `killpg` 声明，无需自定义公共 C struct。
 
 本机 SDK 路径：
 
