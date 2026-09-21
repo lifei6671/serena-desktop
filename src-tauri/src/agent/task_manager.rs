@@ -5,7 +5,9 @@ use super::{
     codex::provider::register_codex_provider_with_discovery,
     coordinator::WorkspaceExecutionCoordinator,
     execution::{CreateExecutionInput, ExecutionMode, canonicalize_request},
-    notification::{AgentTerminalNotifier, AgentTerminalStatus, noop_agent_terminal_notifier},
+    notification::{
+        AgentTerminalNotifier, AgentTerminalStatus, noop_agent_terminal_notifier, task_title,
+    },
     provider::{
         ProviderCancelContext, ProviderError, ProviderErrorCode, ProviderExecutionContext,
         ProviderId, ProviderStartupContext,
@@ -365,10 +367,7 @@ impl AgentTaskManager {
                             item.kind,
                             super::provider::port::ProviderReconcileKind::ExecutionInterrupted
                         ) {
-                            self.notify_terminal(
-                                AgentTerminalStatus::Interrupted,
-                                &item.subject_id,
-                            );
+                            self.notify_persisted_terminal(&item.subject_id).await;
                         }
                     }
                     report.extend(summary.items);
@@ -863,18 +862,31 @@ impl AgentTaskManager {
 
     /// 读取最终持久化状态后通知产品层；读取或副作用失败都不影响既有结果。
     pub(crate) async fn notify_persisted_terminal(&self, execution_id: &str) {
-        let Ok(Some(row)) = self.store.execution(execution_id.to_owned()).await else {
+        let Ok(mut snapshots) = self
+            .store
+            .product_read(Some(execution_id.to_owned()), None, None, 1)
+            .await
+        else {
             return;
         };
-        let Some(status) = AgentTerminalStatus::from_persisted_status(&row.status) else {
+        let Some(snapshot) = snapshots.pop() else {
             return;
         };
-        self.notify_terminal(status, &row.id);
+        let Some(status) = AgentTerminalStatus::from_persisted_status(&snapshot.execution.status)
+        else {
+            return;
+        };
+        let title = task_title(snapshot.thread_name.as_deref(), &snapshot.execution.prompt);
+        self.notify_terminal(status, &snapshot.execution.id, &title);
     }
 
     /// 固定安全码仅用于诊断，终态副作用永远不可回流到生命周期。
-    fn notify_terminal(&self, status: AgentTerminalStatus, execution_id: &str) {
-        if self.terminal_notifier.notify(status, execution_id).is_err() {
+    fn notify_terminal(&self, status: AgentTerminalStatus, execution_id: &str, task_title: &str) {
+        if self
+            .terminal_notifier
+            .notify(status, execution_id, task_title)
+            .is_err()
+        {
             eprintln!("AGENT_TERMINAL_NOTIFICATION_FAILED");
         }
     }

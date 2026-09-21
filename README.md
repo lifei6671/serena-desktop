@@ -1,15 +1,18 @@
 # Serena Desktop
+
 <p align="center">
-    <img src="./docs/static/Square310x310Logo.png">
+<img src="./docs/static/Square310x310Logo.png">
+</p>
+<p align="center">
   <strong>多 Agent 协作，ChatGPT 或 Claude 作为大脑，指挥 Codex 或 CodeBuddy 干活。</strong><br>
-  开源 · 多种 Agent · 会话与工作区 · 内网穿透
-<b>从“帮我想想怎么做”，到“结合我的项目，把它做出来”。</b>
+  开源 · 多种 Agent 协作 · 会话与工作区 · 内网穿透<br>
 </p>
 <p align="center">
     <a href="https://github.com/lifei6671/serena-desktop/releases">下载 Windows 版本</a> ·
     <a href="#快速开始">快速开始</a>  · <a href="#连接之后你可以这样说">看看可以怎么用</a> ·
     <a href="https://github.com/lifei6671/serena-desktop/issues">反馈与建议</a>
 </p>
+
 ## 让 ChatGPT 连上你的电脑，指挥 Codex 把想法做出来。
 
 **Serena Desktop 是连接 ChatGPT 与本地项目的 MCP 桥梁。** 让 ChatGPT 直接读取项目文件、理解代码、查看 Git 变更，再把明确的开发任务交给你电脑上的 Codex 执行。

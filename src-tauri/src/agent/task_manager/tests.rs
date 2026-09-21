@@ -18,24 +18,30 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 /// 收集产品层终态通知，避免测试访问任何 Desktop 系统 API。
 #[derive(Default)]
 struct RecordingNotifier {
-    notifications: std::sync::Mutex<Vec<(AgentTerminalStatus, String)>>,
+    notifications: std::sync::Mutex<Vec<(AgentTerminalStatus, String, String)>>,
     fail: bool,
 }
 
 impl RecordingNotifier {
     /// 返回已记录的终态副作用输入。
-    fn notifications(&self) -> Vec<(AgentTerminalStatus, String)> {
+    fn notifications(&self) -> Vec<(AgentTerminalStatus, String, String)> {
         self.notifications.lock().unwrap().clone()
     }
 }
 
 impl AgentTerminalNotifier for RecordingNotifier {
     /// 可选失败用于验证副作用错误不会回流到业务终态。
-    fn notify(&self, status: AgentTerminalStatus, execution_id: &str) -> Result<(), ()> {
-        self.notifications
-            .lock()
-            .unwrap()
-            .push((status, execution_id.to_owned()));
+    fn notify(
+        &self,
+        status: AgentTerminalStatus,
+        execution_id: &str,
+        task_title: &str,
+    ) -> Result<(), ()> {
+        self.notifications.lock().unwrap().push((
+            status,
+            execution_id.to_owned(),
+            task_title.to_owned(),
+        ));
         if self.fail { Err(()) } else { Ok(()) }
     }
 }
@@ -894,10 +900,8 @@ async fn startup_reconcile_uses_registered_providers_and_isolates_failures() {
     );
     assert_eq!(skipped.reconcile_calls.load(Ordering::SeqCst), 0);
     assert_eq!(recovered.reconcile_calls.load(Ordering::SeqCst), 1);
-    assert_eq!(
-        notifier.notifications(),
-        vec![(AgentTerminalStatus::Interrupted, "opaque-second".into())]
-    );
+    // Provider 的 opaque reconcile ID 没有对应持久化任务时，不得伪造通知正文。
+    assert!(notifier.notifications().is_empty());
     let registry = manager.registry().unwrap();
     let failed_id = ProviderId::new("alpha".into()).unwrap();
     assert_eq!(
@@ -998,9 +1002,59 @@ async fn dispatch_notifies_each_persisted_completed_and_interrupted_terminal_onc
         assert_eq!(outcome.execution.status, status);
         assert_eq!(
             notifier.notifications(),
-            vec![(expected, outcome.execution_id)]
+            vec![(
+                expected,
+                outcome.execution_id,
+                "route through registry".into()
+            )]
         );
     }
+}
+
+/// 已持久化的官方 Thread 名应优先作为终态通知正文，且沿用前端的 trim 语义。
+#[tokio::test]
+async fn terminal_notification_prefers_persisted_trimmed_thread_name() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let notifier = Arc::new(RecordingNotifier::default());
+    let provider = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
+    let manager = manager_with_provider_and_notifier(
+        store.clone(),
+        provider,
+        ProviderHealth::Available,
+        notifier.clone(),
+    );
+    let created = manager
+        .create(input(directory.path(), "persisted-thread-title"))
+        .await
+        .unwrap();
+
+    let database = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+    database
+        .execute(
+            "UPDATE executions SET thread_id='THREAD',status='completed' WHERE id=?1",
+            [&created.execution_id],
+        )
+        .unwrap();
+    store
+        .save_thread_name(
+            "THREAD".into(),
+            Some("\u{FEFF}  官方任务标题\u{3000}".into()),
+        )
+        .await
+        .unwrap();
+
+    manager
+        .notify_persisted_terminal(&created.execution_id)
+        .await;
+    assert_eq!(
+        notifier.notifications(),
+        vec![(
+            AgentTerminalStatus::Completed,
+            created.execution_id,
+            "官方任务标题".into()
+        )]
+    );
 }
 
 #[tokio::test]
@@ -1032,7 +1086,11 @@ async fn failed_dispatch_notifies_without_changing_provider_error_or_terminal() 
     );
     assert_eq!(
         notifier.notifications(),
-        vec![(AgentTerminalStatus::Failed, created.execution_id.clone())]
+        vec![(
+            AgentTerminalStatus::Failed,
+            created.execution_id.clone(),
+            "route through registry".into()
+        )]
     );
     let row = store
         .execution(created.execution_id)
@@ -1082,7 +1140,11 @@ async fn notifier_failure_does_not_change_terminal_or_provider_result() {
     assert_eq!(row.release_evidence_state, "complete");
     assert_eq!(
         notifier.notifications(),
-        vec![(AgentTerminalStatus::Failed, created.execution_id)]
+        vec![(
+            AgentTerminalStatus::Failed,
+            created.execution_id,
+            "route through registry".into()
+        )]
     );
 }
 

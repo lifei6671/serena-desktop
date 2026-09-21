@@ -26,7 +26,7 @@ pub(crate) struct AgentNotificationPlan {
 pub(crate) fn plan_agent_notification(
     config: &ManagerConfig,
     terminal: AgentTerminalStatus,
-    execution_id: &str,
+    task_title: &str,
 ) -> Option<AgentNotificationPlan> {
     let (enabled, title) = match terminal {
         AgentTerminalStatus::Completed => (
@@ -44,7 +44,7 @@ pub(crate) fn plan_agent_notification(
     }
     Some(AgentNotificationPlan {
         title,
-        body: format!("Execution {}", short_execution_id(execution_id)),
+        body: task_title.to_owned(),
         send_system_notification: config.agent_system_notification_enabled,
         play_sound: config.agent_sound_enabled,
     })
@@ -82,9 +82,14 @@ fn claim_notification(ids: &Mutex<HashSet<String>>, execution_id: &str) -> Resul
 
 impl AgentTerminalNotifier for DesktopAgentTerminalNotifier {
     /// 执行非关键桌面副作用；系统 API 失败也视为已处理以防重复弹出。
-    fn notify(&self, terminal: AgentTerminalStatus, execution_id: &str) -> Result<(), ()> {
+    fn notify(
+        &self,
+        terminal: AgentTerminalStatus,
+        execution_id: &str,
+        task_title: &str,
+    ) -> Result<(), ()> {
         let config = self.supervisor.snapshot().config;
-        let Some(plan) = plan_agent_notification(&config, terminal, execution_id) else {
+        let Some(plan) = plan_agent_notification(&config, terminal, task_title) else {
             return Ok(());
         };
         if !self.claim_notification(execution_id)? {
@@ -98,17 +103,6 @@ impl AgentTerminalNotifier for DesktopAgentTerminalNotifier {
         }
         Ok(())
     }
-}
-
-/// 仅保留稳定的短标识，避免将 Prompt、错误或源码放入系统通知。
-fn short_execution_id(execution_id: &str) -> &str {
-    let readable = execution_id
-        .strip_prefix("execution-")
-        .unwrap_or(execution_id);
-    readable
-        .char_indices()
-        .nth(12)
-        .map_or(readable, |(index, _)| &readable[..index])
 }
 
 /// 按插件权限状态请求权限，并在获准后发送系统通知。
@@ -156,10 +150,9 @@ mod tests {
     fn terminal_policy_maps_outcomes_and_capabilities() {
         let config = ManagerConfig::default();
         let completed =
-            plan_agent_notification(&config, AgentTerminalStatus::Completed, "execution-123456")
-                .unwrap();
+            plan_agent_notification(&config, AgentTerminalStatus::Completed, "任务标题").unwrap();
         assert_eq!(completed.title, "Agent 任务已完成");
-        assert_eq!(completed.body, "Execution 123456");
+        assert_eq!(completed.body, "任务标题");
         assert!(completed.send_system_notification);
         assert!(completed.play_sound);
         for terminal in [
@@ -167,15 +160,14 @@ mod tests {
             AgentTerminalStatus::Interrupted,
         ] {
             assert_eq!(
-                plan_agent_notification(&config, terminal, "execution-123456")
+                plan_agent_notification(&config, terminal, "任务标题")
                     .unwrap()
                     .title,
                 "Agent 任务已结束"
             );
         }
         assert!(
-            plan_agent_notification(&config, AgentTerminalStatus::Cancelled, "execution-123456")
-                .is_none()
+            plan_agent_notification(&config, AgentTerminalStatus::Cancelled, "任务标题").is_none()
         );
     }
 
@@ -186,38 +178,22 @@ mod tests {
             ..Default::default()
         };
         let sound_only =
-            plan_agent_notification(&config, AgentTerminalStatus::Completed, "execution-123456")
-                .unwrap();
+            plan_agent_notification(&config, AgentTerminalStatus::Completed, "任务标题").unwrap();
         assert!(!sound_only.send_system_notification);
         assert!(sound_only.play_sound);
         config.agent_system_notification_enabled = true;
         config.agent_sound_enabled = false;
         let notification_only =
-            plan_agent_notification(&config, AgentTerminalStatus::Completed, "execution-123456")
-                .unwrap();
+            plan_agent_notification(&config, AgentTerminalStatus::Completed, "任务标题").unwrap();
         assert!(notification_only.send_system_notification);
         assert!(!notification_only.play_sound);
         config.agent_system_notification_enabled = false;
         assert!(
-            plan_agent_notification(&config, AgentTerminalStatus::Completed, "execution-123456")
-                .is_none()
+            plan_agent_notification(&config, AgentTerminalStatus::Completed, "任务标题").is_none()
         );
         config.agent_failure_notification_enabled = false;
         assert!(
-            plan_agent_notification(&config, AgentTerminalStatus::Failed, "execution-123456")
-                .is_none()
-        );
-    }
-
-    #[test]
-    fn short_execution_id_keeps_the_readable_identifier() {
-        assert_eq!(
-            short_execution_id("execution-1234567890abcdef"),
-            "1234567890ab"
-        );
-        assert_eq!(
-            short_execution_id("execution-短标识abcdefghij"),
-            "短标识abcdefghi"
+            plan_agent_notification(&config, AgentTerminalStatus::Failed, "任务标题").is_none()
         );
     }
 
@@ -226,8 +202,7 @@ mod tests {
         let ids = Mutex::<HashSet<String>>::new(HashSet::new());
         let config = ManagerConfig::default();
         assert!(
-            plan_agent_notification(&config, AgentTerminalStatus::Cancelled, "execution-1")
-                .is_none()
+            plan_agent_notification(&config, AgentTerminalStatus::Cancelled, "任务标题").is_none()
         );
         assert!(claim_notification(&ids, "execution-1").unwrap());
         assert!(!claim_notification(&ids, "execution-1").unwrap());
