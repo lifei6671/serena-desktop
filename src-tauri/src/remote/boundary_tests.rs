@@ -577,6 +577,120 @@ fn disconnected_quick_tunnel_keeps_configured_mode_without_context_or_restart() 
 }
 
 #[tokio::test]
+async fn quick_tunnel_start_persists_intent_and_explicit_stop_clears_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let paths = paths(directory.path());
+    let config = configuration();
+    config::save(&paths.config_file, &config).unwrap();
+    let broker = broker(paths.clone());
+    broker.remote.set_quick_tunnel_start_hook(Arc::new(|| {
+        Box::pin(async { Err("QUICK_TUNNEL_TEST_FAILURE".into()) })
+    }));
+
+    broker.remote.start(Arc::clone(&broker)).await.unwrap();
+    let saved = config::load(&paths.config_file).unwrap();
+    assert_eq!(saved.remote_access.mode, RemoteAccessMode::QuickTunnel);
+    assert!(saved.remote_access.quick_tunnel_desired_running);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while broker.remote.snapshot().status != Status::Error {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+
+    broker.remote.stop_explicit(&broker).await.unwrap();
+    let saved = config::load(&paths.config_file).unwrap();
+    assert_eq!(saved.remote_access.mode, RemoteAccessMode::QuickTunnel);
+    assert!(!saved.remote_access.quick_tunnel_desired_running);
+}
+
+#[tokio::test]
+async fn quick_tunnel_startup_resumes_once_after_starting_runtime_listener() {
+    let directory = tempfile::tempdir().unwrap();
+    let paths = paths(directory.path());
+    let mut config = configuration();
+    config.remote_access.mode = RemoteAccessMode::QuickTunnel;
+    config.remote_access.quick_tunnel_desired_running = true;
+    config::save(&paths.config_file, &config).unwrap();
+    let broker = broker(paths);
+    let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let listener_was_running = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let starts_for_hook = Arc::clone(&starts);
+    let listener_for_hook = Arc::clone(&listener_was_running);
+    let broker_for_hook = Arc::downgrade(&broker);
+    broker.remote.set_quick_tunnel_start_hook(Arc::new(move || {
+        let starts = Arc::clone(&starts_for_hook);
+        let listener_was_running = Arc::clone(&listener_for_hook);
+        let broker = broker_for_hook.clone();
+        Box::pin(async move {
+            starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let running = match broker.upgrade() {
+                Some(broker) => broker.snapshot().await.running,
+                None => false,
+            };
+            listener_was_running.store(running, std::sync::atomic::Ordering::SeqCst);
+            Err("QUICK_TUNNEL_STARTUP_TEST_FAILURE".into())
+        })
+    }));
+
+    broker.startup().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while broker.remote.snapshot().status != Status::Error {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(listener_was_running.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!broker.config().broker.enabled);
+    assert!(broker.remote.snapshot().public_context.is_none());
+    broker.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn quick_tunnel_without_intent_does_not_resume_at_startup() {
+    let directory = tempfile::tempdir().unwrap();
+    let paths = paths(directory.path());
+    let mut config = configuration();
+    config.remote_access.mode = RemoteAccessMode::QuickTunnel;
+    config::save(&paths.config_file, &config).unwrap();
+    let broker = broker(paths);
+    let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let starts_for_hook = Arc::clone(&starts);
+    broker.remote.set_quick_tunnel_start_hook(Arc::new(move || {
+        let starts = Arc::clone(&starts_for_hook);
+        Box::pin(async move {
+            starts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        })
+    }));
+
+    broker.startup().await.unwrap();
+    tokio::task::yield_now().await;
+    assert_eq!(starts.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert!(broker.remote.snapshot().status == Status::Stopped);
+    assert!(!broker.snapshot().await.running);
+}
+
+#[tokio::test]
+async fn enabled_mcp_only_broker_starts_independently_of_quick_tunnel_intent() {
+    let directory = tempfile::tempdir().unwrap();
+    let paths = paths(directory.path());
+    let mut config = configuration();
+    config.broker.enabled = true;
+    config::save(&paths.config_file, &config).unwrap();
+    let broker = broker(paths);
+
+    broker.startup().await.unwrap();
+    assert!(broker.snapshot().await.running);
+    assert_eq!(broker.remote.snapshot().mode, RemoteAccessMode::McpOnly);
+    assert!(!broker.remote.snapshot().config.quick_tunnel_desired_running);
+    broker.stop().await.unwrap();
+}
+
+#[tokio::test]
 async fn broker_handshake_without_serena_fixture_reaches_ready() {
     let directory = tempfile::tempdir().unwrap();
     let paths = paths(directory.path());

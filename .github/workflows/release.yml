@@ -86,7 +86,8 @@ jobs:
         run: node scripts/verify-uninstall-policy.mjs
 
       - name: Build NSIS installer
-        run: npm run tauri -- build --ci -- --locked
+        # 直接调用仓库安装的 CLI，避免 npm 把 Tauri 的 --ci 解析成自身配置。
+        run: .\node_modules\.bin\tauri.cmd build --ci -- --locked
 
       - name: Verify NSIS installer
         id: installer

@@ -42,6 +42,7 @@ pub enum SecurityDeclaration {
 #[serde(rename_all = "camelCase", default)]
 pub struct RemoteAccessConfig {
     pub mode: RemoteAccessMode,
+    pub quick_tunnel_desired_running: bool,
     pub self_hosted: SelfHostedConfig,
     pub mcp_only: McpOnlyConfig,
 }
@@ -60,7 +61,7 @@ pub struct McpOnlyConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{RemoteAccessMode, SelfHostedProvider};
+    use super::{RemoteAccessConfig, RemoteAccessMode, SelfHostedProvider};
 
     #[test]
     fn mode_wire_names_match_frontend_contract() {
@@ -92,6 +93,16 @@ mod tests {
             );
             assert_eq!(serde_json::to_value(provider).unwrap(), value);
         }
+    }
+
+    #[test]
+    fn quick_tunnel_desired_running_defaults_false_for_legacy_config() {
+        let config: RemoteAccessConfig = serde_json::from_value(serde_json::json!({
+            "mode": "quick_tunnel"
+        }))
+        .unwrap();
+
+        assert!(!config.quick_tunnel_desired_running);
     }
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

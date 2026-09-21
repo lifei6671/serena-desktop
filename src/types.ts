@@ -5,6 +5,7 @@ export type SelfHostedProvider = "custom_https" | "ngrok" | "tailscale_funnel";
 export type SecurityDeclaration = "external_auth" | "none";
 export interface RemoteAccessConfig {
   mode: RemoteAccessMode;
+  quickTunnelDesiredRunning: boolean;
   selfHosted: { provider: SelfHostedProvider; publicOrigin: string | null };
   mcpOnly: { securityDeclaration: SecurityDeclaration; publicOrigin: string | null };
 }

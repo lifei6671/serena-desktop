@@ -321,6 +321,16 @@ impl Broker {
         if config.broker.enabled {
             self.start().await?;
         }
+        if config.remote_access.mode == crate::remote::RemoteAccessMode::QuickTunnel
+            && config.remote_access.quick_tunnel_desired_running
+        {
+            // 本地 Broker 的持久偏好先恢复；快捷隧道恢复仅发起一次异步 worker。
+            if let Err(error) = self.remote.start_mode_locked(self, None).await {
+                let mut inner = self.remote.inner.lock().unwrap();
+                inner.status = crate::remote::Status::Error;
+                inner.error = Some(error);
+            }
+        }
         Ok(())
     }
     pub async fn start(self: &Arc<Self>) -> Result<(), String> {

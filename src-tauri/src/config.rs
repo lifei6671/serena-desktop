@@ -606,6 +606,7 @@ mod tests {
             config.remote_access.self_hosted.public_origin.as_deref(),
             Some("https://legacy.example")
         );
+        assert!(!config.remote_access.quick_tunnel_desired_running);
         assert!(config.validate().is_ok());
     }
 

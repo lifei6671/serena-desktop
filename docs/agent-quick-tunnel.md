@@ -18,6 +18,7 @@
 {
   "remoteAccess": {
     "mode": "mcp_only",
+    "quickTunnelDesiredRunning": false,
     "selfHosted": { "publicOrigin": null },
     "mcpOnly": { "securityDeclaration": "external_auth", "publicOrigin": null }
   }
@@ -26,17 +27,17 @@
 
 Rust `RemoteAccessMode::default()`、`Remote::default()`、ManagerConfig 与前端初始配置均为 `mcp_only`。旧配置缺少 `remoteAccess` 时使用该默认值；旧版从未保存的 OAuth 选择无法从 Broker enabled 单独推断。
 
-配置持久化包含模式、自建 Origin、MCP Only 声明及其可选公网 Origin。自建 OAuth 另在应用数据目录的 `runtime/oauth-state.json` 保存 Client、Grant、Access/Refresh Token digest、Refresh 使用状态和绝对到期时间，绑定 issuer/resource。不会保存明文 Token、Pending、Code、PKCE verifier、Probe credential、Quick Tunnel URL/PID 或 Public Context instanceId。
+配置持久化包含模式、自建 Origin、MCP Only 声明及其可选公网 Origin，以及仅属于 Quick Tunnel 的 `quickTunnelDesiredRunning` 运行意图。旧 `config.json` 缺少该字段时默认 `false`。自建 OAuth 另在应用数据目录的 `runtime/oauth-state.json` 保存 Client、Grant、Access/Refresh Token digest、Refresh 使用状态和绝对到期时间，绑定 issuer/resource。不会保存明文 Token、Pending、Code、PKCE verifier、Probe credential、Quick Tunnel URL/PID 或 Public Context instanceId。
 
 `SupervisorState::new` 读取配置后，`Broker::new` 同步调用 `Remote::from_config`，先确定策略：两个 OAuth 模式均为 EmbeddedOAuth。自建模式验证 HTTPS Origin 并恢复相同 issuer/resource 的有效授权，再由 `Broker::startup` 建立监听和执行公网探测。退出或异常进程终止后，已成功签发且未过期、未撤销的凭据仍可使用；重启不延长原到期时间。无效 Origin、损坏或不匹配的授权文件保持 Error 和拒绝访问，不回退 Passthrough，不自动重置授权文件。
 
-自建模式在启动时恢复服务和探测；Quick Tunnel 只恢复配置及 fail-closed 策略，不自动创建隧道，也不显示旧地址。普通设置保存不能修改 Remote Access 配置，模式切换必须通过专用本机 IPC。
+自建模式在启动时恢复服务和探测。Quick Tunnel 的配置模式与运行意图分离：仅当 `mode=quick_tunnel` 且 `quickTunnelDesiredRunning=true` 时，应用启动后异步创建一次新的 Tunnel；不会复用旧地址或 Public Context，失败仅进入现有 Error/Disconnected 状态而不阻断主程序，也不自动重试。用户显式 Stop 清除运行意图；运行期断连或失败不清除它。普通设置保存不能修改 Remote Access 配置，模式切换必须通过专用本机 IPC。
 
 ## Broker 的持久偏好与运行时需求
 
 远程启动不写 `broker.enabled=true`，不修改 `port` 或 `allowLan`。两个 OAuth 模式都先安装 EmbeddedOAuth protection，再启动唯一 Broker；缺少 Runtime 时 `/mcp` 仍返回 401。监听失败时回滚保存的配置与原策略；回滚失败保持更严格策略。后续启动失败清理运行时资源，并保留已配置 OAuth 模式的拒绝边界。
 
-用户显式 Remote stop 撤销持久化授权并等待受管进程退出：persistent enabled=false 时停止临时 Broker；enabled=true 时保持 Broker 运行，但 OAuth 模式保持拒绝匿名访问，直到用户显式应用 MCP Only。应用 shutdown 停止 Remote 和 Broker、保留有效自建授权。Quick Tunnel 地址是临时地址，不会把旧 Origin 的授权转移到新 Tunnel。运行时 Broker 端口与 Serena 端口也必须不同，普通设置保存会在停止 Serena 前拒绝冲突。
+用户显式 Remote stop 撤销持久化授权、清除 Quick Tunnel 运行意图并等待受管进程退出：persistent enabled=false 时停止临时 Broker；enabled=true 时保持 Broker 运行，但 OAuth 模式保持拒绝匿名访问，直到用户显式应用 MCP Only。应用 shutdown 停止 Remote 和 Broker、保留 Quick Tunnel 运行意图及有效自建授权。Quick Tunnel 地址是临时地址，不会把旧 Origin 的授权转移到新 Tunnel。运行时 Broker 端口与 Serena 端口也必须不同，普通设置保存会在停止 Serena 前拒绝冲突。
 
 ## Authentication 与 Transport
 
@@ -94,7 +95,7 @@ Probe 失败只返回 `REMOTE_PUBLIC_PROBE_FAILED: stage=... category=... host=.
 
 保持 reqwest 0.13.4 默认系统代理发现行为：环境代理变量及 Windows 启用的系统代理参与选择；不自动尝试直连、不禁用 TLS、不覆盖 DNS。当前 Windows hyper-util 实现读取 ProxyEnable/ProxyServer/ProxyOverride；残留 ProxyServer 不等于代理已启用，也不代表覆盖 VPN、透明代理或 PAC 的全部行为。
 
-Quick Tunnel 仍在同一个 Tunnel 中使用固定 45 秒总验证 deadline、每请求 10 秒 timeout、2 秒间隔及最后诊断；进程退出立即中断等待，绝不自动创建新 Tunnel。Ready 仍要求本机通过公网 URL 完成全部 Probe；不因本机 DNS/代理/回环问题降级为 PID 或 401 就绪。
+Quick Tunnel 仍在同一个 Tunnel 中使用固定 45 秒总验证 deadline、每请求 10 秒 timeout、2 秒间隔及最后诊断；进程退出立即中断等待，绝不在同一应用运行期自动创建新 Tunnel。若持久化运行意图仍为 true，下次应用启动才会一次性创建新的 Tunnel。Ready 仍要求本机通过公网 URL 完成全部 Probe；不因本机 DNS/代理/回环问题降级为 PID 或 401 就绪。
 
 内部凭据通过本机内存创建，仅保存散列，60 秒失效；不创建 Client、Pending 或用户 Grant，不弹授权框，不增加公开 probe/免认证 endpoint。Probe 串行，正常结束、错误、取消或 Runtime 更换都会撤销凭据。HTTPS 不跟随重定向；每次请求 10 秒，metadata 上限 16 KiB，MCP 响应上限 4 MiB。Ready 只证明公网 Transport、OAuth 边界及 MCP surface 已通过 Probe；`tools/list` 成功只证明 Broker 能返回本地公开工具描述，不代表 Serena、CodeGraph 或其他 Capability healthy。Serena/Capability 健康独立展示；Serena 未就绪时 Broker 仍可提供管理与本地能力。本地测试的 upstream fixture 明确不代表真实 Serena 或 ChatGPT。
 
@@ -114,7 +115,7 @@ Windows Quick Tunnel 通过简单原生封装，在 `CreateProcessW` 时用 `PRO
 
 ## 状态与日志
 
-`Snapshot.mode` 是配置事实，独立于 `status`、`active` 和 `publicContext`；后者仅 Ready 时提供。断连为 `mode=quick_tunnel,status=disconnected,active=false,publicContext=null`。Stop 不把模式改成 MCP Only；应用 MCP Only 才改变模式和策略。
+`Snapshot.mode` 是配置事实，独立于 `status`、`active`、`publicContext` 与 `config.quickTunnelDesiredRunning`；后者表示下次应用启动是否应恢复 Quick Tunnel，且仅在 `mode=quick_tunnel` 时有意义。`publicContext` 仅 Ready 时提供。断连为 `mode=quick_tunnel,status=disconnected,active=false,publicContext=null`。Stop 不把模式改成 MCP Only，但会将运行意图置为 false；应用 MCP Only 同时改变模式、策略并清除该意图。
 
 所有 MCP Tool 使用统一日志策略，记录 request id、tool name、duration、success/failure 与参数校验错误码，不记录 arguments、Prompt、源码、完整结果或错误内容。OAuth Token、Code、PKCE verifier 不写日志；HTTP 只记录路径，不记录 query/body/Authorization。
 
@@ -172,7 +173,7 @@ cargo test --manifest-path src-tauri/Cargo.toml public_network_proxy_and_tls_dia
 
 ## 有界并发与 OAuth 修复
 
-OAuth 模式转换先安装内存认证边界，再持久化 Remote 配置和启动 Listener；Quick 尚无 Public Context 时也返回 401。Remote 专用保存入口不执行 Serena discovery。应用启动等待 Serena 检测/自动启动任务结束后再恢复 Remote，Startup 与 Broker 配置修改、Remote 模式修改共用 management 锁。启动失败且配置回滚也失败时保留两项诊断并进入受保护的 Error。
+OAuth 模式转换先安装内存认证边界，再持久化 Remote 配置和启动 Listener；Quick 尚无 Public Context 时也返回 401。Remote 专用保存入口不执行 Serena discovery。应用启动等待 Serena 检测/自动启动任务结束后再恢复 Remote；满足 Quick Tunnel 运行意图时仅异步发起一次恢复，失败发布 Error 而不使 Broker 或主程序启动失败。Startup 与 Broker 配置修改、Remote 模式修改共用 management 锁。启动失败且配置回滚也失败时保留两项诊断并进入受保护的 Error。
 
 有效 Authorization Code 在凭据容量不足时可稍后重试；错误 Client、Redirect 或 PKCE 仍一次性消费。重定向前限制 state 长度与控制字符。相同 Client 的相同请求复用 Pending；每个内存 OAuth Runtime 每 10 秒最多创建 4 个新 Pending，窗口唤醒至少间隔 5 秒，仍保留 32 个 Pending 的容量上限，不信任转发 IP 头。
 

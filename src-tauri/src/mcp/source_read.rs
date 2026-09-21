@@ -141,6 +141,10 @@ where
 }
 
 /// 执行实际正文读取；测试 hook 只用于证明取消或替换发生在已打开旧句柄之后。
+#[expect(
+    clippy::too_many_arguments,
+    reason = "测试 seam 必须显式保留读取参数、取消 token 与分块时序 hook，避免改变 Source Read 的版本捕获语义"
+)]
 fn read_file_with_chunk_hook<Hook>(
     lease: &WorkspaceLease,
     relative_path: &str,

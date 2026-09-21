@@ -38,7 +38,13 @@ test("release workflow is tag-only and runs the full quality and version gates",
 
 test("release workflow builds and publishes only the verified NSIS installer", async () => {
   const workflow = await readWorkflow();
-  assert.match(workflow, /npm run tauri -- build --ci -- --locked/u);
+  // 精确约束该步骤直接调用本地 CLI，防止 npm 吞掉 Tauri 的 `--ci` 参数。
+  const buildStep = workflow.match(
+    /- name: Build NSIS installer\s*\r?\n\s*#.*\r?\n\s*run: (.+)/u,
+  );
+  assert.ok(buildStep, "missing NSIS build step");
+  assert.equal(buildStep[1].trim(), ".\\node_modules\\.bin\\tauri.cmd build --ci -- --locked");
+  assert.doesNotMatch(buildStep[1], /npm\s+run\s+tauri/u);
   assert.match(workflow, /node scripts\/verify-installer\.mjs/u);
   assert.match(workflow, /node scripts\/verify-uninstall-policy\.mjs/u);
   assert.match(workflow, /files: \$\{\{ steps\.installer\.outputs\.path \}\}/u);

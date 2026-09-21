@@ -2988,6 +2988,7 @@ async fn switching_between_modes_stops_old_runtime_and_applies_each_target() {
     let state = broker.remote.snapshot();
     assert_eq!(state.mode, RemoteAccessMode::QuickTunnel);
     assert_eq!(state.config.mode, RemoteAccessMode::QuickTunnel);
+    assert!(state.config.quick_tunnel_desired_running);
     assert!(state.active);
     assert_eq!(broker.remote.policy(), McpAuthPolicy::EmbeddedOAuth);
 
@@ -3015,6 +3016,7 @@ async fn switching_between_modes_stops_old_runtime_and_applies_each_target() {
         broker.config().remote_access.self_hosted.provider,
         SelfHostedProvider::CustomHttps
     );
+    assert!(!state.config.quick_tunnel_desired_running);
     assert!(state.active);
     assert_eq!(broker.remote.policy(), McpAuthPolicy::EmbeddedOAuth);
 
@@ -3026,6 +3028,7 @@ async fn switching_between_modes_stops_old_runtime_and_applies_each_target() {
     let state = broker.remote.snapshot();
     assert_eq!(state.mode, RemoteAccessMode::McpOnly);
     assert_eq!(state.config.mode, RemoteAccessMode::McpOnly);
+    assert!(!state.config.quick_tunnel_desired_running);
     assert!(!state.active);
     assert_eq!(broker.remote.policy(), McpAuthPolicy::Passthrough);
     drop(probe_guard);
