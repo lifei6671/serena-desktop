@@ -181,8 +181,10 @@ mod tests {
 
     #[test]
     fn terminal_policy_respects_independent_capability_toggles() {
-        let mut config = ManagerConfig::default();
-        config.agent_system_notification_enabled = false;
+        let mut config = ManagerConfig {
+            agent_system_notification_enabled: false,
+            ..Default::default()
+        };
         let sound_only =
             plan_agent_notification(&config, AgentTerminalStatus::Completed, "execution-123456")
                 .unwrap();
