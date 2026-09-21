@@ -22,7 +22,10 @@ mod usage;
 #[cfg(test)]
 mod usage_tests;
 mod work_runs;
-pub(crate) use usage::{CodexUsageBaselineIntent, USAGE_TERMINAL_GRACE_MS};
+#[cfg(any(windows, test))]
+pub(crate) use usage::CodexUsageBaselineIntent;
+#[cfg(windows)]
+pub(crate) use usage::USAGE_TERMINAL_GRACE_MS;
 pub use work_runs::{WorkExecutionLinkRecord, WorkRunRecord};
 
 #[derive(Clone)]

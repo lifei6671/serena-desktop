@@ -409,7 +409,7 @@ pub fn notification(method: String, params: Value) -> Result<Notification> {
             &params["item"]["agentThreadId"],
             &params["item"]["agentPath"],
         ] {
-            if !value.as_str().is_some_and(|s| !s.is_empty()) {
+            if value.as_str().is_none_or(str::is_empty) {
                 return Err(ProtocolError::incompatible(
                     "Invalid subAgentActivity identity",
                 ));

@@ -1,10 +1,11 @@
 use super::*;
 use crate::agent::store::transactions::product::WorkExecutionContext;
+#[cfg(windows)]
+use crate::workspace_registry::WORKSPACE_IN_USE;
 use crate::{
     commands::remove_workspace,
     config::{self, AppPaths, ManagerConfig, Workspace},
     serena::SupervisorState,
-    workspace_registry::WORKSPACE_IN_USE,
 };
 use std::sync::{Mutex, mpsc};
 
@@ -82,6 +83,7 @@ fn list(data: ProductData) -> Vec<ExecutionView> {
     }
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn start_durable_receipt_retry_lineage_and_continuation_reuse_existing_worker() {
     let dir = tempfile::tempdir().unwrap();
@@ -337,24 +339,38 @@ async fn wrong_work_guards_are_side_effect_free_and_cancel_can_converge_inactive
         "WORK_NOT_ACTIVE"
     );
     assert_eq!(store.execution("E".into()).await.unwrap(), before);
-    let cancelled = s
-        .agent_execute(
-            AgentExecuteAction::Cancel {
-                work_run_id: "work".into(),
-                execution_id: "E".into(),
-            },
-            None,
-        )
-        .await
-        .unwrap();
-    assert_eq!(cancelled.status, "cancelled");
-    assert!(
-        store
-            .workspace_claim(dir.path().to_string_lossy().into())
-            .await
-            .unwrap()
-            .is_none()
+    let cancel = s.agent_execute(
+        AgentExecuteAction::Cancel {
+            work_run_id: "work".into(),
+            execution_id: "E".into(),
+        },
+        None,
     );
+    #[cfg(windows)]
+    {
+        let cancelled = cancel.await.unwrap();
+        assert_eq!(cancelled.status, "cancelled");
+        assert!(
+            store
+                .workspace_claim(dir.path().to_string_lossy().into())
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+    #[cfg(not(windows))]
+    {
+        // Work 归属校验通过后，unavailable Provider 仍保留稳定取消错误与 Claim。
+        assert_eq!(cancel.await.unwrap_err().code, "AGENT_PROVIDER_UNAVAILABLE");
+        assert_eq!(store.execution("E".into()).await.unwrap(), before);
+        assert!(
+            store
+                .workspace_claim(dir.path().to_string_lossy().into())
+                .await
+                .unwrap()
+                .is_some()
+        );
+    }
     assert_eq!(
         store
             .work_execution_links("work".into())
@@ -365,6 +381,7 @@ async fn wrong_work_guards_are_side_effect_free_and_cancel_can_converge_inactive
     );
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn resume_pending_uses_existing_explicit_pipeline_and_rejects_replay() {
     for state in ["dispatching", "dispatched", "uncertain", "attempted"] {
@@ -680,6 +697,7 @@ async fn adapter_validation_and_start_work_guards_create_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let store = StateStore::open(dir.path().into()).await.unwrap();
     create_work(&store, dir.path(), "work").await;
+    #[cfg(windows)]
     let (s, _release, fake) = fake_service(
         store.clone(),
         dir.path().join("agent-state.db"),
@@ -689,6 +707,9 @@ async fn adapter_validation_and_start_work_guards_create_nothing() {
         "paginated",
     )
     .await;
+    #[cfg(not(windows))]
+    // 非 Windows 使用真实 unavailable Product，验证拒绝发生在 Provider 边界之前。
+    let s = AgentProductService::new(store.clone());
     assert_eq!(
         s.agent_execute(start_work("missing", "key"), None)
             .await
@@ -896,9 +917,11 @@ async fn adapter_validation_and_start_work_guards_create_nothing() {
             .is_empty()
     );
     drop(s);
+    #[cfg(windows)]
     assert!(fake.await.unwrap().is_empty());
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn dropping_adapter_caller_and_observer_keeps_owned_execution_running() {
     let dir = tempfile::tempdir().unwrap();
@@ -955,6 +978,7 @@ async fn dropping_adapter_caller_and_observer_keeps_owned_execution_running() {
     assert_eq!(methods.iter().filter(|m| *m == "turn/start").count(), 1);
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn invalid_persisted_activity_rejects_cancel_without_claim_side_effect() {
     let dir = tempfile::tempdir().unwrap();
@@ -1049,6 +1073,7 @@ async fn invalid_persisted_activity_rejects_cancel_without_claim_side_effect() {
     assert!(fake.await.unwrap().is_empty());
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn cancel_transaction_failure_remains_rejected_without_mutation() {
     let dir = tempfile::tempdir().unwrap();
@@ -1122,6 +1147,7 @@ async fn cancel_transaction_failure_remains_rejected_without_mutation() {
     assert!(fake.await.unwrap().is_empty());
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn resolver_start_and_remove_share_supervisor_operation_exclusion() {
     let directory = tempfile::tempdir().unwrap();

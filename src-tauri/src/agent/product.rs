@@ -435,6 +435,9 @@ impl ProductError {
             "AGENT_OBSERVE_INVALID_ARGUMENT",
             "BACKEND_UNAVAILABLE",
             "CODEX_APP_SERVER_INCOMPATIBLE",
+            // Phase 1 的非 Windows Runtime 请求保留明确的 Provider 不可用诊断。
+            #[cfg(not(windows))]
+            "AGENT_PROVIDER_UNAVAILABLE",
         ];
         let code = codes
             .iter()
@@ -660,10 +663,16 @@ impl AgentProductService {
     }
     #[cfg(test)]
     pub fn new(store: StateStore) -> Self {
-        Self {
-            manager: AgentTaskManager::new(store.clone(), std::path::PathBuf::new()),
-            store,
-        }
+        let manager = AgentTaskManager::new(store.clone(), std::path::PathBuf::new());
+        #[cfg(not(windows))]
+        let manager = {
+            let mut manager = manager;
+            // 测试构造器同步生产平台事实，避免绕过 unavailable 错误投影。
+            manager.backend_error =
+                Some("BACKEND_UNAVAILABLE: Codex runtime is unavailable on this platform".into());
+            manager
+        };
+        Self { manager, store }
     }
     /// 构造在 Provider 接受前确定性拒绝派发的测试专用服务。
     #[cfg(test)]

@@ -1,10 +1,12 @@
 //! Serena optional semantic capability 的无副作用 adapter shell。
 
+#[cfg(windows)]
+use crate::serena::{contain_process, terminate_managed_job};
 use crate::{
     config::{self, AppPaths, ManagerConfig},
     discovery::{self, InstallationState, SerenaInstallation},
     mcp::serena::Client,
-    serena::{contain_process, hidden_command, terminate_managed_job, terminate_managed_process},
+    serena::{hidden_command, terminate_managed_process},
     workspace_capability::{
         CapabilityAction, CapabilityActionAuthority, CapabilityActionDescriptor,
         CapabilityActionExecution, CapabilityActivitySink, CapabilityFuture,
@@ -103,7 +105,7 @@ struct SerenaRuntime {
     client: Arc<dyn SerenaRuntimeClient>,
     child: Child,
     /// 仅供真实集成测试核验 A/B Slot 未复用 loopback endpoint。
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     port: u16,
     #[cfg(windows)]
     job: std::os::windows::io::OwnedHandle,
@@ -328,6 +330,7 @@ impl SerenaCapabilityProvider {
     }
 
     /// 启动一条严格绑定单个 Lease 的 Serena process，并在任一失败路径回收 child。
+    #[cfg(windows)]
     async fn start_runtime(
         &self,
         lease: &WorkspaceLease,
@@ -417,11 +420,24 @@ impl SerenaCapabilityProvider {
         Ok(SerenaRuntime {
             client: Arc::new(client),
             child,
-            #[cfg(test)]
+            #[cfg(all(test, windows))]
             port,
             #[cfg(windows)]
             job,
         })
+    }
+
+    /// Phase 1 不发布无法拥有完整进程树的 Unix 常驻 Runtime，先在创建进程前延后该操作。
+    #[cfg(not(windows))]
+    async fn start_runtime(
+        &self,
+        _lease: &WorkspaceLease,
+        _installation: SerenaInstallation,
+        _home: &Path,
+        _context: &Path,
+        _port: u16,
+    ) -> Result<SerenaRuntime, CapabilityProviderError> {
+        Err(deferred_operation())
     }
 
     /// 将三个 Semantic Source public name 转换为既有 Serena upstream 调用参数。
@@ -891,6 +907,42 @@ mod tests {
         )
     }
 
+    /// Phase 1 的 Unix Runtime 必须在任何进程创建前明确延后，避免无所有权的常驻子树逃逸。
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn start_runtime_is_deferred_before_spawning_on_non_windows() {
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = temporary.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let executable = temporary.path().join("must-not-spawn");
+        let marker = executable.with_extension("spawned");
+        // 脚本一旦被 Command::spawn 执行便写入 marker，从而证明 Phase 1 在 spawn 前拒绝。
+        std::fs::write(&executable, "#!/bin/sh\n: > \"$0.spawned\"\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&executable, permissions).unwrap();
+        let detected = installation(InstallationState::Standard, executable, "fixture");
+        let provider = provider(detected.clone(), |_| Ok(true));
+
+        let result = provider
+            .start_runtime(
+                &lease(workspace),
+                detected,
+                &temporary.path().join("home"),
+                &temporary.path().join("context.yaml"),
+                39_321,
+            )
+            .await;
+
+        let Err(error) = result else {
+            panic!("non-Windows runtime must be deferred before spawning");
+        };
+        assert_eq!(error, deferred_operation());
+        assert!(provider.runtimes.lock().await.is_empty());
+        assert!(!marker.exists());
+    }
+
     /// 可控的 Provider-private Client fixture，用于在不启动真实 Serena 服务的情况下验证 call ownership。
     struct FixtureRuntimeClient {
         response: String,
@@ -956,7 +1008,7 @@ mod tests {
         SerenaRuntime {
             client,
             child,
-            #[cfg(test)]
+            #[cfg(all(test, windows))]
             port: 0,
             #[cfg(windows)]
             job,

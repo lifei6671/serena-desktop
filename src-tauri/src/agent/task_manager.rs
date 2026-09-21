@@ -1,5 +1,5 @@
 //! Internal execution and exact-id cancellation entry points. No scheduler.
-#[cfg(test)]
+#[cfg(all(test, windows))]
 use super::codex::provider::CodexProvider;
 use super::{
     codex::provider::register_codex_provider_with_discovery,
@@ -33,6 +33,7 @@ use std::{
 };
 
 mod automatic_recovery;
+#[cfg(windows)]
 pub mod recovery;
 
 #[derive(Clone)]
@@ -220,6 +221,14 @@ impl AgentTaskManager {
             .get_registered(&provider_id)
             .map_err(|error| provider_error_code(error.code).to_string())?;
         if !provider.capabilities().can_cancel {
+            // 生产初始化已确认后端不可用时保留明确诊断；普通能力缺失仍沿用既有错误码。
+            if self
+                .backend_error
+                .as_deref()
+                .is_some_and(|error| error.starts_with("BACKEND_UNAVAILABLE"))
+            {
+                return Err("AGENT_PROVIDER_UNAVAILABLE".into());
+            }
             return Err("AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into());
         }
         provider
@@ -764,7 +773,7 @@ impl AgentTaskManager {
                 .map_err(provider_failure)?;
             let telemetry = Arc::new(ExecutionTelemetryProjector::new(manager.store.clone(), id.clone()));
 
-            #[cfg(test)]
+            #[cfg(all(test, windows))]
             if let Some((client, database)) = manager.test_client.clone() {
                 // Test-only Runtime creation boundary; reuse the TASK-006 Fake wire pipeline.
                 rusqlite::Connection::open(database).unwrap().execute(

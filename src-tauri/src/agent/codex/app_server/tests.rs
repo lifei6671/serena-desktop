@@ -32,17 +32,22 @@ fn scope() -> CleanupScope {
     CleanupScope::fixture("R1", "T1", "E1")
 }
 
+// 通过 Windows 专属 Provider 注入过期 Runtime 信封。
+#[cfg(windows)]
 #[derive(Clone, Copy)]
 enum InjectedRuntimeMismatch {
     Activity,
     Lifecycle,
 }
 
+#[cfg(windows)]
 struct TestAcceptanceSink;
+#[cfg(windows)]
 impl crate::agent::provider::port::ProviderAcceptanceSink for TestAcceptanceSink {
     fn accepted(&self) {}
 }
 
+#[cfg(windows)]
 fn turn_notification(method: &str, status: &str) -> Notification {
     protocol::notification(
         method.into(),
@@ -54,6 +59,7 @@ fn turn_notification(method: &str, status: &str) -> Notification {
     .unwrap()
 }
 
+#[cfg(windows)]
 async fn run_provider_with_injected_runtime_mismatch(
     mismatch: InjectedRuntimeMismatch,
 ) -> (
@@ -265,6 +271,8 @@ async fn run_provider_with_injected_runtime_mismatch(
     (outcome, row)
 }
 
+// 依赖 Windows 专属的 CodexProvider 运行时路径。
+#[cfg(windows)]
 #[test]
 fn stale_activity_envelope_runtime_is_dropped_and_execution_completes() {
     run(async {
@@ -285,6 +293,7 @@ fn stale_activity_envelope_runtime_is_dropped_and_execution_completes() {
     });
 }
 
+#[cfg(windows)]
 #[test]
 fn stale_lifecycle_envelope_runtime_remains_provider_runtime_mismatch() {
     run(async {
@@ -1873,20 +1882,24 @@ fn total_deadline_and_metadata_contract_are_explicit() {
         );
         drop(client);
         fake.await.unwrap();
-        let temp = tempfile::tempdir().unwrap();
-        let store = crate::agent::store::StateStore::open(temp.path().into())
-            .await
-            .unwrap();
-        store
-            .prepare_runtime("R1", "host", "job", 1, "test.exe", 1)
-            .unwrap();
-        assert_eq!(
-            recovery::RecoveryScope::after_termination(&store, "R1", "R2", "T", "target", None)
+        // Runtime 存储 API 仅在 Windows 平台提供。
+        #[cfg(windows)]
+        {
+            let temp = tempfile::tempdir().unwrap();
+            let store = crate::agent::store::StateStore::open(temp.path().into())
                 .await
-                .unwrap_err()
-                .code,
-            "CODEX_RESULT_RECOVERY_UNSAFE"
-        );
+                .unwrap();
+            store
+                .prepare_runtime("R1", "host", "job", 1, "test.exe", 1)
+                .unwrap();
+            assert_eq!(
+                recovery::RecoveryScope::after_termination(&store, "R1", "R2", "T", "target", None)
+                    .await
+                    .unwrap_err()
+                    .code,
+                "CODEX_RESULT_RECOVERY_UNSAFE"
+            );
+        }
     });
 }
 

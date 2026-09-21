@@ -29,6 +29,8 @@ pub(crate) async fn active(broker: &Broker, root: &std::path::Path) -> tokio::ta
     active_fixture(broker, root, false).await
 }
 
+/// 构造依赖 Windows 受管进程的 Source 读取测试夹具。
+#[cfg(windows)]
 pub(crate) async fn active_with_read_file(
     broker: &Broker,
     root: &std::path::Path,
@@ -1196,14 +1198,25 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
         ))
         .await
         .unwrap();
-    assert_eq!(cancelled.is_error, Some(false));
-    let cancelled = cancelled.structured_content.unwrap();
-    assert_eq!(cancelled["data"]["prompt"], prompt);
-    assert_eq!(cancelled["data"]["canonicalWorkspaceRoot"], root);
-    assert_eq!(
-        cancelled["control"],
-        json!({"requestAccepted":true,"providerInvoked":false,"dispatchCertainty":"not_dispatched","nextAction":null})
-    );
+    #[cfg(windows)]
+    {
+        assert_eq!(cancelled.is_error, Some(false));
+        let cancelled = cancelled.structured_content.unwrap();
+        assert_eq!(cancelled["data"]["prompt"], prompt);
+        assert_eq!(cancelled["data"]["canonicalWorkspaceRoot"], root);
+        assert_eq!(
+            cancelled["control"],
+            json!({"requestAccepted":true,"providerInvoked":false,"dispatchCertainty":"not_dispatched","nextAction":null})
+        );
+    }
+    #[cfg(not(windows))]
+    {
+        // Phase 1 不伪造取消能力，未派发记录保持原状并返回稳定 unavailable。
+        assert_eq!(cancelled.is_error, Some(true));
+        let cancelled = cancelled.structured_content.unwrap();
+        assert_eq!(cancelled["error"]["code"], "AGENT_PROVIDER_UNAVAILABLE");
+        assert_eq!(cancelled["control"]["requestAccepted"], false);
+    }
 
     // Seed an exact persisted terminal result. Reads must neither execute nor consume it.
     let persisted = json!({"text":"exact final result\n中文", "items":[{"id":"item-1","content":"original"}],"nested":{"zero":0,"null":null}});
@@ -1267,7 +1280,11 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     samples.push(terminal_list);
     assert_eq!(store.execution("E".into()).await.unwrap(), terminal_before);
     assert_eq!(store.work_run("work".into()).await.unwrap(), work);
-    assert!(store.workspace_claim(root).await.unwrap().is_none());
+    #[cfg(windows)]
+    assert!(store.workspace_claim(root.clone()).await.unwrap().is_none());
+    // 非 Windows 后端拒绝取消后不得释放缺少 Runtime 终止证据的 Claim。
+    #[cfg(not(windows))]
+    assert!(store.workspace_claim(root).await.unwrap().is_some());
     assert_eq!(
         db.query_row("SELECT count(*) FROM runtime_instances", [], |row| row
             .get::<_, i64>(0))

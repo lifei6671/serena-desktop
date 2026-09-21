@@ -1138,7 +1138,10 @@ pub fn user_local_candidate(name: &str) -> Option<PathBuf> {
 }
 
 pub fn hidden_command(program: impl AsRef<OsStr>) -> Command {
+    #[cfg(windows)]
     let mut command = Command::new(program);
+    #[cfg(not(windows))]
+    let command = Command::new(program);
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     command

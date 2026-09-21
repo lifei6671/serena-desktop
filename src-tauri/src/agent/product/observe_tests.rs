@@ -925,6 +925,7 @@ async fn activity_projection_never_exposes_command_output_or_local_paths() {
     }
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn dropping_observer_does_not_stop_owned_worker_or_create_another_turn() {
     let dir = tempfile::tempdir().unwrap();

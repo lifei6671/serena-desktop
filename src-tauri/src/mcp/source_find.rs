@@ -273,7 +273,10 @@ fn add_gitignore_if_present(builder: &mut WalkBuilder, directory: &Path) -> Resu
 
 /// 构建 basename glob；Windows compatibility 明确要求 case-insensitive，其他平台保留原语义。
 fn file_mask_matcher(file_mask: &str) -> Result<GlobMatcher, String> {
+    #[cfg(windows)]
     let mut builder = GlobBuilder::new(file_mask);
+    #[cfg(not(windows))]
+    let builder = GlobBuilder::new(file_mask);
     #[cfg(windows)]
     builder.case_insensitive(true);
     builder

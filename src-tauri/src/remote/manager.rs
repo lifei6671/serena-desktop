@@ -906,7 +906,7 @@ impl Remote {
         } else {
             RemoteAccessMode::QuickTunnel
         };
-        config.remote_access.quick_tunnel_desired_running = !context.is_some();
+        config.remote_access.quick_tunnel_desired_running = context.is_none();
         if let Some(context) = &context {
             config.remote_access.self_hosted.provider = SelfHostedProvider::CustomHttps;
             config.remote_access.self_hosted.public_origin = Some(context.public_origin.clone());
@@ -1207,10 +1207,10 @@ impl Remote {
         let result = super::quick_tunnel::probe(&context, &credential).await;
         drop(revoke);
         let mut inner = self.inner.lock().unwrap();
-        if !inner
+        if inner
             .oauth
             .as_ref()
-            .is_some_and(|o| o.context.instance_id == context.instance_id)
+            .is_none_or(|o| o.context.instance_id != context.instance_id)
         {
             return Err("REMOTE_ACCESS_NOT_RUNNING".into());
         }
