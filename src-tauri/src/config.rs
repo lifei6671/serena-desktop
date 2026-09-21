@@ -119,6 +119,10 @@ pub struct ManagerConfig {
     pub remote_access: crate::remote::RemoteAccessConfig,
     pub agent_enabled: bool,
     pub remote_source_write_enabled: bool,
+    pub agent_success_notification_enabled: bool,
+    pub agent_failure_notification_enabled: bool,
+    pub agent_system_notification_enabled: bool,
+    pub agent_sound_enabled: bool,
     pub broker: BrokerConfig,
     pub workspaces: Vec<Workspace>,
     pub workspace_registry_revision: u64,
@@ -138,6 +142,10 @@ impl Default for ManagerConfig {
             remote_access: crate::remote::RemoteAccessConfig::default(),
             agent_enabled: false,
             remote_source_write_enabled: false,
+            agent_success_notification_enabled: true,
+            agent_failure_notification_enabled: true,
+            agent_system_notification_enabled: true,
+            agent_sound_enabled: true,
             workspaces: Vec::new(),
             workspace_registry_revision: 1,
             desktop_selected_workspace_id: None,
@@ -520,7 +528,23 @@ mod tests {
         let config = ManagerConfig::default();
         assert_eq!(config.workspace_registry_revision, 1);
         assert_eq!(config.desktop_selected_workspace_id, None);
+        assert!(config.agent_success_notification_enabled);
+        assert!(config.agent_failure_notification_enabled);
+        assert!(config.agent_system_notification_enabled);
+        assert!(config.agent_sound_enabled);
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn old_config_uses_agent_notification_defaults() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        fs::write(&path, r#"{"agentEnabled":true}"#).unwrap();
+        let config = load(&path).unwrap();
+        assert!(config.agent_success_notification_enabled);
+        assert!(config.agent_failure_notification_enabled);
+        assert!(config.agent_system_notification_enabled);
+        assert!(config.agent_sound_enabled);
     }
 
     #[test]

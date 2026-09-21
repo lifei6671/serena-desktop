@@ -148,6 +148,46 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
               <header>
                 <span>02</span>
                 <div>
+                  <h2>Agent 提醒</h2>
+                  <p>任务业务终态的桌面反馈</p>
+                </div>
+              </header>
+              <FieldGroup className="settings-body">
+                <SettingSwitch
+                  checked={draft.agentSuccessNotificationEnabled}
+                  onChange={value => saveToggle({ agentSuccessNotificationEnabled: value }, value ? "已开启 Agent 任务成功提醒。" : "已关闭 Agent 任务成功提醒。")}
+                  disabled={busy !== null}
+                  label="任务成功提醒"
+                  hint="Agent 任务完成后触发提醒。"
+                />
+                <SettingSwitch
+                  checked={draft.agentFailureNotificationEnabled}
+                  onChange={value => saveToggle({ agentFailureNotificationEnabled: value }, value ? "已开启 Agent 任务异常提醒。" : "已关闭 Agent 任务异常提醒。")}
+                  disabled={busy !== null}
+                  label="任务异常提醒"
+                  hint="Agent 任务失败或中断后触发提醒；用户主动取消不会提醒。"
+                />
+                <SettingSwitch
+                  checked={draft.agentSystemNotificationEnabled}
+                  onChange={value => saveToggle({ agentSystemNotificationEnabled: value }, value ? "已开启系统通知。" : "已关闭系统通知。")}
+                  disabled={busy !== null}
+                  label="系统通知"
+                  hint="通过操作系统显示任务提醒。"
+                />
+                <SettingSwitch
+                  checked={draft.agentSoundEnabled}
+                  onChange={value => saveToggle({ agentSoundEnabled: value }, value ? "已开启提示音。" : "已关闭提示音。")}
+                  disabled={busy !== null}
+                  label="提示音"
+                  hint="任务提醒发生时播放系统提示音。"
+                />
+              </FieldGroup>
+            </div>
+
+            <div className="settings-section">
+              <header>
+                <span>03</span>
+                <div>
                   <h2>Serena</h2>
                   <p>可执行文件发现</p>
                 </div>
@@ -239,7 +279,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
 
             <div className="settings-section">
               <header>
-                <span>03</span>
+                <span>04</span>
                 <div>
                   <h2>Serena 内部服务</h2>
                   <p>提供代码分析能力，由 MCP 连接入口调用</p>

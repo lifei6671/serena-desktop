@@ -1,5 +1,6 @@
 use super::automatic_recovery::{AutoRecoveryDecision, AutoRecoveryIneligibleReason};
 use super::*;
+use crate::agent::notification::{AgentTerminalNotifier, AgentTerminalStatus};
 use crate::agent::provider::{
     ProviderCapabilities, ProviderDescriptor, ProviderOutcome, ProviderResultCompleteness,
     ProviderRunResult, ProviderStartupContext,
@@ -14,6 +15,31 @@ use crate::agent::store::transactions::product::{WorkExecutionContext, Workspace
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+/// 收集产品层终态通知，避免测试访问任何 Desktop 系统 API。
+#[derive(Default)]
+struct RecordingNotifier {
+    notifications: std::sync::Mutex<Vec<(AgentTerminalStatus, String)>>,
+    fail: bool,
+}
+
+impl RecordingNotifier {
+    /// 返回已记录的终态副作用输入。
+    fn notifications(&self) -> Vec<(AgentTerminalStatus, String)> {
+        self.notifications.lock().unwrap().clone()
+    }
+}
+
+impl AgentTerminalNotifier for RecordingNotifier {
+    /// 可选失败用于验证副作用错误不会回流到业务终态。
+    fn notify(&self, status: AgentTerminalStatus, execution_id: &str) -> Result<(), ()> {
+        self.notifications
+            .lock()
+            .unwrap()
+            .push((status, execution_id.to_owned()));
+        if self.fail { Err(()) } else { Ok(()) }
+    }
+}
+
 struct FakeProvider {
     id: ProviderId,
     store: StateStore,
@@ -26,6 +52,7 @@ struct FakeProvider {
     state_failure: Option<&'static str>,
     terminal_failed_db: Option<std::path::PathBuf>,
     terminal_failed_once: AtomicBool,
+    terminal_status: Option<(&'static str, std::path::PathBuf)>,
     child_completed: Option<Arc<tokio::sync::Notify>>,
     recovery_result: Option<Result<ProviderReconcileSummary, ProviderError>>,
     release: Option<Arc<tokio::sync::Notify>>,
@@ -50,6 +77,7 @@ impl FakeProvider {
             state_failure: None,
             terminal_failed_db: None,
             terminal_failed_once: AtomicBool::new(false),
+            terminal_status: None,
             child_completed: None,
             recovery_result: None,
             release: None,
@@ -75,6 +103,16 @@ impl FakeProvider {
     fn with_terminal_failed_once(mut self, database: std::path::PathBuf) -> Self {
         self.terminal_failed_db = Some(database);
         self.terminal_failed_once.store(true, Ordering::SeqCst);
+        self
+    }
+
+    /// 测试 fixture 模拟 Provider 已完成原子收口后的不同业务终态。
+    fn with_persisted_terminal(
+        mut self,
+        database: std::path::PathBuf,
+        status: &'static str,
+    ) -> Self {
+        self.terminal_status = Some((status, database));
         self
     }
 
@@ -148,6 +186,17 @@ impl AgentProvider for FakeProvider {
                 return Err(ProviderExecutionFailure::State(
                     "PROVIDER_TERMINAL_failed".into(),
                 ));
+            }
+            if let Some((status, database)) = &self.terminal_status {
+                let connection = rusqlite::Connection::open(database).unwrap();
+                mark_safe_terminal(&connection, &context.execution_id, status);
+                return Ok(ProviderRunResult {
+                    execution_id: context.execution_id,
+                    outcome: ProviderOutcome::Cancelled,
+                    result: None,
+                    result_completeness: ProviderResultCompleteness::Unknown,
+                    diagnostic_code: None,
+                });
             }
             if let Some(release) = &self.release {
                 release.notified().await;
@@ -242,6 +291,21 @@ fn manager_with_provider(
     manager
 }
 
+/// 以记录型 notifier 构造 Manager，验证 core 不依赖任何桌面实现。
+fn manager_with_provider_and_notifier(
+    store: StateStore,
+    provider: Arc<dyn AgentProvider>,
+    health: ProviderHealth,
+    notifier: Arc<dyn AgentTerminalNotifier>,
+) -> AgentTaskManager {
+    let mut registry = ProviderRegistry::new();
+    registry.register(provider, health).unwrap();
+    let mut manager =
+        AgentTaskManager::new_with_terminal_notifier(store, "must-not-launch.exe".into(), notifier);
+    manager.use_registry(registry);
+    manager
+}
+
 /// 建立可由纯控制面判定的 Work-linked Execution；不会启动 Provider。
 async fn automatic_recovery_root(store: &StateStore, root: &std::path::Path, id: &str) {
     store
@@ -280,17 +344,22 @@ async fn automatic_recovery_root(store: &StateStore, root: &std::path::Path, id:
 }
 
 /// 测试 fixture 直接写入已完成的安全终态，避免把 Provider/Runtime 逻辑混入判定单测。
-fn mark_safe_failed(db: &rusqlite::Connection, id: &str) {
+fn mark_safe_terminal(db: &rusqlite::Connection, id: &str, status: &str) {
     db.execute(
-        "UPDATE executions SET status='failed', dispatch_state='dispatched', \
-         provider_terminal_status='failed', release_evidence_state='complete', \
+        "UPDATE executions SET status=?1, dispatch_state='dispatched', \
+         provider_terminal_status=?1, release_evidence_state='complete', \
          release_evidence_kind='same_runtime_cleanup', release_evidence_json='{}', \
-         completed_at=2, interrupt_requested_at=NULL WHERE id=?1",
-        [id],
+         completed_at=2, interrupt_requested_at=NULL WHERE id=?2",
+        [status, id],
     )
     .unwrap();
     db.execute("DELETE FROM workspace_claims WHERE execution_id=?1", [id])
         .unwrap();
+}
+
+/// 测试 fixture 直接写入已完成的安全 failed 终态，避免把 Provider/Runtime 逻辑混入判定单测。
+fn mark_safe_failed(db: &rusqlite::Connection, id: &str) {
+    mark_safe_terminal(db, id, "failed");
 }
 
 fn auto_marker(root: &str, attempt: u8) -> String {
@@ -766,6 +835,7 @@ async fn automatic_recovery_schedule_failure_preserves_parent_facts() {
 async fn startup_reconcile_uses_registered_providers_and_isolates_failures() {
     let directory = tempfile::tempdir().unwrap();
     let store = StateStore::open(directory.path().into()).await.unwrap();
+    let notifier = Arc::new(RecordingNotifier::default());
     let unavailable_failure = Arc::new(
         FakeProvider::new(store.clone(), "alpha", true, true).with_recovery(Err(ProviderError {
             code: ProviderErrorCode::AgentProviderOperationFailed,
@@ -798,7 +868,11 @@ async fn startup_reconcile_uses_registered_providers_and_isolates_failures() {
     registry
         .register(recovered.clone(), ProviderHealth::Available)
         .unwrap();
-    let mut manager = AgentTaskManager::new(store, "must-not-launch.exe".into());
+    let mut manager = AgentTaskManager::new_with_terminal_notifier(
+        store,
+        "must-not-launch.exe".into(),
+        notifier.clone(),
+    );
     manager.use_registry(registry);
 
     assert_eq!(
@@ -820,6 +894,10 @@ async fn startup_reconcile_uses_registered_providers_and_isolates_failures() {
     );
     assert_eq!(skipped.reconcile_calls.load(Ordering::SeqCst), 0);
     assert_eq!(recovered.reconcile_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        notifier.notifications(),
+        vec![(AgentTerminalStatus::Interrupted, "opaque-second".into())]
+    );
     let registry = manager.registry().unwrap();
     let failed_id = ProviderId::new("alpha".into()).unwrap();
     assert_eq!(
@@ -891,6 +969,121 @@ async fn persisted_provider_routes_through_registry_trait_object() {
     assert_eq!(outcome.execution.status, "cancelled");
     assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 1);
     assert_eq!(fake.cancel_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn dispatch_notifies_each_persisted_completed_and_interrupted_terminal_once() {
+    for (status, expected) in [
+        ("completed", AgentTerminalStatus::Completed),
+        ("interrupted", AgentTerminalStatus::Interrupted),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = StateStore::open(directory.path().into()).await.unwrap();
+        let notifier = Arc::new(RecordingNotifier::default());
+        let provider = Arc::new(
+            FakeProvider::new(store.clone(), "codex", true, true)
+                .with_persisted_terminal(directory.path().join("agent-state.db"), status),
+        );
+        let manager = manager_with_provider_and_notifier(
+            store.clone(),
+            provider,
+            ProviderHealth::Available,
+            notifier.clone(),
+        );
+
+        let outcome = manager
+            .execute(input(directory.path(), status))
+            .await
+            .unwrap();
+        assert_eq!(outcome.execution.status, status);
+        assert_eq!(
+            notifier.notifications(),
+            vec![(expected, outcome.execution_id)]
+        );
+    }
+}
+
+#[tokio::test]
+async fn failed_dispatch_notifies_without_changing_provider_error_or_terminal() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let notifier = Arc::new(RecordingNotifier::default());
+    let provider = Arc::new(
+        FakeProvider::new(store.clone(), "codex", true, true)
+            .with_terminal_failed_once(directory.path().join("agent-state.db")),
+    );
+    let manager = manager_with_provider_and_notifier(
+        store.clone(),
+        provider,
+        ProviderHealth::Available,
+        notifier.clone(),
+    );
+
+    let created = manager
+        .create(input(directory.path(), "failed"))
+        .await
+        .unwrap();
+    assert_eq!(
+        manager
+            .dispatch_with_receipt(&created.execution_id, None, false)
+            .await
+            .unwrap_err(),
+        ProviderExecutionFailure::State("PROVIDER_TERMINAL_failed".into())
+    );
+    assert_eq!(
+        notifier.notifications(),
+        vec![(AgentTerminalStatus::Failed, created.execution_id.clone())]
+    );
+    let row = store
+        .execution(created.execution_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.status, "failed");
+    assert_eq!(row.release_evidence_state, "complete");
+}
+
+#[tokio::test]
+async fn notifier_failure_does_not_change_terminal_or_provider_result() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let notifier = Arc::new(RecordingNotifier {
+        notifications: std::sync::Mutex::new(Vec::new()),
+        fail: true,
+    });
+    let provider = Arc::new(
+        FakeProvider::new(store.clone(), "codex", true, true)
+            .with_terminal_failed_once(directory.path().join("agent-state.db")),
+    );
+    let manager = manager_with_provider_and_notifier(
+        store.clone(),
+        provider,
+        ProviderHealth::Available,
+        notifier.clone(),
+    );
+
+    let created = manager
+        .create(input(directory.path(), "notifier-failure"))
+        .await
+        .unwrap();
+    assert_eq!(
+        manager
+            .dispatch_with_receipt(&created.execution_id, None, false)
+            .await
+            .unwrap_err(),
+        ProviderExecutionFailure::State("PROVIDER_TERMINAL_failed".into())
+    );
+    let row = store
+        .execution(created.execution_id.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(row.status, "failed");
+    assert_eq!(row.release_evidence_state, "complete");
+    assert_eq!(
+        notifier.notifications(),
+        vec![(AgentTerminalStatus::Failed, created.execution_id)]
+    );
 }
 
 #[tokio::test]

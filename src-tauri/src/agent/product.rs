@@ -580,6 +580,8 @@ impl AgentProductService {
                     .await?
             }
         }
+        // 原子收口已成功返回后才触发产品副作用，绝不进入事务本身。
+        self.manager.notify_persisted_terminal(&execution_id).await;
         self.observe(execution_id, false).await
     }
     /// Desktop-only read pagination; MCP Action/list stays unchanged.
@@ -605,6 +607,18 @@ impl AgentProductService {
     pub async fn initialize(
         store: StateStore,
     ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+        Self::initialize_with_terminal_notifier(
+            store,
+            super::notification::noop_agent_terminal_notifier(),
+        )
+        .await
+    }
+
+    /// Desktop 启动时注入产品层终态副作用，保持 Agent core 不依赖桌面实现。
+    pub(crate) async fn initialize_with_terminal_notifier(
+        store: StateStore,
+        terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
+    ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
         #[cfg(test)]
         let resolution = match TEST_DISCOVERY.try_with(Clone::clone) {
             Ok(result) => result,
@@ -625,7 +639,11 @@ impl AgentProductService {
                 (std::path::PathBuf::new(), Some(diagnostic))
             }
         };
-        let mut manager = AgentTaskManager::new(store.clone(), executable);
+        let mut manager = AgentTaskManager::new_with_terminal_notifier(
+            store.clone(),
+            executable,
+            terminal_notifier,
+        );
         manager.backend_error = error;
         Self::recover_before_publish(store, manager).await
     }

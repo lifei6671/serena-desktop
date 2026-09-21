@@ -5,6 +5,7 @@ use super::{
     codex::provider::register_codex_provider_with_discovery,
     coordinator::WorkspaceExecutionCoordinator,
     execution::{CreateExecutionInput, ExecutionMode, canonicalize_request},
+    notification::{AgentTerminalNotifier, AgentTerminalStatus, noop_agent_terminal_notifier},
     provider::{
         ProviderCancelContext, ProviderError, ProviderErrorCode, ProviderExecutionContext,
         ProviderId, ProviderStartupContext,
@@ -41,6 +42,7 @@ pub struct AgentTaskManager {
     pub(crate) runtime_pool: std::sync::Arc<super::codex::pool::CodexRuntimePool>,
     registry: Arc<Mutex<Option<Arc<ProviderRegistry>>>>,
     auto_recovery: Arc<AutoRecoveryWorker>,
+    terminal_notifier: Arc<dyn AgentTerminalNotifier>,
     #[cfg(test)]
     pub(crate) test_handoff: Option<std::sync::Arc<(tokio::sync::Notify, tokio::sync::Notify)>>,
     #[cfg(test)]
@@ -230,6 +232,15 @@ impl AgentTaskManager {
             .ok_or_else(|| "EXECUTION_NOT_FOUND".into())
     }
     pub fn new(store: StateStore, executable: PathBuf) -> Self {
+        Self::new_with_terminal_notifier(store, executable, noop_agent_terminal_notifier())
+    }
+
+    /// 注入产品层终态副作用；默认构造函数保持无副作用以兼容既有调用方。
+    pub(crate) fn new_with_terminal_notifier(
+        store: StateStore,
+        executable: PathBuf,
+        terminal_notifier: Arc<dyn AgentTerminalNotifier>,
+    ) -> Self {
         Self {
             store,
             executable,
@@ -238,6 +249,7 @@ impl AgentTaskManager {
             runtime_pool: Default::default(),
             registry: Default::default(),
             auto_recovery: Default::default(),
+            terminal_notifier,
             #[cfg(test)]
             test_handoff: None,
             #[cfg(test)]
@@ -346,7 +358,21 @@ impl AgentTaskManager {
                 continue;
             }
             match provider.startup_reconcile(ProviderStartupContext {}).await {
-                Ok(summary) => report.extend(summary.items),
+                Ok(summary) => {
+                    // 仅消费本轮 Provider 新收敛出的 interrupted，绝不扫描历史终态。
+                    for item in &summary.items {
+                        if matches!(
+                            item.kind,
+                            super::provider::port::ProviderReconcileKind::ExecutionInterrupted
+                        ) {
+                            self.notify_terminal(
+                                AgentTerminalStatus::Interrupted,
+                                &item.subject_id,
+                            );
+                        }
+                    }
+                    report.extend(summary.items);
+                }
                 Err(_) => registry
                     .set_health(&id, ProviderHealth::Unavailable)
                     .map_err(|error| provider_error_code(error.code).to_string())?,
@@ -799,6 +825,9 @@ impl AgentTaskManager {
             }
         };
 
+        // Provider worker 已结束后重新读取 Store；只有已提交的业务终态可产生副作用。
+        self.notify_persisted_terminal(execution_id).await;
+
         match result {
             Ok(row) if acceptance.is_accepted() => Ok(row),
             Ok(_) => {
@@ -829,6 +858,24 @@ impl AgentTaskManager {
                 }
                 Err(error)
             }
+        }
+    }
+
+    /// 读取最终持久化状态后通知产品层；读取或副作用失败都不影响既有结果。
+    pub(crate) async fn notify_persisted_terminal(&self, execution_id: &str) {
+        let Ok(Some(row)) = self.store.execution(execution_id.to_owned()).await else {
+            return;
+        };
+        let Some(status) = AgentTerminalStatus::from_persisted_status(&row.status) else {
+            return;
+        };
+        self.notify_terminal(status, &row.id);
+    }
+
+    /// 固定安全码仅用于诊断，终态副作用永远不可回流到生命周期。
+    fn notify_terminal(&self, status: AgentTerminalStatus, execution_id: &str) {
+        if self.terminal_notifier.notify(status, execution_id).is_err() {
+            eprintln!("AGENT_TERMINAL_NOTIFICATION_FAILED");
         }
     }
 }

@@ -3,6 +3,7 @@
     reason = "TASK-001 foundation is retained without production consumers until Agent lifecycle integration"
 )]
 mod agent;
+mod agent_notification;
 #[cfg(windows)]
 mod autostart;
 mod codegraph_capability;
@@ -106,6 +107,7 @@ pub fn run() {
             },
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
@@ -132,14 +134,22 @@ pub fn run() {
             let supervisor =
                 std::sync::Arc::new(SupervisorState::new(paths).map_err(std::io::Error::other)?);
             app.manage(supervisor.clone());
-            let broker = std::sync::Arc::new(mcp::Broker::new(supervisor));
+            let broker = std::sync::Arc::new(mcp::Broker::new(supervisor.clone()));
             let _ = broker.remote.app.set(app.handle().clone());
             let store = tauri::async_runtime::block_on(agent::store::StateStore::open_for_app(
                 app.handle(),
             ))
             .map_err(std::io::Error::other)?;
+            let terminal_notifier =
+                std::sync::Arc::new(agent_notification::DesktopAgentTerminalNotifier::new(
+                    app.handle().clone(),
+                    supervisor,
+                ));
             let (product, outcomes) = tauri::async_runtime::block_on(
-                agent::product::AgentProductService::initialize(store),
+                agent::product::AgentProductService::initialize_with_terminal_notifier(
+                    store,
+                    terminal_notifier,
+                ),
             )
             .map_err(std::io::Error::other)?;
             if let Some(error) = product.backend_diagnostic() {

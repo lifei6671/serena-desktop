@@ -43,7 +43,7 @@ let root;
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; });
 test('lazy pages preserve settings draft and keep project navigation mounted', async () => {
   const project = { id: 'W', name: 'Persistent project', root: 'E:/project', generation: 1 };
-  const config = { agentEnabled: false, remoteSourceWriteEnabled: false, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [project], desktopSelectedWorkspaceId: project.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+  const config = { agentEnabled: false, remoteSourceWriteEnabled: false, agentSuccessNotificationEnabled: true, agentFailureNotificationEnabled: true, agentSystemNotificationEnabled: true, agentSoundEnabled: true, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [project], desktopSelectedWorkspaceId: project.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
   const snapshot = { config, desktopSelectedWorkspace: project, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
   api.getState = async () => structuredClone(snapshot);
   api.broker = async () => ({ running: false, projects: [{ ...project, configured: true }], projectSources: [], syncWarnings: [], activeWorkspace: null, codegraph: null });
@@ -129,7 +129,7 @@ test('Settings keeps its compact contract, truthful detection copy, and broker c
   const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   const actualPath = 'D:/Serena/actual-runtime/serena.exe';
   const installation = { state: 'standard', source: 'managed', version: 'serena-actual-1.8.2', path: actualPath, context: null, error: null };
-  const config = { agentEnabled: false, broker: { enabled: true, port: 9234, allowLan: true }, workspaces: [], serenaPath: null, port: 9345, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+  const config = { agentEnabled: false, agentSuccessNotificationEnabled: true, agentFailureNotificationEnabled: true, agentSystemNotificationEnabled: true, agentSoundEnabled: true, broker: { enabled: true, port: 9234, allowLan: true }, workspaces: [], serenaPath: null, port: 9345, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
   const snapshot = { config, git: { available: false, status: 'missing', path: null, version: null, error: null }, serverStatus: 'stopped', installation, activeInstallation: installation, managedRuntimePresent: true, managedProcessPresent: false, activePort: 9345, endpoint: 'http://127.0.0.1:9345/mcp', dashboardEnabled: true, dashboardUrl: 'http://127.0.0.1:24283/dashboard/', autostartEnabled: false, autostartError: null, codegraphVersion: null, lastError: null };
   let brokerRunning = true;
   let resolveSetBroker;
@@ -141,6 +141,12 @@ test('Settings keeps its compact contract, truthful detection copy, and broker c
   api.codexVersion = async () => 'test-version';
   api.remoteState = async () => ({ mode: 'quick_tunnel', status: 'stopped', publicContext: null, lastError: null, authorizedClients: 0, pending: [], active: false });
   api.setBroker = () => new Promise(resolve => { resolveSetBroker = resolve; });
+  const savedConfigs = [];
+  api.saveConfig = async next => {
+    savedConfigs.push(next);
+    snapshot.config = structuredClone(next);
+    return structuredClone(snapshot);
+  };
   const navigate = async () => {
     await act(async () => [...document.querySelectorAll('nav[aria-label="主导航"] button')].find(item => item.textContent === '设置').click());
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
@@ -153,7 +159,19 @@ test('Settings keeps its compact contract, truthful detection copy, and broker c
   };
   try {
     let page = await mountSettings();
-    assert.deepEqual([...page.querySelectorAll('.settings-section h2')].map(item => item.textContent), ['General', 'Serena', 'Serena 内部服务', 'MCP 连接入口']);
+    assert.deepEqual([...page.querySelectorAll('.settings-section h2')].map(item => item.textContent), ['General', 'Agent 提醒', 'Serena', 'Serena 内部服务', 'MCP 连接入口']);
+    for (const label of ['任务成功提醒', '任务异常提醒', '系统通知', '提示音']) {
+      assert.ok([...page.querySelectorAll('[role="switch"]')].some(control => control.closest('[data-slot="field"]')?.textContent.includes(label)), label);
+    }
+    for (const label of ['任务成功提醒', '任务异常提醒', '系统通知', '提示音']) {
+      const control = [...page.querySelectorAll('[role="switch"]')].find(item => item.closest('[data-slot="field"]')?.textContent.includes(label));
+      await act(async () => control.click());
+    }
+    assert.equal(savedConfigs.length, 4);
+    assert.equal(savedConfigs[0].agentSuccessNotificationEnabled, false);
+    assert.equal(savedConfigs[1].agentFailureNotificationEnabled, false);
+    assert.equal(savedConfigs[2].agentSystemNotificationEnabled, false);
+    assert.equal(savedConfigs[3].agentSoundEnabled, false);
     assert.match(page.querySelector('.settings-autosave-status').textContent, /自动持久化就绪/);
     const detectedPath = page.querySelector('.detected-path');
     assert.match(detectedPath.textContent, new RegExp(actualPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));

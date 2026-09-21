@@ -36,6 +36,10 @@ export interface ManagerConfig {
   remoteAccess: RemoteAccessConfig;
   agentEnabled: boolean;
   remoteSourceWriteEnabled: boolean;
+  agentSuccessNotificationEnabled: boolean;
+  agentFailureNotificationEnabled: boolean;
+  agentSystemNotificationEnabled: boolean;
+  agentSoundEnabled: boolean;
   broker: { enabled: boolean; port: number; allowLan: boolean };
   workspaces: Workspace[];
   workspaceRegistryRevision: number;

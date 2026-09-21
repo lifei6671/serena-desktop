@@ -34,6 +34,7 @@ serde_yaml_ng = "0.10.0"
 tauri = { version = "2.11.5", features = ["tray-icon"] }
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "=2.3.3"
 tauri-plugin-single-instance = "2"
 tempfile = "3.23.0"
 tokio = { version = "1.53.1", features = ["process", "io-util", "net", "sync", "time", "fs"] }
@@ -46,7 +47,7 @@ regex = "1.13.1"
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"
 windows = "0.61.3"
-windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_RemoteDesktop", "Win32_System_SystemServices", "Win32_System_Diagnostics_ToolHelp", "Win32_Security", "Win32_Globalization", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_RemoteDesktop", "Win32_System_SystemServices", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Diagnostics_Debug", "Win32_Security", "Win32_Globalization", "Win32_Storage_FileSystem", "Win32_UI_WindowsAndMessaging"] }
 winreg = "0.10"
 
 [dev-dependencies]
