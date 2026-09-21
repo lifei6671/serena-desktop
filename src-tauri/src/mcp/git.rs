@@ -1,4 +1,5 @@
 use super::process;
+use crate::{workspace_path::WorkspacePathResolver, workspace_resolver::WorkspaceLease};
 use rmcp::schemars::{self, JsonSchema};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -10,6 +11,9 @@ use tokio_util::sync::CancellationToken;
 #[derive(Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GitArgs {
+    #[serde(rename = "workspaceId")]
+    #[schemars(rename = "workspaceId")]
+    pub workspace_id: String,
     #[serde(default)]
     pub scope: Option<String>,
     #[serde(default)]
@@ -50,7 +54,7 @@ pub async fn root(path: &Path, cancel: CancellationToken) -> Result<PathBuf, Str
 }
 pub async fn call(
     name: &str,
-    root: &Path,
+    lease: &WorkspaceLease,
     args: GitArgs,
     cancel: CancellationToken,
 ) -> Result<process::Output, String> {
@@ -58,7 +62,8 @@ pub async fn call(
     if !(1..=262144).contains(&limit) {
         return Err("INVALID_PARAMS: max_bytes 必须为 1..262144".into());
     }
-    let mut c = git(root)?;
+    // Git Root 只能来自已解析 Lease，调用方永远不能提供或推导绝对 Root。
+    let mut c = git(&lease.canonical_root)?;
     let reference = args.reference.as_deref().unwrap_or("HEAD");
     if reference.is_empty() || reference.starts_with('-') || reference.chars().any(char::is_control)
     {
@@ -116,13 +121,13 @@ pub async fn call(
         if !matches!(name, "git_diff" | "git_log" | "git_show") {
             return Err("INVALID_PARAMS: 此工具不支持 path".into());
         }
-        if Path::new(&path).is_absolute()
-            || path.contains(':')
-            || path.split(['/', '\\']).any(|p| p == "..")
-        {
-            return Err("INVALID_PATH".into());
-        }
-        c.arg("--").arg(path);
+        // 保留公开 path 字段，但仅允许经 Lease 根目录验证后的相对 Git pathspec。
+        let resolved = WorkspacePathResolver::new(lease).resolve(&path)?;
+        let relative = resolved
+            .strip_prefix(&lease.canonical_root)
+            .map_err(|_| "INVALID_PATH: path escapes the workspace root")?;
+        let pathspec = relative.to_string_lossy().replace('\\', "/");
+        c.arg("--").arg(pathspec);
     }
     process::run(c, limit, Duration::from_secs(30), cancel).await
 }
@@ -130,6 +135,15 @@ pub async fn call(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lease(root: &Path) -> WorkspaceLease {
+        WorkspaceLease {
+            workspace_id: "workspace".into(),
+            canonical_root: root.canonicalize().unwrap(),
+            generation: 1,
+        }
+    }
+
     #[tokio::test]
     async fn worktree_and_readonly_commands() {
         let dir = tempfile::tempdir().unwrap();
@@ -147,7 +161,7 @@ mod tests {
         std::fs::write(root.join("test.txt"), "hello").unwrap();
         let out = call(
             "git_status",
-            &root,
+            &lease(&root),
             GitArgs::default(),
             CancellationToken::new(),
         )
@@ -160,7 +174,7 @@ mod tests {
             ..Default::default()
         };
         assert!(
-            call("git_show", &root, bad, CancellationToken::new())
+            call("git_show", &lease(&root), bad, CancellationToken::new())
                 .await
                 .is_err()
         );
@@ -187,7 +201,7 @@ mod tests {
         }
         let binary = call(
             "git_show",
-            &root,
+            &lease(&root),
             GitArgs {
                 reference: Some("HEAD:binary.bin".into()),
                 max_bytes: Some(4),
@@ -201,15 +215,20 @@ mod tests {
         let index_before = std::fs::read(root.join(".git/index")).unwrap();
         std::fs::write(root.join("test.txt"), "changed\n").unwrap();
         for name in super::super::registry::GITS {
-            let result = call(name, &root, GitArgs::default(), CancellationToken::new())
-                .await
-                .unwrap();
+            let result = call(
+                name,
+                &lease(&root),
+                GitArgs::default(),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
             assert!(!result.truncated);
             assert!(!result.text.is_empty(), "{name}");
             assert!(
                 call(
                     name,
-                    &root,
+                    &lease(&root),
                     GitArgs {
                         max_bytes: Some(0),
                         ..Default::default()
@@ -221,7 +240,7 @@ mod tests {
             );
             let small = call(
                 name,
-                &root,
+                &lease(&root),
                 GitArgs {
                     max_bytes: Some(1),
                     ..Default::default()
@@ -250,5 +269,126 @@ mod tests {
                 .unwrap(),
             linked.canonicalize().unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn git_path_is_lease_relative_and_rejects_escape_variants() {
+        let dir = tempfile::tempdir().unwrap();
+        let repository = dir.path().join("repository");
+        let mut init = process::command("git");
+        init.arg("init").arg(&repository);
+        process::run(
+            init,
+            8192,
+            Duration::from_secs(10),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        let root = root(&repository, CancellationToken::new()).await.unwrap();
+        std::fs::write(root.join("inside.txt"), "before\n").unwrap();
+        for args in [
+            vec!["add", "inside.txt"],
+            vec![
+                "-c",
+                "user.name=Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-m",
+                "fixture",
+                "--no-gpg-sign",
+            ],
+        ] {
+            let mut command = git(&root).unwrap();
+            command.args(args);
+            process::run(
+                command,
+                8192,
+                Duration::from_secs(10),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        }
+        std::fs::write(root.join("inside.txt"), "after\n").unwrap();
+        let current = lease(&root);
+        let output = call(
+            "git_diff",
+            &current,
+            GitArgs {
+                path: Some("inside.txt".into()),
+                ..Default::default()
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert!(output.text.contains("inside.txt"));
+        let log = call(
+            "git_log",
+            &current,
+            GitArgs {
+                path: Some("inside.txt".into()),
+                ..Default::default()
+            },
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+        assert!(log.text.contains("fixture"));
+        for path in [
+            "/outside",
+            "C:/outside",
+            "C:\\outside",
+            "\\\\server\\share",
+            "..",
+            "../outside",
+            "..\\outside",
+            ".",
+        ] {
+            assert!(
+                call(
+                    "git_diff",
+                    &current,
+                    GitArgs {
+                        path: Some(path.into()),
+                        ..Default::default()
+                    },
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap_err()
+                .starts_with("INVALID_PATH"),
+                "{path}"
+            );
+        }
+        #[cfg(windows)]
+        {
+            let outside = dir.path().join("outside");
+            std::fs::create_dir(&outside).unwrap();
+            std::fs::write(outside.join("outside.txt"), "outside\n").unwrap();
+            let status = std::process::Command::new("cmd.exe")
+                .args(["/c", "mklink", "/J"])
+                .arg(root.join("link"))
+                .arg(&outside)
+                .output()
+                .unwrap();
+            assert!(status.status.success());
+            assert!(
+                call(
+                    "git_diff",
+                    &current,
+                    GitArgs {
+                        path: Some("link/outside.txt".into()),
+                        ..Default::default()
+                    },
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap_err()
+                .starts_with("INVALID_PATH")
+            );
+        }
     }
 }

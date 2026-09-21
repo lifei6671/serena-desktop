@@ -7,6 +7,71 @@ use std::{
 use tauri::{AppHandle, Manager};
 use tempfile::NamedTempFile;
 
+#[allow(
+    dead_code,
+    reason = "P2A1-002 provides the helper before P2A1-003 Registry integration."
+)]
+pub(crate) const WORKSPACE_ROOT_NOT_FOUND: &str = "WORKSPACE_ROOT_NOT_FOUND";
+#[allow(
+    dead_code,
+    reason = "P2A1-002 provides the helper before P2A1-003 Registry integration."
+)]
+pub(crate) const WORKSPACE_ROOT_NOT_DIRECTORY: &str = "WORKSPACE_ROOT_NOT_DIRECTORY";
+
+/// Validates a registration candidate and returns the filesystem's canonical root.
+///
+/// This does not persist or otherwise modify `root`; existing stored roots remain
+/// the caller's responsibility until an explicit registration operation uses it.
+#[allow(
+    dead_code,
+    reason = "P2A1-002 provides the helper before P2A1-003 Registry integration."
+)]
+pub(crate) fn canonicalize_workspace_root(root: &Path) -> Result<PathBuf, &'static str> {
+    let metadata = fs::metadata(root).map_err(|_| WORKSPACE_ROOT_NOT_FOUND)?;
+    if !metadata.is_dir() {
+        return Err(WORKSPACE_ROOT_NOT_DIRECTORY);
+    }
+
+    fs::canonicalize(root).map_err(|_| WORKSPACE_ROOT_NOT_FOUND)
+}
+
+/// Compares workspace roots as identities after callers canonicalize them.
+///
+/// Historical roots may not have been produced by `canonicalize_workspace_root`,
+/// so Windows does not rely on byte-for-byte `Path` equality.
+#[cfg(not(windows))]
+#[allow(
+    dead_code,
+    reason = "P2A1-002 provides the helper before P2A1-003 Registry integration."
+)]
+pub(crate) fn same_workspace_root_identity(left: &Path, right: &Path) -> bool {
+    left == right
+}
+
+/// Uses Windows' UTF-16 ordinal comparison instead of converting paths through
+/// a potentially lossy string representation.
+#[cfg(windows)]
+#[allow(
+    dead_code,
+    reason = "P2A1-002 provides the helper before P2A1-003 Registry integration."
+)]
+pub(crate) fn same_workspace_root_identity(left: &Path, right: &Path) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Globalization::{CSTR_EQUAL, CompareStringOrdinal};
+
+    let left = left.as_os_str().encode_wide().collect::<Vec<_>>();
+    let right = right.as_os_str().encode_wide().collect::<Vec<_>>();
+    let (Ok(left_len), Ok(right_len)) = (i32::try_from(left.len()), i32::try_from(right.len()))
+    else {
+        return false;
+    };
+
+    // The explicit lengths permit non-NUL-terminated UTF-16 path buffers.
+    unsafe {
+        CompareStringOrdinal(left.as_ptr(), left_len, right.as_ptr(), right_len, 1) == CSTR_EQUAL
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AppPaths {
     pub runtime_directory: PathBuf,
@@ -53,8 +118,15 @@ impl AppPaths {
 pub struct ManagerConfig {
     pub remote_access: crate::remote::RemoteAccessConfig,
     pub agent_enabled: bool,
+    pub remote_source_write_enabled: bool,
+    pub agent_success_notification_enabled: bool,
+    pub agent_failure_notification_enabled: bool,
+    pub agent_system_notification_enabled: bool,
+    pub agent_sound_enabled: bool,
     pub broker: BrokerConfig,
     pub workspaces: Vec<Workspace>,
+    pub workspace_registry_revision: u64,
+    pub desktop_selected_workspace_id: Option<String>,
     pub serena_path: Option<PathBuf>,
     pub port: u16,
     pub dashboard_enabled: bool,
@@ -69,7 +141,14 @@ impl Default for ManagerConfig {
             broker: BrokerConfig::default(),
             remote_access: crate::remote::RemoteAccessConfig::default(),
             agent_enabled: false,
+            remote_source_write_enabled: false,
+            agent_success_notification_enabled: true,
+            agent_failure_notification_enabled: true,
+            agent_system_notification_enabled: true,
+            agent_sound_enabled: true,
             workspaces: Vec::new(),
+            workspace_registry_revision: 1,
+            desktop_selected_workspace_id: None,
             serena_path: None,
             port: 9121,
             dashboard_enabled: true,
@@ -120,8 +199,20 @@ pub fn load(path: &Path) -> Result<ManagerConfig, String> {
     }
     let content = fs::read_to_string(path)
         .map_err(|error| format!("无法读取配置 {}：{error}", path.display()))?;
-    let config: ManagerConfig = serde_json::from_str(&content)
+    let mut config: ManagerConfig = serde_json::from_str(&content)
         .map_err(|error| format!("配置文件格式无效 {}：{error}", path.display()))?;
+    if config
+        .desktop_selected_workspace_id
+        .as_ref()
+        .is_some_and(|id| {
+            !config
+                .workspaces
+                .iter()
+                .any(|workspace| workspace.id == *id)
+        })
+    {
+        config.desktop_selected_workspace_id = None;
+    }
     config.validate()?;
     Ok(config)
 }
@@ -151,9 +242,265 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Workspace Slot 受管 Serena context 的固定 Semantic 工具白名单。
+/// 该列表同时用于写入与回读校验，避免两处配置语义漂移。
+const WORKSPACE_SERENA_FIXED_TOOLS: &[&str] = &[
+    "activate_project",
+    "get_current_config",
+    "get_symbols_overview",
+    "find_symbol",
+    "find_referencing_symbols",
+];
+
+/// 为 workspace-scoped Serena Slot 写入独立且最小的受管全局配置。
+/// Slot Home 不从旧共享 Home 迁移 projects；Workspace authority 始终来自 Lease。
+pub(crate) fn prepare_workspace_serena_home(home: &Path, context: &Path) -> Result<(), String> {
+    let value = serde_json::json!({
+        "language_backend": "LSP", "trusted_project_path_patterns": [],
+        "web_dashboard": false, "web_dashboard_open_on_launch": false,
+        "gui_log_window": false, "default_modes": [], "projects": [],
+        "project_serena_folder_location": "$projectDir/.serena"
+    });
+    atomic_write(
+        &home.join("serena_config.yml"),
+        serde_json::to_string_pretty(&value).unwrap().as_bytes(),
+    )?;
+    let context_value = serde_json::json!({
+        "description":"Desktop workspace-scoped semantic source backend", "prompt":"",
+        "fixed_tools": WORKSPACE_SERENA_FIXED_TOOLS,
+        "single_project":false
+    });
+    atomic_write(
+        context,
+        serde_json::to_string_pretty(&context_value)
+            .unwrap()
+            .as_bytes(),
+    )?;
+    verify_workspace_serena_home(home, context)
+}
+
+/// 验证 Slot 配置仍保持固定安全基线，避免启动时接受被外部修改的 Home。
+pub(crate) fn verify_workspace_serena_home(home: &Path, context: &Path) -> Result<(), String> {
+    let global: serde_yaml_ng::Value = serde_yaml_ng::from_str(
+        &fs::read_to_string(home.join("serena_config.yml")).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let context_value: serde_yaml_ng::Value =
+        serde_yaml_ng::from_str(&fs::read_to_string(context).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+    let safe_global = global["trusted_project_path_patterns"]
+        .as_sequence()
+        .is_some_and(|patterns| patterns.is_empty())
+        && global["web_dashboard"].as_bool() == Some(false)
+        && global["web_dashboard_open_on_launch"].as_bool() == Some(false)
+        && global["gui_log_window"].as_bool() == Some(false)
+        && global["project_serena_folder_location"].as_str() == Some("$projectDir/.serena")
+        && global["projects"]
+            .as_sequence()
+            .is_some_and(|projects| projects.is_empty());
+    let has_fixed_tools = context_value["fixed_tools"]
+        .as_sequence()
+        .is_some_and(|tools| {
+            tools.len() == WORKSPACE_SERENA_FIXED_TOOLS.len()
+                && WORKSPACE_SERENA_FIXED_TOOLS.iter().all(|allowed| {
+                    tools
+                        .iter()
+                        .filter(|tool| tool.as_str() == Some(*allowed))
+                        .count()
+                        == 1
+                })
+        });
+    let safe_context = context_value["single_project"].as_bool() == Some(false) && has_fixed_tools;
+    (safe_global && safe_context)
+        .then_some(())
+        .ok_or_else(|| "managed Serena slot config is invalid".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn app_paths_resolve_from_tauri_identity_and_preserve_unicode_suffixes() {
+        use tauri::Manager;
+
+        let mut context = tauri::generate_context!();
+        context.config_mut().app.windows.clear();
+        let app = tauri::Builder::default()
+            .any_thread()
+            .build(context)
+            .expect("测试应用上下文必须可构建");
+        let handle = app.handle();
+        let paths = AppPaths::resolve(handle).expect("生产 Path API 必须能解析应用路径");
+        let config_dir = handle
+            .path()
+            .app_config_dir()
+            .expect("生产 Path API 必须能解析配置目录");
+        let data_dir = handle
+            .path()
+            .app_data_dir()
+            .expect("生产 Path API 必须能解析数据目录");
+        let log_dir = handle
+            .path()
+            .app_log_dir()
+            .expect("生产 Path API 必须能解析日志目录");
+
+        assert_eq!(paths.config_file, config_dir.join("config.json"));
+        assert_eq!(paths.runtime_directory, data_dir.join("runtime"));
+        assert_eq!(paths.log_directory, log_dir);
+        assert_eq!(
+            paths.runtime_directory.join("oauth-state.json"),
+            data_dir.join("runtime").join("oauth-state.json")
+        );
+
+        // Unicode fixture verifies the production PathBuf suffixes do not use ANSI conversion.
+        let unicode_data =
+            PathBuf::from(r"C:\Users\张三\AppData\Roaming\io.github.lifei6671.serena-desktop");
+        assert_eq!(
+            unicode_data.join("runtime").join("oauth-state.json"),
+            PathBuf::from(
+                r"C:\Users\张三\AppData\Roaming\io.github.lifei6671.serena-desktop\runtime\oauth-state.json"
+            )
+        );
+
+        println!(
+            "P6-003_PATH_SNAPSHOT identifier={} configDir={} dataDir={} logDir={} managerConfig={} agentStateDb={} oauthState={}",
+            handle.config().identifier,
+            config_dir.display(),
+            data_dir.display(),
+            log_dir.display(),
+            paths.config_file.display(),
+            data_dir.join("agent-state.db").display(),
+            paths.runtime_directory.join("oauth-state.json").display(),
+        );
+    }
+
+    #[test]
+    fn workspace_root_missing_returns_stable_error() {
+        let directory = tempfile::tempdir().unwrap();
+
+        assert_eq!(
+            canonicalize_workspace_root(&directory.path().join("missing")),
+            Err(WORKSPACE_ROOT_NOT_FOUND)
+        );
+    }
+
+    #[test]
+    fn workspace_root_file_returns_stable_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("not-a-directory");
+        fs::write(&file, "file").unwrap();
+
+        assert_eq!(
+            canonicalize_workspace_root(&file),
+            Err(WORKSPACE_ROOT_NOT_DIRECTORY)
+        );
+    }
+
+    #[test]
+    fn workspace_root_non_git_directory_canonicalizes_without_side_effects() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("ordinary-directory");
+        fs::create_dir(&root).unwrap();
+
+        let canonical = canonicalize_workspace_root(&root).unwrap();
+
+        assert!(canonical.is_dir());
+        assert!(!root.join(".git").exists());
+        assert!(!root.join(".serena").exists());
+        assert!(!root.join(".codegraph").exists());
+        assert!(fs::read_dir(&root).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn workspace_root_same_root_alias_has_the_same_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("root");
+        fs::create_dir(&root).unwrap();
+        let alias = root
+            .parent()
+            .unwrap()
+            .join(root.file_name().unwrap())
+            .join("..")
+            .join(root.file_name().unwrap());
+
+        let canonical = canonicalize_workspace_root(&root).unwrap();
+        let alias_canonical = canonicalize_workspace_root(&alias).unwrap();
+
+        assert!(same_workspace_root_identity(&canonical, &alias_canonical));
+    }
+
+    #[cfg(windows)]
+    fn windows_path_with_forward_separators(path: &Path) -> PathBuf {
+        use std::{
+            ffi::OsString,
+            os::windows::ffi::{OsStrExt, OsStringExt},
+        };
+
+        let wide = path
+            .as_os_str()
+            .encode_wide()
+            .map(|unit| {
+                if unit == u16::from(b'\\') {
+                    u16::from(b'/')
+                } else {
+                    unit
+                }
+            })
+            .collect::<Vec<_>>();
+        PathBuf::from(OsString::from_wide(&wide))
+    }
+
+    #[cfg(windows)]
+    fn windows_ascii_uppercase_path(path: &Path) -> PathBuf {
+        use std::{
+            ffi::OsString,
+            os::windows::ffi::{OsStrExt, OsStringExt},
+        };
+
+        let wide = path
+            .as_os_str()
+            .encode_wide()
+            .map(|unit| {
+                if (u16::from(b'a')..=u16::from(b'z')).contains(&unit) {
+                    unit - u16::from(b'a') + u16::from(b'A')
+                } else {
+                    unit
+                }
+            })
+            .collect::<Vec<_>>();
+        PathBuf::from(OsString::from_wide(&wide))
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_workspace_root_separator_alias_has_the_same_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("root");
+        fs::create_dir(&root).unwrap();
+        let separator_alias = windows_path_with_forward_separators(&root);
+
+        let canonical = canonicalize_workspace_root(&root).unwrap();
+        let alias_canonical = canonicalize_workspace_root(&separator_alias).unwrap();
+
+        assert!(same_workspace_root_identity(&canonical, &alias_canonical));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_workspace_root_casing_alias_has_the_same_identity() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("RootIdentity");
+        fs::create_dir(&root).unwrap();
+
+        let canonical = canonicalize_workspace_root(&root).unwrap();
+        let casing_alias = windows_ascii_uppercase_path(&canonical);
+        let alias_canonical = canonicalize_workspace_root(&casing_alias).unwrap();
+
+        assert!(same_workspace_root_identity(&canonical, &casing_alias));
+        assert!(same_workspace_root_identity(&canonical, &alias_canonical));
+    }
 
     #[test]
     fn missing_saved_executable_can_be_loaded_for_repair_in_ui() {
@@ -178,7 +525,94 @@ mod tests {
 
     #[test]
     fn default_config_is_valid() {
-        assert!(ManagerConfig::default().validate().is_ok());
+        let config = ManagerConfig::default();
+        assert_eq!(config.workspace_registry_revision, 1);
+        assert_eq!(config.desktop_selected_workspace_id, None);
+        assert!(config.agent_success_notification_enabled);
+        assert!(config.agent_failure_notification_enabled);
+        assert!(config.agent_system_notification_enabled);
+        assert!(config.agent_sound_enabled);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn old_config_uses_agent_notification_defaults() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        fs::write(&path, r#"{"agentEnabled":true}"#).unwrap();
+        let config = load(&path).unwrap();
+        assert!(config.agent_success_notification_enabled);
+        assert!(config.agent_failure_notification_enabled);
+        assert!(config.agent_system_notification_enabled);
+        assert!(config.agent_sound_enabled);
+    }
+
+    #[test]
+    fn stale_desktop_selected_workspace_loads_as_unselected_without_rewriting_config() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        fs::write(
+            &path,
+            r#"{"desktopSelectedWorkspaceId":"missing","workspaces":[{"id":"known","name":"Known","root":"C:\\known","generation":4}]}"#,
+        )
+        .unwrap();
+        let bytes = fs::read(&path).unwrap();
+
+        let loaded = load(&path).unwrap();
+
+        assert_eq!(loaded.desktop_selected_workspace_id, None);
+        assert_eq!(loaded.workspaces[0].id, "known");
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+    }
+
+    #[test]
+    fn legacy_workspace_registry_versions_migrate_and_round_trip_without_identity_changes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        fs::write(
+            &path,
+            r#"{
+                "workspaces": [
+                    {"id":"legacy-b","name":"Legacy B","root":"C:\\legacy\\b"},
+                    {"id":"legacy-a","name":"Legacy A","root":"C:\\legacy\\a"}
+                ]
+            }"#,
+        )
+        .unwrap();
+        let before = fs::read(&path).unwrap();
+
+        let expected_workspaces = vec![
+            Workspace {
+                id: "legacy-b".into(),
+                name: "Legacy B".into(),
+                root: PathBuf::from(r"C:\legacy\b"),
+                generation: 1,
+            },
+            Workspace {
+                id: "legacy-a".into(),
+                name: "Legacy A".into(),
+                root: PathBuf::from(r"C:\legacy\a"),
+                generation: 1,
+            },
+        ];
+
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.workspace_registry_revision, 1);
+        assert_eq!(loaded.workspaces, expected_workspaces);
+        assert_eq!(fs::read(&path).unwrap(), before);
+
+        save(&path, &loaded).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["workspaceRegistryRevision"], 1);
+        assert_eq!(
+            saved["workspaces"],
+            serde_json::json!([
+                {"id":"legacy-b","name":"Legacy B","root":"C:\\legacy\\b","generation":1},
+                {"id":"legacy-a","name":"Legacy A","root":"C:\\legacy\\a","generation":1}
+            ])
+        );
+        assert_eq!(load(&path).unwrap(), loaded);
     }
 
     #[test]
@@ -196,6 +630,7 @@ mod tests {
             config.remote_access.self_hosted.public_origin.as_deref(),
             Some("https://legacy.example")
         );
+        assert!(!config.remote_access.quick_tunnel_desired_running);
         assert!(config.validate().is_ok());
     }
 
@@ -232,6 +667,21 @@ mod tests {
         save(&path, &config).unwrap();
         assert!(load(&path).unwrap().agent_enabled);
         assert_eq!(serde_json::to_value(&config).unwrap()["agentEnabled"], true);
+    }
+
+    #[test]
+    fn remote_source_write_is_opt_in_and_persisted() {
+        let mut config: ManagerConfig = serde_json::from_str("{}").unwrap();
+        assert!(!config.remote_source_write_enabled);
+        config.remote_source_write_enabled = true;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        save(&path, &config).unwrap();
+        assert!(load(&path).unwrap().remote_source_write_enabled);
+        assert_eq!(
+            serde_json::to_value(&config).unwrap()["remoteSourceWriteEnabled"],
+            true
+        );
     }
 
     #[test]
@@ -287,6 +737,51 @@ mod tests {
                 .contains("startMinimized")
         );
     }
+
+    #[test]
+    fn workspace_serena_home_accepts_generated_fixed_tools() {
+        let directory = tempfile::tempdir().unwrap();
+        let home = directory.path().join("slot-home");
+        let context = home.join("slot-context.yml");
+        fs::create_dir(&home).unwrap();
+
+        prepare_workspace_serena_home(&home, &context).unwrap();
+
+        assert!(verify_workspace_serena_home(&home, &context).is_ok());
+    }
+
+    #[test]
+    fn workspace_serena_home_rejects_extra_fixed_tool() {
+        let directory = tempfile::tempdir().unwrap();
+        let home = directory.path().join("slot-home");
+        let context = home.join("slot-context.yml");
+        fs::create_dir(&home).unwrap();
+        prepare_workspace_serena_home(&home, &context).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&context).unwrap()).unwrap();
+        value["fixed_tools"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!("write_file"));
+        fs::write(&context, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+
+        assert!(verify_workspace_serena_home(&home, &context).is_err());
+    }
+
+    #[test]
+    fn workspace_serena_home_rejects_missing_fixed_tool() {
+        let directory = tempfile::tempdir().unwrap();
+        let home = directory.path().join("slot-home");
+        let context = home.join("slot-context.yml");
+        fs::create_dir(&home).unwrap();
+        prepare_workspace_serena_home(&home, &context).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&context).unwrap()).unwrap();
+        value["fixed_tools"].as_array_mut().unwrap().pop();
+        fs::write(&context, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+
+        assert!(verify_workspace_serena_home(&home, &context).is_err());
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -320,6 +815,12 @@ pub struct Workspace {
     pub id: String,
     pub name: String,
     pub root: PathBuf,
+    #[serde(default = "default_workspace_generation")]
+    pub generation: u64,
+}
+
+fn default_workspace_generation() -> u64 {
+    1
 }
 impl AppPaths {
     pub fn serena_home(&self) -> PathBuf {
@@ -348,7 +849,7 @@ impl AppPaths {
             &self.serena_home().join("serena_config.yml"),
             serde_json::to_string_pretty(&value).unwrap().as_bytes(),
         )?;
-        let context = serde_json::json!({"description":"Desktop Broker read-only backend", "prompt":"", "fixed_tools":["activate_project","get_current_config","read_file","list_dir","find_file","search_for_pattern","get_symbols_overview","find_symbol","find_referencing_symbols"], "single_project":false});
+        let context = serde_json::json!({"description":"Desktop Broker semantic source backend", "prompt":"", "fixed_tools":["activate_project","get_current_config","get_symbols_overview","find_symbol","find_referencing_symbols"], "single_project":false});
         atomic_write(
             &self.broker_context(),
             serde_json::to_string_pretty(&context).unwrap().as_bytes(),

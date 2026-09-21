@@ -1,0 +1,2 @@
+{"file": "src-tauri/src/agent/execution.rs", "reason": "Generation validation and frozen request-key compatibility guards."}
+{"file": "docs/implementation-task-breakdown-agent-platform-v0.2-revision003.md", "reason": "Approved P2A2-006/P2A2-007/P2A2-008 responsibility boundaries."}

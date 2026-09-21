@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::execution::legacy_pre_workspace_generation_hash;
 use rusqlite::types::Value;
 
 fn context(work: &str) -> WorkExecutionContext {
@@ -15,6 +16,7 @@ async fn work(store: &StateStore, id: &str) {
             id.into(),
             "W".into(),
             "root".into(),
+            1,
             "title".into(),
             None,
             1,
@@ -41,6 +43,7 @@ async fn fresh(
             Some(WorkspaceSnapshot {
                 id: "W".into(),
                 root: "root".into(),
+                generation: 1,
             }),
             work,
             now,
@@ -62,6 +65,7 @@ async fn continuation(
             key.into(),
             "next".into(),
             work,
+            None,
             20,
         )
         .await
@@ -194,8 +198,51 @@ async fn terminal_parent(store: &StateStore, id: &str) -> ExecutionRecord {
         c.execute("UPDATE executions SET runtime_instance_id=?2, thread_id='T', turn_id=?3, final_result_json=?4 WHERE id=?1", params![id, runtime, format!("turn-{id}"), result]).unwrap();
     }
     let row = store.execution(id.into()).await.unwrap().unwrap();
-    assert!(continuation_eligible(&row));
+    assert!(continuation_core_eligible(&row));
     row
+}
+
+#[tokio::test]
+async fn continuation_creation_rechecks_provider_opaque_source_revision() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    fresh(&store, "E1", "A", "source", None, 10).await.unwrap();
+    let source = terminal_parent(&store, "E1").await;
+    let candidate = store
+        .product_continuation_preflight("E1".into(), "next".into(), "next".into(), None)
+        .await
+        .unwrap();
+    let ContinuationPreflight::Candidate(candidate) = candidate else {
+        panic!("unexpected retry");
+    };
+    assert_eq!(candidate.source_revision, source.revision);
+    sql(
+        &store,
+        "UPDATE executions SET revision=revision+1 WHERE id='E1'",
+    );
+    assert_eq!(
+        store
+            .product_create_continuation_with_work(
+                "E2".into(),
+                "E1".into(),
+                "next".into(),
+                "next".into(),
+                None,
+                Some(candidate.source_revision),
+                20,
+            )
+            .await
+            .unwrap_err(),
+        "AGENT_CONTINUE_NOT_ALLOWED"
+    );
+    assert!(store.execution("E2".into()).await.unwrap().is_none());
+    assert!(
+        store
+            .workspace_claim("root".into())
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -344,10 +391,12 @@ async fn fresh_work_guards_have_no_side_effects() {
         Some(WorkspaceSnapshot {
             id: "other".into(),
             root: "root".into(),
+            generation: 1,
         }),
         Some(WorkspaceSnapshot {
             id: "W".into(),
             root: "elsewhere".into(),
+            generation: 1,
         }),
     ] {
         let before = snapshot(&store);
@@ -492,7 +541,19 @@ async fn continuation_preserves_terminal_parent_and_retry_after_work_completion(
         .unwrap();
     assert!(child.created);
     assert_eq!(child.execution.status, "dispatch_pending");
-    assert_eq!(child.execution.thread_id, parent.thread_id);
+    assert_eq!(child.execution.parent_execution_id.as_deref(), Some("E1"));
+    // Continue 精确继承父 Execution 的持久化 Workspace snapshot。
+    assert_eq!(child.execution.workspace_id, parent.workspace_id);
+    assert_eq!(
+        child.execution.canonical_workspace_root,
+        parent.canonical_workspace_root
+    );
+    assert_eq!(
+        child.execution.workspace_generation,
+        parent.workspace_generation
+    );
+    // C2B leaves current child runtime identity to the Provider adapter.
+    assert_eq!(child.execution.thread_id, None);
     assert_eq!(store.execution("E1".into()).await.unwrap(), Some(parent));
     assert_eq!(
         store
@@ -577,6 +638,7 @@ async fn continuation_guards_keep_eligibility_claim_and_workspace_contracts() {
     for change in [
         "UPDATE work_runs SET workspace_id='other'",
         "UPDATE work_runs SET workspace_id='W',canonical_workspace_root='ROOT'",
+        "UPDATE work_runs SET workspace_generation=2",
     ] {
         sql(&store, change);
         let before = snapshot(&store);
@@ -588,6 +650,146 @@ async fn continuation_guards_keep_eligibility_claim_and_workspace_contracts() {
         );
         assert_eq!(snapshot(&store), before);
     }
+}
+
+#[tokio::test]
+async fn continuation_rejects_incomplete_parent_workspace_snapshot_without_fallback() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    fresh(&store, "E1", "A", "key", None, 10).await.unwrap();
+    terminal_parent(&store, "E1").await;
+    // 模拟旧数据损坏：Continue 必须 fail closed，不能从 Registry 或当前选择补齐 root。
+    sql(
+        &store,
+        "UPDATE executions SET canonical_workspace_root='' WHERE id='E1'",
+    );
+    let before = snapshot(&store);
+    assert_eq!(
+        continuation(&store, "E2", "E1", "next", None)
+            .await
+            .unwrap_err(),
+        "AGENT_CONTINUE_NOT_ALLOWED"
+    );
+    assert_eq!(snapshot(&store), before);
+    assert!(store.execution("E2".into()).await.unwrap().is_none());
+    assert!(
+        store
+            .workspace_claim("root".into())
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn v2_request_retry_and_migrated_v1_retry_require_matching_generation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    let first = store
+        .product_create_fresh(
+            "E1".into(),
+            "A".into(),
+            "key".into(),
+            "prompt".into(),
+            "W".into(),
+            Some(WorkspaceSnapshot {
+                id: "W".into(),
+                root: "root".into(),
+                generation: 1,
+            }),
+            10,
+        )
+        .await
+        .unwrap();
+    let retry = store
+        .product_create_fresh(
+            "unused".into(),
+            "A".into(),
+            "key".into(),
+            "prompt".into(),
+            "W".into(),
+            Some(WorkspaceSnapshot {
+                id: "W".into(),
+                root: "root".into(),
+                generation: 1,
+            }),
+            11,
+        )
+        .await
+        .unwrap();
+    assert!(!retry.created);
+    assert_eq!(retry.execution_id, first.execution_id);
+    assert_eq!(
+        store
+            .product_create_fresh(
+                "unused".into(),
+                "A".into(),
+                "key".into(),
+                "prompt".into(),
+                "W".into(),
+                Some(WorkspaceSnapshot {
+                    id: "W".into(),
+                    root: "root".into(),
+                    generation: 2,
+                }),
+                12,
+            )
+            .await
+            .unwrap_err(),
+        "EXECUTION_REQUEST_KEY_CONFLICT"
+    );
+
+    let request = canonicalize_request(
+        input(&first.execution, "key".into(), "prompt".into(), None, None).unwrap(),
+    )
+    .unwrap();
+    let legacy = legacy_pre_workspace_generation_hash(request.input()).unwrap();
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET request_hash=?2 WHERE id=?1",
+            params![first.execution_id, legacy.clone()],
+        )
+        .unwrap();
+    let retry = store
+        .product_create_fresh(
+            "unused".into(),
+            "A".into(),
+            "key".into(),
+            "prompt".into(),
+            "W".into(),
+            Some(WorkspaceSnapshot {
+                id: "W".into(),
+                root: "root".into(),
+                generation: 1,
+            }),
+            13,
+        )
+        .await
+        .unwrap();
+    assert!(!retry.created);
+    assert_eq!(retry.execution.request_hash, legacy);
+    assert_eq!(
+        store
+            .product_create_fresh(
+                "unused".into(),
+                "A".into(),
+                "key".into(),
+                "prompt".into(),
+                "W".into(),
+                Some(WorkspaceSnapshot {
+                    id: "W".into(),
+                    root: "root".into(),
+                    generation: 2,
+                }),
+                14,
+            )
+            .await
+            .unwrap_err(),
+        "EXECUTION_REQUEST_KEY_CONFLICT"
+    );
 }
 
 #[tokio::test]
@@ -604,6 +806,7 @@ async fn original_no_work_entries_still_create_retry_and_continue_without_links(
             Some(WorkspaceSnapshot {
                 id: "W".into(),
                 root: "root".into(),
+                generation: 1,
             }),
             10,
         )
@@ -643,6 +846,132 @@ async fn original_no_work_entries_still_create_retry_and_continue_without_links(
     assert_eq!(retry.execution_id, "E2");
     assert_eq!(store.execution("E1".into()).await.unwrap(), Some(parent));
     assert!(snapshot(&store)[2].is_empty());
+}
+
+#[tokio::test]
+async fn continuation_request_identity_is_parent_execution_not_shared_codex_thread() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    fresh(&store, "E1", "A", "source-one", None, 10)
+        .await
+        .unwrap();
+    terminal_parent(&store, "E1").await;
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "INSERT INTO executions (id,agent_id,request_key,request_hash,prompt,execution_profile_json,workspace_id,canonical_workspace_root,provider,mode,parent_execution_id,thread_id,status,release_evidence_state,release_evidence_kind,release_evidence_json,created_at,updated_at,completed_at) VALUES ('E2','A','source-two','source-two','prompt','{}','W','root','codex','workspace_write',NULL,'T','completed','complete','not_dispatched','{}',11,11,11)",
+            [],
+        )
+        .unwrap();
+
+    let first = continuation(&store, "E3", "E1", "next", None)
+        .await
+        .unwrap();
+    assert_eq!(first.execution.parent_execution_id.as_deref(), Some("E1"));
+    assert_eq!(first.execution.thread_id, None);
+    assert_eq!(
+        continuation(&store, "unused", "E1", "next", None)
+            .await
+            .unwrap()
+            .execution_id,
+        "E3"
+    );
+    assert_eq!(
+        continuation(&store, "E4", "E2", "next", None)
+            .await
+            .unwrap_err(),
+        "EXECUTION_REQUEST_KEY_CONFLICT"
+    );
+}
+
+#[tokio::test]
+async fn pre_c2_null_parent_row_has_only_exact_legacy_retry_compatibility() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    fresh(&store, "E1", "A", "source", None, 10).await.unwrap();
+    let source = terminal_parent(&store, "E1").await;
+    let child = continuation(&store, "E2", "E1", "next", None)
+        .await
+        .unwrap();
+    let request = canonicalize_request(
+        input(
+            &source,
+            "next".into(),
+            "next".into(),
+            Some(source.id.clone()),
+            source.thread_id.clone(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let legacy = legacy_pre_c2_continuation_hash(request.input(), &source.thread_id).unwrap();
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET parent_execution_id=NULL,request_hash=?2 WHERE id=?1",
+            params![child.execution_id, legacy],
+        )
+        .unwrap();
+
+    let retry = continuation(&store, "unused", "E1", "next", None)
+        .await
+        .unwrap();
+    assert!(!retry.created);
+    assert_eq!(retry.execution_id, "E2");
+    assert_eq!(
+        store
+            .product_create_continuation(
+                "unused".into(),
+                "E1".into(),
+                "next".into(),
+                "changed".into(),
+                21,
+            )
+            .await
+            .unwrap_err(),
+        "EXECUTION_REQUEST_KEY_CONFLICT"
+    );
+}
+
+#[test]
+fn product_and_task_manager_continuation_routing_do_not_read_private_thread_identity() {
+    let product = include_str!("../../../../product.rs");
+    let product_continue = product
+        .split("async fn perform")
+        .nth(1)
+        .unwrap()
+        .split("async fn observe_wait")
+        .next()
+        .unwrap();
+    assert!(!product_continue.contains("thread_id"));
+
+    let task_manager = include_str!("../../../../task_manager.rs");
+    let continuation = task_manager
+        .split("pub(crate) async fn product_submit_with_work")
+        .nth(1)
+        .unwrap()
+        .split("async fn dispatch_pending_execution")
+        .next()
+        .unwrap();
+    assert!(!continuation.contains("thread_id"));
+}
+
+#[test]
+fn current_continuation_creation_reads_source_thread_only_in_sealed_legacy_hash_compatibility() {
+    let source = include_str!("../../product.rs");
+    assert_eq!(source.matches("source.thread_id").count(), 1);
+    let legacy = source
+        .split("fn continuation_prior_outcome")
+        .nth(1)
+        .unwrap()
+        .split("impl StateStore")
+        .next()
+        .unwrap();
+    assert!(legacy.contains("legacy_pre_c2_continuation_hash"));
 }
 
 #[tokio::test]

@@ -1,5 +1,8 @@
 use super::*;
-use crate::agent::{execution::CreateExecutionInput, task_manager::AgentTaskManager};
+use crate::agent::{
+    execution::CreateExecutionInput, task_manager::AgentTaskManager,
+    telemetry_projector::ExecutionTelemetryProjector,
+};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
@@ -93,6 +96,7 @@ async fn slice_case(case: &'static str) {
                     crate::agent::store::transactions::product::WorkspaceSnapshot {
                         id: request.workspace_id.clone(),
                         root: request.canonical_workspace_root.clone(),
+                        generation: 1,
                     },
                 ),
                 1,
@@ -141,6 +145,13 @@ async fn slice_case(case: &'static str) {
     assert_eq!(created.execution.status, "dispatch_pending");
     assert_eq!(created.execution.dispatch_state, "not_dispatched");
     assert!(created.execution.runtime_instance_id.is_none());
+    if case == "continue-old-turn" {
+        assert_eq!(
+            created.execution.parent_execution_id.as_deref(),
+            Some("SOURCE")
+        );
+        assert_eq!(created.execution.thread_id, None);
+    }
     assert_eq!(
         store
             .workspace_claim(request.canonical_workspace_root.clone())
@@ -965,6 +976,7 @@ async fn slice_case(case: &'static str) {
         runtime_pool: Default::default(),
         store: store.clone(),
         executable: "unused".into(),
+        backend_error: None,
         owner: "fixture".into(),
     };
     let outcome = if case == "resume" {
@@ -1014,7 +1026,7 @@ async fn slice_case(case: &'static str) {
         .await
         .unwrap();
         assert!(
-            matches!(rejected,Err(ExecutionFailure::State(ref e)) if e=="PENDING_RESUME_REJECTED")
+            matches!(rejected,Err(crate::agent::provider::port::ProviderExecutionFailure::State(ref e)) if e=="PENDING_RESUME_REJECTED")
         );
         assert_eq!(
             store
@@ -1040,6 +1052,8 @@ async fn slice_case(case: &'static str) {
         completed.map_err(|e| format!("{e:?}"))
     } else {
         client.initialize().await.unwrap();
+        let telemetry =
+            ExecutionTelemetryProjector::new(store.clone(), created.execution_id.clone());
         tokio::time::timeout(
             Duration::from_secs(if matches!(case, "long" | "retry-error") {
                 150
@@ -1048,7 +1062,12 @@ async fn slice_case(case: &'static str) {
             } else {
                 15
             }),
-            provider.run_client(&created.execution_id, &client),
+            provider.run_client_with_acceptance_and_telemetry(
+                &created.execution_id,
+                &client,
+                &NoopAcceptanceSink,
+                &telemetry,
+            ),
         )
         .await
         .unwrap()
@@ -1736,11 +1755,15 @@ async fn live_failure_case(case: &'static str, evidence: bool, bind_turn: bool) 
         runtime_pool: Default::default(),
         store: store.clone(),
         executable: "C:/missing-result-provider.exe".into(),
+        backend_error: None,
         owner: "fixture".into(),
     };
     let worker_id = id.clone();
-    let worker =
-        tokio::spawn(async move { provider.run_managed(&worker_id, managed, &mut None).await });
+    let worker = tokio::spawn(async move {
+        provider
+            .run_managed(&worker_id, managed, Arc::new(NoopAcceptanceSink))
+            .await
+    });
     tokio::time::timeout(Duration::from_secs(20), ending_rx)
         .await
         .unwrap()
@@ -1894,6 +1917,7 @@ fn shutdown_failure_survives_unknown_persistence_failure() {
             runtime_pool: Default::default(),
             store,
             executable: "unused".into(),
+            backend_error: None,
             owner: "fixture".into(),
         };
         let result = provider
@@ -1993,6 +2017,7 @@ fn real_fixed_coding_skill_command_failure() {
                     crate::agent::store::transactions::product::WorkspaceSnapshot {
                         id: request.workspace_id,
                         root: request.canonical_workspace_root,
+                        generation: 1,
                     },
                 ),
             )
@@ -2075,6 +2100,7 @@ fn real_fixed_root_title_smoke() {
             prompt: "Use codex_app.set_thread_title to set this Root conversation title to exactly 'Root title smoke'. This exact title is my explicit request for this isolated regression. Do not edit files or delegate. Return ROOT_TITLE_SMOKE_OK only after the tool confirms success.".into(),
         }, Some(crate::agent::store::transactions::product::WorkspaceSnapshot {
             id: request.workspace_id, root: request.canonical_workspace_root,
+            generation: 1,
         })).await.unwrap();
         let row = tokio::time::timeout(Duration::from_secs(180), async {
             loop {

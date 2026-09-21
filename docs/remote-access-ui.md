@@ -1,14 +1,14 @@
 # 远程访问 UI 与状态契约
 
-侧边栏「远程访问」与首页「连接 ChatGPT」打开同一页面。三张卡片均已实现：快捷隧道、自建接入、仅 MCP。首次默认仅 MCP，后续按持久化模式显示；「当前使用」跟随后端配置事实，不由当前是否有 Tunnel 推断。
+侧边栏「远程访问」与首页「连接 ChatGPT」打开同一页面。三张卡片均已实现：快捷隧道、自建接入、仅 MCP。首次默认仅 MCP，后续按持久化模式显示；「当前使用」跟随后端配置事实，不由当前是否有 Tunnel 推断。快捷隧道另有独立的持久化运行意图，不可由 `mode` 推断。
 
 ## 选择、应用与停止
 
 选择卡片只阅读说明，点击应用才修改配置。操作进行中禁用卡片和重复提交；运行中的自建地址不可修改。应用任一不同连接方式时，单次操作会先停止现有远程运行时并撤销旧授权，再保存并启动目标方式；无需用户先手动停止。应用仅 MCP 后解除本机 OAuth，并按所选声明恢复 Passthrough。
 
-快捷隧道显示组件检查/安装、URL 发现、公网验证、Ready、失败、断连或停止状态。Ready 之前不提供可复制公网 MCP 地址。Ready 表示公网 metadata、认证挑战和使用短期内部凭据的真实 `initialize`/`tools/list` 成功，不代表 ChatGPT 已完成授权。后台 Serena 不可用会令 Probe 失败。
+快捷隧道显示组件检查/安装、URL 发现、公网验证、Ready、失败、断连或停止状态。Ready 之前不提供可复制公网 MCP 地址。Ready 表示公网 metadata、认证挑战和使用短期内部凭据的真实 `initialize`/`tools/list` 成功，不代表 ChatGPT 已完成授权，也不代表 Serena、CodeGraph 或其他 Capability healthy；`tools/list` 只证明 Broker 的本地公开工具描述可用。Broker 在 Serena 未就绪时仍可提供管理与本地能力，Serena/Capability 健康独立展示，不能由 Remote Ready 推断。
 
-断线清除 Public Context 与 OAuth，保留 `mode=quick_tunnel`、`status=disconnected`、`active=false`，不自动重新创建 Tunnel。用户可主动重开并更新客户端中的临时地址。停止后保留配置模式和 OAuth 拒绝边界；显式应用仅 MCP 才解除保护。
+断线清除 Public Context 与 OAuth，保留 `mode=quick_tunnel`、`status=disconnected`、`active=false`，不在同一应用运行期自动重新创建 Tunnel。若用户此前成功应用快捷隧道且未显式停止，持久化运行意图会在下次应用启动时发起一次新的 Tunnel 创建；旧地址不会复用，失败显示现有 Error/Disconnected 且不自动重试。用户可主动重开并更新客户端中的临时地址。停止后保留配置模式和 OAuth 拒绝边界，但清除快捷隧道运行意图；显式应用仅 MCP 才解除保护。
 
 远程启动不会永久开启本地 Broker，不改变端口或 allowLan。停止后恢复用户持久化偏好：原 disabled 则停止临时 Broker，原 enabled 则保持运行。快捷/自建模式的 OAuth 也作用于同一 Broker 的本地和 LAN 请求；Transport 在三种模式下均为统一 JSON Streamable HTTP。
 
@@ -18,7 +18,7 @@
 
 启动失败仍保持 OAuth，允许重试连接测试；只有授权 MCP Probe 成功才展示可复制地址。用户的代理进程始终由用户管理。停止撤销当前授权，但不会把仍可达的 MCP 变成匿名服务。
 
-应用重启按持久化自建模式先恢复 OAuth 保护与有效授权，再启动 Broker/探测；相同公网地址的未过期授权无需重新确认，退出应用不等于撤销。Client、Grant 和 Token digest 保存在专用授权状态文件中，明文 Token 不落盘。用户点击停止或切换方式仍撤销旧授权。无效配置、授权文件损坏或 issuer/resource 不匹配时保持 Error 和拒绝访问，不回退 Passthrough。切换到快捷隧道会自动停止自建 Runtime，再启用新的 Quick Tunnel OAuth；自建公网代理进程仍由用户自行关闭或保护，不能把连接方式切换误认为外部代理已停止。
+应用重启按持久化自建模式先恢复 OAuth 保护与有效授权，再启动 Broker/探测；相同公网地址的未过期授权无需重新确认，退出应用不等于撤销。切换到自建接入或仅 MCP 会清除快捷隧道运行意图，避免后续启动错误恢复快捷隧道。Client、Grant 和 Token digest 保存在专用授权状态文件中，明文 Token 不落盘。用户点击停止或切换方式仍撤销旧授权。无效配置、授权文件损坏或 issuer/resource 不匹配时保持 Error 和拒绝访问，不回退 Passthrough。切换到快捷隧道会自动停止自建 Runtime，再启用新的 Quick Tunnel OAuth；自建公网代理进程仍由用户自行关闭或保护，不能把连接方式切换误认为外部代理已停止。
 
 自建授权默认使用 72 小时滑动期限，每次成功刷新 Token 后续期 72 小时。普通 MCP 请求和应用重启不会续期；超过期限未刷新则需要重新授权。Access Token 单次有效期仍为 1 小时。
 

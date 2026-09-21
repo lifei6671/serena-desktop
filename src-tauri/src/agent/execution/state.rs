@@ -130,6 +130,8 @@ pub enum Transition {
 pub enum ReleaseBasis {
     SameRuntimeCleanup,
     RuntimeTerminated,
+    /// 仅本机人工确认的未派发执行可使用；Provider 与 Recovery 路径不得构造此依据。
+    OperatorOverride,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]

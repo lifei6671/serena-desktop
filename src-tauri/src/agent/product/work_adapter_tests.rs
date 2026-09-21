@@ -1,5 +1,12 @@
 use super::*;
 use crate::agent::store::transactions::product::WorkExecutionContext;
+use crate::{
+    commands::remove_workspace,
+    config::{self, AppPaths, ManagerConfig, Workspace},
+    serena::SupervisorState,
+    workspace_registry::WORKSPACE_IN_USE,
+};
+use std::sync::{Mutex, mpsc};
 
 #[path = "work_context_tests.rs"]
 mod work_context_tests;
@@ -7,6 +14,7 @@ mod work_context_tests;
 fn start_work(work: &str, key: &str) -> AgentExecuteAction {
     AgentExecuteAction::Start {
         work_run_id: work.into(),
+        workspace_id: "W".into(),
         request_key: key.into(),
         prompt: "hello".into(),
         delegation_context_json: None,
@@ -27,6 +35,7 @@ async fn create_work(store: &StateStore, root: &std::path::Path, id: &str) {
             id.into(),
             "W".into(),
             root.to_string_lossy().into(),
+            1,
             "title".into(),
             None,
             1,
@@ -159,7 +168,20 @@ async fn start_durable_receipt_retry_lineage_and_continuation_reuse_existing_wor
     assert_eq!(next.prompt, "next");
     assert_eq!(retry.unwrap().execution_id, next.execution_id);
     assert_ne!(next.execution_id, id);
-    assert_eq!(next.thread_id, terminal.thread_id);
+    let child = store
+        .execution(next.execution_id.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    // 并发重试的返回顺序不决定创建者；两者完成后从持久化行读取 Provider 已绑定的线程。
+    assert_eq!(child.thread_id, terminal.thread_id);
+    // Continue 只继承父 Execution 的冻结快照，不接受调用端 Workspace。
+    assert_eq!(child.workspace_id, parent.workspace_id);
+    assert_eq!(
+        child.canonical_workspace_root,
+        parent.canonical_workspace_root
+    );
+    assert_eq!(child.workspace_generation, parent.workspace_generation);
     assert_eq!(
         s.agent_execute(continue_work("work", &id, "other-key"), None)
             .await
@@ -216,8 +238,11 @@ async fn start_durable_receipt_retry_lineage_and_continuation_reuse_existing_wor
             s.agent_query(AgentQueryAction::Observe {
                 execution_id: next.execution_id.clone(),
                 known_revision: None,
+                known_control_revision: None,
+                known_activity_revision: None,
                 wait_ms: Some(0),
                 include_result: Some(true),
+                wake_on: None,
             })
             .await
             .unwrap(),
@@ -456,8 +481,11 @@ async fn query_exact_get_observe_timeout_and_change_are_read_only() {
         s.agent_query(AgentQueryAction::Observe {
             execution_id: "E".into(),
             known_revision: Some(initial.control_revision.clone()),
+            known_control_revision: None,
+            known_activity_revision: None,
             wait_ms: Some(80),
             include_result: None,
+            wake_on: None,
         })
         .await
         .unwrap(),
@@ -472,8 +500,11 @@ async fn query_exact_get_observe_timeout_and_change_are_read_only() {
             s.agent_query(AgentQueryAction::Observe {
                 execution_id: "E".into(),
                 known_revision: Some("different-opaque-token".into()),
+                known_control_revision: None,
+                known_activity_revision: None,
                 wait_ms: wait,
                 include_result: None,
+                wake_on: None,
             }),
         )
         .await
@@ -484,8 +515,11 @@ async fn query_exact_get_observe_timeout_and_change_are_read_only() {
     let waiter = s.agent_query(AgentQueryAction::Observe {
         execution_id: "E".into(),
         known_revision: Some(initial.control_revision),
+        known_control_revision: None,
+        known_activity_revision: None,
         wait_ms: Some(20_000),
         include_result: None,
+        wake_on: None,
     });
     let change = async {
         tokio::time::sleep(Duration::from_millis(60)).await;
@@ -527,8 +561,11 @@ async fn observe_default_wait_is_fifteen_seconds() {
     s.agent_query(AgentQueryAction::Observe {
         execution_id: "E".into(),
         known_revision: None,
+        known_control_revision: None,
+        known_activity_revision: None,
         wait_ms: None,
         include_result: None,
+        wake_on: None,
     })
     .await
     .unwrap();
@@ -659,6 +696,23 @@ async fn adapter_validation_and_start_work_guards_create_nothing() {
             .code,
         "WORK_NOT_FOUND"
     );
+    // WorkRun 与请求 Workspace 不一致时，不能创建 Claim 或触发 Provider。
+    assert_eq!(
+        s.agent_execute(
+            AgentExecuteAction::Start {
+                work_run_id: "work".into(),
+                workspace_id: "wrong".into(),
+                request_key: "key".into(),
+                prompt: "hello".into(),
+                delegation_context_json: None,
+            },
+            w(dir.path(), "wrong"),
+        )
+        .await
+        .unwrap_err()
+        .code,
+        "WORKSPACE_CONTEXT_MISMATCH"
+    );
     for current in [
         None,
         w(dir.path(), "wrong"),
@@ -677,6 +731,7 @@ async fn adapter_validation_and_start_work_guards_create_nothing() {
         start_work("work", " "),
         AgentExecuteAction::Start {
             work_run_id: "work".into(),
+            workspace_id: "W".into(),
             request_key: "key".into(),
             prompt: " \n".into(),
             delegation_context_json: None,
@@ -705,24 +760,115 @@ async fn adapter_validation_and_start_work_guards_create_nothing() {
             work_run_id: "".into(),
             limit: None,
         },
-        AgentQueryAction::Observe {
-            execution_id: "E".into(),
-            known_revision: None,
-            wait_ms: Some(20_001),
-            include_result: None,
-        },
-        AgentQueryAction::Observe {
-            execution_id: "E".into(),
-            known_revision: Some(" ".into()),
-            wait_ms: None,
-            include_result: None,
-        },
     ] {
         assert_eq!(
             s.agent_query(action).await.unwrap_err().code,
             "WORK_INVALID_ARGUMENT"
         );
     }
+    for action in [
+        AgentQueryAction::Observe {
+            execution_id: "".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(0),
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "   ".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(0),
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "bad id".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(0),
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "bad\tid".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(0),
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "bad\nid".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(0),
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "E".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(20_001),
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "E".into(),
+            known_revision: Some(" ".into()),
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: None,
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "E".into(),
+            known_revision: None,
+            known_control_revision: Some(" ".into()),
+            known_activity_revision: None,
+            wait_ms: None,
+            include_result: None,
+            wake_on: None,
+        },
+        AgentQueryAction::Observe {
+            execution_id: "E".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: Some(" ".into()),
+            wait_ms: None,
+            include_result: None,
+            wake_on: None,
+        },
+    ] {
+        assert_eq!(
+            s.agent_query(action).await.unwrap_err().code,
+            "AGENT_OBSERVE_INVALID_ARGUMENT"
+        );
+    }
+    assert_eq!(
+        s.agent_query(AgentQueryAction::Observe {
+            execution_id: "E-1_abc".into(),
+            known_revision: None,
+            known_control_revision: None,
+            known_activity_revision: None,
+            wait_ms: Some(0),
+            include_result: None,
+            wake_on: None,
+        })
+        .await
+        .unwrap_err()
+        .code,
+        "AGENT_EXECUTION_NOT_FOUND"
+    );
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
     for status in ["completed", "failed", "cancelled"] {
         db.execute("UPDATE work_runs SET status=?1", [status])
@@ -789,8 +935,11 @@ async fn dropping_adapter_caller_and_observer_keeps_owned_execution_running() {
     let observer = s.agent_query(AgentQueryAction::Observe {
         execution_id: id.clone(),
         known_revision: None,
+        known_control_revision: None,
+        known_activity_revision: None,
         wait_ms: Some(20_000),
         include_result: None,
+        wake_on: None,
     });
     assert!(
         tokio::time::timeout(Duration::from_millis(80), observer)
@@ -807,7 +956,7 @@ async fn dropping_adapter_caller_and_observer_keeps_owned_execution_running() {
 }
 
 #[tokio::test]
-async fn cancel_projection_failure_preserves_committed_execution_identity() {
+async fn invalid_persisted_activity_rejects_cancel_without_claim_side_effect() {
     let dir = tempfile::tempdir().unwrap();
     let store = StateStore::open(dir.path().into()).await.unwrap();
     create_work(&store, dir.path(), "work").await;
@@ -815,7 +964,7 @@ async fn cancel_projection_failure_preserves_committed_execution_identity() {
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
     // Valid SQL field values, but an invalid Activity combination for the view.
     db.execute("UPDATE executions SET last_activity_at=1, activity_phase='tool', tool_category=NULL WHERE id='E'", []).unwrap();
-    let before = store.execution("E".into()).await.unwrap().unwrap();
+    let before = store.execution("E".into()).await.unwrap();
     let work = store.work_run("work".into()).await.unwrap();
     let links = store.work_execution_links("work".into()).await.unwrap();
     assert!(
@@ -848,37 +997,34 @@ async fn cancel_projection_failure_preserves_committed_execution_identity() {
         )
         .await
         .unwrap_err();
-    let committed = store.execution("E".into()).await.unwrap().unwrap();
-    assert_eq!(committed.status, "cancelled");
-    assert_eq!(committed.revision, before.revision + 1);
-    assert_eq!(committed.dispatch_state, before.dispatch_state);
+    // 非法 Activity 不允许借由取消路径被悄然修复或推进生命周期。
+    assert!(error.accepted_execution_id.is_none());
+    assert_eq!(store.execution("E".into()).await.unwrap(), before);
     assert!(
         store
             .workspace_claim(dir.path().to_string_lossy().into())
             .await
             .unwrap()
-            .is_none()
+            .is_some()
     );
-    assert_eq!(error.accepted_execution_id.as_deref(), Some("E"));
     let response = s.adapter_error_response(error).await;
     assert_eq!(response["ok"], false);
     assert_eq!(response["error"]["code"], "AGENT_OPERATION_FAILED");
-    assert_eq!(response["error"]["executionId"], "E");
     assert_eq!(
         response["control"],
         json!({
-            "requestAccepted": true, "providerInvoked": null, "dispatchCertainty": "uncertain",
-            "nextAction": {"action": "observe", "waitMs": 20000, "executionId": "E"}
+            "requestAccepted": false, "providerInvoked": false, "dispatchCertainty": "not_dispatched",
+            "nextAction": null
         })
     );
-    // Error projection is a read: it cannot cancel twice, dispatch, or create rows.
-    assert_eq!(store.execution("E".into()).await.unwrap(), Some(committed));
+    // 拒绝路径不能启动运行时、创建行或释放 Claim。
+    assert_eq!(store.execution("E".into()).await.unwrap(), before);
     assert!(
         store
             .workspace_claim(dir.path().to_string_lossy().into())
             .await
             .unwrap()
-            .is_none()
+            .is_some()
     );
     assert_eq!(store.work_run("work".into()).await.unwrap(), work);
     assert_eq!(
@@ -937,7 +1083,6 @@ async fn cancel_transaction_failure_remains_rejected_without_mutation() {
         )
         .await
         .unwrap_err();
-    assert!(error.message.contains("cancel transaction rejected"));
     assert!(error.accepted_execution_id.is_none());
     let response = s.adapter_error_response(error).await;
     assert_eq!(response["ok"], false);
@@ -975,4 +1120,231 @@ async fn cancel_transaction_failure_remains_rejected_without_mutation() {
     }
     drop(s);
     assert!(fake.await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn resolver_start_and_remove_share_supervisor_operation_exclusion() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("workspace");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = std::fs::canonicalize(root).unwrap();
+    let paths = AppPaths {
+        runtime_directory: directory.path().join("runtime"),
+        config_file: directory.path().join("config.json"),
+        log_directory: directory.path().join("logs"),
+        app_log: directory.path().join("logs/app.log"),
+        serena_log: directory.path().join("logs/serena.log"),
+    };
+    config::save(
+        &paths.config_file,
+        &ManagerConfig {
+            workspace_registry_revision: 1,
+            workspaces: vec![Workspace {
+                id: "W".into(),
+                name: "Workspace".into(),
+                root: root.clone(),
+                generation: 1,
+            }],
+            ..ManagerConfig::default()
+        },
+    )
+    .unwrap();
+    let supervisor = Arc::new(SupervisorState::new(paths).unwrap());
+    let store = StateStore::open(directory.path().join("agent-state"))
+        .await
+        .unwrap();
+    create_work(&store, &root, "work").await;
+    let (service, release, fake, turn_started) = fake_service_with_turn_started(
+        store.clone(),
+        directory.path().join("agent-state").join("agent-state.db"),
+        "REMOVE_RACE",
+        "T",
+        false,
+        "paginated",
+    )
+    .await;
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let (start_result_tx, start_result_rx) = std::sync::mpsc::channel();
+    let (runtime_release_tx, runtime_release_rx) = std::sync::mpsc::channel();
+    let release_rx = Arc::new(std::sync::Mutex::new(release_rx));
+    let hook_release = release_rx.clone();
+    *supervisor.workspace_start_hook.lock().unwrap() = Some(Arc::new(move || {
+        entered_tx.send(()).unwrap();
+        hook_release.lock().unwrap().recv().unwrap();
+    }));
+    let service = Arc::new(service);
+    let start_service = service.clone();
+    let start_supervisor = supervisor.clone();
+    // 同步测试钩子必须在独立 runtime 中阻塞，避免占住当前测试 runtime 而无法释放同步点。
+    let start = std::thread::spawn(move || {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async move {
+                let result = start_service
+                    .agent_execute(start_work("work", "key"), start_supervisor.as_ref())
+                    .await;
+                start_result_tx.send(result).unwrap();
+                // 保持发起方 runtime 存活，直到 fake 已证明后台 worker 收到 turn/start。
+                tokio::task::spawn_blocking(move || runtime_release_rx.recv().unwrap())
+                    .await
+                    .unwrap();
+            })
+    });
+    tokio::task::spawn_blocking(move || entered_rx.recv().unwrap())
+        .await
+        .unwrap();
+    let remove_supervisor = supervisor.clone();
+    let remove_service = service.clone();
+    let mut remove = tokio::task::spawn_blocking(move || {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(remove_workspace(&remove_supervisor, &remove_service, "W"))
+    });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), &mut remove)
+            .await
+            .is_err()
+    );
+    release_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while store
+            .workspace_claim(root.to_string_lossy().into_owned())
+            .await
+            .unwrap()
+            .is_none()
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(remove.await.unwrap(), Err(WORKSPACE_IN_USE.into()));
+    let started = tokio::task::spawn_blocking(move || start_result_rx.recv().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    // accepted receipt 之后，显式等待 fake 收到 turn/start，而非假设其已经开始。
+    turn_started.await.unwrap();
+    release.send(()).unwrap();
+    final_row(service.as_ref(), &started.execution_id).await;
+    runtime_release_tx.send(()).unwrap();
+    tokio::task::spawn_blocking(move || start.join().unwrap())
+        .await
+        .unwrap();
+    drop(service);
+    assert!(
+        fake.await
+            .unwrap()
+            .iter()
+            .any(|method| method == "turn/start")
+    );
+}
+
+#[tokio::test]
+async fn resolver_start_after_remove_linearizes_to_workspace_not_found() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("workspace");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = std::fs::canonicalize(root).unwrap();
+    let paths = AppPaths {
+        runtime_directory: directory.path().join("runtime"),
+        config_file: directory.path().join("config.json"),
+        log_directory: directory.path().join("logs"),
+        app_log: directory.path().join("logs/app.log"),
+        serena_log: directory.path().join("logs/serena.log"),
+    };
+    config::save(
+        &paths.config_file,
+        &ManagerConfig {
+            workspace_registry_revision: 1,
+            workspaces: vec![Workspace {
+                id: "W".into(),
+                name: "Workspace".into(),
+                root: root.clone(),
+                generation: 1,
+            }],
+            ..ManagerConfig::default()
+        },
+    )
+    .unwrap();
+    let supervisor = Arc::new(SupervisorState::new(paths).unwrap());
+    let store = StateStore::open(directory.path().join("agent-state"))
+        .await
+        .unwrap();
+    create_work(&store, &root, "work").await;
+    let service = Arc::new(AgentProductService::new(store.clone()));
+    let (remove_entered_tx, remove_entered_rx) = mpsc::channel();
+    let (remove_release_tx, remove_release_rx) = mpsc::channel();
+    let remove_release_rx = Arc::new(Mutex::new(remove_release_rx));
+    let hook_release = remove_release_rx.clone();
+    *supervisor.workspace_remove_hook.lock().unwrap() = Some(Arc::new(move || {
+        remove_entered_tx.send(()).unwrap();
+        hook_release.lock().unwrap().recv().unwrap();
+    }));
+    let (start_entered_tx, start_entered_rx) = mpsc::channel();
+    *supervisor.workspace_start_hook.lock().unwrap() = Some(Arc::new(move || {
+        start_entered_tx.send(()).unwrap();
+    }));
+    let remove_supervisor = supervisor.clone();
+    let remove_service = service.clone();
+    let remove = std::thread::spawn(move || {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(remove_workspace(&remove_supervisor, &remove_service, "W"))
+    });
+    tokio::task::spawn_blocking(move || remove_entered_rx.recv().unwrap())
+        .await
+        .unwrap();
+    let start_service = service.clone();
+    let start_supervisor = supervisor.clone();
+    let start = std::thread::spawn(move || {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(async move {
+                start_service
+                    .agent_execute(start_work("work", "key"), start_supervisor.as_ref())
+                    .await
+            })
+    });
+    // Remove 持锁时 Resolver Start 无法越过，因而不会到达其 Start 同步点。
+    assert!(
+        start_entered_rx
+            .recv_timeout(Duration::from_millis(50))
+            .is_err()
+    );
+    remove_release_tx.send(()).unwrap();
+    assert_eq!(
+        tokio::task::spawn_blocking(move || remove.join().unwrap())
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        "W"
+    );
+    assert_eq!(
+        tokio::task::spawn_blocking(move || start.join().unwrap())
+            .await
+            .unwrap()
+            .unwrap_err()
+            .code,
+        "WORKSPACE_NOT_FOUND"
+    );
+    assert!(
+        store
+            .workspace_claim(root.to_string_lossy().into_owned())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let connection =
+        rusqlite::Connection::open(directory.path().join("agent-state").join("agent-state.db"))
+            .unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM executions", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
 }

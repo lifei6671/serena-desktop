@@ -143,9 +143,8 @@ async fn resolve_client_metadata_inner(
     logger: &(dyn Fn(&str, &str) + Sync),
 ) -> Result<ClientMetadata> {
     let url = validate_client_id(client_id)?;
-    let addrs = resolve_public_addresses(&url).await.map_err(|error| {
+    let addrs = resolve_public_addresses(&url).await.inspect_err(|error| {
         log_failure(logger, &url, "dns", error.0);
-        error
     })?;
     let bytes = fetch_document(&url, &addrs, logger).await?;
     parse_document(client_id, &bytes)

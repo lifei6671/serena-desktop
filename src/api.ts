@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, ExecutionView, RemoteState, RemoteAccessMode, SecurityDeclaration } from "./types";
+import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, ExecutionView, RemoteState, RemoteAccessMode, SecurityDeclaration, Workspace, WorkspaceInspection, WorkspaceRegistrySnapshot, WorkspaceCapabilityHealth, CapabilityActionResult } from "./types";
 
 export const api = {
   remoteState: () => invoke<RemoteState>("remote_state"),
@@ -12,12 +12,29 @@ export const api = {
   remoteApprove: (id: string, allow: boolean) => invoke<void>("remote_approve", { id, allow }),
   codexVersion: () => invoke<string>("get_codex_version"),
   agent: (request: AgentAction) => invoke<AgentEnvelope>("agent_operation", { request }),
+  // 专用 Local Tauri IPC；不得复用 Remote MCP 的 agent_execute action。
+  agentManualResolve: (executionId: string, resolution: "interrupt_and_release", reason?: string) =>
+    invoke<ExecutionView>("agent_manual_resolve", { executionId, resolution, reason }),
   agentHistory: (before: string | null = null, workspace: string | null = null) => invoke<{ executions: ExecutionView[]; nextCursor: string | null }>("agent_history", { before, workspace }),
   mcpLogs: () => invoke<string[]>("get_mcp_logs"),
   downloadMcpLogs: () => invoke<boolean>("download_mcp_logs"),
   clearMcpLogs: () => invoke<void>("clear_mcp_logs"),
   broker: () => invoke<BrokerState>("get_broker_state"),
+  workspacePickDirectory: () => invoke<string | null>("workspace_pick_directory"),
+  workspaceInspectDirectory: (root: string) => invoke<WorkspaceInspection>("workspace_inspect_directory", { root }),
+  workspaceRegister: (root: string, name?: string) => invoke<Workspace>("workspace_register", { root, name }),
+  workspaceImportSerena: () => invoke<number>("workspace_import_serena"),
+  workspaceRename: (id: string, name: string) => invoke<Workspace>("workspace_rename", { id, name }),
+  workspaceRemove: (id: string) => invoke<Workspace>("workspace_remove", { id }),
+  workspaceReorder: (ids: string[]) => invoke<WorkspaceRegistrySnapshot>("workspace_reorder", { ids }),
+  workspaceCapabilityObserve: (workspaceId: string) =>
+    invoke<WorkspaceCapabilityHealth>("workspace_capability_observe", { workspaceId }),
+  workspaceCapabilityPrepare: (workspaceId: string, providerId: string, actionId: string) =>
+    invoke<CapabilityActionResult>("workspace_capability_prepare", { workspaceId, providerId, actionId }),
+  workspaceCapabilityCancel: (operationId: string) =>
+    invoke<void>("workspace_capability_cancel", { operationId }),
   syncProjects: () => invoke<number>("sync_workspaces"),
+  workspaceSelect: (id: string) => invoke<Workspace>("workspace_select", { id }),
   activateProject: (id: string) => invoke<void>("activate_workspace", { id }),
   deactivateProject: () => invoke<void>("deactivate_workspace"),
   cancelProject: () => invoke<void>("cancel_workspace_operation"),

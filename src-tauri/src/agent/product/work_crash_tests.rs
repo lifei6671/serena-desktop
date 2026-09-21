@@ -67,6 +67,7 @@ fn work_pending_host_crash_child() {
                 work.into(),
                 "W".into(),
                 root.to_string_lossy().into(),
+                1,
                 "Pending crash".into(),
                 None,
                 1,
@@ -202,6 +203,7 @@ fn actual_work_pending_host_crash_preserves_identity_until_explicit_resume() {
             .agent_execute(
                 AgentExecuteAction::Start {
                     work_run_id: work.into(),
+                    workspace_id: "W".into(),
                     request_key: metadata["requestKey"].as_str().unwrap().into(),
                     prompt: metadata["prompt"].as_str().unwrap().into(),
                     delegation_context_json: None,
@@ -297,6 +299,7 @@ fn work_dispatched_host_crash_child() {
                 work.into(),
                 "W".into(),
                 root.to_string_lossy().into(),
+                1,
                 "Dispatched crash".into(),
                 None,
                 1,
@@ -310,6 +313,7 @@ fn work_dispatched_host_crash_child() {
             .agent_execute(
                 AgentExecuteAction::Start {
                     work_run_id: work.into(),
+                    workspace_id: "W".into(),
                     request_key: key.into(),
                     prompt: prompt.into(),
                     delegation_context_json: None,
@@ -481,6 +485,7 @@ fn actual_work_dispatched_host_crash_retains_unknown_and_blocks_finish() {
             .agent_execute(
                 AgentExecuteAction::Start {
                     work_run_id: work.into(),
+                    workspace_id: "W".into(),
                     request_key: metadata["requestKey"].as_str().unwrap().into(),
                     prompt: metadata["prompt"].as_str().unwrap().into(),
                     delegation_context_json: None,

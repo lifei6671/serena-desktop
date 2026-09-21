@@ -3,7 +3,7 @@ name: Release Windows binary
 on:
   push:
     tags:
-      - '**'
+      - 'v*'
 
 permissions:
   contents: write
@@ -21,6 +21,7 @@ jobs:
         shell: pwsh
     env:
       RUSTUP_TOOLCHAIN: stable
+      VITE_APP_VERSION: ${{ github.ref_name }}
 
     steps:
       - name: Checkout tagged source
@@ -40,19 +41,75 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Apply release tag version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/apply-release-version.mjs --tag "$env:RELEASE_TAG"
+
       - name: Lint frontend
         run: npm run lint
 
-      - name: Test Rust
-        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - name: Build frontend
+        run: npm run build
 
-      - name: Build Windows executable
-        run: npm run tauri build -- --ci --no-bundle -- --locked
+      - name: Test frontend
+        run: npm test
+
+      - name: Test release contracts
+        run: node --test scripts/apply-release-version.test.mjs scripts/check-version.test.mjs scripts/release-workflow.test.mjs scripts/verify-installer.test.mjs scripts/verify-uninstall-policy.test.mjs
+
+      - name: Check Rust formatting
+        working-directory: src-tauri
+        run: cargo fmt --all -- --check
+
+      - name: Check Rust
+        working-directory: src-tauri
+        run: cargo check --locked
+
+      - name: Lint Rust
+        working-directory: src-tauri
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test Rust
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      - name: Check workspace diff
+        run: git diff --check
+
+      - name: Check product version for release tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/check-version.mjs --tag "$env:RELEASE_TAG"
+
+      - name: Check uninstall preservation policy
+        run: node scripts/verify-uninstall-policy.mjs
+
+      - name: Build NSIS installer
+        # 直接调用仓库安装的 CLI，避免 npm 把 Tauri 的 --ci 解析成自身配置。
+        run: .\node_modules\.bin\tauri.cmd build --ci -- --locked
+
+      - name: Verify NSIS installer
+        id: installer
+        run: |
+          node scripts/verify-installer.mjs
+          $installers = @(Get-ChildItem -LiteralPath 'src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' -File)
+          if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($installers.Count)." }
+          $installer = $installers[0]
+          $sha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash
+          "path=$($installer.FullName)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          $summary = @(
+            '## NSIS installer',
+            "- filename: $($installer.Name)",
+            "- size: $($installer.Length)",
+            "- sha256: $sha256"
+          ) -join [Environment]::NewLine
+          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $summary
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
-          files: src-tauri/target/release/serena-desktop.exe
+          files: ${{ steps.installer.outputs.path }}
           fail_on_unmatched_files: true
           generate_release_notes: true

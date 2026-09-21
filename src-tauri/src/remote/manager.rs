@@ -24,6 +24,13 @@ pub(crate) type ProbeHook = Arc<
         + Sync,
 >;
 
+#[cfg(test)]
+pub(crate) type QuickTunnelStartHook = Arc<
+    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>
+        + Send
+        + Sync,
+>;
+
 #[allow(dead_code, reason = "used by managed ngrok startup in next unit")]
 struct NgrokStartPlan {
     auth_token: super::ngrok_store::NgrokAuthToken,
@@ -139,6 +146,8 @@ pub struct Remote {
     ngrok_connector: Arc<dyn super::ngrok_tunnel::NgrokConnector>,
     #[cfg(test)]
     probe_hook: Mutex<Option<ProbeHook>>,
+    #[cfg(test)]
+    quick_tunnel_start_hook: Mutex<Option<QuickTunnelStartHook>>,
     // Owns the entire install/start/wait/exit lifecycle. Stop waits for this task.
     probe_lock: tokio::sync::Mutex<()>,
     task: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -169,6 +178,8 @@ impl Remote {
             ngrok_connector,
             #[cfg(test)]
             probe_hook: Mutex::new(None),
+            #[cfg(test)]
+            quick_tunnel_start_hook: Mutex::new(None),
             inner: Mutex::new(Inner {
                 mode: RemoteAccessMode::default(),
                 config: RemoteAccessConfig::default(),
@@ -274,6 +285,10 @@ impl Remote {
     pub(crate) fn set_probe_hook(&self, hook: ProbeHook) {
         *self.probe_hook.lock().unwrap() = Some(hook);
     }
+    #[cfg(test)]
+    pub(crate) fn set_quick_tunnel_start_hook(&self, hook: QuickTunnelStartHook) {
+        *self.quick_tunnel_start_hook.lock().unwrap() = Some(hook);
+    }
     pub async fn apply_mcp_only(
         &self,
         broker: &Arc<Broker>,
@@ -292,6 +307,7 @@ impl Remote {
         self.stop().await?;
         let mut config = broker.config();
         config.remote_access.mode = RemoteAccessMode::McpOnly;
+        config.remote_access.quick_tunnel_desired_running = false;
         config.remote_access.mcp_only.security_declaration = declaration;
         config.remote_access.mcp_only.public_origin = public_origin;
         Self::persist_config(broker, config.remote_access.clone()).await?;
@@ -352,6 +368,7 @@ impl Remote {
         let broker_port = config.broker.port;
         let mut config = config.remote_access;
         config.mode = RemoteAccessMode::SelfHostedOAuth;
+        config.quick_tunnel_desired_running = false;
         config.self_hosted.provider = SelfHostedProvider::Ngrok;
         config.self_hosted.public_origin = None;
         Ok(NgrokStartPlan {
@@ -889,6 +906,7 @@ impl Remote {
         } else {
             RemoteAccessMode::QuickTunnel
         };
+        config.remote_access.quick_tunnel_desired_running = !context.is_some();
         if let Some(context) = &context {
             config.remote_access.self_hosted.provider = SelfHostedProvider::CustomHttps;
             config.remote_access.self_hosted.public_origin = Some(context.public_origin.clone());
@@ -996,6 +1014,16 @@ impl Remote {
                 return;
             }
             owner.log("Remote quick_tunnel starting · Embedded OAuth");
+            #[cfg(test)]
+            let quick_tunnel_start_hook =
+                { remote.quick_tunnel_start_hook.lock().unwrap().clone() };
+            #[cfg(test)]
+            let result = if let Some(quick_tunnel_start_hook) = quick_tunnel_start_hook {
+                quick_tunnel_start_hook().await
+            } else {
+                super::quick_tunnel::run(&remote, &owner, cancel.clone()).await
+            };
+            #[cfg(not(test))]
             let result = super::quick_tunnel::run(&remote, &owner, cancel.clone()).await;
             {
                 let mut inner = remote.inner.lock().unwrap();
@@ -1051,7 +1079,7 @@ impl Remote {
         }
     }
     pub async fn stop(&self) -> Result<(), String> {
-        // Explicit Stop revokes the durable grant, unlike application shutdown.
+        // 模式切换与显式停止都撤销 OAuth；应用 shutdown 仅关闭运行时。
         {
             let mut inner = self.inner.lock().unwrap();
             if let Some(runtime) = &mut inner.oauth {
@@ -1063,6 +1091,17 @@ impl Remote {
             inner.oauth = None;
         }
         self.shutdown().await
+    }
+    pub(crate) async fn stop_explicit(
+        self: &Arc<Self>,
+        broker: &Arc<Broker>,
+    ) -> Result<(), String> {
+        let mut config = broker.config();
+        config.remote_access.quick_tunnel_desired_running = false;
+        // 先落盘用户停止意图，确保后续运行时关闭失败也不会在重启后恢复快捷隧道。
+        Self::persist_config(broker, config.remote_access.clone()).await?;
+        self.inner.lock().unwrap().config = config.remote_access;
+        self.stop().await
     }
     async fn close_pending_ngrok(&self) -> Result<(), String> {
         let mut pending = self.pending_ngrok.lock().await;
@@ -1245,7 +1284,7 @@ pub async fn remote_start(
 pub async fn remote_stop(app: tauri::AppHandle) -> Result<(), String> {
     let broker = crate::mcp::get(&app);
     let _management = broker.management.lock().await;
-    broker.remote.stop().await
+    broker.remote.stop_explicit(&broker).await
 }
 #[tauri::command]
 pub async fn remote_probe(app: tauri::AppHandle) -> Result<(), String> {

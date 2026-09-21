@@ -1,0 +1,2 @@
+{"file": "docs/technical-design-agent-platform-v0.2.md", "reason": "Frozen workspace identity and Authority contract; P2A2-006 validates persistence only."}
+{"file": "src-tauri/src/agent/store.rs", "reason": "Schema v7 and Execution persistence implementation baseline from 14bec7a."}

@@ -151,14 +151,14 @@ h3 {
   flex-shrink: 0;
 }
 .sidebar .brand { min-height: 0; margin: 0 6px 14px; padding: 8px 10px; }
-.brand small {
-  display: block;
+.brand-version {
+  display: inline;
+  margin-left: 4px;
   font-size: 11px;
   font-weight: 400;
   color: #64748b;
-  margin-top: 1px;
+  font-family: "Cascadia Code", Consolas, monospace;
 }
-.sidebar-section-label { margin: 14px 10px 5px; color: #94a3b8; font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
 .sidebar > nav[aria-label="主导航"] {
   display: flex;
   flex-direction: column;
@@ -212,6 +212,12 @@ h3 {
   color: #64748b;
   font-size: 13px;
 }
+.page-heading-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
 .home-section {
   border-top: 1px solid #e2e8f0;
   padding: 24px 0;
@@ -236,6 +242,14 @@ h3 {
   transition: border-color 140ms ease;
 }
 .workspace-summary:hover { border-color: #cbd5e1; }
+.workspace-overview { padding: 22px 0 20px; }
+.workspace-overview-summary {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+.workspace-overview-summary:hover { border-color: transparent; }
 .workspace-identity {
   min-width: 0;
 }
@@ -270,6 +284,13 @@ h3 {
   font-weight: 700;
   letter-spacing: -.01em;
 }
+.workspace-name h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
 .workspace-identity p {
   margin: 6px 0 0;
   color: #64748b;
@@ -295,10 +316,26 @@ h3 {
   align-items: baseline;
   gap: 16px;
 }
+.section-description {
+  margin: 3px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+.section-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.section-heading-actions [data-slot="button"] { height: 24px; padding: 0; font-size: 12px; }
+.section-meta {
+  color: #94a3b8;
+  font: 11px Consolas, "Cascadia Code", monospace;
+  white-space: nowrap;
+}
 .service-list {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
 }
 .service-row {
   display: grid;
@@ -432,6 +469,24 @@ h3 {
 }
 .project-error p {
   white-space: pre-wrap;
+}
+.project-registration {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+.project-registration h2,
+.project-registration p {
+  margin: 0;
+}
+.project-registration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .selection-action {
   display: flex;
@@ -793,6 +848,7 @@ h3 {
   .page-heading {
     align-items: flex-start;
   }
+  .page-heading-actions { flex-wrap: wrap; justify-content: flex-end; }
   .workspace-summary {
     align-items: flex-start;
   }
@@ -930,12 +986,14 @@ h3 {
 .log-details-content { overflow: auto; padding: 12px; }
 .log-details section { margin: 0 0 14px; }
 .log-details h2 { margin: 0 0 6px; color: #94a3b8; font: 600 10px/1.2 Consolas, "Microsoft YaHei UI", monospace; letter-spacing: .06em; text-transform: uppercase; }
-.log-detail-card, .log-detail-body, .log-detail-raw { margin: 0; border: 1px solid #e2e8f0; border-radius: 5px; background: #f8fafc; color: #334155; font: 11px/1.55 Consolas, "Microsoft YaHei UI", monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
+.log-detail-card, .log-detail-body, .log-detail-raw, .log-detail-value { margin: 0; border: 1px solid #e2e8f0; border-radius: 5px; background: #f8fafc; color: #334155; font: 11px/1.55 Consolas, "Microsoft YaHei UI", monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
 .log-detail-card { padding: 6px 9px; }
 .log-detail-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 26px; border-bottom: 1px solid #e2e8f0; }
 .log-detail-field:last-child { border-bottom: 0; }
 .log-detail-field > span:first-child { color: #64748b; }
 .log-detail-field > span:last-child { min-width: 0; color: #1e293b; text-align: right; overflow-wrap: anywhere; }
+.log-detail-diagnostics .log-detail-field { align-items: flex-start; padding: 5px 0; }
+.log-detail-value { max-height: 180px; margin-left: auto; padding: 6px; overflow: auto; text-align: left; }
 .log-detail-body { padding: 9px; background: #f8fafc; }
 .log-detail-raw { padding: 9px; color: #64748b; }
 .log-status-bar { display: flex; min-height: 28px; align-items: center; justify-content: space-between; gap: 12px; padding: 0 11px; border: 1px solid #e2e8f0; border-top: 0; border-radius: 0 0 8px 8px; background: #f8fafc; color: #64748b; font: 11px/1 Consolas, "Microsoft YaHei UI", monospace; }
@@ -1238,11 +1296,12 @@ h3 {
 .agent-task-prompt { padding: 13px 14px; border: 1px solid var(--console-line); border-radius: 6px; background: color-mix(in srgb, var(--muted) 42%, #fff); }
 .agent-task-prompt .agent-prose { margin: 0; }
 .agent-detail-info-card { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--console-line); border-radius: 7px; background: #fff; }
-.agent-detail-live-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, var(--console-line) 72%, #fff); }
+.agent-detail-live-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding-bottom: 10px; border-bottom: 1px solid color-mix(in srgb, var(--console-line) 72%, #fff); }
 .agent-detail-live-grid > div { display: grid; align-items: center; gap: 5px; min-width: 0; }
 .agent-detail-live-grid > div > span, .agent-detail-location > span, .agent-detail-time-grid span { color: var(--console-muted); font-size: 11px; }
 .agent-detail-live-grid strong { min-width: 0; color: #334155; font-size: 12px; overflow-wrap: anywhere; }
 .agent-detail-live-grid .agent-status.tone-blue { color: var(--agent-blue); }
+.agent-detail-live-grid .agent-status.tone-green { color: var(--signal-green); }
 .agent-detail-live-grid code, .agent-detail-facts-grid code { color: #334155; font: 500 11px/1.45 Consolas, 'Cascadia Code', monospace; overflow-wrap: anywhere; }
 .agent-detail-facts-grid { display: grid; gap: 9px; }
 .agent-detail-location { display: flex; align-items: baseline; justify-content: flex-start; gap: 12px; min-width: 0; padding-bottom: 9px; border-bottom: 1px solid color-mix(in srgb, var(--console-line) 72%, #fff); }
@@ -1251,6 +1310,7 @@ h3 {
 .agent-detail-location code { padding: 2px 5px; border-radius: 3px; background: color-mix(in srgb, var(--muted) 45%, #fff); }
 .agent-detail-time-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 18px; }
 .agent-detail-time-grid > div { display: grid; gap: 3px; min-width: 0; }
+.agent-detail-live-grid code { color: var(--console-muted); font: 500 11px/1.4 Consolas, 'Cascadia Code', monospace; overflow-wrap: anywhere; }
 .agent-recovery-section h2 { display: flex; align-items: center; gap: 7px; }
 .agent-recovery-section h2 svg { width: 16px; height: 16px; color: var(--signal-amber); }
 .agent-detail-warning { display: grid; gap: 8px; margin-top: 10px; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--signal-amber) 32%, var(--console-line)); border-left: 3px solid var(--signal-amber); border-radius: 6px; background: color-mix(in srgb, var(--signal-amber) 6%, #fff); }
@@ -1331,27 +1391,42 @@ h3 {
   .agent-refresh-button, .agent-refresh-icon, .agent-load-more-icon-slot svg, .agent-copy-icon-slot svg { transition: none; }
 }
 
-/* Project navigation stays available while task content occupies the workspace. */
-.project-navigation-slot { min-height: 0; overflow-y: auto; margin-top: 28px; }
+/* 工作区列表独立滚动，标题始终保留在侧栏中。 */
+.project-navigation-slot { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin-top: 28px; }
 .sidebar > nav[aria-label="主导航"] { flex-shrink: 0; }
 .sidebar .project-task-navigation { --project-hover: #e2e8f0; --project-selected: #dbeafe; --project-selected-hover: #bfdbfe; overflow: visible; gap: 4px; }
-.project-task-navigation h2 { color: #94a3b8; font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; padding: 0 10px; margin: 0; }
+.project-task-navigation h2 { position: sticky; z-index: 3; top: 0; padding: 6px 10px; margin: 0; background: #f1f5f9; color: #94a3b8; font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
 .project-task-group { min-width: 0; }
-.project-task-heading { display: flex; width: 100%; gap: 9px; align-items: center; padding: 6px 10px; border-radius: 6px; color: #334155; font-size: 12px; text-align: left; touch-action: pan-x; }
+.project-task-header { display: flex; align-items: center; min-width: 0; border-radius: 6px; }
+.project-task-heading { display: flex; flex: 1; min-width: 0; gap: 9px; align-items: center; padding: 6px 4px 6px 10px; border-radius: 6px; color: #334155; font-size: 12px; text-align: left; touch-action: pan-x; }
 .project-task-heading > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-task-heading svg { width: 16px; height: 16px; color: var(--console-muted); flex-shrink: 0; }
-.project-task-heading svg:last-child { margin-left: auto; width: 13px; transition: transform 150ms; }
-.project-task-heading .collapsed { transform: rotate(-90deg); }
+.project-workspace-collapse, .project-workspace-more { display: grid; flex: none; place-items: center; width: 26px; height: 28px; padding: 0; border-radius: 5px; color: var(--console-muted); }
+.project-workspace-collapse svg, .project-workspace-more svg { width: 15px; height: 15px; }
+.project-workspace-collapse svg { transition: transform 150ms; }
+.project-workspace-collapse .collapsed { transform: rotate(-90deg); }
+.project-workspace-more { opacity: 0; pointer-events: none; }
+.project-task-group:hover .project-workspace-more, .project-task-group:focus-within .project-workspace-more { opacity: 1; pointer-events: auto; }
+.project-workspace-more:hover, .project-workspace-more[aria-expanded="true"] { background: transparent; color: #0f172a; }
+/* Radix Portal 脱离侧栏滚动容器，定位由 Popover 从三点按钮右侧计算。 */
+.project-workspace-menu-content { z-index: 70; display: grid; min-width: 176px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; box-shadow: 0 8px 16px rgb(15 23 42 / 12%); }
+.project-workspace-menu-content button { display: flex; align-items: center; gap: 7px; min-height: 28px; padding: 0 8px; border-radius: 4px; color: #334155; font-size: 12px; text-align: left; }
+.project-workspace-menu-content button svg { width: 14px; height: 14px; }
+.project-workspace-menu-content button:hover, .project-workspace-menu-content button:focus-visible { background: #f1f5f9; color: #0f172a; }
+.project-workspace-menu-content .project-workspace-menu-delete { color: #b91c1c; }
+.project-workspace-menu-content .project-workspace-menu-delete:hover, .project-workspace-menu-content .project-workspace-menu-delete:focus-visible { background: #fef2f2; color: #991b1b; }
 .project-task-group ul { display: flex; flex-direction: column; gap: 2px; list-style: none; margin: 3px 0; padding: 0; }
 .project-task { position: relative; border-radius: 7px; transition: background-color 140ms ease; }
-.project-task:hover, .project-task:focus-within, .project-task-heading:hover { background: var(--project-hover); }
-.project-task-heading { transition: background-color 140ms ease; }
+.project-task:hover, .project-task:focus-within, .project-task-header:hover, .project-task-header:focus-within { background: var(--project-hover); }
+.project-task-header[data-menu-open="true"] { background: var(--project-hover); }
+.project-task-header { transition: background-color 140ms ease; }
 .project-task[data-selected=true] { background: var(--project-selected); }
 .project-task[data-selected=true]:hover, .project-task[data-selected=true]:focus-within { background: var(--project-selected-hover); }
-.sidebar .project-task-navigation .project-task-link { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 30px; padding: 6px 10px 6px 36px; border-radius: inherit; color: #334155; font-size: 12px; font-weight: 500; line-height: 18px; text-align: left; }
+.sidebar .project-task-navigation .project-task-link { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; min-height: 34px; padding: 6px 10px 6px 36px; border-radius: inherit; color: #334155; font-size: 12px; font-weight: 500; line-height: 18px; text-align: left; }
 .sidebar .project-task-navigation .project-task-link[aria-current="page"] { background: transparent; color: #0f172a; }
-.project-task[data-selected=true] .project-task-link > span { font-weight: 600; }
-.project-task-link > span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-task[data-selected=true] .project-task-title { font-weight: 600; }
+.project-task-content { display: block; flex: 1; min-width: 0; overflow: hidden; }
+.project-task-title { display: block; overflow: hidden; color: #334155; text-overflow: ellipsis; white-space: nowrap; }
 .project-task-state-icon { position: absolute; left: 14px; width: 14px; height: 14px; pointer-events: none; }
 .sidebar .project-task-navigation .project-task-state-icon.tone-blue { color: var(--agent-blue); }
 .sidebar .project-task-navigation .project-task-state-icon.tone-red { color: var(--signal-red); }
@@ -1378,8 +1453,8 @@ h3 {
 .project-task-preview > strong { display: block; font-size: 14px; margin-bottom: 14px; overflow-wrap: anywhere; }
 .project-task-preview p { display: flex; align-items: center; gap: 8px; margin: 9px 0 0; color: var(--console-muted); overflow-wrap: anywhere; }
 .project-task-preview svg { width: 16px; height: 16px; flex-shrink: 0; }
-.project-task-heading:focus-visible, .project-task-link:focus-visible, .project-task-delete:focus-visible, .project-task-more:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
-@media (hover: none) { .project-task-delete { opacity: 1; pointer-events: auto; } .project-task-link time { visibility: hidden; } }
+.project-task-heading:focus-visible, .project-task-link:focus-visible, .project-task-delete:focus-visible, .project-task-more:focus-visible, .project-workspace-more:focus-visible, .project-workspace-collapse:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+@media (hover: none) { .project-task-delete, .project-workspace-more { opacity: 1; pointer-events: auto; } .project-task-link time { visibility: hidden; } }
 
 /* Page and navigation scrolling share the quiet, narrow desktop treatment. */
 .workspace, .project-navigation-slot, .sidebar > nav,
@@ -1404,12 +1479,12 @@ h3 {
 .project-task-heading { cursor: default; }
 
 @media (prefers-reduced-motion: reduce) {
-  .project-task, .project-task-heading, .project-task-more-icon-slot svg { transition: none; }
+  .project-task, .project-task-header, .project-task-more-icon-slot svg { transition: none; }
   .project-task-more[data-state="loading"] .project-task-more-icon-loading, .project-task-more-label { animation: none; }
 }
 
 /* Markdown stays in the page flow; only wide code and tables scroll horizontally. */
-.agent-markdown { white-space: normal; }
+.agent-markdown { min-width: 0; max-width: 100%; white-space: normal; }
 .agent-markdown > :first-child { margin-top: 0; }
 .agent-markdown > :last-child { margin-bottom: 0; }
 .agent-markdown p, .agent-markdown ul, .agent-markdown ol, .agent-markdown blockquote,
@@ -1431,7 +1506,9 @@ h3 {
 .agent-markdown code { font-family: "Alibaba PuHuiTi",Consolas, 'Cascadia Code', monospace; font-size: .92em; background: var(--muted); border-radius: 4px; padding: 2px 5px; }
 .agent-markdown pre { max-width: 100%; overflow-x: auto; padding: 14px 16px; border: 1px solid var(--console-line); border-radius: 6px; background: var(--muted); white-space: pre; overflow-wrap: normal; line-height: 1.6; }
 .agent-markdown pre code { padding: 0; background: none; border-radius: 0; }
-.agent-markdown-table { max-width: 100%; overflow-x: auto; }
+.agent-detail-section, .agent-task-prompt, .agent-result-card { min-width: 0; }
+/* 表格自行滚动，不能把任务详情所在的应用工作区撑出横向滚动条。 */
+.agent-markdown-table { inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; }
 .agent-markdown table { border-collapse: collapse; width: max-content; min-width: 100%; }
 .agent-markdown th, .agent-markdown td { border: 1px solid var(--console-line); padding: 8px 12px; text-align: start; }
 .agent-markdown th { background: var(--muted); font-weight: 600; }

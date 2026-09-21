@@ -3,6 +3,10 @@
     reason = "TASK-001 foundation is retained without production consumers until Agent lifecycle integration"
 )]
 mod agent;
+mod agent_notification;
+#[cfg(windows)]
+mod autostart;
+mod codegraph_capability;
 mod commands;
 mod config;
 mod discovery;
@@ -14,7 +18,14 @@ mod mcp;
 mod oauth;
 mod remote;
 mod serena;
+mod serena_capability;
 mod tray;
+mod workspace_capability;
+mod workspace_inspection;
+mod workspace_path;
+mod workspace_picker;
+mod workspace_registry;
+mod workspace_resolver;
 
 use config::AppPaths;
 use serena::SupervisorState;
@@ -40,6 +51,13 @@ fn is_autostart_launch(arguments: impl IntoIterator<Item = impl AsRef<std::ffi::
     arguments
         .into_iter()
         .any(|argument| argument.as_ref() == "--autostart")
+}
+
+pub(crate) async fn finish_broker_startup(
+    broker: std::sync::Arc<mcp::Broker>,
+    serena_startup: tauri::async_runtime::JoinHandle<()>,
+) -> Result<(), String> {
+    broker.startup_after_serena(serena_startup).await
 }
 
 pub(crate) fn request_exit(app: &AppHandle) {
@@ -89,6 +107,7 @@ pub fn run() {
             },
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
@@ -96,6 +115,8 @@ pub fn run() {
         .setup(|app| {
             #[cfg(windows)]
             load_error::install(&app.get_webview_window("main").expect("main window"))?;
+            #[cfg(windows)]
+            autostart::refresh_enabled_registration(app.handle()).map_err(std::io::Error::other)?;
             #[cfg(windows)]
             app.get_webview_window("main")
                 .expect("main webview window must exist")
@@ -113,14 +134,22 @@ pub fn run() {
             let supervisor =
                 std::sync::Arc::new(SupervisorState::new(paths).map_err(std::io::Error::other)?);
             app.manage(supervisor.clone());
-            let broker = std::sync::Arc::new(mcp::Broker::new(supervisor));
+            let broker = std::sync::Arc::new(mcp::Broker::new(supervisor.clone()));
             let _ = broker.remote.app.set(app.handle().clone());
             let store = tauri::async_runtime::block_on(agent::store::StateStore::open_for_app(
                 app.handle(),
             ))
             .map_err(std::io::Error::other)?;
+            let terminal_notifier =
+                std::sync::Arc::new(agent_notification::DesktopAgentTerminalNotifier::new(
+                    app.handle().clone(),
+                    supervisor,
+                ));
             let (product, outcomes) = tauri::async_runtime::block_on(
-                agent::product::AgentProductService::initialize(store),
+                agent::product::AgentProductService::initialize_with_terminal_notifier(
+                    store,
+                    terminal_notifier,
+                ),
             )
             .map_err(std::io::Error::other)?;
             if let Some(error) = product.backend_diagnostic() {
@@ -130,39 +159,22 @@ pub fn run() {
                     &format!("Agent backend unavailable: {error}"),
                 );
             }
-            for outcome in outcomes {
-                use agent::task_manager::recovery::RecoveryOutcome::*;
-                let (kind, id) = match &outcome {
-                    OrphanRuntime {
-                        runtime_id,
-                        failure,
-                    } => (
-                        if failure.is_some() {
-                            "orphan runtime unknown"
-                        } else {
-                            "orphan runtime terminated"
-                        },
-                        runtime_id,
-                    ),
-                    Released { execution_id } => ("released", execution_id),
-                    Inconsistent { execution_id, .. } => {
-                        ("inconsistent; claim retained", execution_id)
-                    }
-                    PendingExplicitResume { execution_id } => {
-                        ("pending explicit resume", execution_id)
-                    }
-                    Unknown { execution_id, .. } => ("unknown; claim retained", execution_id),
-                    RuntimeFailure { execution_id, .. } => {
-                        ("runtime failure; claim retained", execution_id)
-                    }
-                    Interrupted { execution, .. } => {
-                        ("interrupted; safely released", &execution.id)
-                    }
+            for item in outcomes {
+                use agent::provider::port::ProviderReconcileKind::*;
+                let kind = match item.kind {
+                    OrphanResourceRecovered => "orphan resource terminated",
+                    OrphanResourceUnknown => "orphan resource unknown",
+                    ExecutionReleased => "released",
+                    ExecutionInconsistent => "inconsistent; claim retained",
+                    ExecutionPendingExplicitResume => "pending explicit resume",
+                    ExecutionUnknown => "unknown; claim retained",
+                    ExecutionProviderFailure => "provider failure; claim retained",
+                    ExecutionInterrupted => "interrupted; safely released",
                 };
                 logs::append(
                     &app.state::<std::sync::Arc<SupervisorState>>().paths.app_log,
                     "agent recovery",
-                    &format!("{id}: {kind}"),
+                    &format!("{}: {kind}", item.subject_id),
                 );
             }
             let product = std::sync::Arc::new(product);
@@ -205,12 +217,8 @@ pub fn run() {
                     }
                 }
             });
-            let sync_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = commands::sync_workspaces(sync_app).await {
-                    *broker.sync_warnings.lock().unwrap() = vec![format!("同步失败：{e}")];
-                }
-                if let Err(e) = broker.startup_after_serena(serena_startup).await {
+                if let Err(e) = finish_broker_startup(broker.clone(), serena_startup).await {
                     *broker.error.lock().unwrap() = Some(e);
                 }
             });
@@ -242,13 +250,27 @@ pub fn run() {
             remote::remote_probe,
             remote::remote_approve,
             commands::agent_operation,
+            commands::agent_manual_resolve,
             commands::agent_history,
             commands::get_app_state,
+            commands::workspace_list,
+            commands::workspace_get,
+            commands::workspace_select,
+            commands::workspace_register,
+            commands::workspace_rename,
+            commands::workspace_reorder,
+            commands::workspace_remove,
+            commands::workspace_capability_observe,
+            commands::workspace_capability_prepare,
+            commands::workspace_capability_cancel,
+            workspace_inspection::workspace_inspect_directory,
+            workspace_picker::workspace_pick_directory,
             commands::get_codex_version,
             commands::get_broker_state,
             commands::get_mcp_logs,
             commands::clear_mcp_logs,
             commands::download_mcp_logs,
+            commands::workspace_import_serena,
             commands::sync_workspaces,
             commands::activate_workspace,
             commands::deactivate_workspace,

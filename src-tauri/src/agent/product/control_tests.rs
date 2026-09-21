@@ -131,11 +131,7 @@ async fn control_attention_distinguishes_clean_pending_unknown_and_active_work()
         ("running", "dispatched", "none", "observe", false),
         ("finalizing", "dispatched", "none", "observe", false),
     ] {
-        db.execute(
-            "UPDATE executions SET status=?1,dispatch_state=?2 WHERE id='e'",
-            [status, dispatch],
-        )
-        .unwrap();
+        set_v8_execution_state(&db, "e", status, dispatch, None, None);
         let response = service
             .checked_operation(
                 json!({"action":"observe","executionId":"e","waitMs":0}),
@@ -330,11 +326,7 @@ async fn control_uncertain_resume_rejection_uses_persisted_facts_not_runtime_or_
     service.manager.backend_error = Some("BACKEND_UNAVAILABLE: no launch".into());
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
     for dispatch in ["dispatching", "uncertain", "dispatched", "not_dispatched"] {
-        db.execute(
-            "UPDATE executions SET status='unknown',dispatch_state=?1 WHERE id='e'",
-            [dispatch],
-        )
-        .unwrap();
+        set_v8_execution_state(&db, "e", "unknown", dispatch, None, None);
         let before = store.execution("e".into()).await.unwrap().unwrap();
         for action in ["observe", "resume_pending", "cancel"] {
             let args = if action == "observe" {
@@ -589,7 +581,12 @@ async fn binary_resolution_failure_pending_can_resume_first_dispatch() {
     let response = service
         .checked_operation(start("a", "k"), w(dir.path(), "W"))
         .await;
-    let id = response["data"]["executionId"].as_str().unwrap().to_owned();
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error"]["code"], "CODEX_APP_SERVER_INCOMPATIBLE");
+    let id = response["error"]["executionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         while store.product_worker_owned(&id) {
             tokio::task::yield_now().await;
@@ -668,6 +665,7 @@ async fn unbound_persisted_runtime_attempt_stays_fail_closed() {
         runtime_pool: Default::default(),
         store: store.clone(),
         executable: "unused".into(),
+        backend_error: None,
         owner: "fixture".into(),
     };
     provider.failed("e").await.unwrap();
@@ -707,4 +705,58 @@ async fn start_workspace_id_is_required_and_retry_cannot_rebind() {
     assert_eq!(rejected["error"]["code"], "AGENT_REQUEST_KEY_CONFLICT");
     no_dispatch(&rejected["control"], false);
     assert_eq!(count(dir.path(), "executions"), 1);
+}
+
+#[tokio::test]
+async fn local_manual_resolution_returns_the_durable_interrupted_snapshot() {
+    let (dir, store, service) = fixture().await;
+    store
+        .product_create_fresh(
+            "e".into(),
+            "a".into(),
+            "k".into(),
+            "hello".into(),
+            "W".into(),
+            w(dir.path(), "W"),
+            1,
+        )
+        .await
+        .unwrap();
+    rusqlite::Connection::open(dir.path().join("agent-state.db"))
+        .unwrap()
+        .execute(
+            "UPDATE executions SET status='unknown',dispatch_state='not_dispatched',error_code='CODEX_PROVIDER_FAILURE',error_message='CODEX_PROTOCOL_INVALID_MESSAGE: fixture' WHERE id='e'",
+            [],
+        )
+        .unwrap();
+
+    let view = service
+        .manual_resolve(
+            "e".into(),
+            LocalManualResolution::InterruptAndRelease,
+            Some("operator note must not persist".into()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(view.status, "interrupted");
+    assert_eq!(view.attention, "none");
+    assert_eq!(view.result_completeness, "unknown");
+    assert!(
+        store
+            .workspace_claim("root".into())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let row = store.execution("e".into()).await.unwrap().unwrap();
+    assert_eq!(
+        row.release_evidence_kind.as_deref(),
+        Some("operator_override")
+    );
+    assert!(
+        !row.release_evidence_json
+            .as_deref()
+            .unwrap()
+            .contains("operator note")
+    );
 }

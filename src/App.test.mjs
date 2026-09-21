@@ -42,15 +42,19 @@ const { api } = await import('./api.ts');
 let root;
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; });
 test('lazy pages preserve settings draft and keep project navigation mounted', async () => {
-  const config = { agentEnabled: false, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
-  const snapshot = { config, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
+  const project = { id: 'W', name: 'Persistent project', root: 'E:/project', generation: 1 };
+  const config = { agentEnabled: false, remoteSourceWriteEnabled: false, agentSuccessNotificationEnabled: true, agentFailureNotificationEnabled: true, agentSystemNotificationEnabled: true, agentSoundEnabled: true, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [project], desktopSelectedWorkspaceId: project.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+  const snapshot = { config, desktopSelectedWorkspace: project, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
   api.getState = async () => structuredClone(snapshot);
-  api.broker = async () => ({ running: false, projects: [{ id: 'W', name: 'Persistent project', root: 'E:/project', configured: true }], projectSources: [], syncWarnings: [], activeWorkspace: null, codegraph: null });
+  api.broker = async () => ({ running: false, projects: [{ ...project, configured: true }], projectSources: [], syncWarnings: [], activeWorkspace: null, codegraph: null });
   api.agentHistory = async () => ({ executions: [], nextCursor: null });
   api.codexVersion = async () => 'test-version';
   api.remoteState = async () => ({ mode: 'quick_tunnel', status: 'stopped', publicContext: null, lastError: null, authorizedClients: 0, pending: [], active: false });
   root = createRoot(document.getElementById('root'));
   await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
+  const brand = document.querySelector('.brand');
+  assert.match(brand.textContent, /SerenaDesktop/u);
+  assert.match(brand.textContent, /开发版本/u);
   const navigation = document.querySelector('.project-navigation-slot');
   assert.match(navigation.textContent, /Persistent project/);
   async function navigate(label) {
@@ -60,6 +64,8 @@ test('lazy pages preserve settings draft and keep project navigation mounted', a
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
   }
   await navigate('设置');
+  assert.match(document.querySelector('.settings-page').textContent, /允许远程修改项目文件/u);
+  assert.match(document.querySelector('.settings-page').textContent, /远程 MCP 客户端只能读取项目文件。/u);
   const port = document.getElementById('broker-port');
   assert.ok(port);
   await act(async () => {
@@ -77,7 +83,7 @@ test('lazy pages preserve settings draft and keep project navigation mounted', a
 
 test('MCP Only App controls use the broker controller to start and stop the local listener', async () => {
   const originals = { ...api };
-  const config = { agentEnabled: false, broker: { enabled: true, port: 9342, allowLan: true }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
+  const config = { agentEnabled: false, remoteSourceWriteEnabled: false, broker: { enabled: true, port: 9342, allowLan: true }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
   const snapshot = { config, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
   let brokerRunning = true;
   let resolveSetBroker;
@@ -123,7 +129,7 @@ test('Settings keeps its compact contract, truthful detection copy, and broker c
   const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   const actualPath = 'D:/Serena/actual-runtime/serena.exe';
   const installation = { state: 'standard', source: 'managed', version: 'serena-actual-1.8.2', path: actualPath, context: null, error: null };
-  const config = { agentEnabled: false, broker: { enabled: true, port: 9234, allowLan: true }, workspaces: [], serenaPath: null, port: 9345, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+  const config = { agentEnabled: false, agentSuccessNotificationEnabled: true, agentFailureNotificationEnabled: true, agentSystemNotificationEnabled: true, agentSoundEnabled: true, broker: { enabled: true, port: 9234, allowLan: true }, workspaces: [], serenaPath: null, port: 9345, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
   const snapshot = { config, git: { available: false, status: 'missing', path: null, version: null, error: null }, serverStatus: 'stopped', installation, activeInstallation: installation, managedRuntimePresent: true, managedProcessPresent: false, activePort: 9345, endpoint: 'http://127.0.0.1:9345/mcp', dashboardEnabled: true, dashboardUrl: 'http://127.0.0.1:24283/dashboard/', autostartEnabled: false, autostartError: null, codegraphVersion: null, lastError: null };
   let brokerRunning = true;
   let resolveSetBroker;
@@ -135,6 +141,12 @@ test('Settings keeps its compact contract, truthful detection copy, and broker c
   api.codexVersion = async () => 'test-version';
   api.remoteState = async () => ({ mode: 'quick_tunnel', status: 'stopped', publicContext: null, lastError: null, authorizedClients: 0, pending: [], active: false });
   api.setBroker = () => new Promise(resolve => { resolveSetBroker = resolve; });
+  const savedConfigs = [];
+  api.saveConfig = async next => {
+    savedConfigs.push(next);
+    snapshot.config = structuredClone(next);
+    return structuredClone(snapshot);
+  };
   const navigate = async () => {
     await act(async () => [...document.querySelectorAll('nav[aria-label="主导航"] button')].find(item => item.textContent === '设置').click());
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
@@ -147,7 +159,19 @@ test('Settings keeps its compact contract, truthful detection copy, and broker c
   };
   try {
     let page = await mountSettings();
-    assert.deepEqual([...page.querySelectorAll('.settings-section h2')].map(item => item.textContent), ['General', 'Serena', 'Serena 内部服务', 'MCP 连接入口']);
+    assert.deepEqual([...page.querySelectorAll('.settings-section h2')].map(item => item.textContent), ['General', 'Agent 提醒', 'Serena', 'Serena 内部服务', 'MCP 连接入口']);
+    for (const label of ['任务成功提醒', '任务异常提醒', '系统通知', '提示音']) {
+      assert.ok([...page.querySelectorAll('[role="switch"]')].some(control => control.closest('[data-slot="field"]')?.textContent.includes(label)), label);
+    }
+    for (const label of ['任务成功提醒', '任务异常提醒', '系统通知', '提示音']) {
+      const control = [...page.querySelectorAll('[role="switch"]')].find(item => item.closest('[data-slot="field"]')?.textContent.includes(label));
+      await act(async () => control.click());
+    }
+    assert.equal(savedConfigs.length, 4);
+    assert.equal(savedConfigs[0].agentSuccessNotificationEnabled, false);
+    assert.equal(savedConfigs[1].agentFailureNotificationEnabled, false);
+    assert.equal(savedConfigs[2].agentSystemNotificationEnabled, false);
+    assert.equal(savedConfigs[3].agentSoundEnabled, false);
     assert.match(page.querySelector('.settings-autosave-status').textContent, /自动持久化就绪/);
     const detectedPath = page.querySelector('.detected-path');
     assert.match(detectedPath.textContent, new RegExp(actualPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
@@ -195,9 +219,9 @@ test('Settings keeps its compact contract, truthful detection copy, and broker c
 
 test('Service Status renders component icons, truthful actions and independent path copy feedback', async () => {
   const originals = { ...api };
-  const project = { id: 'status-workspace', name: 'Active status workspace', root: 'E:/status-workspace' };
+  const project = { id: 'status-workspace', name: 'Active status workspace', root: 'E:/status-workspace', generation: 1 };
   const installation = { state: 'standard', source: 'managed', version: 'serena-actual-1.8.2', path: 'C:/Serena/runtime/serena.exe', context: 'desktop-context', error: null };
-  const config = { agentEnabled: false, broker: { enabled: true, port: 9234, allowLan: false }, workspaces: [project], serenaPath: null, port: 9345, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+  const config = { agentEnabled: false, broker: { enabled: true, port: 9234, allowLan: false }, workspaces: [project], workspaceRegistryRevision: 1, serenaPath: null, port: 9345, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
   const snapshot = { config, git: { available: true, status: 'available', version: 'git-actual-2.51.3', path: 'C:/Git/cmd/git.exe', error: null }, serverStatus: 'running', installation, activeInstallation: installation, managedRuntimePresent: true, managedProcessPresent: true, activePort: 9345, endpoint: 'http://127.0.0.1:9345/mcp', dashboardEnabled: true, dashboardUrl: 'http://127.0.0.1:24283/dashboard/', autostartEnabled: false, codegraphVersion: 'codegraph-actual-1.9.4', lastError: null };
   const broker = { running: true, port: 9234, listenAddress: '127.0.0.1', lanEndpoints: [], projects: [project], projectSources: [], syncWarnings: [], activeWorkspace: project, codegraph: { status: 'ready', workspaceId: project.id, root: project.root, generation: 1 } };
   let probes = 0;
@@ -221,21 +245,21 @@ test('Service Status renders component icons, truthful actions and independent p
     await navigate('服务状态');
     const summary = page().querySelector('[aria-label="当前状态"]');
     assert.match(summary.textContent, /运行中/);
-    assert.ok(summary.textContent.includes(snapshot.endpoint));
     assert.ok(summary.textContent.includes('http://127.0.0.1:9234/mcp'));
-    assert.ok(summary.textContent.includes(project.name));
-    assert.match(page().textContent, /运行组件/);
+    assert.doesNotMatch(summary.textContent, /当前工作区|Active status workspace/);
+    assert.match(page().textContent, /本机命令与服务/);
     assert.match(page().textContent, /环境与版本/);
     const rows = [...page().querySelectorAll('tbody tr')];
-    assert.equal(rows.length, 4);
-    assert.match(rows[0].textContent, /Serena Runtime.*运行中.*serena-actual-1\.8\.2.*9345/);
+    assert.equal(rows.length, 5);
+    assert.match(rows[0].textContent, /Serena.*已发现.*serena-actual-1\.8\.2.*C:\/Serena\/runtime\/serena\.exe/);
     assert.match(rows[1].textContent, /MCP Broker.*运行中.*HTTP · 9234.*http:\/\/127\.0\.0\.1:9234\/mcp/);
     assert.match(rows[2].textContent, /Codex CLI.*CLI 可用.*codex-actual-0\.159\.7/);
-    assert.match(rows[3].textContent, /CodeGraph.*已就绪.*codegraph-actual-1\.9\.4/);
+    assert.match(rows[3].textContent, /CodeGraph CLI.*已发现.*codegraph-actual-1\.9\.4/);
+    assert.match(rows[4].textContent, /Git CLI.*已发现.*git-actual-2\.51\.3/);
     const environment = page().querySelector('[aria-labelledby="status-environment-heading"]').textContent;
-    for (const value of [installation.version, installation.path, snapshot.git.version, snapshot.git.path, snapshot.dashboardUrl, snapshot.codegraphVersion, 'codex-actual-0.159.7']) assert.ok(environment.includes(value), value);
+    for (const value of [installation.version, installation.path, snapshot.git.version, snapshot.git.path, snapshot.codegraphVersion, 'codex-actual-0.159.7']) assert.ok(environment.includes(value), value);
     assert.doesNotMatch(page().textContent, /PID|CPU|内存|RAM|uptime|运行时长|运行时间|运行进程|Codex Runtime/i);
-    for (const [index, icon] of ['server', 'network', 'square-terminal', 'git-branch'].entries()) {
+    for (const [index, icon] of ['server', 'network', 'square-terminal', 'git-branch', 'git-branch'].entries()) {
       assert.ok(rows[index].querySelector(`th[scope="row"] svg.lucide-${icon}[aria-hidden="true"]`));
     }
     const toolbar = page().querySelector('.status-action-toolbar');
@@ -286,8 +310,8 @@ test('Service Status renders component icons, truthful actions and independent p
     assert.deepEqual(externalTargets, ['serena-desktop', 'github', 'codegraph']);
 
     const copyButtons = [...page().querySelectorAll('.status-environment-value button')];
-    assert.deepEqual(copyButtons.map(item => item.getAttribute('aria-label')), ['复制 Serena', '复制 MCP Broker', '复制 Git', '复制 Dashboard']);
-    const [serenaCopy, brokerCopy, gitCopy, dashboardCopy] = copyButtons;
+    assert.deepEqual(copyButtons.map(item => item.getAttribute('aria-label')), ['复制 Serena', '复制 MCP Broker', '复制 Git']);
+    const [serenaCopy, brokerCopy, gitCopy] = copyButtons;
     const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
     const { toast } = await import('sonner');
     const originalToastError = toast.error;
@@ -306,7 +330,7 @@ test('Service Status renders component icons, truthful actions and independent p
       assert.equal(serenaCopy.disabled, true);
       assert.equal(serenaCopy.getAttribute('aria-busy'), 'true');
       assert.equal(serenaCopy.dataset.copied, 'false');
-      for (const other of [brokerCopy, gitCopy, dashboardCopy]) {
+      for (const other of [brokerCopy, gitCopy]) {
         assert.equal(other.disabled, false);
         assert.equal(other.dataset.copied, 'false');
         assert.ok(other.querySelector('svg.lucide-copy'));
@@ -315,7 +339,7 @@ test('Service Status renders component icons, truthful actions and independent p
       assert.equal(serenaCopy.getAttribute('aria-busy'), 'false');
       assert.equal(serenaCopy.getAttribute('aria-label'), '已复制 Serena');
       assert.ok(serenaCopy.querySelector('svg.lucide-check'));
-      for (const other of [brokerCopy, gitCopy, dashboardCopy]) {
+      for (const other of [brokerCopy, gitCopy]) {
         assert.equal(other.disabled, false);
         assert.equal(other.dataset.copied, 'false');
       }
@@ -340,7 +364,7 @@ test('Service Status renders component icons, truthful actions and independent p
       assert.equal(serenaCopy.disabled, false);
 
       clipboard.writeText = async value => { copiedValues.push(value); };
-      for (const [control, value] of [[brokerCopy, 'http://127.0.0.1:9234/mcp'], [gitCopy, snapshot.git.path], [dashboardCopy, snapshot.dashboardUrl]]) {
+      for (const [control, value] of [[brokerCopy, 'http://127.0.0.1:9234/mcp'], [gitCopy, snapshot.git.path]]) {
         await act(async () => control.click());
         assert.equal(copiedValues.at(-1), value);
         assert.ok(control.querySelector('svg.lucide-check'));
@@ -351,7 +375,7 @@ test('Service Status renders component icons, truthful actions and independent p
       else delete globalThis.navigator;
       toast.error = originalToastError;
     }
-    assert.equal(button('打开 Dashboard').disabled, false);
+    assert.equal(button('打开 Dashboard'), undefined);
     assert.equal(probes, 1);
     await navigate('首页'); await navigate('服务状态');
     assert.equal(probes, 1);
@@ -360,11 +384,10 @@ test('Service Status renders component icons, truthful actions and independent p
     assert.equal(detections, 1);
     assert.equal(button('重新检测').getAttribute('aria-busy'), 'true');
     assert.equal(button('重新检测').disabled, true);
-    assert.equal(button('打开 Dashboard').disabled, true);
     await act(async () => resolveDetection(structuredClone(snapshot)));
     assert.equal(button('重新检测').getAttribute('aria-busy'), 'false');
 
-    // A fresh controller snapshot must remove the running endpoint and workspace.
+    // 本机检测结果不随项目工作区或能力运行状态改变。
     await act(async () => root.unmount()); root = null;
     snapshot.serverStatus = 'stopped'; snapshot.managedProcessPresent = false;
     snapshot.dashboardEnabled = false; snapshot.lastError = 'Actual Serena error';
@@ -374,16 +397,15 @@ test('Service Status renders component icons, truthful actions and independent p
     root = createRoot(document.getElementById('root'));
     await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
     await navigate('服务状态');
-    assert.match(page().querySelector('[aria-label="当前状态"]').textContent, /已停止.*未激活/);
+    assert.match(page().querySelector('[aria-label="当前状态"]').textContent, /已停止/);
     assert.doesNotMatch(page().textContent, /http:\/\/127\.0\.0\.1:9234\/mcp/);
-    assert.match(page().querySelector('tbody').textContent, /CodeGraph.*待激活/);
+    assert.match(page().querySelector('tbody').textContent, /CodeGraph CLI.*已发现/);
     assert.match(page().textContent, /Actual Codex error/);
     assert.match(page().textContent, /Actual Git error/);
     assert.match(page().textContent, /Last ErrorActual Serena error/);
-    assert.match(page().textContent, /Dashboard已关闭/);
     assert.equal(button('停止 Serena'), undefined);
-    assert.equal(button('启动 Serena').disabled, true);
-    assert.equal(button('打开 Dashboard').disabled, true);
+    assert.equal(button('启动 Serena'), undefined);
+    assert.equal(button('打开 Dashboard'), undefined);
     assert.ok(button('打开 Git 下载页面 ↗'));
     assert.deepEqual([...page().querySelectorAll('.status-environment-value button')].map(item => item.getAttribute('aria-label')), ['复制 Serena']);
     for (const control of page().querySelectorAll('.status-action-toolbar button')) {
@@ -391,20 +413,8 @@ test('Service Status renders component icons, truthful actions and independent p
       assert.equal(control.children.length, 1);
       assert.equal(control.firstElementChild.className, 'status-action-label');
     }
-    assert.equal(button('启动 Serena').closest('.status-lifecycle-action') !== null, true);
+    assert.equal(page().querySelector('.status-lifecycle-action'), null);
 
-    // The install branch uses the same stable label structure as stopped actions.
-    await act(async () => root.unmount()); root = null;
-    snapshot.installation = null; snapshot.activeInstallation = null;
-    snapshot.managedRuntimePresent = false;
-    root = createRoot(document.getElementById('root'));
-    await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
-    await navigate('服务状态');
-    const installButton = button('安装 官方 Serena');
-    assert.ok(installButton.classList.contains('status-action-button'));
-    assert.equal(installButton.children.length, 1);
-    assert.equal(installButton.firstElementChild.className, 'status-action-label');
-    assert.equal(installButton.getAttribute('aria-label'), '安装 官方 Serena');
   } finally { Object.assign(api, originals); }
 });
 
@@ -412,7 +422,7 @@ test('task detail clears the Agent main-navigation selection until returning to 
   const project = { id: 'P', name: 'Task project', root: 'E:/task-project' };
   const config = { agentEnabled: true, broker: { enabled: true, port: 9120, allowLan: false }, workspaces: [project], serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
   const snapshot = { config, git: { available: true, status: 'available' }, serverStatus: 'running', installation: null, activeInstallation: { state: 'standard', version: '1.7.0' }, managedRuntimePresent: true, managedProcessPresent: true, activePort: 9121, autostartEnabled: false, codegraphVersion: '1.6.0' };
-  const task = { executionId: 'task-1', agentId: 'agent-1', workspaceId: 'P', canonicalWorkspaceRoot: project.root, prompt: '验证任务详情导航', status: 'completed', attention: 'none', revision: 'R1', resultAvailable: false, finalResult: null, progress: { phase: 'completed' }, nextAction: null, dispatchState: 'accepted', threadId: null, threadName: null, turnId: null, providerTerminalStatus: null, errorCode: null, errorMessage: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: 3000, availableActions: { canCancel: false, canContinue: false, canResumePending: false } };
+  const task = { executionId: 'task-1', agentId: 'agent-1', workspaceId: 'P', canonicalWorkspaceRoot: project.root, prompt: '验证任务详情导航', status: 'completed', attention: 'none', revision: 'R1', resultAvailable: false, finalResult: null, provider: { id: 'codex', displayName: 'Codex', version: null }, providerSessionLabel: null, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null }, progress: { phase: 'terminal', summaryCode: null, activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null }, nextAction: null, dispatchState: 'accepted', threadId: null, threadName: null, turnId: null, providerTerminalStatus: null, errorCode: null, errorMessage: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: 3000, availableActions: { canCancel: false, canContinue: false, canResumePending: false } };
   api.getState = async () => structuredClone(snapshot);
   api.broker = async () => ({ running: true, port: 9120, listenAddress: '127.0.0.1', lanEndpoints: [], projects: [project], projectSources: [], syncWarnings: [], activeWorkspace: project, codegraph: { status: 'ready' } });
   api.agentHistory = async () => ({ executions: [structuredClone(task)], nextCursor: null });
@@ -445,40 +455,73 @@ test('task detail clears the Agent main-navigation selection until returning to 
   assert.equal(document.querySelector('.project-task-link').getAttribute('aria-current'), null);
 });
 
-test('homepage keeps the real service and endpoint data in its compact shell', async () => {
-  const config = { agentEnabled: false, broker: { enabled: true, port: 9120, allowLan: true }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
-  const snapshot = { config, git: { available: true, status: 'available', version: '2.50.0' }, serverStatus: 'running', installation: null, activeInstallation: { state: 'standard', version: '1.7.0' }, managedRuntimePresent: true, managedProcessPresent: true, activePort: 9121, autostartEnabled: false, codegraphVersion: '1.6.0' };
+test('Agent fresh task uses Desktop selection even when the legacy Broker active workspace differs', async () => {
+  const originals = { ...api };
+  const selected = { id: 'A', name: 'Desktop selected A', root: 'E:/selected-a', generation: 2 };
+  const active = { id: 'B', name: 'Legacy active B', root: 'E:/legacy-b', generation: 5 };
+  const config = { agentEnabled: true, broker: { enabled: true, port: 9120, allowLan: false }, workspaces: [selected, active], workspaceRegistryRevision: 9, desktopSelectedWorkspaceId: selected.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+  const snapshot = { config, desktopSelectedWorkspace: selected, git: { available: true, status: 'available' }, serverStatus: 'running', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
+  const requests = [];
   api.getState = async () => structuredClone(snapshot);
-  api.broker = async () => ({ running: true, port: 9120, listenAddress: '0.0.0.0', lanEndpoints: ['http://10.0.0.2:9120/mcp', 'http://192.168.1.2:9120/mcp'], projects: [{ id: 'W', name: 'serena-desktop', root: 'E:/serena-desktop', configured: true }], projectSources: [], syncWarnings: [], activeWorkspace: { id: 'W', name: 'serena-desktop', root: 'E:/serena-desktop' }, codegraph: { status: 'ready' } });
-  api.syncProjects = async () => 1;
+  api.broker = async () => ({ running: true, port: 9120, listenAddress: '127.0.0.1', lanEndpoints: [], projects: [active], projectSources: [], syncWarnings: [], activeWorkspace: active, codegraph: { status: 'ready', workspaceId: active.id, root: active.root, generation: active.generation }, operation: null, lastError: null });
+  api.agentHistory = async () => ({ executions: [], nextCursor: null });
+  api.agent = async request => { requests.push(structuredClone(request)); return { ok: true, data: { executionId: 'fresh', agentId: request.agentId, workspaceId: request.workspaceId, canonicalWorkspaceRoot: selected.root, prompt: request.prompt, status: 'pending', attention: 'none', revision: '1', controlRevision: '1', activityRevision: '1', resultAvailable: false, provider: { id: 'codex', displayName: 'Codex', version: null }, providerSessionLabel: null, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null }, progress: { phase: 'pending', summaryCode: null, activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null }, nextAction: null, dispatchState: 'accepted', threadId: null, threadName: null, turnId: null, providerTerminalStatus: null, errorCode: null, errorMessage: null, resultCompleteness: 'unknown', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1, updatedAt: 1, completedAt: null, availableActions: { canCancel: false, canContinue: false, canResumePending: false } }, control: null }; };
+  api.codexVersion = async () => 'test-version';
+  api.remoteState = async () => ({ mode: 'quick_tunnel', status: 'stopped', publicContext: null, lastError: null, authorizedClients: 0, pending: [], active: false });
+  try {
+    root = createRoot(document.getElementById('root'));
+    await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
+    await act(async () => [...document.querySelectorAll('nav[aria-label="主导航"] button')].find(button => button.textContent === 'Agent').click());
+    await act(async () => {
+      const input = document.querySelector('#agent-prompt');
+      Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set.call(input, 'use selected workspace');
+      input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+    });
+    await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '开始新任务').click());
+    assert.equal(requests.find(request => request.action === 'start').workspaceId, 'A');
+  } finally { Object.assign(api, originals); }
+});
+
+test('homepage keeps the real service and endpoint data in its compact shell', async () => {
+  const workspace = { id: 'W', name: 'serena-desktop', root: 'E:/serena-desktop', generation: 1 };
+  const config = { agentEnabled: false, broker: { enabled: true, port: 9120, allowLan: true }, workspaces: [workspace], desktopSelectedWorkspaceId: workspace.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+  const snapshot = { config, desktopSelectedWorkspace: workspace, git: { available: true, status: 'available', version: '2.50.0' }, serverStatus: 'running', installation: null, activeInstallation: { state: 'standard', version: '1.7.0' }, managedRuntimePresent: true, managedProcessPresent: true, activePort: 9121, autostartEnabled: false, codegraphVersion: '1.6.0' };
+  api.getState = async () => structuredClone(snapshot);
+  api.broker = async () => ({ running: true, port: 9120, listenAddress: '0.0.0.0', lanEndpoints: ['http://10.0.0.2:9120/mcp', 'http://192.168.1.2:9120/mcp'], projects: [{ ...workspace, configured: true }], projectSources: [], syncWarnings: [], activeWorkspace: workspace, codegraph: { status: 'ready' } });
+  let capabilityObserves = 0;
+  api.workspaceCapabilityObserve = async () => { capabilityObserves++; return { workspaceId: workspace.id, providers: {} }; };
+  api.workspaceImportSerena = async () => 1;
   api.agentHistory = async () => ({ executions: [], nextCursor: null });
   api.codexVersion = async () => 'test-version';
   api.remoteState = async () => ({ mode: 'quick_tunnel', status: 'stopped', publicContext: null, lastError: null, authorizedClients: 0, pending: [], active: false });
   root = createRoot(document.getElementById('root'));
   await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
   assert.equal(document.querySelector('.app-titlebar'), null);
+  assert.equal(document.querySelector('.sidebar-section-label'), null);
   assert.deepEqual([...document.querySelectorAll('nav[aria-label="主导航"] button')].map(button => button.textContent), ['首页', '服务状态', 'Agent', '日志终端', '远程访问', '设置']);
   assert.doesNotMatch(document.querySelector('nav[aria-label="主导航"]').textContent, /Agent 编排/);
   assert.equal(document.querySelector('nav[aria-label="主导航"] [aria-current="page"]').textContent, '首页');
   assert.match(document.querySelector('.workspace-summary').textContent, /serena-desktop/);
-  assert.equal(document.querySelectorAll('.service-list > .service-row').length, 4);
+  assert.equal(document.querySelectorAll('#services-title').length, 0);
+  assert.equal(document.querySelector('[data-capability-workspace]'), null);
+  assert.equal(capabilityObserves, 0);
   assert.equal(document.querySelector('.connection-endpoint-card code').textContent, 'http://127.0.0.1:9120/mcp');
   assert.equal(document.querySelectorAll('.lan-endpoint-row').length, 2);
   assert.equal(document.querySelector('footer .mono').textContent, 'Serena 内部端口：9121');
 
   const wait = async ms => act(async () => { await new Promise(resolve => setTimeout(resolve, ms)); });
-  const syncButton = document.querySelector('.sync-project-button');
-  await act(async () => syncButton.click());
-  assert.match(syncButton.textContent, /同步中…/);
-  assert.equal(syncButton.disabled, true);
+  const importButton = document.querySelector('.sync-project-button');
+  await act(async () => importButton.click());
+  assert.match(importButton.textContent, /导入中…/);
+  assert.equal(importButton.disabled, true);
   await wait(250);
-  assert.match(syncButton.textContent, /同步中…/);
+  assert.match(importButton.textContent, /导入中…/);
   await wait(450);
-  assert.match(syncButton.textContent, /已同步/);
-  assert.equal(syncButton.disabled, true);
+  assert.match(importButton.textContent, /已导入/);
+  assert.equal(importButton.disabled, true);
   await wait(1600);
-  assert.match(syncButton.textContent, /同步项目/);
-  assert.equal(syncButton.disabled, false);
+  assert.match(importButton.textContent, /从 Serena 导入/);
+  assert.equal(importButton.disabled, false);
 
   let resolveCopy;
   const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');

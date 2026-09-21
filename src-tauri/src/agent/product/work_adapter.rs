@@ -2,6 +2,25 @@
 use super::work_context::VersionedContext;
 use super::*;
 use crate::agent::store::transactions::product::WorkExecutionContext;
+use crate::serena::SupervisorState;
+
+// Start 仅可从显式快照或 Registry Resolver 获得 Workspace 输入。
+pub(crate) enum WorkspaceAuthority<'a> {
+    Snapshot(Option<WorkspaceSnapshot>),
+    Resolver(&'a SupervisorState),
+}
+
+impl From<Option<WorkspaceSnapshot>> for WorkspaceAuthority<'_> {
+    fn from(workspace: Option<WorkspaceSnapshot>) -> Self {
+        Self::Snapshot(workspace)
+    }
+}
+
+impl<'a> From<&'a SupervisorState> for WorkspaceAuthority<'a> {
+    fn from(supervisor: &'a SupervisorState) -> Self {
+        Self::Resolver(supervisor)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum AgentQueryAction {
@@ -16,8 +35,11 @@ pub enum AgentQueryAction {
     Observe {
         execution_id: String,
         known_revision: Option<String>,
+        known_control_revision: Option<String>,
+        known_activity_revision: Option<String>,
         wait_ms: Option<u32>,
         include_result: Option<bool>,
+        wake_on: Option<WakeOn>,
     },
 }
 
@@ -25,6 +47,7 @@ pub enum AgentQueryAction {
 pub enum AgentExecuteAction {
     Start {
         work_run_id: String,
+        workspace_id: String,
         request_key: String,
         prompt: String,
         delegation_context_json: Option<String>,
@@ -79,22 +102,35 @@ impl AgentProductService {
             AgentQueryAction::Observe {
                 execution_id,
                 known_revision,
+                known_control_revision,
+                known_activity_revision,
                 wait_ms,
                 include_result,
+                wake_on,
             } => {
-                validate_id(&execution_id)?;
+                validate_observe_id(&execution_id)?;
                 let wait_ms = wait_ms.unwrap_or(15_000);
-                if wait_ms > 20_000 || known_revision.as_ref().is_some_and(|r| r.trim().is_empty())
+                if wait_ms > 20_000
+                    || known_revision
+                        .as_ref()
+                        .is_some_and(|token| token.trim().is_empty())
+                    || known_control_revision
+                        .as_ref()
+                        .is_some_and(|token| token.trim().is_empty())
+                    || known_activity_revision
+                        .as_ref()
+                        .is_some_and(|token| token.trim().is_empty())
                 {
-                    return Err(invalid_argument());
+                    return Err(invalid_observe_argument());
                 }
                 Ok(ProductData::Execution(Box::new(
                     self.observe_wait(
                         execution_id,
-                        known_revision,
+                        known_control_revision.or(known_revision),
+                        known_activity_revision,
                         wait_ms,
                         include_result.unwrap_or(false),
-                        WakeOn::Control,
+                        wake_on.unwrap_or(WakeOn::Control),
                     )
                     .await?,
                 )))
@@ -102,29 +138,40 @@ impl AgentProductService {
         }
     }
 
-    pub async fn agent_execute(
+    pub async fn agent_execute<'a>(
         &self,
         action: AgentExecuteAction,
-        workspace: Option<WorkspaceSnapshot>,
+        workspace: impl Into<WorkspaceAuthority<'a>>,
     ) -> Result<ExecutionView, ProductError> {
+        let workspace = workspace.into();
+        let snapshot = match &workspace {
+            WorkspaceAuthority::Snapshot(snapshot) => snapshot.clone(),
+            WorkspaceAuthority::Resolver(_) => None,
+        };
         let (mut action, mut work) = match action {
             AgentExecuteAction::Start {
                 work_run_id,
+                workspace_id,
                 request_key,
                 prompt,
                 delegation_context_json,
             } => {
                 validate_id(&work_run_id)?;
+                validate_id(&workspace_id)?;
                 validate_submission(&request_key, &prompt)?;
                 let work = self
                     .store
                     .work_run(work_run_id.clone())
                     .await?
                     .ok_or_else(|| ProductError::from("WORK_NOT_FOUND".to_string()))?;
+                // WorkRun 只校验 Start 已明确声明的 Workspace，绝不补齐该输入。
+                if work.workspace_id != workspace_id {
+                    return Err("WORKSPACE_CONTEXT_MISMATCH".to_string().into());
+                }
                 (
                     Action::Start {
                         agent_id: work_run_id.clone(),
-                        workspace_id: work.workspace_id,
+                        workspace_id,
                         request_key,
                         prompt,
                     },
@@ -228,12 +275,24 @@ impl AgentProductService {
             if let Some(context) = context {
                 context.verify(current.canonical_workspace_root).await?;
             }
+            if let WorkspaceAuthority::Resolver(supervisor) = workspace {
+                // Lease 解析与 Execution+Claim 创建必须在同一 Supervisor operation mutex 内线性化。
+                let id = self
+                    .manager
+                    .product_submit_resolved_workspace_start(supervisor, action, Some(work.clone()))
+                    .await
+                    .map_err(submission_error)?;
+                return self
+                    .observe(id.clone(), false)
+                    .await
+                    .map_err(|error| ProductError::accepted(error, id));
+            }
         }
         // The existing owned submit worker handles durable creation, handoff and
         // dispatch. Dropping this adapter's wait does not drop that worker.
         let id = self
             .manager
-            .product_submit_with_work(action, workspace, work)
+            .product_submit_with_work(action, snapshot, work)
             .await
             .map_err(submission_error)?;
         self.observe(id.clone(), false)
@@ -275,6 +334,25 @@ fn submission_error(mut error: ProductError) -> ProductError {
 
 fn invalid_argument() -> ProductError {
     "WORK_INVALID_ARGUMENT".to_string().into()
+}
+
+/// Observe 的公共参数契约独立于其他 Work 参数错误分类。
+fn invalid_observe_argument() -> ProductError {
+    "AGENT_OBSERVE_INVALID_ARGUMENT".to_string().into()
+}
+
+/// 检查 Observe executionId 的既有语法，并保留 Observe 专用错误分类。
+fn validate_observe_id(id: &str) -> Result<(), ProductError> {
+    // 保持既有 executionId 语法，只将 Observe 的拒绝映射到专用错误码。
+    if id.is_empty()
+        || id
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        Err(invalid_observe_argument())
+    } else {
+        Ok(())
+    }
 }
 
 fn validate_id(id: &str) -> Result<(), ProductError> {

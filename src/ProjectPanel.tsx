@@ -17,6 +17,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import {
   Collapsible,
   CollapsibleTrigger,
@@ -39,54 +40,12 @@ const SYNC_MIN_PENDING_MS = 600;
 const COPY_MIN_PENDING_MS = 500;
 const SUCCESS_FEEDBACK_MS = 1500;
 
-function CopyCommand({
-  text,
-  label,
-  onCopied,
-}: {
-  text: string;
-  label: string;
-  onCopied: () => void;
-}) {
-  const [copying, setCopying] = useState(false);
-  const copy = async () => {
-    setCopying(true);
-    try {
-      await navigator.clipboard.writeText(text);
-      onCopied();
-    } catch {
-      toast.error("复制失败，请手动选择命令复制。");
-    } finally {
-      setCopying(false);
-    }
-  };
-  return (
-    <div>
-      <div className="endpoint-copy">
-        <code className="project-path" style={{ whiteSpace: "pre-wrap" }}>
-          {text}
-        </code>
-        <Button
-          variant="outline"
-          aria-label={label}
-          disabled={copying}
-          aria-busy={copying}
-          onClick={() => void copy()}
-        >
-          {copying && <Spinner data-icon="inline-start" aria-hidden="true" />}
-          复制
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 export function ProjectPanel({
   state,
   controller,
   onSettings,
   onRemote,
-  onSerena,
+  onSelectWorkspace,
   onCopied,
 }: {
   state: AppState;
@@ -94,6 +53,7 @@ export function ProjectPanel({
   onSettings: () => void;
   onRemote: () => void;
   onSerena: () => void;
+  onSelectWorkspace: (id: string) => Promise<void>;
   onCopied: () => void;
 }) {
   const { broker, busy, perform } = controller;
@@ -105,71 +65,21 @@ export function ProjectPanel({
     () => new Set(),
   );
   const [cancelling, setCancelling] = useState(false);
-  const syncing = busy === "同步项目中";
-  const [syncFeedback, setSyncFeedback] = useState<"idle" | "pending" | "success">("idle");
-  const feedbackTimers = useRef(new Set<ReturnType<typeof window.setTimeout>>());
+  const [candidate, setCandidate] = useState<{ root: string; name: string } | null>(null);
+  const [pickingDirectory, setPickingDirectory] = useState(false);
+  const [registering, setRegistering] = useState(false);
+  const importing = busy === "从 Serena 导入中";
+  const [importFeedback, setImportFeedback] = useState<"idle" | "pending" | "success">("idle");
+  // 浏览器定时器 ID 固定为数字，避免 Node 类型污染 Tauri 前端编译。
+  const feedbackTimers = useRef(new Set<number>());
   const mounted = useRef(true);
   const [selectorOpen, setSelectorOpen] = useState(false);
+  const [selecting, setSelecting] = useState(false);
   const [helpOpen, setHelpOpen] = useState<boolean | undefined>(undefined);
-  const project = broker?.projects.find((p) => p.id === selected);
-  const active = broker?.activeWorkspace;
-  const pending = !!busy || !!broker?.operation;
-  const activating = busy === "激活中" || busy === "切换中";
-  const deactivating = busy === "取消激活中";
-  const projectBusy = activating || deactivating;
-  const graph = active ? broker?.codegraph : null;
-  const graphState = !active
-    ? { label: "待激活", tone: "idle", detail: "激活项目后连接" }
-    : graph
-      ? {
-          ready: { label: "就绪", tone: "good", detail: "" },
-          starting: {
-            label: "启动中",
-            tone: "waiting",
-            detail: "正在连接当前项目",
-          },
-          not_initialized: {
-            label: "未初始化",
-            tone: "idle",
-            detail: "当前项目尚无 CodeGraph 索引",
-          },
-          unavailable: {
-            label: "不可用",
-            tone: "bad",
-            detail: "请检查 CodeGraph 安装",
-          },
-          start_failed: {
-            label: "启动失败",
-            tone: "bad",
-            detail: "请查看 MCP 日志",
-          },
-          runtime_lost: {
-            label: "连接中断",
-            tone: "bad",
-            detail: "下次查询可尝试有限恢复",
-          },
-        }[graph.status]
-      : { label: "读取中", tone: "waiting", detail: "正在读取能力状态" };
-  const current = !!project && project.id === active?.id;
-  const unavailable = state.activeInstallation?.state !== "standard";
-  const serenaLabel =
-    state.serverStatus === "running"
-      ? "运行中"
-      : state.serverStatus === "starting"
-        ? "启动中"
-        : state.serverStatus === "error"
-          ? "运行异常"
-          : unavailable
-            ? "不可用"
-            : "未运行";
-  const serenaTone =
-    state.serverStatus === "running"
-      ? "good"
-      : state.serverStatus === "starting"
-        ? "waiting"
-        : state.serverStatus === "error" || unavailable
-          ? "bad"
-          : "idle";
+  const project = state.config.workspaces.find((workspace) => workspace.id === selected);
+  const selectedWorkspace = state.desktopSelectedWorkspace;
+  const pending = !!busy || !!broker?.operation || selecting;
+  const current = !!project && project.id === selectedWorkspace?.id;
   const endpoint = broker?.running
     ? `http://127.0.0.1:${broker.port}/mcp`
     : null;
@@ -248,23 +158,26 @@ export function ProjectPanel({
     }
   };
   const openSelector = () => {
-    setSelected(active?.id ?? broker?.projects[0]?.id ?? "");
+    setSelected(selectedWorkspace?.id ?? "");
   };
-  const executable = state.installation?.path;
-  const registryHome = broker?.projectSources[0]?.replace(/[\\/][^\\/]+$/, "");
-  const quote = (value: string) => "'" + value.replaceAll("'", "''") + "'";
-  const command =
-    executable && registryHome
-      ? `$env:SERENA_HOME = ${quote(registryHome)}\n& ${quote(executable)} project create --index`
-      : null;
-  const sync = async () => {
-    if (syncFeedback !== "idle" || syncing) return;
+  const selectWorkspace = async () => {
+    if (!project || selecting) return;
+    setSelecting(true);
+    try {
+      await onSelectWorkspace(project.id);
+      setSelectorOpen(false);
+    } finally {
+      setSelecting(false);
+    }
+  };
+  const importSerena = async () => {
+    if (importFeedback !== "idle" || importing) return;
     const startedAt = Date.now();
-    let syncedCount: number | null = null;
-    setSyncFeedback("pending");
-    await perform("同步项目中", async () => {
+    let importedCount: number | null = null;
+    setImportFeedback("pending");
+    await perform("从 Serena 导入中", async () => {
       try {
-        syncedCount = await api.syncProjects();
+        importedCount = await api.workspaceImportSerena();
       } catch (reason) {
         await waitForFeedback(
           Math.max(0, SYNC_MIN_PENDING_MS - (Date.now() - startedAt)),
@@ -274,19 +187,50 @@ export function ProjectPanel({
       await waitForFeedback(
         Math.max(0, SYNC_MIN_PENDING_MS - (Date.now() - startedAt)),
       );
-      toast.success(`已同步 ${syncedCount} 个项目`);
+      toast.success(
+        importedCount > 0
+          ? `已导入 ${importedCount} 个项目`
+          : "没有新的 Serena 项目",
+      );
     });
     if (!mounted.current) return;
-    if (syncedCount === null) {
-      setSyncFeedback("idle");
+    if (importedCount === null) {
+      setImportFeedback("idle");
       return;
     }
-    setSyncFeedback("success");
-    resetAfterSuccess(() => setSyncFeedback("idle"));
+    setImportFeedback("success");
+    resetAfterSuccess(() => setImportFeedback("idle"));
   };
-  const syncVisualState = syncFeedback === "success"
+  const pickDirectory = async () => {
+    setPickingDirectory(true);
+    try {
+      const root = await api.workspacePickDirectory();
+      if (!root) return;
+      const inspection = await api.workspaceInspectDirectory(root);
+      setCandidate({
+        root: inspection.canonicalRoot,
+        name: inspection.folderBasename ?? "",
+      });
+    } catch (reason) {
+      toast.error(String(reason));
+    } finally {
+      setPickingDirectory(false);
+    }
+  };
+  const registerCandidate = async () => {
+    if (!candidate || registering || !candidate.name.trim()) return;
+    let registered = false;
+    setRegistering(true);
+    await perform("登记项目中", async () => {
+      await api.workspaceRegister(candidate.root, candidate.name.trim());
+      registered = true;
+    });
+    if (registered && mounted.current) setCandidate(null);
+    if (mounted.current) setRegistering(false);
+  };
+  const importVisualState = importFeedback === "success"
     ? "success"
-    : syncing || syncFeedback === "pending"
+    : importing || importFeedback === "pending"
       ? "pending"
       : "idle";
   return (
@@ -295,72 +239,111 @@ export function ProjectPanel({
         <div className="page-heading">
           <div>
             <h1>开始使用</h1>
-            <p>选择一个项目，连接本地代码能力。</p>
+            <p>选择一个工作区，作为当前查看和新任务的默认项目。</p>
           </div>
-          <Button
-            className="sync-project-button"
-            disabled={pending || !broker || syncVisualState !== "idle"}
-            aria-busy={syncVisualState === "pending"}
-            onClick={() => void sync()}
-          >
-            {syncVisualState === "pending" ? (
-              <Spinner data-icon="inline-start" aria-hidden="true" />
-            ) : syncVisualState === "success" ? (
-              <Check data-icon="inline-start" aria-hidden="true" />
-            ) : (
-              <RefreshCw data-icon="inline-start" aria-hidden="true" />
-            )}
-            {syncVisualState === "pending"
-              ? "同步中…"
-              : syncVisualState === "success"
-                ? "已同步"
-                : "同步项目"}
-          </Button>
+          <div className="page-heading-actions">
+            <Button
+              className="sync-project-button"
+              variant="outline"
+              disabled={importVisualState !== "idle"}
+              aria-busy={importVisualState === "pending"}
+              onClick={() => void importSerena()}
+            >
+              {importVisualState === "pending" ? (
+                <Spinner data-icon="inline-start" aria-hidden="true" />
+              ) : importVisualState === "success" ? (
+                <Check data-icon="inline-start" aria-hidden="true" />
+              ) : (
+                <RefreshCw data-icon="inline-start" aria-hidden="true" />
+              )}
+              {importVisualState === "pending"
+                ? "导入中…"
+                : importVisualState === "success"
+                  ? "已导入"
+                  : "从 Serena 导入"}
+            </Button>
+            <Button
+              disabled={pickingDirectory || registering}
+              aria-busy={pickingDirectory}
+              onClick={() => void pickDirectory()}
+            >
+              {pickingDirectory && <Spinner data-icon="inline-start" aria-hidden="true" />}
+              {pickingDirectory ? "选择并检查目录中…" : "添加项目"}
+            </Button>
+          </div>
         </div>
-        <section className="home-section" aria-labelledby="workspace-title">
-          <h2 id="workspace-title">当前工作区</h2>
-          <div className="workspace-summary">
+        {candidate && (
+          <section className="project-registration" aria-labelledby="register-project-title">
+            <h2 id="register-project-title">待添加项目</h2>
+            <p>
+              <code className="project-path">{displayProjectPath(candidate.root)}</code>
+            </p>
+            <Field>
+              <FieldLabel htmlFor="workspace-register-name">项目名称</FieldLabel>
+              <Input
+                id="workspace-register-name"
+                value={candidate.name}
+                onChange={(event) => setCandidate({ ...candidate, name: event.target.value })}
+              />
+            </Field>
+            <div className="project-registration-actions">
+              <Button
+                disabled={registering || !candidate.name.trim()}
+                aria-busy={registering}
+                onClick={() => void registerCandidate()}
+              >
+                {registering && <Spinner data-icon="inline-start" aria-hidden="true" />}
+                {registering ? "登记中…" : "登记项目"}
+              </Button>
+              <Button variant="outline" disabled={registering} onClick={() => setCandidate(null)}>
+                取消
+              </Button>
+            </div>
+          </section>
+        )}
+        <section className="home-section workspace-overview" aria-labelledby="workspace-title">
+          <div className="workspace-summary workspace-overview-summary">
             <div className="workspace-identity">
-              {active ? (
+              {selectedWorkspace ? (
                 <div className="workspace-active-identity">
                   <span className="workspace-folder-icon" aria-hidden="true">
                     <Folder />
                   </span>
                   <div className="workspace-active-details">
                     <div className="workspace-name">
-                      <strong>{active.name}</strong>
+                      <h2 id="workspace-title">项目能力 · {selectedWorkspace.name}</h2>
                       <Badge className="workspace-active-badge" variant="secondary">
-                        已激活
+                        已选择
                       </Badge>
                     </div>
                     <code className="project-path">
-                      {displayProjectPath(active.root)}
+                      {displayProjectPath(selectedWorkspace.root)}
                     </code>
                   </div>
                 </div>
               ) : (
                 <>
                   <div className="workspace-name">
-                    <strong>{broker ? "尚未激活项目" : "正在读取工作区…"}</strong>
+                    <h2 id="workspace-title">项目能力</h2>
                   </div>
-                  <p>选择一个项目开始使用 Serena。</p>
+                  <p>尚未选择工作区。选择一个工作区后，新任务会默认使用它。</p>
                 </>
               )}
             </div>
             <DialogTrigger asChild>
               <Button
-                variant={active ? "outline" : "default"}
-                disabled={!broker || pending}
-                aria-busy={projectBusy}
+                variant={selectedWorkspace ? "outline" : "default"}
+                disabled={pending}
+                aria-busy={selecting}
                 onClick={openSelector}
               >
-                {projectBusy ? (
+                {selecting ? (
                   <>
                     <Spinner data-icon="inline-start" aria-hidden="true" />
-                    {busy}…
+                    选择中…
                   </>
-                ) : active ? (
-                  "切换项目"
+                ) : selectedWorkspace ? (
+                  "更换工作区"
                 ) : (
                   "选择项目"
                 )}
@@ -392,64 +375,26 @@ export function ProjectPanel({
           >
             <CollapsibleTrigger asChild>
               <Button variant="ghost" id="project-sync-title">
-                如何初始化并同步项目
+                如何添加或导入项目
                 <ChevronDownIcon data-icon="inline-end" />
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent className="flex flex-col gap-3 pt-3">
               <p>
-                在已有 Git 仓库的根目录打开
-                PowerShell，执行以下命令，为当前仓库创建 Serena
-                项目配置并建立索引。完成后点击“同步项目”。
-              </p>
-              <CopyCommand
-                text="serena project create --index"
-                label="复制初始化命令"
-                onCopied={onCopied}
-              />
-              {command && (
-                <Collapsible>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost">
-                      找不到 serena 命令时
-                      <ChevronDownIcon data-icon="inline-end" />
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="flex flex-col gap-3 pt-3">
-                    <p>
-                      仍在仓库根目录执行以下命令，使用 Desktop 检测到的 Serena
-                      和同步配置目录。
-                    </p>
-                    <CopyCommand
-                      text={command}
-                      label="复制完整初始化命令"
-                      onCopied={onCopied}
-                    />
-                  </CollapsibleContent>
-                </Collapsible>
-              )}
-              <p className="helper">
-                如果仓库已有 .serena/project.yml，请改用以下命令：
-              </p>
-              <CopyCommand
-                text="serena project index"
-                label="复制索引命令"
-                onCopied={onCopied}
-              />
-              <p className="helper">
-                大项目可在终端查看进度；等待命令执行完成后再同步。
+                “添加项目”支持普通本地目录，不要求 Git，也不要求已有 .serena。
+                新建请求会显式使用所选项目的工作区；本机命令与服务请在“服务状态”中查看。
               </p>
               <Collapsible>
                 <CollapsibleTrigger asChild>
                   <Button variant="ghost">
-                    同步来源
+                    Serena 导入说明
                     <ChevronDownIcon data-icon="inline-end" />
                   </Button>
                 </CollapsibleTrigger>
                 <CollapsibleContent className="flex flex-col gap-3 pt-3">
                   <p>
-                    读取 Serena
-                    的项目登记表及项目配置，不扫描磁盘。启动时自动同步，也可手动刷新；同步不切换当前工作区。
+                    从 Serena 项目登记表及项目配置显式追加缺失项目，不扫描磁盘。
+                    不会覆盖现有名称、排序或选择，也不会切换当前工作区。
                   </p>
                   {broker?.projectSources.map((source) => (
                     <p key={source}>
@@ -460,88 +405,6 @@ export function ProjectPanel({
               </Collapsible>
             </CollapsibleContent>
           </Collapsible>
-        </section>
-        <section className="home-section" aria-labelledby="services-title">
-          <div className="section-heading">
-            <h2 id="services-title">服务状态</h2>
-            <Button variant="link" onClick={onSerena}>
-              查看状态 →
-            </Button>
-          </div>
-          <div className="service-list">
-            <div className="service-row">
-              <h3>Serena</h3>
-              <Badge
-                variant={
-                  serenaTone === "bad"
-                    ? "destructive"
-                    : serenaTone === "good"
-                      ? "success"
-                      : serenaTone === "waiting"
-                        ? "warning"
-                        : "secondary"
-                }
-              >
-                {serenaLabel}
-              </Badge>
-              <span className="service-detail">
-                {state.serverStatus === "running" && !active
-                  ? "未绑定项目"
-                  : state.activeInstallation?.version || "—"}
-              </span>
-            </div>
-            <div className="service-row">
-              <h3>Git</h3>
-              <Badge variant={state.git.available ? "success" : "destructive"}>
-                {state.git.available
-                  ? "可用"
-                  : state.git.status === "error"
-                    ? "检测失败"
-                    : "不可用"}
-              </Badge>
-              <span className="service-detail">{state.git.version || "—"}</span>
-            </div>
-            <div className="service-row">
-              <h3>CodeGraph</h3>
-              <Badge
-                variant={
-                  graphState.tone === "bad"
-                    ? "destructive"
-                    : graphState.tone === "good"
-                      ? "success"
-                      : graphState.tone === "waiting"
-                        ? "warning"
-                        : "secondary"
-                }
-              >
-                {graphState.label}
-              </Badge>
-              <span className="service-detail">
-                {state.codegraphVersion
-                  ? `CodeGraph ${state.codegraphVersion}`
-                  : "版本未检测到"}
-                {graphState.detail && (
-                  <>
-                    <br />
-                    {graphState.detail}
-                  </>
-                )}
-              </span>
-            </div>
-            <div className="service-row">
-              <h3>MCP 连接入口</h3>
-              <Badge
-                variant={
-                  !broker ? "warning" : broker.running ? "success" : "secondary"
-                }
-              >
-                {!broker ? "读取中" : broker.running ? "监听中" : "已停止"}
-              </Badge>
-              <span className="service-detail">
-                {broker?.running ? `:${broker.port}` : "—"}
-              </span>
-            </div>
-          </div>
         </section>
         <section
           className="home-section connection"
@@ -641,8 +504,8 @@ export function ProjectPanel({
           <DialogHeader>
             <DialogTitle>选择项目</DialogTitle>
             <DialogDescription>
-              当前工作区：{active?.name ?? "尚未激活"}
-              。选择列表项不会切换工作区。
+              当前选择：{selectedWorkspace?.name ?? "尚未选择"}
+              。确认后只更新 Desktop 选择，不会启动或切换 Provider。
             </DialogDescription>
           </DialogHeader>
           <Field>
@@ -657,18 +520,18 @@ export function ProjectPanel({
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  {broker?.projects.map((p) => (
+                  {state.config.workspaces.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
                       {p.name}
-                      {p.id === active?.id ? " · 已激活" : " · 已同步"}
+                      {p.id === selectedWorkspace?.id ? " · 已选择" : ""}
                     </SelectItem>
                   ))}
                 </SelectGroup>
               </SelectContent>
             </Select>
           </Field>
-          {!broker?.projects.length && (
-            <p>暂无可用项目，请先在终端初始化，然后点击首页的“同步项目”。</p>
+          {!state.config.workspaces.length && (
+            <p>暂无已登记工作区。</p>
           )}
           {project && (
             <>
@@ -676,59 +539,24 @@ export function ProjectPanel({
                 {displayProjectPath(project.root)}
               </code>
               <div className="selection-action">
-                {(current && !activating) || deactivating ? (
+                {current ? (
                   <>
-                    <Badge variant="secondary">已激活</Badge>
-                    <Button
-                      variant="outline"
-                      disabled={pending}
-                      aria-busy={deactivating}
-                      onClick={() =>
-                        perform(
-                          "取消激活中",
-                          api.deactivateProject,
-                          "项目已取消激活",
-                        )
-                      }
-                    >
-                      {deactivating ? (
-                        <>
-                          <Spinner
-                            data-icon="inline-start"
-                            aria-hidden="true"
-                          />
-                          取消激活中…
-                        </>
-                      ) : (
-                        "取消激活"
-                      )}
-                    </Button>
+                    <Badge variant="secondary">已选择</Badge>
                   </>
                 ) : (
                   <Button
                     variant="default"
                     disabled={pending}
-                    aria-busy={activating}
-                    onClick={() =>
-                      perform(
-                        active ? "切换中" : "激活中",
-                        async () => {
-                          await api.activateProject(project.id);
-                          setSelectorOpen(false);
-                        },
-                        active ? "项目已切换" : "项目已激活",
-                      )
-                    }
+                    aria-busy={selecting}
+                    onClick={() => void selectWorkspace()}
                   >
-                    {activating ? (
+                    {selecting ? (
                       <>
                         <Spinner data-icon="inline-start" aria-hidden="true" />
-                        {busy}…
+                        选择中…
                       </>
-                    ) : active ? (
-                      "切换到此项目"
                     ) : (
-                      "激活"
+                      "选择此工作区"
                     )}
                   </Button>
                 )}

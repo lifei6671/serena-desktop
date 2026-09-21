@@ -7,9 +7,16 @@ import type { AppState, ManagerConfig } from "../types";
 
 const initialConfig: ManagerConfig = {
   agentEnabled: false,
-  remoteAccess: { mode: "mcp_only", selfHosted: { provider: "custom_https", publicOrigin: null }, mcpOnly: { securityDeclaration: "external_auth", publicOrigin: null } },
+  remoteAccess: { mode: "mcp_only", quickTunnelDesiredRunning: false, selfHosted: { provider: "custom_https", publicOrigin: null }, mcpOnly: { securityDeclaration: "external_auth", publicOrigin: null } },
   broker: { enabled: false, port: 9120, allowLan: false },
   workspaces: [],
+  remoteSourceWriteEnabled: false,
+  agentSuccessNotificationEnabled: true,
+  agentFailureNotificationEnabled: true,
+  agentSystemNotificationEnabled: true,
+  agentSoundEnabled: true,
+  workspaceRegistryRevision: 1,
+  desktopSelectedWorkspaceId: null,
   serenaPath: null,
   port: 9121,
   dashboardEnabled: true,
@@ -187,6 +194,18 @@ export function useAppController(statusVisible: boolean) {
     }
   };
 
+  const selectWorkspace = async (id: string) => {
+    if (!state || busy !== null) return;
+    await run(
+      "选择工作区",
+      async () => {
+        await api.workspaceSelect(id);
+        return refresh();
+      },
+      "工作区已选择。",
+    );
+  };
+
   const setAutostart = async (enabled: boolean) => {
     const previous = state?.autostartEnabled ?? null;
     setState((current) =>
@@ -240,6 +259,6 @@ export function useAppController(statusVisible: boolean) {
     }
   };
 
-  return { state, draft, setDraft, busy, brokerPort, setBrokerPort, brokerAllowLan, setBrokerAllowLan, pickerActive, choosingExecutable, codexVersion, codexError, codexLoading, detectCodex, brokerController, updatingBroker, run, saveFields, saveToggle, runSideEffect, setAutostart, chooseSerenaExecutable };
+  return { state, draft, setDraft, busy, brokerPort, setBrokerPort, brokerAllowLan, setBrokerAllowLan, pickerActive, choosingExecutable, codexVersion, codexError, codexLoading, detectCodex, brokerController, updatingBroker, run, saveFields, saveToggle, runSideEffect, selectWorkspace, setAutostart, chooseSerenaExecutable };
 }
 export type AppController = ReturnType<typeof useAppController>;

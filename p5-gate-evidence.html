@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>P5-005 UI Gate Evidence</title>
+    <style>
+      html, body { min-height: 100%; margin: 0; }
+      .p5-evidence-shell { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: 100vh; }
+      #p5-evidence-sidebar { background: #f4f5f2; border-right: 1px solid #d8dbd4; }
+      #root { min-width: 0; }
+    </style>
+  </head>
+  <body>
+    <div class="p5-evidence-shell">
+      <aside id="p5-evidence-sidebar" aria-label="P5-005 任务列表证据"></aside>
+      <main id="root"></main>
+    </div>
+    <script type="module" src="/src/p5GateEvidence.tsx"></script>
+  </body>
+</html>

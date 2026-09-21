@@ -2,8 +2,9 @@ import { MarkdownContent } from "@/components/MarkdownContent";
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Check, Copy, Play, ShieldAlert } from "lucide-react";
-import { executionDuration, executionStatus, resultText, taskTitle } from "./agentPresentation";
+import { activityLabel, activitySilenceLabel, executionDuration, executionStatus, formatTokenCount, providerLabel, recentActivity, resultText, taskTitle } from "./agentPresentation";
 import { agentRequests } from "./agentRequests";
 import type { AgentAction, ExecutionView } from "./types";
 
@@ -26,47 +27,21 @@ function timeWithSeconds(value: number) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-function activityLabel(row: ExecutionView) {
-  const progress = row.progress;
-  const categories: Record<string, string> = {
-    build: "构建", test: "测试", command: "命令", read: "读取", edit: "编辑", tool: "工具调用",
-  };
-  const category = categories[progress?.toolCategory ?? ""];
-  if (category) return category;
-  if (progress?.activityPhase === "tool") return "工具执行";
-  if (progress?.activityPhase === "provider") return "Agent 处理";
-  return ({
-    pending: "等待执行", dispatching: "正在派发", running: "执行中", finalizing: "正在整理结果", reconciling: "正在恢复执行状态", terminal: "已结束",
-  } as Record<string, string>)[progress?.phase ?? ""] ?? "暂无活动数据";
-}
-
-function recentActivity(row: ExecutionView, now = Date.now()) {
-  const progress = row.progress;
-  const age = progress?.activityAgeMs ?? (progress?.lastActivityAt === null || progress?.lastActivityAt === undefined ? null : Math.max(0, now - progress.lastActivityAt));
-  if (age === null) return "暂无活动数据";
-  if (age < 5_000) return "刚刚";
-  const seconds = Math.floor(age / 1_000);
-  if (seconds < 60) return `${seconds}秒前`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}分钟前`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}小时前`;
-  return progress.lastActivityAt === null || progress.lastActivityAt === undefined ? "暂无活动数据" : timeWithSeconds(progress.lastActivityAt);
-}
-
 function technicalValue(value: string | number | null | undefined) {
   return value === null || value === undefined || value === "" ? "—" : String(value);
 }
 
-export function ExecutionDetails({ row, workspaceName, loading, error, disabled, feedback, busy, onReload, onOperate }: {
+export function ExecutionDetails({ row, workspaceName, loading, error, disabled, feedback, busy, onReload, onOperate, onManualResolve }: {
   feedback: ReactNode; busy: boolean;
   row: ExecutionView; workspaceName: string; loading: boolean; error: string; disabled: boolean;
   onReload: () => void; onOperate: (action: AgentAction) => Promise<boolean>;
+  onManualResolve: (executionId: string) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState({ executionId: row.executionId, text: "" });
   const continuation = draft.executionId === row.executionId ? draft.text : "";
   const [copying, setCopying] = useState<CopyTarget | null>(null);
   const [copied, setCopied] = useState<CopyTarget | null>(null);
+  const [manualResolutionOpen, setManualResolutionOpen] = useState(false);
   useEffect(() => {
     if (copied === null) return;
     const timer = window.setTimeout(() => setCopied(null), 1600);
@@ -80,8 +55,9 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
   const runningDuration = isActiveExecution ? `已运行 ${duration}` : `耗时 ${duration}`;
   const durationLabel = isActiveExecution ? "已运行" : "总耗时";
   const showResult = row.resultAvailable || row.status === "completed";
+  const provider = providerLabel(row);
   const technicalFields: Array<[string, string | number | null | undefined]> = [
-    ["Execution ID", row.executionId], ["Agent ID", row.agentId], ["Workspace ID", row.workspaceId], ["Dispatch State", row.dispatchState],
+    ["Execution ID", row.executionId], ["Agent ID", row.agentId], ["Workspace ID", row.workspaceId], ["Provider", provider], ["Provider Session", row.providerSessionLabel], ["Dispatch State", row.dispatchState],
     ["Thread ID", row.threadId], ["Thread Name", row.threadName], ["Turn ID", row.turnId], ["Provider Terminal Status", row.providerTerminalStatus],
     ["Result Completeness", row.resultCompleteness], ["Control Revision", row.controlRevision], ["Activity Revision", row.activityRevision], ["Next Action", row.nextAction?.action],
   ];
@@ -98,7 +74,7 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
     <form onSubmit={event => { event.preventDefault(); if (!disabled && !loading && !error && continuation.trim()) void onOperate(agentRequests.continuation(row.executionId, continuation)).then(ok => { if (ok) setDraft({ executionId: row.executionId, text: "" }); }); }}>
       <label className="sr-only" htmlFor="agent-continuation">后续任务内容</label>
       <textarea id="agent-continuation" className="agent-input" value={continuation} disabled={disabled} onChange={event => setDraft({ executionId: row.executionId, text: event.target.value })} placeholder="在当前任务上下文中开始新的后续 Execution…" />
-      <footer className="agent-continuation-footer"><span>Codex · 当前工作区 ({workspaceName}) · 继承当前上下文</span><Button className="agent-detail-primary" disabled={disabled || loading || !!error || !continuation.trim()} type="submit"><Play aria-hidden="true" />继续任务</Button></footer>
+      <footer className="agent-continuation-footer"><span>{provider} · 当前工作区 ({workspaceName}) · 继承当前上下文</span><Button className="agent-detail-primary" disabled={disabled || loading || !!error || !continuation.trim()} type="submit"><Play aria-hidden="true" />继续任务</Button></footer>
     </form>
   </div>;
 
@@ -106,11 +82,12 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
     <header className="agent-detail-header">
       <div>
         <div className="agent-detail-title"><h1>{taskTitle(row)}</h1><span className={`agent-status tone-${state.tone}`}><i className={running ? "agent-task-pulse" : undefined} aria-hidden="true" />{state.label}</span></div>
-        <p className="agent-detail-meta"><span>工作区: <code>{workspaceName}</code></span><span aria-hidden="true">·</span><span>创建于 {timeWithSeconds(row.createdAt)}</span><span aria-hidden="true">·</span><span>{runningDuration}</span><span aria-hidden="true">·</span><span>引擎: <strong>Codex Local Runner</strong></span></p>
+        <p className="agent-detail-meta"><span>工作区: <code>{workspaceName}</code></span><span aria-hidden="true">·</span><span>创建于 {timeWithSeconds(row.createdAt)}</span><span aria-hidden="true">·</span><span>{runningDuration}</span><span aria-hidden="true">·</span><span>引擎: <strong>{provider}</strong></span></p>
       </div>
       <div className="agent-detail-actions">
         {row.availableActions.canResumePending && <Button variant="outline" disabled={disabled || loading || !!error} onClick={() => void onOperate({ action: "resume_pending", executionId: row.executionId })}>恢复任务</Button>}
         {row.availableActions.canCancel && <Button className="agent-cancel-action" variant="outline" disabled={disabled || loading || !!error} onClick={() => void onOperate({ action: "cancel", executionId: row.executionId })}>取消任务</Button>}
+        {row.attention === "manual_resolution_required" && <Button variant="destructive" disabled={disabled || loading || !!error} onClick={() => setManualResolutionOpen(true)}>人工结束并释放工作区</Button>}
       </div>
     </header>
     <div className="agent-detail-body" aria-busy={loading}>
@@ -127,9 +104,12 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
         <div className="agent-detail-info-card">
           <div className="agent-detail-live-grid">
             <div><span>执行状态</span><strong className={`agent-status tone-${state.tone}`}><i className={running ? "agent-task-pulse" : undefined} aria-hidden="true" />{state.label}</strong></div>
+            <div><span>Provider</span><strong>{provider}</strong></div>
             <div><span>当前活动</span><strong>{activityLabel(row)}</strong></div>
             <div><span>最近活动</span><strong>{recentActivity(row)}</strong></div>
+            <div><span>活跃状态</span><strong>{activitySilenceLabel(row)}</strong></div>
             <div><span>{durationLabel}</span><code>{duration}</code></div>
+            <div><span>当前轮次总 Token</span><code>{formatTokenCount(row.usage.totalTokens)}</code></div>
           </div>
           <div className="agent-detail-facts-grid">
             <div className="agent-detail-location"><span>执行位置</span><div><strong>{workspaceName}</strong><code>{row.canonicalWorkspaceRoot}</code></div></div>
@@ -143,7 +123,7 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
       {(row.attention !== "none" || ["failed", "reconciling", "interrupted"].includes(row.status) || row.interruptTimedOut || row.errorCode || row.errorMessage) && <section className="agent-detail-section agent-recovery-section">
         <h2><ShieldAlert aria-hidden="true" />恢复 / 错误信息</h2><div className="agent-detail-warning"><p>{state.description}</p>
           {row.attention === "pending_explicit_resume" && <p>恢复将继续此任务的原始输入和执行目录。请确认该目录当前仍适合执行。</p>}
-          {row.attention === "manual_resolution_required" && <p>本页面无法确认或解除该执行的安全约束。保留当前记录，交由人工诊断处理。</p>}
+          {row.attention === "manual_resolution_required" && <p>需要人工处理：系统无法自动证明上一次 Runtime 的最终状态。</p>}
           {row.interruptTimedOut && <p>取消请求确认超时；这不代表任务已经停止。</p>}
           {(row.errorCode || row.errorMessage) && <p className="agent-real-error">{row.errorCode && <code>{row.errorCode}</code>}{row.errorMessage && <span>{row.errorMessage}</span>}</p>}
         </div>
@@ -158,6 +138,17 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
           <details className="agent-raw-json"><summary>展开原始 Execution 数据 (JSON)</summary><div className="agent-json"><pre tabIndex={0} aria-label="原始执行数据">{JSON.stringify(row, null, 2)}</pre></div></details>
         </div>
       </details></section>
+      <Dialog open={manualResolutionOpen} onOpenChange={open => { if (!busy) setManualResolutionOpen(open); }}>
+        <DialogContent showCloseButton={!busy}>
+          <DialogHeader><DialogTitle>确认人工结束并释放工作区？</DialogTitle>
+            <DialogDescription>系统无法自动证明上一次 Runtime 的最终状态。只有在确认该执行不会继续修改工作区时才能继续。</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" disabled={busy} onClick={() => setManualResolutionOpen(false)}>返回</Button>
+            <Button variant="destructive" disabled={busy} onClick={() => void onManualResolve(row.executionId).then(ok => { if (ok) setManualResolutionOpen(false); })}>{busy ? "正在处理…" : "确认结束并释放"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   </section>;
 }

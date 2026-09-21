@@ -1,6 +1,9 @@
 //! Restart means closing the first service/store and reopening the same SQLite file.
 use super::*;
-use crate::agent::{store::transactions::ClaimRecovery, task_manager::recovery::RecoveryOutcome};
+use crate::agent::{
+    provider::port::{ProviderReconcileItem, ProviderReconcileKind},
+    store::transactions::ClaimRecovery,
+};
 use rusqlite::{Connection, params};
 
 async fn pending(store: &StateStore, root: &std::path::Path, id: &str) {
@@ -17,7 +20,7 @@ async fn pending(store: &StateStore, root: &std::path::Path, id: &str) {
         .await
         .unwrap();
 }
-async fn initialize(root: &std::path::Path) -> (AgentProductService, Vec<RecoveryOutcome>) {
+async fn initialize(root: &std::path::Path) -> (AgentProductService, Vec<ProviderReconcileItem>) {
     let store = StateStore::open(root.into()).await.unwrap();
     TEST_DISCOVERY
         .scope(
@@ -61,14 +64,14 @@ async fn rt01_unbound_runtime_attempt_restart_is_unknown_without_replay() {
     );
     assert!(
         matches!(pre_recovery.manager.resume_pending_execution("E1").await,
-        Err(crate::agent::codex::provider::ExecutionFailure::State(ref e)) if e == "PENDING_RESUME_REJECTED")
+        Err(crate::agent::provider::port::ProviderExecutionFailure::State(ref e)) if e == "PENDING_RESUME_REJECTED")
     );
     drop(pre_recovery);
     drop(store);
 
     let (service, report) = initialize(dir.path()).await;
     assert!(
-        matches!(&report[0], RecoveryOutcome::Unknown { execution_id, .. } if execution_id == "E1")
+        matches!(&report[0], ProviderReconcileItem { subject_id, kind: ProviderReconcileKind::ExecutionUnknown } if subject_id == "E1")
     );
     let view = service.observe("E1".into(), false).await.unwrap();
     assert_eq!(view.status, "unknown");
@@ -116,7 +119,7 @@ async fn rt02_clean_pending_restart_preserves_identity_and_explicit_actions() {
     drop(first);
     let (service, report) = initialize(dir.path()).await;
     assert!(
-        matches!(&report[0], RecoveryOutcome::PendingExplicitResume { execution_id } if execution_id == "E1")
+        matches!(&report[0], ProviderReconcileItem { subject_id, kind: ProviderReconcileKind::ExecutionPendingExplicitResume } if subject_id == "E1")
     );
     assert_eq!(
         before,
@@ -199,7 +202,13 @@ async fn rt04_dispatched_and_uncertain_restart_remain_visible_and_fail_closed() 
         drop(store);
         let (service, report) = initialize(dir.path()).await;
         assert!(
-            matches!(&report[0], RecoveryOutcome::Unknown { .. }),
+            matches!(
+                &report[0],
+                ProviderReconcileItem {
+                    kind: ProviderReconcileKind::ExecutionUnknown,
+                    ..
+                }
+            ),
             "{status}: {report:?}"
         );
         let response = service
@@ -251,8 +260,9 @@ async fn rt06_startup_list_history_and_observe_synchronize_durable_records() {
         pending(&store, &dir.path().join(id), id).await;
     }
     let db = Connection::open(dir.path().join("agent-state.db")).unwrap();
-    // Historical fixture, including a fully committed terminal record without a Claim.
-    db.execute("UPDATE executions SET status=id,dispatch_state='uncertain' WHERE id IN ('reconciling','unknown')", []).unwrap();
+    // v8 restart fixture, including a fully committed terminal record without a Claim.
+    set_v8_execution_state(&db, "reconciling", "reconciling", "uncertain", None, None);
+    set_v8_execution_state(&db, "unknown", "unknown", "uncertain", None, None);
     db.execute("UPDATE executions SET status='completed',dispatch_state='dispatched',result_completeness='complete',final_result_json='{}',release_evidence_state='complete',release_evidence_kind='same_runtime_cleanup',release_evidence_json='{}' WHERE id='completed'", []).unwrap();
     db.execute(
         "DELETE FROM workspace_claims WHERE execution_id='completed'",
@@ -315,7 +325,13 @@ async fn rt05_finalizing_restart_retains_terminal_and_recovers_result_under_v04(
         drop(db);
         drop(store);
         let (service, report) = initialize(dir.path()).await;
-        assert!(matches!(&report[0], RecoveryOutcome::RuntimeFailure { .. }));
+        assert!(matches!(
+            &report[0],
+            ProviderReconcileItem {
+                kind: ProviderReconcileKind::ExecutionProviderFailure,
+                ..
+            }
+        ));
         let row = service.store.execution("E1".into()).await.unwrap().unwrap();
         assert_eq!(row.status, "unknown");
         assert_eq!(
@@ -453,11 +469,11 @@ async fn rt05_finalizing_restart_retains_terminal_and_recovers_result_under_v04(
         drop(db);
         drop(service);
         let (service, report) = initialize(dir.path()).await;
-        assert!(
-            report
-                .iter()
-                .all(|outcome| matches!(outcome, RecoveryOutcome::OrphanRuntime { .. }))
-        );
+        assert!(report.iter().all(|item| matches!(
+            item.kind,
+            ProviderReconcileKind::OrphanResourceRecovered
+                | ProviderReconcileKind::OrphanResourceUnknown
+        )));
         assert_ne!(
             service
                 .store
@@ -528,11 +544,10 @@ async fn explicit_random_runtime_attempt_prebind_crash_is_never_resumable() {
         drop(service);
         drop(store);
         let (service, report) = initialize(dir.path()).await;
-        assert!(
-            !report
-                .iter()
-                .any(|r| matches!(r, RecoveryOutcome::PendingExplicitResume { .. }))
-        );
+        assert!(!report.iter().any(|item| matches!(
+            item.kind,
+            ProviderReconcileKind::ExecutionPendingExplicitResume
+        )));
         let view = service.observe("E1".into(), false).await.unwrap();
         assert_eq!(view.status, "unknown");
         assert!(!view.available_actions.can_resume_pending);
@@ -596,7 +611,7 @@ async fn old_unresolved_recovery_attempt_quarantines_before_any_new_recovery_con
     assert!(
         report
             .iter()
-            .any(|r| matches!(r,RecoveryOutcome::Unknown{execution_id,..} if execution_id=="E1"))
+            .any(|r| matches!(r,crate::agent::task_manager::recovery::RecoveryOutcome::Unknown{execution_id,..} if execution_id=="E1"))
     );
     assert_eq!(
         service

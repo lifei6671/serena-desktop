@@ -35,6 +35,7 @@ async fn create(store: &StateStore, id: &str) {
             id.into(),
             "W".into(),
             "root".into(),
+            1,
             "title".into(),
             None,
             1,
@@ -276,6 +277,7 @@ async fn acceptance_validation_and_terminal_work_errors_have_zero_side_effects()
                 .agent_execute(
                     crate::agent::product::AgentExecuteAction::Start {
                         work_run_id: "work".into(),
+                        workspace_id: "W".into(),
                         request_key: "new".into(),
                         prompt: "task".into(),
                         delegation_context_json: None
@@ -336,6 +338,7 @@ async fn failed_and_cancelled_work_only_change_the_container_and_block_new_execu
                 .agent_execute(
                     AgentExecuteAction::Start {
                         work_run_id: "work".into(),
+                        workspace_id: "W".into(),
                         request_key: "new".into(),
                         prompt: "task".into(),
                         delegation_context_json: None
@@ -407,10 +410,9 @@ async fn concurrent_finish_and_cancel_commit_exactly_one_terminal_revision() {
         ),
         other.work_terminal("work".into(), TerminalAction::Cancel, 20)
     );
-    let (winner, loser) = if finished.is_ok() {
-        (finished.unwrap(), cancelled.unwrap_err())
-    } else {
-        (cancelled.unwrap(), finished.unwrap_err())
+    let (winner, loser) = match finished {
+        Ok(winner) => (winner, cancelled.unwrap_err()),
+        Err(loser) => (cancelled.unwrap(), loser),
     };
     assert_eq!(loser, "WORK_NOT_ACTIVE");
     assert_eq!(winner.revision, 1);

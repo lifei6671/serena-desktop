@@ -8,6 +8,7 @@ pub struct WorkRunRecord {
     pub id: String,
     pub workspace_id: String,
     pub canonical_workspace_root: String,
+    pub workspace_generation: u64,
     pub title: String,
     pub goal: Option<String>,
     pub status: String,
@@ -29,21 +30,28 @@ pub struct WorkExecutionLinkRecord {
 }
 
 impl StateStore {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "stable Work creation persistence API boundary; changing it for one lint would churn established call sites"
+    )]
     pub async fn create_work_run(
         &self,
         id: String,
         workspace_id: String,
         canonical_workspace_root: String,
+        workspace_generation: u64,
         title: String,
         goal: Option<String>,
         now: i64,
     ) -> Result<(), String> {
         self.write(move |tx| {
+            let workspace_generation = i64::try_from(workspace_generation)
+                .map_err(|_| "workspace_generation must be a positive SQLite integer")?;
             tx.execute(
                 "INSERT INTO work_runs
-                 (id, workspace_id, canonical_workspace_root, title, goal, status, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?6)",
-                params![id, workspace_id, canonical_workspace_root, title, goal, now],
+                 (id, workspace_id, canonical_workspace_root, workspace_generation, title, goal, status, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?7)",
+                params![id, workspace_id, canonical_workspace_root, workspace_generation, title, goal, now],
             ).map_err(|e| e.to_string())?;
             Ok(())
         })
@@ -89,7 +97,7 @@ impl StateStore {
     ) -> Result<Vec<WorkRunRecord>, String> {
         self.read(move |c| {
             let mut statement = c.prepare(
-                "SELECT id, workspace_id, canonical_workspace_root, title, goal, status,
+                "SELECT id, workspace_id, canonical_workspace_root, workspace_generation, title, goal, status,
                  revision, acceptance_json, created_at, updated_at, completed_at
                  FROM work_runs WHERE (?1 IS NULL OR workspace_id = ?1)
                  ORDER BY created_at DESC, id ASC LIMIT ?2",
@@ -107,7 +115,7 @@ impl StateStore {
 
 pub(super) fn work_run_record(c: &Connection, id: &str) -> rusqlite::Result<Option<WorkRunRecord>> {
     c.query_row(
-        "SELECT id, workspace_id, canonical_workspace_root, title, goal, status,
+        "SELECT id, workspace_id, canonical_workspace_root, workspace_generation, title, goal, status,
          revision, acceptance_json, created_at, updated_at, completed_at
          FROM work_runs WHERE id = ?1",
         [id],
@@ -144,13 +152,17 @@ fn work_run_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkRunRecord> {
         id: row.get(0)?,
         workspace_id: row.get(1)?,
         canonical_workspace_root: row.get(2)?,
-        title: row.get(3)?,
-        goal: row.get(4)?,
-        status: row.get(5)?,
-        revision: row.get(6)?,
-        acceptance_json: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
-        completed_at: row.get(10)?,
+        workspace_generation: row
+            .get::<_, i64>(3)?
+            .try_into()
+            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(3, -1))?,
+        title: row.get(4)?,
+        goal: row.get(5)?,
+        status: row.get(6)?,
+        revision: row.get(7)?,
+        acceptance_json: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
+        completed_at: row.get(11)?,
     })
 }

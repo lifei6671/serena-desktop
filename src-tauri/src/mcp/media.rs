@@ -1,4 +1,5 @@
-use super::{Broker, ServerStatus, process};
+use super::{Broker, process, registry};
+use crate::workspace_resolver::WorkspaceResolver;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, imageops::FilterType};
 use rmcp::{
@@ -20,9 +21,11 @@ const MAX_OUTPUT: usize = 6 * 1024 * 1024;
 const ENCODE_ATTEMPTS: u32 = 6;
 
 #[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MediaReadImageArgs {
-    /// Image path relative to the active workspace root.
+    /// 必须由服务端解析为 Lease 的目标 Workspace。
+    pub workspace_id: String,
+    /// 只能相对本次请求解析出的 Workspace 根目录。
     pub path: String,
 }
 
@@ -32,27 +35,18 @@ impl Broker {
         args: serde_json::Value,
         cancel: CancellationToken,
     ) -> Result<CallToolResult, String> {
+        // 先保持公共错误分类，再只由本次请求解析 Lease；不读取 legacy ActiveWorkspace 或 Serena 状态。
+        registry::parse_workspace_id(&args)?;
         let args: MediaReadImageArgs =
             serde_json::from_value(args).map_err(|e| format!("INVALID_PARAMS: {e}"))?;
+        let lease = WorkspaceResolver::new(&self.supervisor).resolve(&args.workspace_id)?;
         let work = async {
-            let slot = self.workspace.read().await;
-            let active = slot.as_ref().ok_or("NO_ACTIVE_WORKSPACE")?;
-            let snapshot = self.supervisor.snapshot();
-            if snapshot.server_status != ServerStatus::Running
-                || snapshot.process_id != Some(active.pid)
-                || active.client.closed()
-            {
-                return Err("NO_ACTIVE_WORKSPACE".into());
-            }
-            let root = active.workspace.root.clone();
+            let root = lease.canonical_root;
             let worker_cancel = cancel.clone();
-            // Keep the binding locked throughout the local read and CPU work.
-            let result =
-                tokio::task::spawn_blocking(move || read(&root, &args.path, &worker_cancel))
-                    .await
-                    .map_err(|e| format!("IMAGE_DECODE_FAILED: {e}"))?;
-            drop(slot);
-            result
+            // 图片读取和 CPU 编解码只持有本次请求解析出的 Root，不需要 Serena Runtime。
+            tokio::task::spawn_blocking(move || read(&root, &args.path, &worker_cancel))
+                .await
+                .map_err(|e| format!("IMAGE_DECODE_FAILED: {e}"))?
         };
         tokio::select! {
             result = tokio::time::timeout(Duration::from_secs(60), work) => result.unwrap_or_else(|_| { cancel.cancel(); Err("TOOL_TIMEOUT".into()) }),

@@ -13,8 +13,16 @@ const SCHEMA_V2: &str =
 const SCHEMA_V4: &str = include_str!("schema_v4.sql");
 const SCHEMA_V3: &str = include_str!("schema_v3.sql");
 const SCHEMA_V5: &str = include_str!("schema_v5.sql");
+const SCHEMA_V6: &str = include_str!("schema_v6.sql");
+const SCHEMA_V7: &str = include_str!("schema_v7.sql");
+const SCHEMA_V8: &str = include_str!("schema_v8.sql");
+const SCHEMA_V9: &str = include_str!("schema_v9.sql");
 
+mod usage;
+#[cfg(test)]
+mod usage_tests;
 mod work_runs;
+pub(crate) use usage::{CodexUsageBaselineIntent, USAGE_TERMINAL_GRACE_MS};
 pub use work_runs::{WorkExecutionLinkRecord, WorkRunRecord};
 
 #[derive(Clone)]
@@ -30,6 +38,11 @@ pub struct StateStore {
 pub(crate) enum ObservabilityFault {
     Activity,
     PermissionDiagnostic,
+    UsageBaseline,
+    UsageTerminalGrace,
+    UsageFreeze,
+    UsageProjection,
+    UsageInvalidation,
 }
 
 /// Read projection; evidence is returned as stored, never inferred from policy.
@@ -43,8 +56,10 @@ pub struct ExecutionRecord {
     pub execution_profile_json: String,
     pub workspace_id: String,
     pub canonical_workspace_root: String,
+    pub workspace_generation: u64,
     pub provider: String,
     pub mode: String,
+    pub parent_execution_id: Option<String>,
     pub thread_id: Option<String>,
     pub turn_id: Option<String>,
     pub provider_terminal_status: Option<String>,
@@ -69,6 +84,8 @@ pub struct ExecutionRecord {
     pub last_activity_at: Option<i64>,
     pub activity_phase: Option<String>,
     pub tool_category: Option<String>,
+    pub activity_summary_code: Option<String>,
+    pub activity_sequence: i64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -96,6 +113,28 @@ pub struct WorkspaceClaimRecord {
     pub execution_id: String,
     pub claim_type: String,
     pub acquired_at: i64,
+}
+
+/// 统一 Claim 查询 SQL，供异步读取与受 Supervisor 排他保护的同步读取复用。
+fn workspace_claim_at(
+    connection: &Connection,
+    root: &str,
+) -> rusqlite::Result<Option<WorkspaceClaimRecord>> {
+    connection
+        .query_row(
+            "SELECT canonical_workspace_root, execution_id, claim_type, acquired_at
+             FROM workspace_claims WHERE canonical_workspace_root = ?1",
+            [root],
+            |row| {
+                Ok(WorkspaceClaimRecord {
+                    canonical_workspace_root: row.get(0)?,
+                    execution_id: row.get(1)?,
+                    claim_type: row.get(2)?,
+                    acquired_at: row.get(3)?,
+                })
+            },
+        )
+        .optional()
 }
 
 impl StateStore {
@@ -145,6 +184,15 @@ impl StateStore {
         self.read(move |c| execution_record(c, &id)).await
     }
 
+    /// 读取已持久化的公共 Usage；无行保持为 unknown/null，不构造历史默认值。
+    pub async fn execution_usage(
+        &self,
+        id: String,
+    ) -> Result<Option<super::usage::UsageSnapshot>, String> {
+        self.read(move |c| usage::execution_usage_snapshot(c, &id))
+            .await
+    }
+
     pub async fn runtime(&self, id: String) -> Result<Option<RuntimeRecord>, String> {
         self.read(move |c| {
             c.query_row(
@@ -192,23 +240,17 @@ impl StateStore {
         &self,
         root: String,
     ) -> Result<Option<WorkspaceClaimRecord>, String> {
-        self.read(move |c| {
-            c.query_row(
-                "SELECT canonical_workspace_root, execution_id, claim_type, acquired_at
-             FROM workspace_claims WHERE canonical_workspace_root = ?1",
-                [&root],
-                |r| {
-                    Ok(WorkspaceClaimRecord {
-                        canonical_workspace_root: r.get(0)?,
-                        execution_id: r.get(1)?,
-                        claim_type: r.get(2)?,
-                        acquired_at: r.get(3)?,
-                    })
-                },
-            )
-            .optional()
-        })
-        .await
+        self.read(move |connection| workspace_claim_at(connection, &root))
+            .await
+    }
+
+    /// 仅供持有 Supervisor operation mutex 的短管理临界区读取 Claim，期间不得 await。
+    pub(crate) fn workspace_claim_blocking(
+        &self,
+        root: &str,
+    ) -> Result<Option<WorkspaceClaimRecord>, String> {
+        let connection = self.connection.lock().map_err(|error| error.to_string())?;
+        workspace_claim_at(&connection, root).map_err(|error| error.to_string())
     }
 
     #[cfg(test)]
@@ -280,7 +322,7 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
             }
             apply_migration(&transaction, 1, SCHEMA_V1).map_err(|e| e.to_string())?;
         }
-        1..=5 => {}
+        1..=9 => {}
         _ => return Err(format!("unsupported agent state schema version: {version}")),
     }
     if version < 2 {
@@ -294,6 +336,18 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     }
     if version < 5 {
         apply_migration(&transaction, 5, SCHEMA_V5).map_err(|e| e.to_string())?;
+    }
+    if version < 6 {
+        apply_migration(&transaction, 6, SCHEMA_V6).map_err(|e| e.to_string())?;
+    }
+    if version < 7 {
+        apply_migration(&transaction, 7, SCHEMA_V7).map_err(|e| e.to_string())?;
+    }
+    if version < 8 {
+        apply_migration(&transaction, 8, SCHEMA_V8).map_err(|e| e.to_string())?;
+    }
+    if version < 9 {
+        apply_migration(&transaction, 9, SCHEMA_V9).map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())
 }
@@ -312,11 +366,13 @@ fn insert_execution(
 ) -> rusqlite::Result<()> {
     use super::execution::ExecutionMode;
     let input = request.input();
+    let workspace_generation = i64::try_from(input.workspace_generation)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     transaction.execute(
         "INSERT INTO executions (id, agent_id, request_key, request_hash, prompt,
-         execution_profile_json, workspace_id, canonical_workspace_root, provider, mode,
-         thread_id, status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'codex', ?9, ?10, 'dispatch_pending', ?11, ?11)",
+         execution_profile_json, workspace_id, canonical_workspace_root, workspace_generation, provider, mode,
+         parent_execution_id, thread_id, status, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'codex', ?10, ?11, ?12, 'dispatch_pending', ?13, ?13)",
         params![
             id,
             input.agent_id,
@@ -326,10 +382,12 @@ fn insert_execution(
             request.execution_profile_json(),
             input.workspace_id,
             input.canonical_workspace_root,
+            workspace_generation,
             match input.mode {
                 ExecutionMode::ReadOnly => "read_only",
                 ExecutionMode::WorkspaceWrite => "workspace_write",
             },
+            input.parent_execution_id,
             input.thread_id,
             created_at
         ],
@@ -346,23 +404,24 @@ pub mod transactions;
 fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<ExecutionRecord>> {
     c.query_row(
             "SELECT id, agent_id, request_key, request_hash, prompt, execution_profile_json,
-             workspace_id, canonical_workspace_root, provider, mode, thread_id,
+             workspace_id, canonical_workspace_root, workspace_generation, provider, mode, parent_execution_id, thread_id,
              runtime_instance_id, status, dispatch_state, revision, background_cleanup_state,
              release_evidence_state, release_evidence_kind, release_evidence_json, result_completeness, turn_id, provider_terminal_status, provider_terminal_evidence_runtime_instance_id, final_result_json
              , interrupt_requested_at, interrupt_ack_at, interrupt_timeout_at, interrupt_diagnostic, provider_terminal_evidence_at, error_code, error_message,
-             last_activity_at, activity_phase, tool_category
+             last_activity_at, activity_phase, tool_category, activity_summary_code, activity_sequence
              FROM executions WHERE id = ?1", [&id], |r| Ok(ExecutionRecord {
                 id: r.get(0)?, agent_id: r.get(1)?, request_key: r.get(2)?, request_hash: r.get(3)?,
                 prompt: r.get(4)?, execution_profile_json: r.get(5)?, workspace_id: r.get(6)?,
-                canonical_workspace_root: r.get(7)?, provider: r.get(8)?, mode: r.get(9)?,
-                thread_id: r.get(10)?, runtime_instance_id: r.get(11)?, status: r.get(12)?,
-                dispatch_state: r.get(13)?, revision: r.get(14)?, background_cleanup_state: r.get(15)?,
-                release_evidence_state: r.get(16)?, release_evidence_kind: r.get(17)?,
-                release_evidence_json: r.get(18)?, result_completeness: r.get(19)?, turn_id: r.get(20)?, provider_terminal_status: r.get(21)?, provider_terminal_evidence_runtime_instance_id: r.get(22)?, final_result_json: r.get(23)?,
-                interrupt_requested_at: r.get(24)?, interrupt_ack_at: r.get(25)?,
-                interrupt_timeout_at: r.get(26)?, interrupt_diagnostic: r.get(27)?,
-                 provider_terminal_evidence_at: r.get(28)?,
-                 error_code: r.get(29)?, error_message: r.get(30)?,
-                 last_activity_at: r.get(31)?, activity_phase: r.get(32)?, tool_category: r.get(33)?,
+                canonical_workspace_root: r.get(7)?, workspace_generation: r.get::<_, i64>(8)?.try_into().map_err(|_| rusqlite::Error::IntegralValueOutOfRange(8, -1))?, provider: r.get(9)?, mode: r.get(10)?,
+                parent_execution_id: r.get(11)?, thread_id: r.get(12)?, runtime_instance_id: r.get(13)?, status: r.get(14)?,
+                dispatch_state: r.get(15)?, revision: r.get(16)?, background_cleanup_state: r.get(17)?,
+                release_evidence_state: r.get(18)?, release_evidence_kind: r.get(19)?,
+                release_evidence_json: r.get(20)?, result_completeness: r.get(21)?, turn_id: r.get(22)?, provider_terminal_status: r.get(23)?, provider_terminal_evidence_runtime_instance_id: r.get(24)?, final_result_json: r.get(25)?,
+                interrupt_requested_at: r.get(26)?, interrupt_ack_at: r.get(27)?,
+                interrupt_timeout_at: r.get(28)?, interrupt_diagnostic: r.get(29)?,
+                 provider_terminal_evidence_at: r.get(30)?,
+                 error_code: r.get(31)?, error_message: r.get(32)?,
+                 last_activity_at: r.get(33)?, activity_phase: r.get(34)?, tool_category: r.get(35)?,
+                 activity_summary_code: r.get(36)?, activity_sequence: r.get(37)?,
              })).optional()
 }

@@ -30,8 +30,17 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": "all",
+    "active": true,
+    "targets": ["nsis"],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
     "resources": [
       "../THIRD_PARTY_NOTICES/AlibabaPuHuiTi-3.0-LICENSE.md"
     ],

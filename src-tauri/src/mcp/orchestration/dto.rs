@@ -1,6 +1,9 @@
 use crate::agent::{
     activity::{ActivitySilence, ToolCategory},
-    product::{ExecutionView, NextAction, ProductData, ProductError, ProgressPhase},
+    product::{
+        ExecutionView, MismatchKind, NextAction, ProductData, ProductError, ProgressPhase,
+        ProviderProduct, UsageProduct, WakeOn, WakeReason,
+    },
 };
 use rmcp::schemars::{self, JsonSchema};
 use serde::{Deserialize, Serialize};
@@ -37,6 +40,10 @@ impl QueryData {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct QuerySummary {
     execution_id: String,
+    /// 顶层 Provider identity 来自 Execution，Usage 不重复此字段。
+    provider: ProviderProduct,
+    /// 列表直接携带公共 Usage 摘要，调用方无需为此再读取 detail。
+    usage: UsageProduct,
     status: String,
     dispatch_state: String,
     /// Opaque control revision; Activity alone does not change it.
@@ -60,6 +67,8 @@ impl From<ExecutionView> for QuerySummary {
     fn from(view: ExecutionView) -> Self {
         Self {
             execution_id: view.execution_id,
+            provider: view.provider,
+            usage: view.usage,
             status: view.status,
             dispatch_state: view.dispatch_state,
             revision: view.control_revision,
@@ -78,10 +87,20 @@ impl From<ExecutionView> for QuerySummary {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct QueryObservation {
     execution_id: String,
+    /// Observe 与 detail 使用同一完整公共 Usage 投影。
+    usage: UsageProduct,
     status: String,
     /// Current controlRevision, reusable as the next knownRevision opaque token.
     revision: String,
+    /// Opaque Activity Revision for the next activity-mode Observe request.
+    activity_revision: String,
     unchanged: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "WakeReason")]
+    wake_reason: Option<WakeReason>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "MismatchKind")]
+    mismatch_kind: Option<MismatchKind>,
     result_available: bool,
     result_completeness: String,
     progress: QueryProgress,
@@ -103,6 +122,8 @@ pub(super) struct QueryObservation {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct QueryProgress {
     phase: ProgressPhase,
+    #[schemars(with = "Option<String>")]
+    summary_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "ToolCategory")]
     tool_category: Option<ToolCategory>,
@@ -135,13 +156,18 @@ impl From<ExecutionView> for QueryObservation {
         );
         Self {
             execution_id: view.execution_id,
+            usage: view.usage,
             status: view.status,
             revision: view.control_revision,
+            activity_revision: view.activity_revision,
             unchanged: view.unchanged.expect("observe_wait always sets unchanged"),
+            wake_reason: view.wake_reason,
+            mismatch_kind: view.mismatch_kind,
             result_available: view.result_available,
             result_completeness: view.result_completeness,
             progress: QueryProgress {
                 phase: view.progress.phase,
+                summary_code: view.progress.summary_code,
                 tool_category: view.progress.tool_category,
                 silence_level: view.progress.silence_level,
             },
@@ -224,6 +250,9 @@ pub(super) enum AgentQuery {
     Observe {
         execution_id: String,
         known_revision: Option<String>,
+        known_control_revision: Option<String>,
+        known_activity_revision: Option<String>,
+        wake_on: Option<WakeOn>,
         #[schemars(range(min = 0, max = 20000))]
         wait_ms: Option<u32>,
         include_result: Option<bool>,
@@ -239,6 +268,7 @@ pub(super) enum AgentQuery {
 pub(super) enum AgentExecute {
     Start {
         work_run_id: String,
+        workspace_id: String,
         request_key: String,
         prompt: String,
         context: Option<Context>,
@@ -290,6 +320,14 @@ pub(super) enum Request {
     AgentExecute(AgentExecute),
 }
 pub(super) fn parse(name: &str, args: Value) -> Result<Request, String> {
+    // Start 的 Workspace 由请求显式授权；先保留缺失、空值和类型的稳定错误语义。
+    if name == "agent_execute"
+        && matches!(args.get("action").and_then(Value::as_str), Some("start"))
+    {
+        crate::mcp::registry::parse_workspace_id(&args)?;
+    }
+    let is_agent_observe = name == "agent_query"
+        && matches!(args.get("action").and_then(Value::as_str), Some("observe"));
     let result = match name {
         "work_query" => serde_json::from_value(args).map(Request::WorkQuery),
         "work_update" => serde_json::from_value(args).map(Request::WorkUpdate),
@@ -297,7 +335,13 @@ pub(super) fn parse(name: &str, args: Value) -> Result<Request, String> {
         "agent_execute" => serde_json::from_value(args).map(Request::AgentExecute),
         _ => return Err("UNKNOWN_TOOL".into()),
     }
-    .map_err(|_| "WORK_INVALID_ARGUMENT".to_string())?;
+    .map_err(|_| {
+        if is_agent_observe {
+            "AGENT_OBSERVE_INVALID_ARGUMENT".to_string()
+        } else {
+            "WORK_INVALID_ARGUMENT".to_string()
+        }
+    })?;
     match &result {
         Request::WorkQuery(WorkQuery::List { limit: Some(n), .. })
         | Request::AgentQuery(AgentQuery::List { limit: Some(n), .. })
@@ -306,8 +350,30 @@ pub(super) fn parse(name: &str, args: Value) -> Result<Request, String> {
             return Err("WORK_INVALID_ARGUMENT".into());
         }
         Request::AgentQuery(AgentQuery::Observe {
-            wait_ms: Some(n), ..
-        }) if *n > 20000 => return Err("WORK_INVALID_ARGUMENT".into()),
+            execution_id,
+            known_revision,
+            known_control_revision,
+            known_activity_revision,
+            wait_ms,
+            ..
+        // Observe 继承既有 executionId 语法，但统一映射至 Observe 专用错误码。
+        }) if execution_id.is_empty()
+            || execution_id
+                .chars()
+                .any(|character| character.is_whitespace() || character.is_control())
+            || wait_ms.is_some_and(|n| n > 20_000)
+            || known_revision
+                .as_ref()
+                .is_some_and(|token| token.trim().is_empty())
+            || known_control_revision
+                .as_ref()
+                .is_some_and(|token| token.trim().is_empty())
+            || known_activity_revision
+                .as_ref()
+                .is_some_and(|token| token.trim().is_empty()) =>
+        {
+            return Err("AGENT_OBSERVE_INVALID_ARGUMENT".into());
+        }
         _ => {}
     }
     Ok(result)
@@ -426,6 +492,7 @@ mod tests {
                 Some(WorkspaceSnapshot {
                     id: "W".into(),
                     root: dir.path().to_string_lossy().into(),
+                    generation: 1,
                 }),
                 1,
             )
@@ -455,19 +522,42 @@ mod tests {
             view.unchanged = Some(true);
             view.revision = "legacy alias must not be used".into();
             view.control_revision = "current-control-token".into();
+            // 紧凑 Observe 投影不得回流 Product detail 中的私有定位与 Provider 标识。
+            view.prompt = "P3_PRIVATE_PROMPT_MARKER".into();
+            view.canonical_workspace_root = "P3_PRIVATE_ROOT_MARKER".into();
+            view.thread_id = Some("P3_PRIVATE_THREAD_MARKER".into());
+            view.turn_id = Some("P3_PRIVATE_TURN_MARKER".into());
+            view.provider_session_label = Some("P3_PRIVATE_PROVIDER_MARKER".into());
             view.next_action = None;
             view.attention = "none".into();
             view.error_code = code.map(str::to_owned);
             view.error_message = message.map(str::to_owned);
+            let activity_revision = view.activity_revision.clone();
             let result =
                 serde_json::to_value(QueryData::project(ProductData::Execution(view), true))
                     .unwrap();
             assert_eq!(result.get("error"), expected.as_ref());
             assert_eq!(result["revision"], "current-control-token");
             assert_eq!(result["unchanged"], true);
-            assert_eq!(result["progress"], json!({"phase":"pending"}));
+            assert_eq!(result["activityRevision"], activity_revision);
+            assert_eq!(
+                result["progress"],
+                json!({"phase":"pending","summaryCode":null})
+            );
             for field in ["nextAction", "attention", "finalResult"] {
                 assert!(result.get(field).is_none());
+            }
+            for marker in [
+                "P3_PRIVATE_PROMPT_MARKER",
+                "P3_PRIVATE_ROOT_MARKER",
+                "P3_PRIVATE_THREAD_MARKER",
+                "P3_PRIVATE_TURN_MARKER",
+                "P3_PRIVATE_PROVIDER_MARKER",
+            ] {
+                assert!(
+                    !result.to_string().contains(marker),
+                    "compact projection leaked {marker}"
+                );
             }
         }
         let error = super::super::query_response(

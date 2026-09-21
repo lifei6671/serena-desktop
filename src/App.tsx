@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { ProjectPanel } from "./ProjectPanel";
 import { useAppController } from "./app/useAppController";
 import { api } from "./api";
+import { appVersion } from "./appVersion";
 import type { ServerStatus } from "./types";
 
 const StatusPage = lazy(() => import("./features/status/StatusPage"));
@@ -67,9 +68,8 @@ function App() {
       <aside className="sidebar">
         <div className="brand">
           <img className="brand-mark" src={appLogo} alt="" />
-          <span>Serena<small>Desktop</small></span>
+          <span>SerenaDesktop <small className="brand-version">{appVersion}</small></span>
         </div>
-        <p className="sidebar-section-label">NAVIGATION</p>
         <nav aria-label="主导航">
           <Button
             variant={tab === "console" ? "secondary" : "ghost"}
@@ -126,6 +126,7 @@ function App() {
               onSettings={() => setTab("settings")}
               onRemote={() => setTab("remote")}
               onSerena={() => setTab("serena")}
+              onSelectWorkspace={controller.selectWorkspace}
               onCopied={() => {
                 toast.success("复制成功");
               }}
@@ -143,7 +144,7 @@ function App() {
           <SettingsPage {...controller} state={state} />
         )}
         </Suspense>
-        <div hidden={tab !== "agent" && tab !== "task"}><AgentPanel detailView={tab === "task"} sidebarContainer={projectNavigation} onShowTask={() => setTab("task")} onShowAgent={() => setTab("agent")} workspace={brokerController.broker?.activeWorkspace ?? null} workspaces={brokerController.broker?.projects ?? state.config.workspaces} onSelectWorkspace={() => setTab("console")} /></div>
+        <div hidden={tab !== "agent" && tab !== "task"}><AgentPanel detailView={tab === "task"} sidebarContainer={projectNavigation} onShowTask={() => setTab("task")} onShowAgent={() => setTab("agent")} workspace={state.desktopSelectedWorkspace} workspaces={state.config.workspaces} onSelectWorkspace={() => setTab("console")} onWorkspaceRename={(id, name) => brokerController.perform("重命名工作区", () => api.workspaceRename(id, name), "工作区名称已更新。")} onWorkspaceRemove={(id) => brokerController.perform("删除工作区", () => api.workspaceRemove(id), "工作区已删除。")} /></div>
         <RemoteApprovalDialog controller={remote} />
       </main>
 

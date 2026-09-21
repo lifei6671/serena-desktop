@@ -42,11 +42,26 @@ afterEach(async () => { if (root) await act(async () => root.unmount()); root = 
 test('MCP log parser and filters preserve raw fallback content', () => {
   const structured = parseMcpLogLine('WARN  2026-09-13 10:42:06.921 [TOOL] slow request', 0);
   const raw = parseMcpLogLine('legacy broker output', 1);
-  assert.deepEqual(structured, { id: '0:WARN  2026-09-13 10:42:06.921 [TOOL] slow request', raw: 'WARN  2026-09-13 10:42:06.921 [TOOL] slow request', timestamp: '2026-09-13 10:42:06.921', level: 'WARN', source: 'TOOL', message: 'slow request' });
-  assert.deepEqual(raw, { id: '1:legacy broker output', raw: 'legacy broker output', timestamp: null, level: null, source: null, message: 'legacy broker output' });
+  assert.deepEqual(structured, { id: '0:WARN  2026-09-13 10:42:06.921 [TOOL] slow request', raw: 'WARN  2026-09-13 10:42:06.921 [TOOL] slow request', timestamp: '2026-09-13 10:42:06.921', level: 'WARN', source: 'TOOL', message: 'slow request', details: null });
+  assert.deepEqual(raw, { id: '1:legacy broker output', raw: 'legacy broker output', timestamp: null, level: null, source: null, message: 'legacy broker output', details: null });
   assert.deepEqual(filterMcpLogs([structured, raw], { source: 'TOOL', level: 'WARN', query: 'request' }), [structured]);
   assert.deepEqual(filterMcpLogs([structured, raw], { source: '', level: '', query: 'legacy' }), [raw]);
   assert.equal(countNewLogLines(['a', 'b', 'c'], ['b', 'c', 'd']), 1);
+});
+
+test('MCP 日志解析会从列表消息中分离结构化诊断', () => {
+  const raw = 'ERROR 2026-09-13 10:42:11.553 [TOOL] tools/call completed\t@serena-details={"kind":"tool_call","tool":"source_read_file","arguments":{"workspaceId":"W1","relative_path":"src/lib.rs"},"success":false,"errorCode":"SOURCE_NOT_FOUND","error":"SOURCE_NOT_FOUND: file does not exist"}';
+  const entry = parseMcpLogLine(raw, 0);
+  assert.equal(entry.message, 'tools/call completed');
+  assert.deepEqual(entry.details, {
+    kind: 'tool_call',
+    tool: 'source_read_file',
+    arguments: { workspaceId: 'W1', relative_path: 'src/lib.rs' },
+    success: false,
+    errorCode: 'SOURCE_NOT_FOUND',
+    error: 'SOURCE_NOT_FOUND: file does not exist',
+  });
+  assert.equal(filterMcpLogs([entry], { source: '', level: '', query: 'source_read_file' }).length, 1);
 });
 
 test('刷新复用保留后缀日志的身份，并让重复原始行保持可区分', () => {
@@ -166,6 +181,37 @@ test('MCP log row opens a truthful detail panel and copies only its raw log', as
     api.openLogs = original.openLogs;
     window.setTimeout = originalSetTimeout;
     if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+  }
+});
+
+test('工具和 HTTP 诊断只在日志详情中展示', async () => {
+  const original = api.mcpLogs;
+  const lines = [
+    'ERROR 2026-09-13 10:42:11.553 [TOOL] tools/call completed\t@serena-details={"kind":"tool_call","tool":"source_read_file","arguments":{"workspaceId":"W1","relative_path":"src/lib.rs"},"success":false,"errorCode":"SOURCE_NOT_FOUND","error":"SOURCE_NOT_FOUND: file does not exist"}',
+    'WARN  2026-09-13 10:42:12.553 [MCP] HTTP POST · 403 Forbidden\t@serena-details={"kind":"http_request","method":"POST","path":"/mcp","status":403,"peer":"127.0.0.1:50000"}',
+  ];
+  api.mcpLogs = async () => lines;
+  try {
+    root = createRoot(document.getElementById('root'));
+    await act(async () => root.render(createElement(McpLogs)));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    const rows = [...document.querySelectorAll('.log-entry')];
+    assert.match(rows[0].textContent, /tools\/call completed/);
+    assert.doesNotMatch(rows[0].textContent, /source_read_file|relative_path|SOURCE_NOT_FOUND/);
+    await act(async () => rows[0].click());
+    let details = document.querySelector('[aria-label="日志详情"]');
+    assert.match(details.textContent, /工具调用详情/);
+    assert.match(details.textContent, /source_read_file/);
+    assert.match(details.textContent, /workspaceId/);
+    assert.match(details.textContent, /SOURCE_NOT_FOUND/);
+    await act(async () => rows[1].click());
+    details = document.querySelector('[aria-label="日志详情"]');
+    assert.match(details.textContent, /HTTP 请求详情/);
+    assert.match(details.textContent, /POST/);
+    assert.match(details.textContent, /\/mcp/);
+    assert.match(details.textContent, /403/);
+  } finally {
+    api.mcpLogs = original;
   }
 });
 

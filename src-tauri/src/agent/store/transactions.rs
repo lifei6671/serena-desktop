@@ -1,6 +1,8 @@
 //! All business mutations use BEGIN IMMEDIATE and the same transition core.
 use super::*;
-use crate::agent::activity::{ActivityPhase, ToolCategory};
+use crate::agent::activity::{
+    ActivityPhase, ProgressPhase, ToolCategory, derive_activity_revision, derive_summary_code,
+};
 use crate::agent::execution::state::*;
 use serde_json::{Value, json};
 pub mod product;
@@ -42,6 +44,26 @@ pub enum ClaimRecovery {
         code: &'static str,
     },
 }
+
+/// Store 内部的单条 Activity history 投影，不暴露 MCP wire 契约。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActivityHistoryEvent {
+    pub sequence: i64,
+    pub activity_phase: Option<String>,
+    pub tool_category: Option<String>,
+    pub summary_code: Option<String>,
+    pub activity_revision: String,
+    pub observed_at: i64,
+}
+
+/// Store 内部的有界 Activity history 页，cursor 始终为排他的 sequence。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActivityHistoryPage {
+    pub events: Vec<ActivityHistoryEvent>,
+    pub next_cursor: Option<i64>,
+}
+
+const ACTIVITY_HISTORY_PAGE_MAX: i64 = 100;
 
 impl StateStore {
     pub(crate) async fn guard_pending_dispatch(
@@ -135,6 +157,37 @@ impl StateStore {
         tool_category: Option<ToolCategory>,
         observed_at: i64,
     ) -> Result<(), String> {
+        self.project_execution_activity_inner(
+            id,
+            Some((thread_id, turn_id)),
+            phase,
+            tool_category,
+            observed_at,
+        )
+        .await
+    }
+
+    /// Provider-agnostic activity projection after the Adapter has validated
+    /// protocol identity. It never changes lifecycle authority.
+    pub(crate) async fn project_execution_activity(
+        &self,
+        id: String,
+        phase: ActivityPhase,
+        tool_category: Option<ToolCategory>,
+        observed_at: i64,
+    ) -> Result<(), String> {
+        self.project_execution_activity_inner(id, None, phase, tool_category, observed_at)
+            .await
+    }
+
+    async fn project_execution_activity_inner(
+        &self,
+        id: String,
+        protocol_identity: Option<(String, String)>,
+        phase: ActivityPhase,
+        tool_category: Option<ToolCategory>,
+        observed_at: i64,
+    ) -> Result<(), String> {
         if (phase == ActivityPhase::Provider) != tool_category.is_none() {
             return Err("INVALID_EXECUTION_ACTIVITY".into());
         }
@@ -153,21 +206,71 @@ impl StateStore {
                 return Ok(());
             }
             owns_claim(tx, &id)?;
-            if row.thread_id.as_deref() != Some(thread_id.as_str())
-                || row.turn_id.as_deref() != Some(turn_id.as_str())
+            if let Some((thread_id, turn_id)) = protocol_identity
+                && (row.thread_id.as_deref() != Some(thread_id.as_str())
+                    || row.turn_id.as_deref() != Some(turn_id.as_str()))
             {
                 return Err("EXECUTION_PROTOCOL_IDENTITY_MISMATCH".into());
             }
-            let changed = tx
-                .execute(
-                    "UPDATE executions SET last_activity_at=?2,activity_phase=?3,tool_category=?4,revision=revision+1,updated_at=MAX(updated_at,?2) WHERE id=?1 AND revision=?5",
-                    params![id, observed_at, phase.as_str(), tool_category.map(ToolCategory::as_str), row.revision],
-                )
-                .map_err(|error| error.to_string())?;
-            if changed != 1 {
-                return Err("EXECUTION_REVISION_CONFLICT".into());
-            }
-            Ok(())
+            project_activity_semantics(
+                tx,
+                &id,
+                progress_phase(row.status.as_str(), row.dispatch_state.as_str())?,
+                Some(phase),
+                tool_category,
+                observed_at,
+                true,
+            )
+        })
+        .await
+    }
+
+    /// 查询单个 execution 的有界 Activity history；cursor 不跨 execution 共享。
+    pub(crate) async fn execution_activity_history(
+        &self,
+        id: String,
+        after_sequence: Option<i64>,
+        limit: Option<i64>,
+    ) -> Result<ActivityHistoryPage, String> {
+        if after_sequence.is_some_and(|sequence| sequence < 0) {
+            return Err("INVALID_ACTIVITY_HISTORY_CURSOR".into());
+        }
+        let after_sequence = after_sequence.unwrap_or(-1);
+        let limit = limit.unwrap_or(ACTIVITY_HISTORY_PAGE_MAX);
+        if limit <= 0 {
+            return Err("INVALID_ACTIVITY_HISTORY_LIMIT".into());
+        }
+        let limit = limit.min(ACTIVITY_HISTORY_PAGE_MAX);
+        self.read(move |connection| {
+            let mut statement = connection.prepare(
+                "SELECT sequence,activity_phase,tool_category,summary_code,activity_revision,observed_at
+                 FROM execution_activity_events
+                 WHERE execution_id=?1 AND sequence>?2
+                 ORDER BY sequence ASC
+                 LIMIT ?3",
+            )?;
+            let mut events = statement
+                .query_map(params![id, after_sequence, limit + 1], |row| {
+                    Ok(ActivityHistoryEvent {
+                        sequence: row.get(0)?,
+                        activity_phase: row.get(1)?,
+                        tool_category: row.get(2)?,
+                        summary_code: row.get(3)?,
+                        activity_revision: row.get(4)?,
+                        observed_at: row.get(5)?,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let next_cursor = if events.len() > limit as usize {
+                events.truncate(limit as usize);
+                events.last().map(|event| event.sequence)
+            } else {
+                None
+            };
+            Ok(ActivityHistoryPage {
+                events,
+                next_cursor,
+            })
         })
         .await
     }
@@ -221,28 +324,47 @@ impl StateStore {
             }
             if row.thread_id.as_ref() == Some(&thread) && row.turn_id == turn { return Ok(()); }
             tx.execute("UPDATE executions SET thread_id=?2,turn_id=COALESCE(turn_id,?3),revision=revision+1,updated_at=?4 WHERE id=?1", params![id,thread,turn,now]).map_err(|e| e.to_string())?;
+            // Usage 私有状态只在同一已验证 runtime/thread 且尚未绑定 turn 时同步；冲突仅降级 Usage，绝不反向污染 Execution 生命周期。
+            if let Some(state) = usage::codex_execution_usage_state_record(tx, &id)
+                .map_err(|error| error.to_string())?
+                && state.runtime_instance_id == runtime
+                && state.thread_id == thread
+                && state.turn_id.is_none()
+            {
+                tx.execute(
+                    "UPDATE codex_execution_usage_state SET turn_id=?2 WHERE execution_id=?1",
+                    params![id, turn],
+                )
+                .map_err(|error| error.to_string())?;
+            }
             Ok(())
         }).await
+    }
+
+    /// 在已持有外层同步管理排他权时完成短 SQLite 写事务；调用方不得在该期间 await。
+    pub(crate) fn write_blocking<T>(
+        &self,
+        operation: impl FnOnce(&Transaction<'_>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut connection = self.connection.lock().map_err(|error| error.to_string())?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| error.to_string())?;
+        let result = operation(&tx)?;
+        tx.commit().map_err(|error| error.to_string())?;
+        #[cfg(test)]
+        crash_checkpoint("after_commit");
+        Ok(result)
     }
 
     pub(super) async fn write<T: Send + 'static>(
         &self,
         operation: impl FnOnce(&Transaction<'_>) -> Result<T, String> + Send + 'static,
     ) -> Result<T, String> {
-        let connection = self.connection.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            let mut connection = connection.lock().map_err(|e| e.to_string())?;
-            let tx = connection
-                .transaction_with_behavior(TransactionBehavior::Immediate)
-                .map_err(|e| e.to_string())?;
-            let result = operation(&tx)?;
-            tx.commit().map_err(|e| e.to_string())?;
-            #[cfg(test)]
-            crash_checkpoint("after_commit");
-            Ok(result)
-        })
-        .await
-        .map_err(|e| e.to_string())?
+        let store = self.clone();
+        tauri::async_runtime::spawn_blocking(move || store.write_blocking(operation))
+            .await
+            .map_err(|e| e.to_string())?
     }
 
     pub async fn create_execution(
@@ -286,6 +408,28 @@ impl StateStore {
     ) -> Result<(), String> {
         self.write(move |tx| {
             transition_execution(tx, &id, revision, Mutation::CancelBeforeDispatch, now)
+        })
+        .await
+    }
+
+    /// 本机人工确认未知且从未派发的 Execution 后，原子收口并释放其唯一 Claim。
+    pub(crate) async fn manual_resolve_and_release(
+        &self,
+        id: String,
+        reason_provided: bool,
+        now: i64,
+    ) -> Result<(), String> {
+        self.write(move |tx| {
+            let row = execution_record(tx, &id)
+                .map_err(|error| error.to_string())?
+                .ok_or("EXECUTION_NOT_FOUND")?;
+            transition_execution(
+                tx,
+                &id,
+                row.revision,
+                Mutation::ManualResolve { reason_provided },
+                now,
+            )
         })
         .await
     }
@@ -408,7 +552,8 @@ fn create(
     let snapshot_mismatch: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM executions WHERE agent_id=?1 AND
-         (workspace_id IS NOT ?2 OR canonical_workspace_root IS NOT ?3 OR thread_id IS NOT ?4
+         (workspace_id IS NOT ?2 OR canonical_workspace_root IS NOT ?3
+          OR (?7 IS NULL AND thread_id IS NOT ?4)
           OR execution_profile_json IS NOT ?5 OR mode IS NOT ?6 OR provider != 'codex'))",
             params![
                 input.agent_id,
@@ -419,7 +564,8 @@ fn create(
                 match input.mode {
                     crate::agent::execution::ExecutionMode::ReadOnly => "read_only",
                     crate::agent::execution::ExecutionMode::WorkspaceWrite => "workspace_write",
-                }
+                },
+                input.parent_execution_id,
             ],
             |r| r.get(0),
         )
@@ -453,6 +599,8 @@ struct Row {
     dispatch: DispatchState,
     revision: i64,
     runtime: Option<String>,
+    thread: Option<String>,
+    turn: Option<String>,
     runtime_evidence_at: Option<i64>,
     terminal: Option<String>,
     terminal_runtime: Option<String>,
@@ -464,16 +612,172 @@ struct Row {
     release_kind: Option<String>,
     release_json: Option<String>,
 }
+
+/// 当前 Activity 只从 executions 读取，history 从不反向参与权威投影。
+struct ActivityState {
+    phase: Option<ActivityPhase>,
+    tool_category: Option<ToolCategory>,
+    summary_code: Option<String>,
+    sequence: i64,
+}
+
+fn load_activity_state(tx: &Transaction<'_>, id: &str) -> Result<ActivityState, String> {
+    tx.query_row(
+        "SELECT activity_phase,tool_category,activity_summary_code,activity_sequence
+         FROM executions WHERE id=?1",
+        [id],
+        |row| {
+            let phase = row
+                .get::<_, Option<String>>(0)?
+                .as_deref()
+                .map(ActivityPhase::try_from)
+                .transpose()
+                .map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(std::io::Error::other(error)),
+                    )
+                })?;
+            let tool_category = row
+                .get::<_, Option<String>>(1)?
+                .as_deref()
+                .map(ToolCategory::try_from)
+                .transpose()
+                .map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        1,
+                        rusqlite::types::Type::Text,
+                        Box::new(std::io::Error::other(error)),
+                    )
+                })?;
+            Ok(ActivityState {
+                phase,
+                tool_category,
+                summary_code: row.get(2)?,
+                sequence: row.get(3)?,
+            })
+        },
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// 严格复用 Product 已冻结的 persisted lifecycle 到 ProgressPhase 映射。
+fn progress_phase(status: &str, dispatch: &str) -> Result<ProgressPhase, String> {
+    match status {
+        "dispatch_pending" => match dispatch {
+            "not_dispatched" => Ok(ProgressPhase::Pending),
+            "dispatching" => Ok(ProgressPhase::Dispatching),
+            "dispatched" => Ok(ProgressPhase::Running),
+            "uncertain" => Ok(ProgressPhase::Reconciling),
+            _ => Err(format!("Invalid persisted dispatch state: {dispatch}")),
+        },
+        "running" | "cancel_requested" | "cancelling" => Ok(ProgressPhase::Running),
+        "finalizing" => Ok(ProgressPhase::Finalizing),
+        "reconciling" | "unknown" => Ok(ProgressPhase::Reconciling),
+        "completed" | "failed" | "cancelled" | "interrupted" => Ok(ProgressPhase::Terminal),
+        _ => Err(format!("Invalid persisted execution status: {status}")),
+    }
+}
+
+/// 在既有事务内投影 Activity；只有语义变化才写 current sequence 与 history。
+fn project_activity_semantics(
+    tx: &Transaction<'_>,
+    id: &str,
+    progress: ProgressPhase,
+    phase: Option<ActivityPhase>,
+    tool_category: Option<ToolCategory>,
+    observed_at: i64,
+    refresh_heartbeat: bool,
+) -> Result<(), String> {
+    let current = load_activity_state(tx, id)?;
+    let summary_code =
+        derive_summary_code(progress, phase, tool_category).map_err(str::to_owned)?;
+    let semantic_change = current.phase != phase
+        || current.tool_category != tool_category
+        || current.summary_code.as_deref() != summary_code;
+    if !semantic_change {
+        if refresh_heartbeat {
+            tx.execute(
+                "UPDATE executions SET last_activity_at=CASE
+                     WHEN last_activity_at IS NULL OR last_activity_at < ?2 THEN ?2
+                     ELSE last_activity_at END
+                 WHERE id=?1",
+                params![id, observed_at],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        return Ok(());
+    }
+    if current.sequence < 0 {
+        return Err("INVALID_ACTIVITY_SEQUENCE".into());
+    }
+    let sequence = current
+        .sequence
+        .checked_add(1)
+        .ok_or("ACTIVITY_SEQUENCE_OVERFLOW")?;
+    let revision = derive_activity_revision(id, phase, tool_category, summary_code)?;
+    tx.execute(
+        "UPDATE executions SET last_activity_at=?2,activity_phase=?3,tool_category=?4,
+             activity_summary_code=?5,activity_sequence=?6 WHERE id=?1",
+        params![
+            id,
+            observed_at,
+            phase.map(ActivityPhase::as_str),
+            tool_category.map(ToolCategory::as_str),
+            summary_code,
+            sequence
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    tx.execute(
+        "INSERT INTO execution_activity_events
+         (execution_id,sequence,activity_phase,tool_category,summary_code,activity_revision,observed_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        params![
+            id,
+            sequence,
+            phase.map(ActivityPhase::as_str),
+            tool_category.map(ToolCategory::as_str),
+            summary_code,
+            revision,
+            observed_at
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// 生命周期只改变 summary 时复用当前 pair，避免清空底层 Activity。
+fn project_lifecycle_activity_semantics(
+    tx: &Transaction<'_>,
+    id: &str,
+    next: Status,
+    dispatch: DispatchState,
+    observed_at: i64,
+) -> Result<(), String> {
+    let current = load_activity_state(tx, id)?;
+    project_activity_semantics(
+        tx,
+        id,
+        progress_phase(next.as_str(), dispatch.as_str())?,
+        current.phase,
+        current.tool_category,
+        observed_at,
+        false,
+    )
+}
+
 fn load(tx: &Transaction<'_>, id: &str) -> Result<Row, String> {
-    tx.query_row("SELECT status,dispatch_state,revision,runtime_instance_id,runtime_termination_evidence_at,
+    tx.query_row("SELECT status,dispatch_state,revision,runtime_instance_id,thread_id,turn_id,runtime_termination_evidence_at,
         provider_terminal_status,provider_terminal_evidence_runtime_instance_id,provider_terminal_evidence_at,
         background_cleanup_state,background_cleanup_runtime_instance_id,background_cleanup_evidence_at,
         release_evidence_state,release_evidence_kind,release_evidence_json FROM executions WHERE id=?1", [id], |r| {
         let parse = |index| -> rusqlite::Result<serde_json::Value> { Ok(serde_json::Value::String(r.get(index)?)) };
         Ok(Row { status: serde_json::from_value(parse(0)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0,rusqlite::types::Type::Text,Box::new(e)))?,
             dispatch: serde_json::from_value(parse(1)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(1,rusqlite::types::Type::Text,Box::new(e)))?,
-            revision:r.get(2)?,runtime:r.get(3)?,runtime_evidence_at:r.get(4)?,terminal:r.get(5)?,terminal_runtime:r.get(6)?,terminal_at:r.get(7)?,
-            cleanup:r.get(8)?,cleanup_runtime:r.get(9)?,cleanup_at:r.get(10)?,release_state:r.get(11)?,release_kind:r.get(12)?,release_json:r.get(13)? })
+            revision:r.get(2)?,runtime:r.get(3)?,thread:r.get(4)?,turn:r.get(5)?,runtime_evidence_at:r.get(6)?,terminal:r.get(7)?,terminal_runtime:r.get(8)?,terminal_at:r.get(9)?,
+            cleanup:r.get(10)?,cleanup_runtime:r.get(11)?,cleanup_at:r.get(12)?,release_state:r.get(13)?,release_kind:r.get(14)?,release_json:r.get(15)? })
     }).map_err(|e| e.to_string())
 }
 
@@ -481,6 +785,10 @@ enum Mutation {
     Event(Transition),
     Finalize(Finalization),
     CancelBeforeDispatch,
+    /// 只从 Local Desktop Human Authority 入口调用，绝不由 Provider/Recovery 自动触发。
+    ManualResolve {
+        reason_provided: bool,
+    },
 }
 
 pub(super) fn owns_claim(tx: &Transaction<'_>, id: &str) -> Result<(), String> {
@@ -529,6 +837,8 @@ fn transition_execution(
     let mut dispatch = row.dispatch;
     let mut runtime = row.runtime.clone();
     let mut release: Option<(&str, String)> = None;
+    let mut operator_override = false;
+    let mut reset_result_completeness = false;
     match mutation {
         Mutation::CancelBeforeDispatch => {
             if row.status != Status::DispatchPending
@@ -577,6 +887,8 @@ fn transition_execution(
                     tx.execute("UPDATE executions SET runtime_termination_evidence_runtime_instance_id=?2,runtime_termination_evidence_at=?3 WHERE id=?1",params![id,original,at]).map_err(|e|e.to_string())?;
                     ("runtime_terminated", at)
                 }
+                // 这个 Basis 只能由下方 Local ManualResolve mutation 写入。
+                ReleaseBasis::OperatorOverride => return Err("OPERATOR_OVERRIDE_LOCAL_ONLY".into()),
             };
             next = finalization.terminal;
             release = Some((
@@ -606,6 +918,47 @@ fn transition_execution(
                 ],
             )
             .map_err(|e| e.to_string())?;
+        }
+        Mutation::ManualResolve { reason_provided } => {
+            // 未绑定 Runtime 的尝试仅发生在 Provider dispatch 前；已绑定 Runtime 一律拒绝。
+            if row.status != Status::Unknown
+                || row.dispatch != DispatchState::NotDispatched
+                || row.runtime.is_some()
+                || row.thread.is_some()
+                || row.turn.is_some()
+                || row.terminal.is_some()
+                || row.terminal_runtime.is_some()
+                || row.terminal_at.is_some()
+                || row.cleanup != "unknown"
+                || row.cleanup_runtime.is_some()
+                || row.cleanup_at.is_some()
+                || row.release_state != "incomplete"
+                || row.release_kind.is_some()
+                || row.release_json.is_some()
+            {
+                return Err("MANUAL_RESOLUTION_NOT_ALLOWED".into());
+            }
+            owns_claim(tx, id)?;
+            let basis = ReleaseBasis::OperatorOverride;
+            let kind = match basis {
+                ReleaseBasis::OperatorOverride => "operator_override",
+                _ => return Err("OPERATOR_OVERRIDE_LOCAL_ONLY".into()),
+            };
+            next = Status::Interrupted;
+            operator_override = true;
+            reset_result_completeness = true;
+            // 不保留调用方的自由文本，避免把本机用户的敏感说明写入 durable evidence。
+            release = Some((
+                kind,
+                json!({
+                    "schema":"operator_override.v1",
+                    "authority":"local_desktop_human",
+                    "resolution":"interrupt_and_release",
+                    "reason_provided":reason_provided,
+                    "at":now
+                })
+                .to_string(),
+            ));
         }
         Mutation::Event(event) => {
             if matches!(
@@ -754,7 +1107,7 @@ fn transition_execution(
         }
     }
     if next != row.status {
-        if !row.status.allows(next) {
+        if !row.status.allows(next) && !operator_override {
             return Err("INVALID_EXECUTION_TRANSITION".into());
         }
         if row.terminal.is_some()
@@ -772,6 +1125,7 @@ fn transition_execution(
     if next.terminal() && next != row.status && release.is_none() {
         return Err("SAFE_RELEASE_EVIDENCE_REQUIRED".into());
     }
+    project_lifecycle_activity_semantics(tx, id, next, dispatch, now)?;
     #[cfg(test)]
     if release.is_some() {
         crash_checkpoint("before_terminal");
@@ -780,6 +1134,13 @@ fn transition_execution(
         params![id,next.as_str(),dispatch.as_str(),runtime,now,revision,row.status.as_str(),row.dispatch.as_str()]).map_err(|e|e.to_string())?;
     if changed != 1 {
         return Err("EXECUTION_REVISION_CONFLICT".into());
+    }
+    if reset_result_completeness {
+        tx.execute(
+            "UPDATE executions SET result_completeness='unknown' WHERE id=?1",
+            [id],
+        )
+        .map_err(|error| error.to_string())?;
     }
     if let Some((kind, evidence)) = release {
         #[cfg(test)]

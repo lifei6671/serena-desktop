@@ -42,15 +42,85 @@ pub enum RecoveryOutcome {
     },
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct StartupRecoveryFailure {
+    pub(crate) code: &'static str,
+    pub(crate) message: String,
+}
+
+impl From<String> for StartupRecoveryFailure {
+    fn from(message: String) -> Self {
+        Self {
+            code: "CODEX_RECOVERY_STATE_FAILED",
+            message,
+        }
+    }
+}
+
 impl AgentTaskManager {
     /// Reconcile durable Claims before the Product service is published at startup.
     pub async fn recover_startup(&self) -> Result<Vec<RecoveryOutcome>, String> {
+        StartupRecoveryAuthority {
+            store: &self.store,
+            executable: &self.executable,
+            owner: &self.owner,
+            runtime_pool: &self.runtime_pool,
+            backend_error: self.backend_error.as_deref(),
+        }
+        .recover_startup()
+        .await
+    }
+}
+
+pub(crate) async fn recover_startup_with_authority(
+    store: &crate::agent::store::StateStore,
+    executable: &std::path::Path,
+    owner: &str,
+    runtime_pool: &crate::agent::codex::pool::CodexRuntimePool,
+    backend_error: Option<&str>,
+) -> Result<Vec<RecoveryOutcome>, StartupRecoveryFailure> {
+    let outcomes = StartupRecoveryAuthority {
+        store,
+        executable,
+        owner,
+        runtime_pool,
+        backend_error,
+    }
+    .recover_startup()
+    .await
+    .map_err(StartupRecoveryFailure::from)?;
+    if let Some(message) = outcomes.iter().find_map(|outcome| match outcome {
+        RecoveryOutcome::RuntimeFailure { failure, .. }
+            if failure.code == "CODEX_APP_SERVER_INCOMPATIBLE" =>
+        {
+            Some(failure.message.clone())
+        }
+        _ => None,
+    }) {
+        return Err(StartupRecoveryFailure {
+            code: "CODEX_APP_SERVER_INCOMPATIBLE",
+            message,
+        });
+    }
+    Ok(outcomes)
+}
+
+struct StartupRecoveryAuthority<'a> {
+    store: &'a crate::agent::store::StateStore,
+    executable: &'a std::path::Path,
+    owner: &'a str,
+    runtime_pool: &'a crate::agent::codex::pool::CodexRuntimePool,
+    backend_error: Option<&'a str>,
+}
+
+impl StartupRecoveryAuthority<'_> {
+    async fn recover_startup(&self) -> Result<Vec<RecoveryOutcome>, String> {
         let claims = self.store.recover_claims(now()).await?;
         let mut outcomes = Vec::new();
         let mut orphan_outcomes = Vec::new();
         // The single-instance Host has acquired startup ownership; no old Client
         // may be reused. Include idle runtimes which no longer have a Claim.
-        for runtime_id in self.store.orphan_runtimes(self.owner.clone()).await? {
+        for runtime_id in self.store.orphan_runtimes(self.owner.to_owned()).await? {
             let workspace = self
                 .store
                 .runtime_workspace(runtime_id.clone())
@@ -59,7 +129,7 @@ impl AgentTaskManager {
             if self.runtime_pool.retains_runtime(&workspace, &runtime_id) {
                 let _ = self
                     .runtime_pool
-                    .retry_workspace(&self.store, &workspace)
+                    .retry_workspace(self.store, &workspace)
                     .await;
                 if self.runtime_pool.retains_runtime(&workspace, &runtime_id) {
                     continue;
@@ -74,7 +144,7 @@ impl AgentTaskManager {
             .err()
             .map(|failure| {
                 self.runtime_pool
-                    .retain_failure(&self.store, &workspace, &runtime_id, failure)
+                    .retain_failure(self.store, &workspace, &runtime_id, failure)
             });
             orphan_outcomes.push(RecoveryOutcome::OrphanRuntime {
                 runtime_id,
@@ -126,13 +196,13 @@ impl AgentTaskManager {
             {
                 let _ = self
                     .runtime_pool
-                    .retry_workspace(&self.store, &row.canonical_workspace_root)
+                    .retry_workspace(self.store, &row.canonical_workspace_root)
                     .await;
                 if self
                     .runtime_pool
                     .retains_runtime(&row.canonical_workspace_root, &original)
                 {
-                    mark_unknown(&self.store, &id).await?;
+                    mark_unknown(self.store, &id).await?;
                     outcomes.push(RecoveryOutcome::Unknown {
                         execution_id: id,
                         failure: None,
@@ -149,7 +219,7 @@ impl AgentTaskManager {
             {
                 // Transfer the Job owner before any fallible Execution write.
                 let failure = self.runtime_pool.retain_failure(
-                    &self.store,
+                    self.store,
                     &row.canonical_workspace_root,
                     &original,
                     failure,
@@ -175,7 +245,7 @@ impl AgentTaskManager {
                 .check_workspace(&row.canonical_workspace_root)
                 .is_err()
             {
-                mark_unknown(&self.store, &id).await?;
+                mark_unknown(self.store, &id).await?;
                 outcomes.push(RecoveryOutcome::Unknown {
                     execution_id: id,
                     failure: None,
@@ -183,11 +253,11 @@ impl AgentTaskManager {
                 continue;
             }
             let outcome = reconcile_execution_after_runtime_end(
-                &self.store,
-                &self.executable,
-                &self.owner,
-                &self.runtime_pool,
-                self.backend_error.as_deref(),
+                self.store,
+                self.executable,
+                self.owner,
+                self.runtime_pool,
+                self.backend_error,
                 &id,
             )
             .await?;
@@ -267,7 +337,7 @@ pub(crate) async fn reconcile_execution_after_runtime_end(
     // R2 is read-only and cannot be created until original Job recovery succeeded.
     if row.thread_id.is_some() && row.turn_id.is_some() {
         let recovery_id = AgentTaskManager::id("recovery-runtime");
-        let scope = RecoveryScope::after_termination_for_execution(&store, &id, &recovery_id).await;
+        let scope = RecoveryScope::after_termination_for_execution(store, &id, &recovery_id).await;
         match scope {
             Err(error) => diagnostic = Some(error.to_string()),
             Ok(scope) => {

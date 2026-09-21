@@ -90,6 +90,16 @@ impl TerminationEvidence {
     pub(in crate::agent) fn at(&self) -> i64 {
         self.at
     }
+
+    /// 仅供 Store 单元测试构造已验证的终止证据形状，生产路径仍只能来自 Job observation。
+    #[cfg(test)]
+    pub(in crate::agent) fn for_test(id: String, at: i64) -> Self {
+        Self {
+            id,
+            kind: "job_active_processes_zero",
+            at,
+        }
+    }
 }
 fn now() -> i64 {
     SystemTime::now()

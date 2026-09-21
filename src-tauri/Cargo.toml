@@ -1,6 +1,6 @@
 [package]
 name = "serena-desktop"
-version = "0.3.0"
+version = "1.1.0"
 description = "A lightweight desktop supervisor for Serena MCP Server"
 authors = ["lifei6671"]
 edition = "2024"
@@ -34,19 +34,31 @@ serde_yaml_ng = "0.10.0"
 tauri = { version = "2.11.5", features = ["tray-icon"] }
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-dialog = "2"
+tauri-plugin-notification = "=2.3.3"
 tauri-plugin-single-instance = "2"
 tempfile = "3.23.0"
 tokio = { version = "1.53.1", features = ["process", "io-util", "net", "sync", "time", "fs"] }
 tokio-util = "0.7.19"
 hickory-proto = "0.26.3"
+ignore = "0.4.31"
+globset = "0.4.18"
+regex = "1.13.1"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"
 windows = "0.61.3"
-windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_RemoteDesktop", "Win32_System_SystemServices", "Win32_Security"] }
+windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_RemoteDesktop", "Win32_System_SystemServices", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Diagnostics_Debug", "Win32_Security", "Win32_Globalization", "Win32_Storage_FileSystem", "Win32_UI_WindowsAndMessaging"] }
+winreg = "0.10"
 
 [dev-dependencies]
 rcgen = "0.14.10"
+tauri = { version = "2.11.5", features = ["test"] }
 tokio = { version = "1.53.1", features = ["test-util"] }
 rustls = "0.23.43"
 tokio-rustls = "0.26.4"
+
+[patch.crates-io]
+# 固定 Windows single-instance ownership/IPC 竞态的本地上游补丁。
+tauri-plugin-single-instance = { path = "vendor/tauri-plugin-single-instance" }
+# 固定 Windows Run entry 的可执行文件引号，避免安装路径中的空格被截断。
+tauri-plugin-autostart = { path = "vendor/tauri-plugin-autostart" }

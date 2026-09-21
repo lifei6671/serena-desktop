@@ -2714,7 +2714,9 @@ async fn startup_probe_failure_keeps_quick_tunnel_verifying() {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
     );
-    remote.set_probe_hook(Arc::new(|| Box::pin(async { Err("STARTUP_PROBE_FAILED".into()) })));
+    remote.set_probe_hook(Arc::new(|| {
+        Box::pin(async { Err("STARTUP_PROBE_FAILED".into()) })
+    }));
     {
         let mut inner = remote.inner.lock().unwrap();
         inner.mode = RemoteAccessMode::QuickTunnel;
@@ -2748,7 +2750,9 @@ async fn public_probe_failure_publishes_error() {
             calls: Arc::new(AtomicUsize::new(0)),
         }),
     );
-    remote.set_probe_hook(Arc::new(|| Box::pin(async { Err("PUBLIC_PROBE_FAILED".into()) })));
+    remote.set_probe_hook(Arc::new(|| {
+        Box::pin(async { Err("PUBLIC_PROBE_FAILED".into()) })
+    }));
     {
         let mut inner = remote.inner.lock().unwrap();
         inner.mode = RemoteAccessMode::SelfHostedOAuth;
@@ -2984,6 +2988,7 @@ async fn switching_between_modes_stops_old_runtime_and_applies_each_target() {
     let state = broker.remote.snapshot();
     assert_eq!(state.mode, RemoteAccessMode::QuickTunnel);
     assert_eq!(state.config.mode, RemoteAccessMode::QuickTunnel);
+    assert!(state.config.quick_tunnel_desired_running);
     assert!(state.active);
     assert_eq!(broker.remote.policy(), McpAuthPolicy::EmbeddedOAuth);
 
@@ -3011,6 +3016,7 @@ async fn switching_between_modes_stops_old_runtime_and_applies_each_target() {
         broker.config().remote_access.self_hosted.provider,
         SelfHostedProvider::CustomHttps
     );
+    assert!(!state.config.quick_tunnel_desired_running);
     assert!(state.active);
     assert_eq!(broker.remote.policy(), McpAuthPolicy::EmbeddedOAuth);
 
@@ -3022,6 +3028,7 @@ async fn switching_between_modes_stops_old_runtime_and_applies_each_target() {
     let state = broker.remote.snapshot();
     assert_eq!(state.mode, RemoteAccessMode::McpOnly);
     assert_eq!(state.config.mode, RemoteAccessMode::McpOnly);
+    assert!(!state.config.quick_tunnel_desired_running);
     assert!(!state.active);
     assert_eq!(broker.remote.policy(), McpAuthPolicy::Passthrough);
     drop(probe_guard);

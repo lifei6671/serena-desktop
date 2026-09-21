@@ -1,4 +1,9 @@
-use crate::{config::ManagerConfig, serena::SupervisorState};
+use crate::{
+    agent::product::AgentProductService,
+    config::ManagerConfig,
+    serena::SupervisorState,
+    workspace_registry::{WorkspaceRegistry, WorkspaceRegistrySnapshot},
+};
 use serde::Serialize;
 use std::{path::Path, process::Stdio};
 use tauri::{AppHandle, Manager};
@@ -9,6 +14,7 @@ use tauri_plugin_autostart::ManagerExt;
 pub struct AppState {
     codegraph_version: Option<String>,
     config: ManagerConfig,
+    desktop_selected_workspace: Option<crate::config::Workspace>,
     git: crate::discovery::GitInstallation,
     managed_runtime_present: bool,
     installation: Option<crate::serena::SerenaInstallation>,
@@ -33,6 +39,7 @@ pub fn build_app_state(app: &AppHandle, known_autostart: Option<bool>) -> AppSta
             .is_enabled()
             .map_err(|error| error.to_string())
     });
+    let desktop_selected_workspace = resolve_desktop_selected_workspace(&snapshot.config);
     AppState {
         endpoint: format!("http://127.0.0.1:{}/mcp", snapshot.active_port),
         log_directory: supervisor.paths.log_directory.display().to_string(),
@@ -40,6 +47,7 @@ pub fn build_app_state(app: &AppHandle, known_autostart: Option<bool>) -> AppSta
         git: snapshot.git,
         codegraph_version: snapshot.codegraph_version,
         config: snapshot.config,
+        desktop_selected_workspace,
         installation: snapshot.installation,
         active_installation: snapshot.active_installation,
         server_status: snapshot.server_status,
@@ -51,6 +59,19 @@ pub fn build_app_state(app: &AppHandle, known_autostart: Option<bool>) -> AppSta
         autostart_error,
         last_error: snapshot.last_error,
     }
+}
+
+fn resolve_desktop_selected_workspace(config: &ManagerConfig) -> Option<crate::config::Workspace> {
+    config
+        .desktop_selected_workspace_id
+        .as_ref()
+        .and_then(|id| {
+            config
+                .workspaces
+                .iter()
+                .find(|workspace| workspace.id == *id)
+                .cloned()
+        })
 }
 
 fn resolve_autostart(
@@ -72,6 +93,180 @@ fn resolve_autostart(
 #[tauri::command]
 pub fn get_app_state(app: AppHandle) -> Result<AppState, String> {
     Ok(build_app_state(&app, None))
+}
+
+#[tauri::command]
+pub fn workspace_list(app: AppHandle) -> WorkspaceRegistrySnapshot {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    WorkspaceRegistry::new(&supervisor).list()
+}
+
+#[tauri::command]
+pub fn workspace_get(app: AppHandle, id: String) -> Result<crate::config::Workspace, String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    WorkspaceRegistry::new(&supervisor).get(&id)
+}
+
+#[tauri::command]
+pub fn workspace_select(app: AppHandle, id: String) -> Result<crate::config::Workspace, String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    supervisor.select_desktop_workspace(&id)
+}
+
+#[tauri::command]
+pub fn workspace_register(
+    app: AppHandle,
+    root: std::path::PathBuf,
+    name: Option<String>,
+) -> Result<crate::config::Workspace, String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    WorkspaceRegistry::new(&supervisor).register(root, name)
+}
+
+#[tauri::command]
+pub fn workspace_rename(
+    app: AppHandle,
+    id: String,
+    name: String,
+) -> Result<crate::config::Workspace, String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    WorkspaceRegistry::new(&supervisor).rename(&id, name)
+}
+
+#[tauri::command]
+pub fn workspace_reorder(
+    app: AppHandle,
+    ids: Vec<String>,
+) -> Result<WorkspaceRegistrySnapshot, String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    WorkspaceRegistry::new(&supervisor).reorder(ids)
+}
+
+/// 所有本地 Workspace Remove 请求统一进入 Supervisor 的 typed coordination point。
+pub(crate) async fn remove_workspace(
+    supervisor: &SupervisorState,
+    product: &AgentProductService,
+    id: &str,
+) -> Result<crate::config::Workspace, String> {
+    supervisor.remove_workspace_coordinated(product, id).await
+}
+
+#[tauri::command]
+pub async fn workspace_remove(
+    app: AppHandle,
+    id: String,
+) -> Result<crate::config::Workspace, String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    let product = app.state::<std::sync::Arc<AgentProductService>>();
+    remove_workspace(&supervisor, &product, &id).await
+}
+
+/// Preparation Activity 仅发给本地 Tauri；不进入 Agent EventSink 或 Remote MCP。
+struct LocalCapabilityActivitySink(AppHandle);
+
+impl crate::workspace_capability::CapabilityActivitySink for LocalCapabilityActivitySink {
+    /// 仅序列化 Capability Manager 的安全投影。
+    fn publish<'a>(
+        &'a self,
+        activity: crate::workspace_capability::CapabilityActivity,
+    ) -> crate::workspace_capability::CapabilityFuture<'a, ()> {
+        Box::pin(async move {
+            use tauri::Emitter;
+            let _ = self.0.emit("workspace-capability-activity", activity);
+        })
+    }
+}
+
+/// 本地入口只通过 WorkspaceResolver 取得 Lease，不读取 Desktop selection。
+pub(crate) async fn prepare_workspace_capability(
+    supervisor: &SupervisorState,
+    workspace_id: &str,
+    provider_id: &str,
+    action_id: &str,
+    sink: std::sync::Arc<dyn crate::workspace_capability::CapabilityActivitySink>,
+) -> Result<crate::workspace_capability::CapabilityActionResult, String> {
+    let lease =
+        crate::workspace_resolver::WorkspaceResolver::new(supervisor).resolve(workspace_id)?;
+    supervisor
+        .workspace_capability_manager()
+        .prepare_action(lease, provider_id, action_id, sink)
+        .await
+        .map_err(|error| {
+            serde_json::to_value(error.code)
+                .expect("capability error code is serializable")
+                .as_str()
+                .expect("capability error code is a string")
+                .to_owned()
+        })
+}
+
+/// 本地 health 入口只按显式 workspaceId 解析 Lease，不读取 Desktop selection 或 Remote 会话。
+pub(crate) async fn observe_workspace_capability(
+    supervisor: &SupervisorState,
+    workspace_id: &str,
+) -> Result<crate::workspace_capability::WorkspaceCapabilityHealth, String> {
+    let lease =
+        crate::workspace_resolver::WorkspaceResolver::new(supervisor).resolve(workspace_id)?;
+    Ok(supervisor
+        .workspace_capability_manager()
+        .observe_health(lease)
+        .await)
+}
+
+/// Local-only capability health 查询；不会注册为 Remote MCP Tool。
+#[tauri::command]
+pub(crate) async fn workspace_capability_observe(
+    app: AppHandle,
+    workspace_id: String,
+) -> Result<crate::workspace_capability::WorkspaceCapabilityHealth, String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    observe_workspace_capability(&supervisor, &workspace_id).await
+}
+
+/// Local Human Authority：只注册 Tauri IPC，绝不 advertise 为 MCP Tool。
+#[tauri::command]
+pub(crate) async fn workspace_capability_prepare(
+    app: AppHandle,
+    workspace_id: String,
+    provider_id: String,
+    action_id: String,
+) -> Result<crate::workspace_capability::CapabilityActionResult, String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    prepare_workspace_capability(
+        &supervisor,
+        &workspace_id,
+        &provider_id,
+        &action_id,
+        std::sync::Arc::new(LocalCapabilityActivitySink(app.clone())),
+    )
+    .await
+}
+
+/// 本地取消只接受 Manager 的 opaque operationId，错误不附带任何 Workspace 或进程信息。
+pub(crate) fn cancel_workspace_capability(
+    supervisor: &SupervisorState,
+    operation_id: &str,
+) -> Result<(), String> {
+    supervisor
+        .workspace_capability_manager()
+        .cancel_action(operation_id)
+        .map_err(|error| {
+            serde_json::to_value(error.code)
+                .expect("capability error code is serializable")
+                .as_str()
+                .expect("capability error code is a string")
+                .to_owned()
+        })
+}
+
+/// Local Human 的显式 operation cancellation；共享 flight 的结果仍由 prepare caller 观察。
+#[tauri::command]
+pub(crate) fn workspace_capability_cancel(
+    app: AppHandle,
+    operation_id: String,
+) -> Result<(), String> {
+    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
+    cancel_workspace_capability(&supervisor, &operation_id)
 }
 
 #[tauri::command]
@@ -289,7 +484,260 @@ fn open_with_system(target: impl AsRef<Path>) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_autostart;
+    use super::*;
+    use crate::{
+        agent::{
+            product::AgentProductService,
+            store::{StateStore, transactions::product::WorkspaceSnapshot},
+        },
+        config::{self, AppPaths, ManagerConfig, Workspace},
+        serena::WorkspaceRemoveTestOwnerCounts,
+        workspace_registry::{WORKSPACE_IN_USE, WORKSPACE_NOT_FOUND},
+    };
+    use std::{
+        fs,
+        path::Path,
+        sync::{Arc, Mutex, mpsc},
+        time::Duration,
+    };
+
+    fn remove_fixture() -> (tempfile::TempDir, AppPaths, SupervisorState, Workspace) {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("workspace");
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join("marker.txt"), "preserve").unwrap();
+        let workspace = Workspace {
+            id: "workspace".into(),
+            name: "Workspace".into(),
+            root: fs::canonicalize(root).unwrap(),
+            generation: 4,
+        };
+        let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
+            config_file: directory.path().join("config.json"),
+            log_directory: directory.path().join("logs"),
+            app_log: directory.path().join("logs/app.log"),
+            serena_log: directory.path().join("logs/serena.log"),
+        };
+        config::save(
+            &paths.config_file,
+            &ManagerConfig {
+                workspace_registry_revision: 8,
+                workspaces: vec![workspace.clone()],
+                ..ManagerConfig::default()
+            },
+        )
+        .unwrap();
+        let supervisor = SupervisorState::new(paths.clone()).unwrap();
+        (directory, paths, supervisor, workspace)
+    }
+
+    /// 所有 busy owner 都必须在 Registry mutation 前失败，并保留 Registry 与磁盘。
+    async fn assert_remove_in_use_preserves_entry(
+        supervisor: &SupervisorState,
+        product: &AgentProductService,
+        workspace: &Workspace,
+        config_file: &Path,
+    ) {
+        let before = WorkspaceRegistry::new(supervisor).list();
+        let bytes = fs::read(config_file).unwrap();
+        assert_eq!(
+            remove_workspace(supervisor, product, &workspace.id).await,
+            Err(WORKSPACE_IN_USE.into())
+        );
+        assert_eq!(WorkspaceRegistry::new(supervisor).list(), before);
+        assert_eq!(fs::read(config_file).unwrap(), bytes);
+        assert_eq!(
+            fs::read(workspace.root.join("marker.txt")).unwrap(),
+            b"preserve"
+        );
+        assert!(workspace.root.join(".git").is_dir());
+    }
+
+    #[tokio::test]
+    async fn remove_workspace_rejects_any_claim_without_changing_registry_or_files() {
+        let (directory, paths, supervisor, workspace) = remove_fixture();
+        let store = StateStore::open(directory.path().join("agent-state"))
+            .await
+            .unwrap();
+        let product = AgentProductService::new(store.clone());
+        store
+            .product_create_fresh(
+                "execution".into(),
+                "agent".into(),
+                "key".into(),
+                "prompt".into(),
+                workspace.id.clone(),
+                Some(WorkspaceSnapshot {
+                    id: workspace.id.clone(),
+                    root: workspace.root.to_string_lossy().into_owned(),
+                    generation: workspace.generation,
+                }),
+                1,
+            )
+            .await
+            .unwrap();
+        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn remove_workspace_rejects_active_write_guards_until_the_last_drop() {
+        let (directory, paths, supervisor, workspace) = remove_fixture();
+        let store = StateStore::open(directory.path().join("agent-state"))
+            .await
+            .unwrap();
+        let product = AgentProductService::new(store);
+        let (first_lease, first_guard) = supervisor
+            .resolve_workspace_write_guard(&workspace.id)
+            .unwrap();
+        let (second_lease, second_guard) = supervisor
+            .resolve_workspace_write_guard(&workspace.id)
+            .unwrap();
+        assert_eq!(first_lease, second_lease);
+
+        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file)
+            .await;
+        drop(first_guard);
+        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file)
+            .await;
+        drop(second_guard);
+        assert_eq!(
+            remove_workspace(&supervisor, &product, &workspace.id)
+                .await
+                .unwrap(),
+            workspace
+        );
+    }
+
+    #[tokio::test]
+    async fn remove_workspace_rejects_simulated_future_runtime_slot_ref_without_removing() {
+        let (directory, paths, supervisor, workspace) = remove_fixture();
+        let store = StateStore::open(directory.path().join("agent-state"))
+            .await
+            .unwrap();
+        let product = AgentProductService::new(store);
+        *supervisor.workspace_remove_test_owners.lock().unwrap() = WorkspaceRemoveTestOwnerCounts {
+            future_runtime_slot_ref_count: 1,
+        };
+
+        assert_remove_in_use_preserves_entry(&supervisor, &product, &workspace, &paths.config_file)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn remove_workspace_rejects_typed_check_errors_without_removing() {
+        let (directory, paths, supervisor, workspace) = remove_fixture();
+        let store = StateStore::open(directory.path().join("agent-state"))
+            .await
+            .unwrap();
+        let product = AgentProductService::new(store);
+        let before = WorkspaceRegistry::new(&supervisor).list();
+        let bytes = fs::read(&paths.config_file).unwrap();
+        rusqlite::Connection::open(directory.path().join("agent-state/agent-state.db"))
+            .unwrap()
+            .execute_batch("DROP TABLE workspace_claims")
+            .unwrap();
+
+        let error = remove_workspace(&supervisor, &product, &workspace.id)
+            .await
+            .unwrap_err();
+        assert_ne!(error, WORKSPACE_IN_USE);
+        assert_eq!(WorkspaceRegistry::new(&supervisor).list(), before);
+        assert_eq!(fs::read(paths.config_file).unwrap(), bytes);
+        assert_eq!(
+            fs::read(workspace.root.join("marker.txt")).unwrap(),
+            b"preserve"
+        );
+        assert!(workspace.root.join(".git").is_dir());
+    }
+
+    #[tokio::test]
+    async fn remove_workspace_removes_idle_registry_entry_without_removing_files() {
+        let (directory, _paths, supervisor, workspace) = remove_fixture();
+        let store = StateStore::open(directory.path().join("agent-state"))
+            .await
+            .unwrap();
+        let product = AgentProductService::new(store);
+
+        assert_eq!(
+            remove_workspace(&supervisor, &product, &workspace.id)
+                .await
+                .unwrap(),
+            workspace
+        );
+        assert_eq!(
+            WorkspaceRegistry::new(&supervisor).get("workspace"),
+            Err(crate::workspace_registry::WORKSPACE_NOT_FOUND.into())
+        );
+        assert_eq!(
+            fs::read(workspace.root.join("marker.txt")).unwrap(),
+            b"preserve"
+        );
+        assert!(workspace.root.join(".git").is_dir());
+    }
+
+    #[tokio::test]
+    async fn remove_workspace_holds_operation_mutex_across_typed_check_and_registry_delete() {
+        let (directory, _paths, supervisor, workspace) = remove_fixture();
+        let store = StateStore::open(directory.path().join("agent-state"))
+            .await
+            .unwrap();
+        let product = AgentProductService::new(store);
+        let supervisor = Arc::new(supervisor);
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release = Arc::new(Mutex::new(release_rx));
+        let release_for_hook = release.clone();
+        *supervisor.workspace_remove_hook.lock().unwrap() = Some(Arc::new(move || {
+            entered_tx.send(()).unwrap();
+            release_for_hook.lock().unwrap().recv().unwrap();
+        }));
+        let (remove_done, remove_result) = mpsc::channel();
+        let (rename_done, rename_result) = mpsc::channel();
+
+        std::thread::scope(|scope| {
+            let removal_supervisor = supervisor.clone();
+            let removal_id = workspace.id.clone();
+            let removal_product = &product;
+            scope.spawn(move || {
+                let result = tokio::runtime::Runtime::new()
+                    .unwrap()
+                    .block_on(remove_workspace(
+                        &removal_supervisor,
+                        removal_product,
+                        &removal_id,
+                    ));
+                remove_done.send(result).unwrap();
+            });
+            entered_rx.recv().unwrap();
+            let rename_supervisor = supervisor.clone();
+            let rename_id = workspace.id.clone();
+            scope.spawn(move || {
+                rename_done
+                    .send(
+                        WorkspaceRegistry::new(&rename_supervisor)
+                            .rename(&rename_id, "Renamed".into()),
+                    )
+                    .unwrap();
+            });
+            assert!(
+                rename_result
+                    .recv_timeout(Duration::from_millis(50))
+                    .is_err()
+            );
+            release_tx.send(()).unwrap();
+            assert_eq!(remove_result.recv().unwrap().unwrap().id, workspace.id);
+            assert_eq!(
+                rename_result.recv().unwrap(),
+                Err(crate::workspace_registry::WORKSPACE_NOT_FOUND.into())
+            );
+        });
+        assert_eq!(
+            WorkspaceRegistry::new(&supervisor).get("workspace"),
+            Err(crate::workspace_registry::WORKSPACE_NOT_FOUND.into())
+        );
+    }
 
     #[test]
     fn autostart_read_failure_is_reported_without_failing_app_state() {
@@ -299,6 +747,74 @@ mod tests {
         assert_eq!(
             error.as_deref(),
             Some("无法读取 Windows 登录自启状态：registry unavailable")
+        );
+    }
+
+    #[test]
+    fn app_state_desktop_selection_uses_only_the_registry_config() {
+        let selected = Workspace {
+            id: "selected".into(),
+            name: "Selected".into(),
+            root: "C:/selected".into(),
+            generation: 7,
+        };
+        let config = ManagerConfig {
+            desktop_selected_workspace_id: Some(selected.id.clone()),
+            workspaces: vec![selected.clone()],
+            ..ManagerConfig::default()
+        };
+
+        assert_eq!(resolve_desktop_selected_workspace(&config), Some(selected));
+        assert_eq!(
+            resolve_desktop_selected_workspace(&ManagerConfig::default()),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn capability_observe_uses_only_explicit_workspace_id_and_preserves_not_found() {
+        let directory = tempfile::tempdir().unwrap();
+        let root_a = directory.path().join("workspace-a");
+        let root_b = directory.path().join("workspace-b");
+        fs::create_dir_all(&root_a).unwrap();
+        fs::create_dir_all(&root_b).unwrap();
+        let workspace_a = Workspace {
+            id: "a".into(),
+            name: "A".into(),
+            root: fs::canonicalize(&root_a).unwrap(),
+            generation: 3,
+        };
+        let workspace_b = Workspace {
+            id: "b".into(),
+            name: "B".into(),
+            root: fs::canonicalize(&root_b).unwrap(),
+            generation: 5,
+        };
+        let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
+            config_file: directory.path().join("config.json"),
+            log_directory: directory.path().join("logs"),
+            app_log: directory.path().join("logs/app.log"),
+            serena_log: directory.path().join("logs/serena.log"),
+        };
+        config::save(
+            &paths.config_file,
+            &ManagerConfig {
+                desktop_selected_workspace_id: Some(workspace_b.id.clone()),
+                workspaces: vec![workspace_a.clone(), workspace_b],
+                ..ManagerConfig::default()
+            },
+        )
+        .unwrap();
+        let supervisor = SupervisorState::new(paths).unwrap();
+
+        let health = observe_workspace_capability(&supervisor, &workspace_a.id)
+            .await
+            .unwrap();
+        assert_eq!(health.workspace_id, workspace_a.id);
+        assert_eq!(
+            observe_workspace_capability(&supervisor, "unknown").await,
+            Err(WORKSPACE_NOT_FOUND.into())
         );
     }
 
@@ -353,6 +869,9 @@ pub fn shutdown_impl(app: &AppHandle) -> Result<(), String> {
         token.cancel();
     }
     tauri::async_runtime::block_on(async {
+        app.state::<std::sync::Arc<SupervisorState>>()
+            .shutdown_capability_runtimes()
+            .await?;
         app.state::<std::sync::Arc<crate::agent::product::AgentProductService>>()
             .shutdown()
             .await?;
@@ -366,7 +885,7 @@ pub async fn get_broker_state(app: AppHandle) -> Result<crate::mcp::Snapshot, St
     Ok(crate::mcp::get(&app).snapshot().await)
 }
 #[tauri::command]
-pub async fn sync_workspaces(app: AppHandle) -> Result<usize, String> {
+pub async fn workspace_import_serena(app: AppHandle) -> Result<usize, String> {
     let user_home = std::env::var_os("SERENA_HOME")
         .filter(|s| !s.to_string_lossy().trim().is_empty())
         .map(|s| std::path::PathBuf::from(s.to_string_lossy().trim()))
@@ -387,6 +906,11 @@ pub async fn sync_workspaces(app: AppHandle) -> Result<usize, String> {
             .join("serena_config.yml"),
     ];
     broker.sync_projects(sources).await
+}
+
+#[tauri::command]
+pub async fn sync_workspaces(app: AppHandle) -> Result<usize, String> {
+    workspace_import_serena(app).await
 }
 #[tauri::command]
 pub async fn activate_workspace(app: AppHandle, id: String) -> Result<(), String> {
@@ -490,6 +1014,19 @@ pub async fn download_mcp_logs(app: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub async fn agent_operation(app: AppHandle, request: serde_json::Value) -> serde_json::Value {
     crate::mcp::get(&app).agent_operation(request).await
+}
+
+/// 仅本机 Tauri IPC 可达的人工收口；Remote MCP 不注册此 mutation。
+#[tauri::command]
+pub async fn agent_manual_resolve(
+    app: AppHandle,
+    execution_id: String,
+    resolution: crate::agent::product::LocalManualResolution,
+    reason: Option<String>,
+) -> Result<crate::agent::product::ExecutionView, String> {
+    app.state::<std::sync::Arc<AgentProductService>>()
+        .manual_resolve(execution_id, resolution, reason)
+        .await
 }
 
 #[tauri::command]

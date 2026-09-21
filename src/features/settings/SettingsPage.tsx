@@ -93,6 +93,18 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                   hint="允许 MCP 客户端使用 Agent 工具。关闭后拒绝新的工具请求；不取消已有任务，桌面端仍可管理任务。客户端需刷新工具列表。"
                 />
                 <SettingSwitch
+                  checked={draft.remoteSourceWriteEnabled}
+                  onChange={value => saveToggle(
+                    { remoteSourceWriteEnabled: value },
+                    value ? "已允许远程修改项目文件；重新连接 MCP 客户端后生效。" : "已关闭远程项目文件修改。",
+                  )}
+                  disabled={busy !== null}
+                  label="允许远程修改项目文件"
+                  hint={draft.remoteSourceWriteEnabled
+                    ? "允许远程 MCP 客户端使用文件创建、写入、插入、删除和替换工具。重新连接 MCP 客户端后生效。"
+                    : "远程 MCP 客户端只能读取项目文件。"}
+                />
+                <SettingSwitch
                   checked={state.autostartEnabled ?? false}
                   onChange={setAutostart}
                   disabled={busy !== null || state.autostartEnabled === null}
@@ -135,6 +147,46 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
             <div className="settings-section">
               <header>
                 <span>02</span>
+                <div>
+                  <h2>Agent 提醒</h2>
+                  <p>任务业务终态的桌面反馈</p>
+                </div>
+              </header>
+              <FieldGroup className="settings-body">
+                <SettingSwitch
+                  checked={draft.agentSuccessNotificationEnabled}
+                  onChange={value => saveToggle({ agentSuccessNotificationEnabled: value }, value ? "已开启 Agent 任务成功提醒。" : "已关闭 Agent 任务成功提醒。")}
+                  disabled={busy !== null}
+                  label="任务成功提醒"
+                  hint="Agent 任务完成后触发提醒。"
+                />
+                <SettingSwitch
+                  checked={draft.agentFailureNotificationEnabled}
+                  onChange={value => saveToggle({ agentFailureNotificationEnabled: value }, value ? "已开启 Agent 任务异常提醒。" : "已关闭 Agent 任务异常提醒。")}
+                  disabled={busy !== null}
+                  label="任务异常提醒"
+                  hint="Agent 任务失败或中断后触发提醒；用户主动取消不会提醒。"
+                />
+                <SettingSwitch
+                  checked={draft.agentSystemNotificationEnabled}
+                  onChange={value => saveToggle({ agentSystemNotificationEnabled: value }, value ? "已开启系统通知。" : "已关闭系统通知。")}
+                  disabled={busy !== null}
+                  label="系统通知"
+                  hint="通过操作系统显示任务提醒。"
+                />
+                <SettingSwitch
+                  checked={draft.agentSoundEnabled}
+                  onChange={value => saveToggle({ agentSoundEnabled: value }, value ? "已开启提示音。" : "已关闭提示音。")}
+                  disabled={busy !== null}
+                  label="提示音"
+                  hint="任务提醒发生时播放系统提示音。"
+                />
+              </FieldGroup>
+            </div>
+
+            <div className="settings-section">
+              <header>
+                <span>03</span>
                 <div>
                   <h2>Serena</h2>
                   <p>可执行文件发现</p>
@@ -227,7 +279,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
 
             <div className="settings-section">
               <header>
-                <span>03</span>
+                <span>04</span>
                 <div>
                   <h2>Serena 内部服务</h2>
                   <p>提供代码分析能力，由 MCP 连接入口调用</p>

@@ -5,13 +5,18 @@ use tokio_util::sync::CancellationToken;
 #[tokio::test]
 async fn public_transport_preserves_context_idempotency_and_continuation_pipeline() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path();
+    let canonical_root = dir.path().canonicalize().unwrap();
+    let root = canonical_root.as_path();
+    let root_b = dir.path().join("selected-b");
+    std::fs::create_dir_all(&root_b).unwrap();
+    let root_b = root_b.canonicalize().unwrap();
     let store = StateStore::open(root.into()).await.unwrap();
     store
         .create_work_run(
             "work".into(),
             "W".into(),
             root.to_string_lossy().into(),
+            1,
             "title".into(),
             None,
             1,
@@ -29,10 +34,27 @@ async fn public_transport_preserves_context_idempotency_and_continuation_pipelin
     .await;
     let broker = fixture(root);
     assert!(broker.product.set(Arc::new(s)).is_ok());
+    let mut config = broker.config();
+    config.workspaces = vec![
+        crate::config::Workspace {
+            id: "W".into(),
+            name: "fixture".into(),
+            root: root.into(),
+            generation: 1,
+        },
+        crate::config::Workspace {
+            id: "B".into(),
+            name: "desktop-selected".into(),
+            root: root_b.clone(),
+            generation: 7,
+        },
+    ];
+    config.desktop_selected_workspace_id = Some("B".into());
+    broker.supervisor.replace_config(config).unwrap();
     let upstream = active(&broker, root).await;
     std::fs::write(root.join("source.txt"), b"abc").unwrap();
     let context = json!({"summary":"Host reference","files":[{"path":"source.txt","sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"}]});
-    let request = json!({"action":"start","workRunId":"work","requestKey":"key","prompt":"change task","context":context});
+    let request = json!({"action":"start","workRunId":"work","workspaceId":"W","requestKey":"key","prompt":"change task","context":context});
     let mut stale = request.clone();
     stale["context"]["files"][0]["sha256"] = json!("0".repeat(64));
     let failure = broker
@@ -83,7 +105,7 @@ async fn public_transport_preserves_context_idempotency_and_continuation_pipelin
         .call_tool("agent_execute", request.clone(), CancellationToken::new())
         .await
         .unwrap();
-    assert_eq!(first["ok"], true);
+    assert_eq!(first["ok"], true, "{first}");
     let id = first["data"]["executionId"].as_str().unwrap().to_string();
     assert!(
         first["data"]["prompt"]
@@ -164,15 +186,41 @@ async fn public_transport_preserves_context_idempotency_and_continuation_pipelin
     .await;
     let broker = fixture(root);
     assert!(broker.product.set(Arc::new(s)).is_ok());
+    // 当前 Registry/desktop/global 都指向 B，且 Registry 已不含父 W；Continue 仍须只读父快照。
+    let mut config = broker.config();
+    config.workspaces = vec![crate::config::Workspace {
+        id: "B".into(),
+        name: "renamed-selected-b".into(),
+        root: root_b.clone(),
+        generation: 8,
+    }];
+    config.desktop_selected_workspace_id = Some("B".into());
+    broker.supervisor.replace_config(config).unwrap();
+    let selected = active(&broker, &root_b).await;
+    {
+        let mut active = broker.workspace.write().await;
+        let active = active.as_mut().unwrap();
+        active.workspace.id = "B".into();
+        active.workspace.generation = 8;
+    }
     let next=broker.call_tool("agent_execute",json!({"action":"continue","workRunId":"work","parentExecutionId":id,"requestKey":"next","prompt":"continue task"}),CancellationToken::new()).await.unwrap();
     assert_eq!(next["ok"], true);
     let next_id = next["data"]["executionId"].as_str().unwrap();
     assert_ne!(next_id, id);
     assert_eq!(next["data"]["threadId"], json!(parent.thread_id));
-    assert_eq!(store.execution(id).await.unwrap(), parent_row);
+    assert_eq!(store.execution(id.clone()).await.unwrap(), parent_row);
+    let child_row = store.execution(next_id.into()).await.unwrap().unwrap();
+    assert_eq!(child_row.workspace_id, "W");
+    assert_eq!(child_row.canonical_workspace_root, root.to_string_lossy());
+    assert_eq!(child_row.workspace_generation, 1);
+    assert_eq!(
+        broker.call_tool("agent_execute",json!({"action":"continue","workRunId":"work","parentExecutionId":id,"requestKey":"next","prompt":"continue task"}),CancellationToken::new()).await.unwrap()["data"]["executionId"],
+        next_id
+    );
     release.send(()).unwrap();
     final_row(broker.product.get().unwrap(), next_id).await;
     drop(broker);
+    selected.abort();
     let methods = fake.await.unwrap();
     assert_eq!(methods.iter().filter(|m| *m == "turn/start").count(), 1);
     assert_eq!(methods.iter().filter(|m| *m == "thread/resume").count(), 1);
@@ -197,11 +245,7 @@ async fn accepted_transport_errors_project_original_control_instead_of_rejecting
     let service = AgentProductService::new(store.clone());
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
     for state in ["not_dispatched", "dispatching", "uncertain", "dispatched"] {
-        db.execute(
-            "UPDATE executions SET dispatch_state=?1 WHERE id='E'",
-            [state],
-        )
-        .unwrap();
+        set_v8_execution_state(&db, "E", "dispatch_pending", state, None, None);
         let expected =
             serde_json::to_value(service.observe("E".into(), false).await.unwrap().control)
                 .unwrap();
@@ -236,6 +280,7 @@ async fn public_finish_and_work_cancel_leave_execution_and_claim_to_agent_cancel
             "work".into(),
             "W".into(),
             root.to_string_lossy().into(),
+            1,
             "title".into(),
             None,
             1,
@@ -375,6 +420,7 @@ async fn public_resume_pending_http_reuses_guard_and_returns_success_is_error_fa
             "work".into(),
             "W".into(),
             root.to_string_lossy().into(),
+            1,
             "title".into(),
             None,
             1,
@@ -579,6 +625,14 @@ async fn public_vertical_work_source_start_continue_acceptance_e2e() {
     .await;
     let broker = fixture(root);
     assert!(broker.product.set(Arc::new(s)).is_ok());
+    let mut config = broker.config();
+    config.workspaces = vec![crate::config::Workspace {
+        id: "W".into(),
+        name: "fixture".into(),
+        root: root.into(),
+        generation: 1,
+    }];
+    broker.supervisor.replace_config(config).unwrap();
     let (upstream_process, upstream) = active_with_read_file(&broker, root).await;
 
     let begun = call(
@@ -602,8 +656,7 @@ async fn public_vertical_work_source_start_continue_acceptance_e2e() {
         initial_work
     );
 
-    let read_args =
-        json!({"relative_path":"context.txt","start_line":1,"end_line":1,"max_bytes":6});
+    let read_args = json!({"workspaceId":"W","relative_path":"context.txt","start_line":1,"end_line":1,"max_bytes":6});
     let source = call(&broker, "source_read_file", read_args.clone()).await;
     assert_eq!(source["path"], "context.txt");
     assert_eq!(source["text"], "second");
@@ -622,13 +675,13 @@ async fn public_vertical_work_source_start_continue_acceptance_e2e() {
     let full_source = call(
         &broker,
         "source_read_file",
-        json!({"relative_path":"context.txt"}),
+        json!({"workspaceId":"W","relative_path":"context.txt"}),
     )
     .await;
     assert_eq!(full_source["sha256"], source["sha256"]);
     assert_ne!(full_source["text"], source["text"]);
     let context = json!({"summary":"Host selected a versioned source reference","files":[{"path":source["path"],"sha256":source["sha256"]}]});
-    let start = json!({"action":"start","workRunId":work_id,"requestKey":"vertical-start","prompt":"Run the agreed test task.","context":context});
+    let start = json!({"action":"start","workRunId":work_id,"workspaceId":"W","requestKey":"vertical-start","prompt":"Run the agreed test task.","context":context});
     let accepted = call(&broker, "agent_execute", start.clone()).await;
     assert_eq!(accepted["ok"], true, "{accepted}");
     let e1 = accepted["data"]["executionId"].as_str().unwrap().to_owned();
@@ -814,7 +867,7 @@ async fn public_vertical_work_source_start_continue_acceptance_e2e() {
         .await["data"]["workRun"],
         work
     );
-    let rejected = call(&broker, "agent_execute", json!({"action":"start","workRunId":work_id,"requestKey":"after-finish","prompt":"Must not dispatch."})).await;
+    let rejected = call(&broker, "agent_execute", json!({"action":"start","workRunId":work_id,"workspaceId":"W","requestKey":"after-finish","prompt":"Must not dispatch."})).await;
     assert_eq!(rejected["ok"], false);
     assert_eq!(rejected["error"]["code"], "WORK_NOT_ACTIVE");
     assert_eq!(rejected["control"]["requestAccepted"], false);

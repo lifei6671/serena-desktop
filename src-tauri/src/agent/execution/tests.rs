@@ -14,11 +14,11 @@ fn fixed_bytes_and_sha256_vector() {
     let request = canonicalize_request(input()).unwrap();
     assert_eq!(
         std::str::from_utf8(request.bytes()).unwrap(),
-        r#"["execution-request-v1","a","k","hello","{}","w","C:/workspace","codex","read_only",null]"#
+        r#"["execution-request-v2","a","k","hello","{}","w","C:/workspace",1,"codex","read_only",null]"#
     );
     assert_eq!(
         request.request_hash(),
-        "bf03d1d93d36985767ddb83fba4567fa060b5bde2f8967e29930c1826ee33d82"
+        "9aa4fddbd7a43e9dc13919e7259518536eb24109b7c268a73a28770e058cc860"
     );
     for _ in 0..20 {
         assert_eq!(
@@ -41,6 +41,21 @@ fn field_order_and_explicit_defaults_are_equivalent() {
     assert_eq!(
         canonicalize_request(input()).unwrap().bytes(),
         canonicalize_request(explicit).unwrap().bytes()
+    );
+}
+
+#[test]
+fn legacy_v1_hash_excludes_generation_while_current_v2_hash_includes_it() {
+    let generation_one = input();
+    let mut generation_two = generation_one.clone();
+    generation_two.workspace_generation = 2;
+    assert_eq!(
+        legacy_pre_workspace_generation_hash(&generation_one).unwrap(),
+        legacy_pre_workspace_generation_hash(&generation_two).unwrap()
+    );
+    assert_ne!(
+        canonicalize_request(generation_one).unwrap().request_hash(),
+        canonicalize_request(generation_two).unwrap().request_hash()
     );
 }
 
@@ -112,13 +127,16 @@ fn every_variable_input_participates_and_framing_is_unambiguous() {
     a.canonical_workspace_root = "C:/other".into();
     variants.push(a);
     let mut a = input();
+    a.workspace_generation = 2;
+    variants.push(a);
+    let mut a = input();
     a.mode = ExecutionMode::WorkspaceWrite;
     variants.push(a);
     let mut a = input();
-    a.thread_id = Some("b".into());
+    a.parent_execution_id = Some("b".into());
     variants.push(a);
     let mut a = input();
-    a.thread_id = Some("".into());
+    a.parent_execution_id = Some("".into());
     variants.push(a);
     for variant in variants {
         assert_ne!(
@@ -136,6 +154,36 @@ fn every_variable_input_participates_and_framing_is_unambiguous() {
         canonicalize_request(a).unwrap().request_hash(),
         canonicalize_request(b).unwrap().request_hash()
     );
+}
+
+#[test]
+fn thread_is_runtime_compatibility_but_parent_execution_is_request_identity() {
+    let baseline = canonicalize_request(input()).unwrap();
+    let mut other_thread = input();
+    other_thread.thread_id = Some("provider-thread-b".into());
+    assert_eq!(
+        canonicalize_request(other_thread).unwrap().request_hash(),
+        baseline.request_hash()
+    );
+
+    let mut first_parent = input();
+    first_parent.parent_execution_id = Some("execution-a".into());
+    let mut second_parent = input();
+    second_parent.parent_execution_id = Some("execution-b".into());
+    assert_ne!(
+        canonicalize_request(first_parent).unwrap().request_hash(),
+        canonicalize_request(second_parent).unwrap().request_hash()
+    );
+
+    let source = include_str!("../execution.rs");
+    let current = source
+        .split("pub fn canonicalize_request")
+        .nth(1)
+        .unwrap()
+        .split("/// Exact pre-C2")
+        .next()
+        .unwrap();
+    assert!(!current.contains("thread_id"));
 }
 
 #[test]
@@ -163,6 +211,12 @@ fn opaque_profile_retains_null_types_numbers_and_empty_values() {
     let mut a = input();
     a.execution_profile = Value::Null;
     assert!(canonicalize_request(a).is_err());
+    let mut a = input();
+    a.workspace_generation = 0;
+    assert_eq!(
+        canonicalize_request(a).unwrap_err(),
+        "workspace_generation must be a positive SQLite integer"
+    );
     let mut value = json!({"agent_id":"a","request_key":"k","prompt":"p","execution_profile":{},"workspace_id":"w","canonical_workspace_root":"r","mode":"read_only","new_ignored_field":1});
     assert!(serde_json::from_value::<CreateExecutionInput>(value.clone()).is_err());
     value.as_object_mut().unwrap().remove("new_ignored_field");

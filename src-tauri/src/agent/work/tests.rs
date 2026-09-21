@@ -7,6 +7,7 @@ fn workspace(id: &str, root: &str) -> Option<WorkspaceSnapshot> {
     Some(WorkspaceSnapshot {
         id: id.into(),
         root: root.into(),
+        generation: 1,
     })
 }
 
@@ -35,6 +36,7 @@ fn begin_returns_exact_persisted_record_and_get_survives_service_and_store_reope
         assert!(row.id.starts_with("work-"));
         assert_eq!(row.workspace_id, "workspace");
         assert_eq!(row.canonical_workspace_root, "C:/当前工作区/root");
+        assert_eq!(row.workspace_generation, 1);
         assert_eq!(row.title, "修复任务");
         assert_eq!(row.goal.as_deref(), Some(" goal ' ; -- "));
         assert_eq!(row.status, "active");
@@ -73,6 +75,36 @@ fn begin_returns_exact_persisted_record_and_get_survives_service_and_store_reope
         assert_ne!(row.id, second.id);
         assert_eq!(second.goal, None);
         assert_eq!(second.canonical_workspace_root, "D:/new-root");
+    });
+}
+
+#[test]
+fn begin_freezes_snapshot_generation() {
+    let dir = tempfile::tempdir().unwrap();
+    tauri::async_runtime::block_on(async {
+        let store = StateStore::open(dir.path().to_path_buf()).await.unwrap();
+        let service = WorkProductService::new(store.clone());
+        let row = service
+            .update(
+                begin("workspace", "title", None),
+                Some(WorkspaceSnapshot {
+                    id: "workspace".into(),
+                    root: "root".into(),
+                    generation: 2,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(row.workspace_generation, 2);
+        assert_eq!(
+            store
+                .work_run(row.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .workspace_generation,
+            2
+        );
     });
 }
 
@@ -169,6 +201,7 @@ fn get_missing_is_not_found_and_opaque_ids_are_matched_exactly() {
                 "自定义'ID".into(),
                 "workspace".into(),
                 "root".into(),
+                1,
                 "title".into(),
                 None,
                 1,
@@ -215,6 +248,7 @@ fn list_filters_workspace_and_preserves_stable_order_without_mutation() {
                     id.into(),
                     workspace.into(),
                     "root".into(),
+                    1,
                     "title".into(),
                     None,
                     time,
@@ -282,6 +316,7 @@ fn list_defaults_to_twenty_and_validates_limits_instead_of_clamping() {
                     format!("w{i:03}"),
                     "workspace".into(),
                     "root".into(),
+                    1,
                     "title".into(),
                     None,
                     i,

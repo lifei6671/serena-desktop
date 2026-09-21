@@ -1,5 +1,8 @@
 //! Adaptation for the approved 0.153.4 binary, not a permissive schema fallback.
-use crate::agent::activity::{ActivityPhase, ToolCategory};
+use crate::agent::{
+    activity::{ActivityPhase, ToolCategory},
+    usage::USAGE_EVENT_INVALID,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -312,6 +315,7 @@ pub enum Notification {
         turn: Turn,
     },
     Activity(Activity),
+    Usage(Usage),
     PermissionDenied {
         thread_id: String,
         turn_id: String,
@@ -331,6 +335,29 @@ pub struct Activity {
     pub tool_category: Option<ToolCategory>,
     /// Time SerenaDesktop decoded the Provider event, not the later DB write time.
     pub observed_at: i64,
+}
+
+/// Codex 私有的累计 usage 通知；Thread/Turn 只能在 adapter 绑定时使用。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Usage {
+    pub thread_id: String,
+    pub turn_id: String,
+    pub total: UsageSnapshot,
+    pub last: UsageSnapshot,
+    pub model_context_window: Option<i64>,
+    /// SerenaDesktop 解码 Provider 通知的时刻，不是后续 Store 写入时间。
+    pub observed_at: i64,
+}
+
+/// Codex 私有的 fixed-schema token snapshot；不得由 breakdown 推导 total。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UsageSnapshot {
+    pub total_tokens: i64,
+    pub input_tokens: Option<i64>,
+    pub cached_input_tokens: Option<i64>,
+    pub cache_write_input_tokens: Option<i64>,
+    pub output_tokens: Option<i64>,
+    pub reasoning_output_tokens: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -398,6 +425,7 @@ pub fn notification(method: String, params: Value) -> Result<Notification> {
         return Ok(Notification::Activity(activity));
     }
     match method.as_str() {
+        "thread/tokenUsage/updated" => Ok(Notification::Usage(usage_notification(&params)?)),
         "error" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
@@ -415,16 +443,15 @@ pub fn notification(method: String, params: Value) -> Result<Notification> {
                 .ok_or_else(|| {
                     ProtocolError::incompatible("ErrorNotification requires an error object")
                 })?;
-            if let Some(details) = error.get("misalignment").filter(|value| !value.is_null()) {
-                if !details.is_object()
+            if let Some(details) = error.get("misalignment").filter(|value| !value.is_null())
+                && (!details.is_object()
                     || details
                         .get("steer")
-                        .is_some_and(|steer| !steer.is_null() && !steer.is_object())
-                {
-                    return Err(ProtocolError::incompatible(
-                        "Misalignment details and steer must be objects",
-                    ));
-                }
+                        .is_some_and(|steer| !steer.is_null() && !steer.is_object()))
+            {
+                return Err(ProtocolError::incompatible(
+                    "Misalignment details and steer must be objects",
+                ));
             }
             // Serde also accepts {"unitVariant":null}; the fixed schema does not.
             if let Some(info) = params
@@ -448,12 +475,12 @@ pub fn notification(method: String, params: Value) -> Result<Notification> {
                         "Invalid codexErrorInfo object variant",
                     ));
                 }
-                if let Some(active) = info.get("activeTurnNotSteerable") {
-                    if !active.get("turnKind").is_some_and(Value::is_string) {
-                        return Err(ProtocolError::incompatible(
-                            "turnKind must be a schema enum string",
-                        ));
-                    }
+                if let Some(active) = info.get("activeTurnNotSteerable")
+                    && !active.get("turnKind").is_some_and(Value::is_string)
+                {
+                    return Err(ProtocolError::incompatible(
+                        "turnKind must be a schema enum string",
+                    ));
                 }
             }
             let notification: ErrorNotification = from_value(params)?;
@@ -503,6 +530,117 @@ pub fn notification(method: String, params: Value) -> Result<Notification> {
         }
         _ => Ok(Notification::Other { method, params }),
     }
+}
+
+/// 解析 pinned Codex 0.153.4 usage wire，并把所有 schema 错误归一为稳定错误码。
+fn usage_notification(params: &Value) -> Result<Usage> {
+    let params = params
+        .as_object()
+        .ok_or_else(|| usage_invalid("Usage notification must be an object"))?;
+    if !params
+        .keys()
+        .all(|key| matches!(key.as_str(), "threadId" | "turnId" | "tokenUsage"))
+    {
+        return Err(usage_invalid("Unexpected Usage notification field"));
+    }
+    let identity = |name: &str| {
+        params
+            .get(name)
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| usage_invalid(format!("Missing Usage notification {name}")))
+    };
+    let token_usage = params
+        .get("tokenUsage")
+        .and_then(Value::as_object)
+        .ok_or_else(|| usage_invalid("tokenUsage must be an object"))?;
+    if !token_usage
+        .keys()
+        .all(|key| matches!(key.as_str(), "total" | "last" | "modelContextWindow"))
+    {
+        return Err(usage_invalid("Unexpected tokenUsage field"));
+    }
+    let snapshot = |name: &str| {
+        token_usage
+            .get(name)
+            .ok_or_else(|| usage_invalid(format!("Missing tokenUsage.{name}")))
+            .and_then(usage_snapshot)
+    };
+    let model_context_window = match token_usage
+        .get("modelContextWindow")
+        .ok_or_else(|| usage_invalid("Missing modelContextWindow"))?
+    {
+        Value::Null => None,
+        value => Some(non_negative_i64(value, "modelContextWindow")?),
+    };
+    Ok(Usage {
+        thread_id: identity("threadId")?,
+        turn_id: identity("turnId")?,
+        total: snapshot("total")?,
+        last: snapshot("last")?,
+        model_context_window,
+        observed_at: crate::agent::coordinator::now(),
+    })
+}
+
+/// 解析 total 或 last 的 exact breakdown schema，仅 cache-write 可保留 absence。
+fn usage_snapshot(value: &Value) -> Result<UsageSnapshot> {
+    let value = value
+        .as_object()
+        .ok_or_else(|| usage_invalid("Usage snapshot must be an object"))?;
+    if !value.keys().all(|key| {
+        matches!(
+            key.as_str(),
+            "totalTokens"
+                | "inputTokens"
+                | "cachedInputTokens"
+                | "cacheWriteInputTokens"
+                | "outputTokens"
+                | "reasoningOutputTokens"
+        )
+    }) {
+        return Err(usage_invalid("Unexpected Usage snapshot field"));
+    }
+    let required = |name: &str| {
+        value
+            .get(name)
+            .ok_or_else(|| usage_invalid(format!("Missing {name}")))
+            .and_then(|value| non_negative_i64(value, name))
+    };
+    let optional_cache_write = || {
+        value
+            .get("cacheWriteInputTokens")
+            .map(|value| non_negative_i64(value, "cacheWriteInputTokens"))
+            .transpose()
+    };
+    Ok(UsageSnapshot {
+        total_tokens: required("totalTokens")?,
+        input_tokens: Some(required("inputTokens")?),
+        cached_input_tokens: Some(required("cachedInputTokens")?),
+        cache_write_input_tokens: optional_cache_write()?,
+        output_tokens: Some(required("outputTokens")?),
+        reasoning_output_tokens: Some(required("reasoningOutputTokens")?),
+    })
+}
+
+/// 只接受可完整表示为非负 i64 的 JSON integer，禁止浮点、字符串与截断转换。
+fn non_negative_i64(value: &Value, field: &str) -> Result<i64> {
+    let Value::Number(number) = value else {
+        return Err(usage_invalid(format!(
+            "{field} must be a non-negative i64 integer"
+        )));
+    };
+    number
+        .as_i64()
+        .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok()))
+        .filter(|value| *value >= 0)
+        .ok_or_else(|| usage_invalid(format!("{field} must be a non-negative i64 integer")))
+}
+
+/// 固定 Usage wire 的所有不可信输入共用 P4-001 的公开错误合同。
+fn usage_invalid(message: impl Into<String>) -> ProtocolError {
+    ProtocolError::new(USAGE_EVENT_INVALID, message)
 }
 
 fn activity_notification(method: &str, params: &Value) -> Result<Option<Activity>> {
@@ -811,6 +949,202 @@ mod activity_tests {
                 json!({"threadId":"ROOT","turnId":"TURN","itemId":"I","delta":secret})
             )
             .unwrap(),
+            Notification::Other { .. }
+        ));
+    }
+}
+
+#[cfg(test)]
+mod usage_tests {
+    use super::*;
+
+    /// 固定已接受 P0-008 合同的 notification 外形；数字仅用于断言原样透传。
+    fn accepted_usage_contract_fixture() -> Value {
+        json!({
+            "threadId": "thread-1",
+            "turnId": "turn-1",
+            "tokenUsage": {
+                "total": {
+                    "totalTokens": 100,
+                    "inputTokens": 60,
+                    "cachedInputTokens": 10,
+                    "outputTokens": 30,
+                    "reasoningOutputTokens": 5
+                },
+                "last": {
+                    "totalTokens": 40,
+                    "inputTokens": 25,
+                    "cachedInputTokens": 5,
+                    "cacheWriteInputTokens": 0,
+                    "outputTokens": 10,
+                    "reasoningOutputTokens": 2
+                },
+                "modelContextWindow": 258400
+            }
+        })
+    }
+
+    /// 解析 Usage notification，失败时直接暴露稳定错误码。
+    fn usage(value: Value) -> Usage {
+        match notification("thread/tokenUsage/updated".into(), value).unwrap() {
+            Notification::Usage(usage) => usage,
+            other => panic!("expected Usage, got {other:?}"),
+        }
+    }
+
+    /// 验证 recognized Usage 的 schema 失败不会退回 Other。
+    fn assert_usage_invalid(value: Value) {
+        assert_eq!(
+            notification("thread/tokenUsage/updated".into(), value)
+                .unwrap_err()
+                .code,
+            USAGE_EVENT_INVALID
+        );
+    }
+
+    #[test]
+    fn accepted_usage_contract_fixture_parses_the_cumulative_snapshot_without_using_last() {
+        let usage = usage(accepted_usage_contract_fixture());
+
+        assert_eq!(usage.thread_id, "thread-1");
+        assert_eq!(usage.turn_id, "turn-1");
+        assert_eq!(usage.total.total_tokens, 100);
+        assert_eq!(usage.total.cache_write_input_tokens, None);
+        assert_eq!(usage.last.cache_write_input_tokens, Some(0));
+        assert_eq!(usage.model_context_window, Some(258400));
+        assert!(usage.observed_at > 0);
+    }
+
+    #[test]
+    fn cache_write_absence_zero_and_nullable_context_remain_distinct() {
+        let mut absent = accepted_usage_contract_fixture();
+        absent["tokenUsage"]["last"]
+            .as_object_mut()
+            .unwrap()
+            .remove("cacheWriteInputTokens");
+        absent["tokenUsage"]["modelContextWindow"] = Value::Null;
+        let absent = usage(absent);
+        assert_eq!(absent.last.cache_write_input_tokens, None);
+        assert_eq!(absent.model_context_window, None);
+
+        let present = usage(accepted_usage_contract_fixture());
+        assert_eq!(present.last.cache_write_input_tokens, Some(0));
+
+        for snapshot in ["total", "last"] {
+            let mut null = accepted_usage_contract_fixture();
+            null["tokenUsage"][snapshot]["cacheWriteInputTokens"] = Value::Null;
+            assert_usage_invalid(null);
+        }
+    }
+
+    #[test]
+    fn rejects_every_non_integer_token_and_context_value_with_the_usage_error() {
+        for field in [
+            "totalTokens",
+            "inputTokens",
+            "cachedInputTokens",
+            "cacheWriteInputTokens",
+            "outputTokens",
+            "reasoningOutputTokens",
+        ] {
+            for invalid in [
+                json!(1.5),
+                json!(-1),
+                json!("1"),
+                json!(9223372036854775808u64),
+            ] {
+                let mut value = accepted_usage_contract_fixture();
+                value["tokenUsage"]["total"][field] = invalid;
+                assert_usage_invalid(value);
+            }
+        }
+        for invalid in [
+            json!(1.5),
+            json!(-1),
+            json!("258400"),
+            json!(9223372036854775808u64),
+        ] {
+            let mut value = accepted_usage_contract_fixture();
+            value["tokenUsage"]["modelContextWindow"] = invalid;
+            assert_usage_invalid(value);
+        }
+        for invalid in [
+            json!(1.5),
+            json!(-1),
+            json!("40"),
+            json!(9223372036854775808u64),
+        ] {
+            let mut value = accepted_usage_contract_fixture();
+            value["tokenUsage"]["last"]["totalTokens"] = invalid;
+            assert_usage_invalid(value);
+        }
+    }
+
+    #[test]
+    fn rejects_missing_total_malformed_usage_shapes_and_empty_identity() {
+        let mut missing_total = accepted_usage_contract_fixture();
+        missing_total["tokenUsage"]["total"]
+            .as_object_mut()
+            .unwrap()
+            .remove("totalTokens");
+        assert_usage_invalid(missing_total);
+
+        let mut missing_context = accepted_usage_contract_fixture();
+        missing_context["tokenUsage"]
+            .as_object_mut()
+            .unwrap()
+            .remove("modelContextWindow");
+        assert_usage_invalid(missing_context);
+
+        for (path, invalid) in [
+            ("tokenUsage", json!([])),
+            ("total", json!([])),
+            ("last", json!("not-an-object")),
+        ] {
+            let mut value = accepted_usage_contract_fixture();
+            if path == "tokenUsage" {
+                value[path] = invalid;
+            } else {
+                value["tokenUsage"][path] = invalid;
+            }
+            assert_usage_invalid(value);
+        }
+        for identity in ["threadId", "turnId"] {
+            let mut value = accepted_usage_contract_fixture();
+            value[identity] = json!("");
+            assert_usage_invalid(value);
+        }
+    }
+
+    #[test]
+    fn rejects_missing_or_null_required_breakdowns_in_total_and_last() {
+        const REQUIRED_FIELDS: [&str; 5] = [
+            "totalTokens",
+            "inputTokens",
+            "cachedInputTokens",
+            "outputTokens",
+            "reasoningOutputTokens",
+        ];
+        for snapshot in ["total", "last"] {
+            for field in REQUIRED_FIELDS {
+                let mut missing = accepted_usage_contract_fixture();
+                missing["tokenUsage"][snapshot]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove(field);
+                assert_usage_invalid(missing);
+
+                let mut null = accepted_usage_contract_fixture();
+                null["tokenUsage"][snapshot][field] = Value::Null;
+                assert_usage_invalid(null);
+            }
+        }
+    }
+
+    #[test]
+    fn unrelated_notification_still_remains_other() {
+        assert!(matches!(
+            notification("unrelated/notification".into(), json!({"opaque": true})).unwrap(),
             Notification::Other { .. }
         ));
     }

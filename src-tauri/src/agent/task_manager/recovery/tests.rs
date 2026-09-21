@@ -44,6 +44,90 @@ async fn retained(manager: &AgentTaskManager, id: &str) -> ExecutionRecord {
     row
 }
 
+async fn backend_recovery_result(
+    error: &str,
+) -> Result<Vec<RecoveryOutcome>, StartupRecoveryFailure> {
+    let temp = tempfile::tempdir().unwrap();
+    let (manager, id, db) = fixture(temp.path(), "reconciling", "uncertain").await;
+    original(&db, &id, true);
+    drop(db);
+    let row = manager.store.execution(id.clone()).await.unwrap().unwrap();
+    manager
+        .store
+        .bind_protocol_identity(
+            id,
+            row.revision,
+            "R1".into(),
+            "thread-1".into(),
+            Some("turn-1".into()),
+            now(),
+        )
+        .await
+        .unwrap();
+
+    recover_startup_with_authority(
+        &manager.store,
+        &manager.executable,
+        &manager.owner,
+        &manager.runtime_pool,
+        Some(error),
+    )
+    .await
+}
+
+#[test]
+fn backend_recovery_preserves_incompatibility_and_unavailable_codes() {
+    run(async {
+        let diagnostic = "CODEX_APP_SERVER_INCOMPATIBLE: unsupported protocol";
+        assert_eq!(
+            backend_recovery_result(diagnostic).await.unwrap_err(),
+            StartupRecoveryFailure {
+                code: "CODEX_APP_SERVER_INCOMPATIBLE",
+                message: diagnostic.into(),
+            }
+        );
+
+        let diagnostic = "BACKEND_UNAVAILABLE: discovery failed";
+        match backend_recovery_result(diagnostic).await.unwrap().remove(0) {
+            RecoveryOutcome::RuntimeFailure { failure, .. } => {
+                assert_eq!(failure.code, "BACKEND_UNAVAILABLE");
+                assert_eq!(failure.message, diagnostic);
+            }
+            outcome => panic!("unexpected recovery outcome: {outcome:?}"),
+        }
+    });
+}
+
+#[test]
+fn authority_state_failure_uses_stable_internal_code() {
+    run(async {
+        let temp = tempfile::tempdir().unwrap();
+        let store = StateStore::open(temp.path().into()).await.unwrap();
+        let manager = AgentTaskManager::new(store, "unused.exe".into());
+        let database = Connection::open(temp.path().join("agent-state.db")).unwrap();
+        database.execute_batch("PRAGMA foreign_keys=OFF").unwrap();
+        database
+            .execute(
+                "INSERT INTO workspace_claims VALUES ('missing-root','missing-execution','exclusive_execution',1)",
+                [],
+            )
+            .unwrap();
+        drop(database);
+
+        let failure = recover_startup_with_authority(
+            &manager.store,
+            &manager.executable,
+            &manager.owner,
+            &manager.runtime_pool,
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(failure.code, "CODEX_RECOVERY_STATE_FAILED");
+        assert!(!failure.message.is_empty());
+    });
+}
+
 #[test]
 fn pre_dispatch_crash_repeated_startup_waits_for_explicit_resume_without_side_effects() {
     run(async {
@@ -103,7 +187,7 @@ fn explicit_resume_rejects_invalid_states_bindings_and_claims_without_launch() {
             let before = manager.store.execution(id.clone()).await.unwrap();
             let error = manager.resume_pending_execution(&id).await.unwrap_err();
             assert!(
-                matches!(error,crate::agent::codex::provider::ExecutionFailure::State(ref s) if s=="PENDING_RESUME_REJECTED")
+                matches!(error,crate::agent::provider::port::ProviderExecutionFailure::State(ref s) if s=="PENDING_RESUME_REJECTED")
             );
             assert_eq!(before, manager.store.execution(id).await.unwrap());
             assert_eq!(
@@ -191,7 +275,7 @@ fn explicit_resume_binary_failure_keeps_pending_and_claim() {
         // Guard succeeds, then the existing ManagedClient rejects the missing binary.
         assert!(matches!(
             manager.resume_pending_execution(&id).await,
-            Err(crate::agent::codex::provider::ExecutionFailure::Runtime(_))
+            Err(crate::agent::provider::port::ProviderExecutionFailure::Runtime { .. })
         ));
         let row = retained(&manager, &id).await;
         assert_eq!(row.status, "dispatch_pending");
@@ -948,6 +1032,7 @@ fn startup_guard_product_and_provider_agree_on_persisted_runtime_attempt() {
                 runtime_pool: Default::default(),
                 store: manager.store.clone(),
                 executable: "never-launched".into(),
+                backend_error: None,
                 owner: "new-host".into(),
             }
             .failed(&id)

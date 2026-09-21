@@ -6,7 +6,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { api } from "./api";
-import { countNewLogLines, filterMcpLogs, reconcileMcpLogEntries, sameLogLines, type McpLogEntry } from "./mcpLogPresentation";
+import { countNewLogLines, filterMcpLogs, reconcileMcpLogEntries, sameLogLines, type McpLogDetails, type McpLogEntry } from "./mcpLogPresentation";
 
 const levelOrder = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR"];
 const knownSources = ["MCP", "TOOL"];
@@ -27,6 +27,41 @@ function levelVariant(level: string | null) {
 
 function DetailField({ label, children }: { label: string; children: ReactNode }) {
   return <div className="log-detail-field"><span>{label}</span><span>{children}</span></div>;
+}
+
+// 将后端稳定字段映射为本地用户可读的详情标签。
+const detailLabels: Record<string, string> = {
+  requestId: "请求 ID",
+  tool: "工具",
+  arguments: "参数",
+  phase: "阶段",
+  success: "成功",
+  durationMs: "耗时（毫秒）",
+  errorCode: "错误码",
+  error: "错误详情",
+  method: "方法",
+  path: "路径",
+  status: "状态",
+  peer: "对端",
+  host: "Host",
+  cfConnectingIp: "CF 连接 IP",
+  forwardedFor: "X-Forwarded-For",
+  forwardedHost: "X-Forwarded-Host",
+};
+
+// 根据诊断来源显示紧凑且明确的详情分区标题。
+function detailTitle(details: McpLogDetails) {
+  if (details.kind === "tool_call") return "工具调用详情";
+  if (details.kind === "http_request") return "HTTP 请求详情";
+  return "诊断详情";
+}
+
+// 对象参数以格式化 JSON 呈现，标量字段保持紧凑展示。
+function DetailValue({ value }: { value: unknown }) {
+  if (value !== null && typeof value === "object") {
+    return <pre className="log-detail-value">{JSON.stringify(value, null, 2)}</pre>;
+  }
+  return String(value);
 }
 
 export function McpLogs() {
@@ -405,6 +440,20 @@ export function McpLogs() {
                       {selectedEntry.timestamp && <DetailField label="时间">{selectedEntry.timestamp}</DetailField>}
                       {selectedEntry.level && <DetailField label="级别"><Badge variant={levelVariant(selectedEntry.level)}>{selectedEntry.level}</Badge></DetailField>}
                       {selectedEntry.source && <DetailField label="来源">{selectedEntry.source}</DetailField>}
+                    </div>
+                  </section>
+                )}
+                {selectedEntry.details && (
+                  <section>
+                    <h2>{detailTitle(selectedEntry.details)}</h2>
+                    <div className="log-detail-card log-detail-diagnostics">
+                      {Object.entries(selectedEntry.details)
+                        .filter(([key]) => key !== "kind")
+                        .map(([key, value]) => (
+                          <DetailField key={key} label={detailLabels[key] ?? key}>
+                            <DetailValue value={value} />
+                          </DetailField>
+                        ))}
                     </div>
                   </section>
                 )}
