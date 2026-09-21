@@ -907,12 +907,13 @@ fn async_receipt_idempotency_and_exact_continuation() {
 
 #[test]
 fn continuation_core_and_product_action_filter_are_provider_opaque() {
-    let store_source = include_str!("../store/transactions/product.rs");
+    // 仅标准化换行，避免 Windows checkout 改变架构边界断言的切片定位。
+    let store_source = include_str!("../store/transactions/product.rs").replace("\r\n", "\n");
     let start = store_source
         .find("pub fn continuation_core_eligible")
         .unwrap();
     let end = store_source[start..]
-        .find("\n}\n\n/// Provider-opaque handoff")
+        .find("/// Provider-opaque handoff")
         .unwrap()
         + start;
     let core = &store_source[start..=end];
@@ -931,10 +932,7 @@ fn continuation_core_and_product_action_filter_are_provider_opaque() {
     let start = product_source
         .find("let actions = AvailableActions")
         .unwrap();
-    let end = product_source[start..]
-        .find("\n            let final_result")
-        .unwrap()
-        + start;
+    let end = product_source[start..].find("let final_result").unwrap() + start;
     let actions = &product_source[start..end];
     for forbidden in [
         "thread_id",

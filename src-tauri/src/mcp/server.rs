@@ -533,23 +533,14 @@ impl Broker {
 #[cfg(test)]
 mod quick_tunnel_transport_tests {
     use super::*;
-    use crate::config::AppPaths;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[tokio::test]
     async fn stateless_candidate_returns_json_without_sse_for_broker_requests() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path();
-        let broker = Arc::new(Broker::new(Arc::new(
-            SupervisorState::new(AppPaths {
-                runtime_directory: root.join("runtime"),
-                config_file: root.join("config.json"),
-                log_directory: root.join("logs"),
-                app_log: root.join("logs/app.log"),
-                serena_log: root.join("logs/serena.log"),
-            })
-            .unwrap(),
-        )));
+        let broker =
+            super::super::integration_tests::transport_fixture_with_unprepared_codegraph(root);
         // 真实 transport 请求使用已登记的 Workspace；Root 仍只能由服务器 Resolver 导出。
         let workspace = crate::workspace_registry::WorkspaceRegistry::new(&broker.supervisor)
             .register(root.to_path_buf(), Some("transport-codegraph".into()))

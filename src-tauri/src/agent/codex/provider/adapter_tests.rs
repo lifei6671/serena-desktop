@@ -1331,13 +1331,13 @@ async fn provider_grace_deadline_expired_before_drain_freezes_without_receiving(
 #[test]
 fn activity_adapter_publishes_only_after_validation_without_direct_store_projection() {
     let source = include_str!("../provider.rs");
+    // 只忽略 rustfmt 与 CRLF/LF 的空白差异，仍验证私有绑定校验先于 telemetry 发布。
+    let compact = source.split_whitespace().collect::<String>();
     assert!(!source.contains(".store.execution_activity("));
-    let validation = source.find("fn activity_telemetry_event").unwrap();
-    let publish = source
-        .find("telemetry\n                                .publish")
-        .unwrap();
+    let validation = compact.find("fnactivity_telemetry_event").unwrap();
+    let publish = compact.find("telemetry.publish").unwrap();
     assert!(validation < publish);
-    assert!(source.contains("return Err(\"PROVIDER_RUNTIME_MISMATCH\".into());"));
+    assert!(compact.contains("returnErr(\"PROVIDER_RUNTIME_MISMATCH\".into());"));
 }
 
 #[test]

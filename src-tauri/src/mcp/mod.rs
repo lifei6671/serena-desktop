@@ -779,6 +779,7 @@ mod integration_tests {
         calls: std::sync::Mutex<Vec<(WorkspaceLease, WorkspaceToolCall)>>,
         wrong_runtime: std::sync::atomic::AtomicBool,
         fail_start: std::sync::atomic::AtomicBool,
+        not_prepared: std::sync::atomic::AtomicBool,
         probes: std::sync::atomic::AtomicUsize,
         observations: std::sync::atomic::AtomicUsize,
     }
@@ -818,6 +819,7 @@ mod integration_tests {
                 calls: std::sync::Mutex::new(Vec::new()),
                 wrong_runtime: std::sync::atomic::AtomicBool::new(false),
                 fail_start: std::sync::atomic::AtomicBool::new(false),
+                not_prepared: std::sync::atomic::AtomicBool::new(false),
                 probes: std::sync::atomic::AtomicUsize::new(0),
                 observations: std::sync::atomic::AtomicUsize::new(0),
             }
@@ -831,6 +833,15 @@ mod integration_tests {
             provider.descriptor.tool_names = vec!["codegraph_explore".into()];
             provider.descriptor.preparation_policy = CapabilityPreparationPolicy::ExplicitOnly;
             provider.descriptor.runtime_policy.idle_timeout_ms = 300_000;
+            provider
+        }
+
+        /// 构造未准备状态，确保 transport 测试不读取本机 CodeGraph 安装或索引。
+        fn unprepared_codegraph() -> Self {
+            let provider = Self::codegraph();
+            provider
+                .not_prepared
+                .store(true, std::sync::atomic::Ordering::SeqCst);
             provider
         }
     }
@@ -893,7 +904,13 @@ mod integration_tests {
             let provider_id = self.descriptor.provider_id.clone();
             let wrong_runtime = self.wrong_runtime.load(std::sync::atomic::Ordering::SeqCst);
             let fail_start = self.fail_start.load(std::sync::atomic::Ordering::SeqCst);
+            let not_prepared = self.not_prepared.load(std::sync::atomic::Ordering::SeqCst);
             Box::pin(async move {
+                if not_prepared {
+                    return Err(CapabilityProviderError {
+                        code: CapabilityProviderErrorCode::NotPrepared,
+                    });
+                }
                 if fail_start {
                     return Err(CapabilityProviderError {
                         code: CapabilityProviderErrorCode::OperationFailed,
@@ -990,6 +1007,18 @@ mod integration_tests {
         let mut supervisor = SupervisorState::new(paths).unwrap();
         supervisor.replace_workspace_capability_manager_for_test(Arc::clone(&manager));
         (Arc::new(Broker::new(Arc::new(supervisor))), manager)
+    }
+
+    /// 构造固定未准备 CodeGraph 的 transport fixture，隔离本机 CLI 环境。
+    pub(super) fn transport_fixture_with_unprepared_codegraph(
+        dir: &std::path::Path,
+    ) -> Arc<Broker> {
+        semantic_fixture_with_codegraph(
+            dir,
+            Arc::new(SemanticRoutingProvider::new()),
+            Arc::new(SemanticRoutingProvider::unprepared_codegraph()),
+        )
+        .0
     }
 
     #[test]

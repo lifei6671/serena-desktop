@@ -475,11 +475,13 @@ fn reconcile_summary_exposes_exactly_the_frozen_typed_contract() {
 #[test]
 fn production_port_uses_only_the_frozen_object_safe_boundary() {
     let source = include_str!("../port.rs");
+    // 枚举契约不依赖 rustfmt 选择单行或多行字段布局。
+    let compact = source.split_whitespace().collect::<String>();
 
     assert!(source.contains("pub trait AgentEventSink: Send + Sync {"));
     assert!(source.contains("fn publish<'a>("));
-    assert!(source.contains(
-        "pub enum ProviderExecutionFailure {\n    State(String),\n    Runtime { code: String, message: String },\n}"
+    assert!(compact.contains(
+        "pubenumProviderExecutionFailure{State(String),Runtime{code:String,message:String},}"
     ));
 
     for forbidden in [
