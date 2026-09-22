@@ -196,7 +196,7 @@ Expected: 所有命令成功，Rust 测试 `0 failed`。
 
 只勾选 `docs/macos-porting-checklist.md` 中 `/usr/bin/open` 自动化条目；Dock reopen、`Cmd+Q`、菜单栏点击和 single-instance 真人操作仍保持未完成。将本任务 PRD 与实施计划中已经完成的项目改为 `[x]`，记录完整测试计数。
 
-- [ ] **Step 4: 准备 Trellis 提交计划**
+- [x] **Step 4: 准备 Trellis 提交计划**
 
 完成检查后按项目工作流向用户提出一个逻辑提交：
 
