@@ -665,6 +665,12 @@ impl AgentProductService {
     pub(crate) fn backend_diagnostic(&self) -> Option<&str> {
         self.manager.backend_error.as_deref()
     }
+
+    /// macOS 状态页复用正式 Manager authority，重新执行只读 discovery/compatibility probe。
+    #[cfg(target_os = "macos")]
+    pub(crate) async fn discover_backend(&self) -> Result<std::path::PathBuf, String> {
+        self.manager.discover_backend().await
+    }
     async fn recover_before_publish(
         store: StateStore,
         mut manager: AgentTaskManager,

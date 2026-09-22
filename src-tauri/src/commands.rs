@@ -270,17 +270,67 @@ pub(crate) fn workspace_capability_cancel(
 }
 
 #[tauri::command]
-pub async fn get_codex_version() -> Result<String, String> {
+pub async fn get_codex_version(app: AppHandle) -> Result<String, String> {
     #[cfg(windows)]
     {
+        drop(app);
         let executable = crate::agent::codex::discovery::discover().await?;
         let evidence = crate::agent::codex::app_server::managed::verify(executable)
             .await
             .map_err(|e| e.to_string())?;
         Ok(evidence.identity.version)
     }
-    #[cfg(not(windows))]
-    Err("当前平台不支持本地 Codex Agent".into())
+    #[cfg(target_os = "macos")]
+    {
+        let product = app
+            .state::<std::sync::Arc<AgentProductService>>()
+            .inner()
+            .clone();
+        codex_version_with(product.discover_backend(), probe_codex_version).await
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        drop(app);
+        Err("当前平台不支持本地 Codex Agent".into())
+    }
+}
+
+/// 将正式 discovery 选中的兼容 executable 交给阻塞版本读取器。
+#[cfg(target_os = "macos")]
+async fn codex_version_with<F, P>(discovery: F, probe: P) -> Result<String, String>
+where
+    F: std::future::Future<Output = Result<std::path::PathBuf, String>>,
+    P: FnOnce(std::path::PathBuf) -> Result<String, String> + Send + 'static,
+{
+    let executable = discovery.await?;
+    tauri::async_runtime::spawn_blocking(move || probe(executable))
+        .await
+        .map_err(|error| format!("Codex 版本检测任务异常结束：{error}"))?
+}
+
+/// 从已通过正式兼容检测的绝对路径读取实际 Codex CLI 版本。
+#[cfg(target_os = "macos")]
+fn probe_codex_version(executable: std::path::PathBuf) -> Result<String, String> {
+    let mut command = crate::serena::hidden_command(executable);
+    command.arg("--version");
+    let output = crate::serena::run_with_timeout(
+        command,
+        std::time::Duration::from_secs(10),
+        "读取 Codex 版本",
+    )?;
+    if !output.status.success() {
+        return Err(format!("Codex --version 失败（{}）。", output.status));
+    }
+    let text = String::from_utf8_lossy(if output.stdout.is_empty() {
+        &output.stderr
+    } else {
+        &output.stdout
+    });
+    let version = text.lines().next().unwrap_or_default().trim();
+    if version.is_empty() {
+        return Err("Codex --version 未返回有效输出。".into());
+    }
+    Ok(version.to_owned())
 }
 
 #[tauri::command]
@@ -501,6 +551,24 @@ mod tests {
         sync::{Arc, Mutex, mpsc},
         time::Duration,
     };
+
+    /// macOS 状态探针必须把正式 discovery 选中的 executable 交给版本读取器。
+    #[tokio::test]
+    #[cfg(target_os = "macos")]
+    async fn codex_status_uses_discovered_executable() {
+        let expected = std::path::PathBuf::from("/fixture/codex");
+        let observed = expected.clone();
+        let version = codex_version_with(
+            std::future::ready(Ok(expected.clone())),
+            move |executable| {
+                assert_eq!(executable, observed);
+                Ok("codex-cli 0.155.1".to_owned())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(version, "codex-cli 0.155.1");
+    }
 
     /// 系统 opener 必须按平台选择固定程序，macOS 不依赖 Finder 的 PATH。
     #[test]
