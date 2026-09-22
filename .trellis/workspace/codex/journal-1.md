@@ -176,3 +176,39 @@
 
 - 在 Windows 主机补跑 Job Object / Host Crash Gate。
 - 从已构建 .app 经 Finder 启动，手工验收 Codex 产品流程。
+
+
+## Session 5: 完成 macOS Phase 3B 进程树与 uv 安装
+<!-- trellis-session: v=2 fp=7ee5058e00e17919 -->
+
+**Date**: 2026-09-22
+**Task**: 完成 macOS Phase 3B 进程树与 uv 安装
+**Branch**: `dev/macos`
+
+### Summary
+
+完成 Codex 终止升级竞态修复、Serena 与 cloudflared 进程组所有权和固定摘要 uv 安装，并保留未验证的 Finder、外置卷和 Windows 实机 Gate。
+
+### Main Changes
+
+- 新增可验证的 Darwin Session/Process Group helper，Serena、Workspace Runtime 与 Quick Tunnel 接入完整进程树收口。
+- macOS uv 固定为官方 0.12.17 arm64 资产并验证 SHA-256、归档成员、权限和运行版本。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e4ae7b9` | feat(macos): manage process trees and uv installer |
+| `5867638` | docs(macos): record phase 3b verification |
+
+### Testing
+
+- [OK] cargo check/clippy/fmt 通过；cargo test 为 1069 passed、0 failed、19 ignored；官方 uv 网络 Gate 通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 进入独立 Phase 4 macOS 桌面集成任务。
