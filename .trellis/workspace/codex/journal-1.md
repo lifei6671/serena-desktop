@@ -302,3 +302,37 @@ Windows 与 macOS 统一改用 app-server JSON Schema 必要契约子集检测�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 9: 修复 macOS CLI 状态检测
+<!-- trellis-session: v=2 fp=ca9b48001748d8f6 -->
+
+**Date**: 2026-09-22
+**Task**: 修复 macOS CLI 状态检测
+**Branch**: `dev/macos`
+
+### Summary
+
+修复 macOS 状态页对 Codex 与 CodeGraph CLI 的误判，复用正式 Codex 兼容检测，并为 Finder 精简 PATH 增加用户本地 CodeGraph 候选。
+
+### Main Changes
+
+- macOS Codex 状态探针复用正式 discovery/compatibility authority，并显示选中 executable 的真实版本。
+- CodeGraph 在 PATH 未命中时检测 ~/.local/bin/codegraph，Windows 现有行为保持不变。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `86119a6` | fix(macos): detect local Codex and CodeGraph CLIs |
+| `36c2027` | docs(macos): record CLI status detection evidence |
+
+### Testing
+
+- [OK] npm run lint、npm run build、npm test、npm run tauri build 均通过。
+- [OK] Rust 完整测试 1073 passed、0 failed、21 ignored；cargo fmt 与 git diff --check 通过。
+- [OK] 实际构建的 macOS .app 显示 Codex codex-cli 0.155.1 与 CodeGraph 1.6.0。
+
+### Status
+
+[OK] **Completed**
