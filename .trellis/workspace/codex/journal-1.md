@@ -247,3 +247,25 @@ macOS 固定使用 /usr/bin/open，并在无可见窗口的 Dock reopen 事件�
 ### Next Steps
 
 - 规划 Phase 4B macOS 通知与真实声音提示。
+
+
+## Session 7: Phase 4B macOS 通知与真实提示音
+<!-- trellis-session: v=2 fp=b8b5f98e25cfa57a -->
+
+**Date**: 2026-09-22
+**Task**: Phase 4B macOS 通知与真实提示音
+**Branch**: `dev/macos`
+
+### Summary
+
+接入 AudioToolbox 用户首选警告音，保持通知与声音独立开关，并记录通知权限及点击激活的真机 Gate。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `31c8e4f5214f73d00bb99e0738b8b775899d912d` | chore(task): archive 09-22-macos-p4b-notification-sound |
+
+### Status
+
+[OK] **Completed**

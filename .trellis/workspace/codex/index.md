@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
+- **Total Sessions**: 7
 - **Last Active**: 2026-09-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~249 | Active |
+| `journal-1.md` | ~271 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-09-22 | Phase 4B macOS 通知与真实提示音 | `31c8e4f5214f73d00bb99e0738b8b775899d912d` | `dev/macos` |
 | 6 | 2026-09-22 | 完成 macOS Phase 4A 桌面壳层 | `2c85838` | `dev/macos` |
 | 5 | 2026-09-22 | 完成 macOS Phase 3B 进程树与 uv 安装 | `e4ae7b9`, `5867638` | `dev/macos` |
 | 4 | 2026-09-22 | 完成 macOS Phase 3A Codex Provider | `04ff66a`, `f4f610c` | `dev/macos` |
