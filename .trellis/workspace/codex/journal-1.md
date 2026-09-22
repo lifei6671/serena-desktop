@@ -136,3 +136,43 @@
 ### Next Steps
 
 - 进入 Phase 3：macOS CLI discovery、环境继承与真实 provider 执行路径。
+
+
+## Session 4: 完成 macOS Phase 3A Codex Provider
+<!-- trellis-session: v=2 fp=abee2c4c5cea4746 -->
+
+**Date**: 2026-09-22
+**Task**: 完成 macOS Phase 3A Codex Provider
+**Branch**: `dev/macos`
+
+### Summary
+
+完成 Apple Silicon Codex discovery、共享 Provider 接入与 Probe Runtime ownership amendment。
+
+### Main Changes
+
+- 新增 macOS ARM64 candidate discovery、Mach-O/allowlist/App Server Contract 验证与私有 managed adapter。
+- 所有真实 compatibility Probe Runtime 进入正式 StateStore、host owner 与 existing Pool ownership domain，取消和 cleanup failure 保留 quarantine ownership。
+- 保持 Windows Runtime/Job Object、StateStore schema、Execution graph 与 Claim release 契约不变。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `04ff66a` | feat(macos): activate shared codex provider |
+| `f4f610c` | docs(macos): record phase 3a verification |
+
+### Testing
+
+- [OK] cargo fmt/check/clippy 与完整 Rust 测试通过：1062 passed，18 ignored。
+- [OK] npm test 117 passed；npm lint/build、Trellis validate 与 git diff --check 通过。
+- [OK] 官方 npm ARM64 0.153.4 真实 lifecycle Gate 通过；当前 ChatGPT.app bundled Codex 正确返回 COMPATIBILITY_BLOCKED。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 在 Windows 主机补跑 Job Object / Host Crash Gate。
+- 从已构建 .app 经 Finder 启动，手工验收 Codex 产品流程。
