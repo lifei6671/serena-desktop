@@ -164,7 +164,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 
 **预估：** 3～5 个工程日
 
-**当前状态：** Phase 3A（Codex Provider / ARM64 discovery）已实现。官方 npm `@openai/codex@0.153.4-darwin-arm64` 已通过 architecture/version/binary hash/schema hash/真实 App Server Contract 与 process-group-empty Gate；当前 ChatGPT.app bundled `0.155.0-alpha.9.2` 按精确 allowlist 得到 `COMPATIBILITY BLOCKED`。Windows 共享 Provider fixture 契约已回归，Windows 实机 Job Object / Host Crash Gate 留待 Windows 主机验证。
+**当前状态：** Phase 3A（Codex Provider / ARM64 discovery）已实现。Phase 3B 已完成 Codex 终止升级竞态修复、Serena/Workspace Serena/cloudflared 的 macOS Session/Process Group 所有权，以及固定版本和摘要的 arm64 uv 安装；Finder/登录项端到端、外置卷 uv 安装和 Windows 实机回归仍未完成。官方 npm `@openai/codex@0.153.4-darwin-arm64` 已通过 architecture/version/binary hash/schema hash/真实 App Server Contract 与 process-group-empty Gate；当前 ChatGPT.app bundled `0.155.0-alpha.9.2` 按精确 allowlist 得到 `COMPATIBILITY BLOCKED`。
 
 ### 6.1 Finder/LaunchAgent 环境
 
@@ -197,18 +197,27 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 
 ### 6.3 uv / Serena 安装
 
-- [ ] 移除 macOS 路径对 `winget`、`LOCALAPPDATA` 和 `uv.exe` 的依赖。
-- [ ] 冻结 macOS uv 获取方式和供应链验证。
-- [ ] 按 CPU 架构选择 uv 产物，下载时校验固定摘要。
-- [ ] 保留 `UV_TOOL_DIR`、`UV_TOOL_BIN_DIR`、固定 Serena 版本和安装后能力检查。
+- [x] 移除 macOS 路径对 `winget`、`LOCALAPPDATA` 和 `uv.exe` 的依赖。
+- [x] 冻结 macOS uv 获取方式和供应链验证。
+- [x] 按 CPU 架构选择 uv 产物，下载时校验固定摘要。
+- [x] 保留 `UV_TOOL_DIR`、`UV_TOOL_BIN_DIR`、固定 Serena 版本和安装后能力检查。
 - [ ] 验证含空格、中文和外置卷路径。
 
 ### 6.4 进程树管理
 
-- [ ] Serena 主服务、Workspace Serena Runtime 和 cloudflared 均在独立 process group 中启动。
-- [ ] 停止时终止完整 process group，不只调用直接 child `kill()`。
+- [x] Serena 主服务、Workspace Serena Runtime 和 cloudflared 均在独立 process group 中启动。
+- [x] 停止时终止完整 process group，不只调用直接 child `kill()`。
 - [ ] 超时、取消、应用退出和启动失败共用同一所有权契约。
-- [ ] 证明停止不会影响用户在 Terminal 中自行启动的 Serena/Codex/cloudflared。
+- [x] 证明停止不会影响用户在 Terminal 中自行启动的 Serena/Codex/cloudflared。
+
+### 6.5 Phase 3B 自动化证据（2026-09-22）
+
+- [x] Codex leader 在 grace 期间退出时不再仅凭旧 PGID 升级 `SIGKILL`，而是返回 `CODEX_RUNTIME_TERMINATION_UNCONFIRMED`。
+- [x] Darwin helper 验证 `PID=PGID=SID`、直接 child reap、group empty，以及终止目标组不影响另一独立组。
+- [x] Serena 安装命令超时和 Quick Tunnel 停止均通过带 descendant 的 fixture，未遗留后代进程。
+- [x] 官方固定 uv `0.12.17` 归档已执行显式网络测试，固定 SHA-256、精确成员提取、权限与运行版本验证通过。
+- [x] `cargo check --locked`、`cargo clippy --locked --all-targets -- -D warnings` 和完整 `cargo test --locked` 通过；完整测试结果为 `1069 passed; 0 failed; 19 ignored`。
+- [ ] Finder/LaunchAgent 真人启动、外置卷 uv 安装、真实 Serena 1.7.0 与 Windows 实机生命周期仍待后续 Gate。
 
 **退出条件：** 从 Finder 和登录项启动时，Codex、Git、uv、Serena 仍能稳定发现或给出可操作诊断；所有受管进程树可完整回收。
 

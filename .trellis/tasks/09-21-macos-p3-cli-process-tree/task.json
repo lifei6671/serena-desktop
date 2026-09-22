@@ -19,7 +19,8 @@
   "pr_url": null,
   "subtasks": [],
   "children": [
-    "09-22-macos-p3a-codex-provider"
+    "09-22-macos-p3a-codex-provider",
+    "09-22-macos-p3b-process-tree-installer"
   ],
   "parent": "09-21-macos-platform-porting",
   "relatedFiles": [],
