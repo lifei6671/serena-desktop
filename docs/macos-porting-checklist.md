@@ -227,9 +227,11 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 
 **预估：** 2～3 个工程日
 
+**当前状态：** Phase 4A 已接入固定 `/usr/bin/open` 和 macOS Dock reopen 事件，并通过策略测试与完整 Rust Gate；Dock、`Cmd+Q`、菜单栏和 single-instance 仍需在真实 `.app` 中人工验收。通知/声音、LAN plist、文件权限和 UI 文案尚未实施。
+
 ### 7.1 系统行为
 
-- [ ] macOS 使用 `/usr/bin/open` 打开 URL 和日志目录，Linux 仍使用 `xdg-open`。
+- [x] macOS 使用 `/usr/bin/open` 打开 URL 和日志目录，Linux 仍使用 `xdg-open`。
 - [ ] 处理 macOS Dock reopen 事件，无可见窗口时显示并聚焦主窗口。
 - [ ] 验证红色关闭按钮、隐藏到菜单栏和 `Cmd+Q` 的不同语义。
 - [ ] `Cmd+Q` 和菜单栏“退出”均必须等待既有 shutdown 流程完成。

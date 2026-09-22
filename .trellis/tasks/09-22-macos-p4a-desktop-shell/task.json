@@ -3,7 +3,7 @@
   "name": "macos-p4a-desktop-shell",
   "title": "Phase 4A：macOS 桌面壳层行为",
   "description": "为 macOS 接入原生 open 命令、Dock reopen 与既有 shutdown 语义，并保留 Windows/Linux 行为。",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "src-tauri/src/commands.rs,src-tauri/src/lib.rs,src-tauri/src/tray.rs,docs/macos-porting-checklist.md",
   "package": null,

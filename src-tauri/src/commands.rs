@@ -454,32 +454,33 @@ pub fn open_external_url(target: &str) -> Result<(), String> {
     open_with_system(url)
 }
 
+/// 返回当前桌面平台固定的系统 opener；目标始终作为独立 argv 传入。
+fn system_opener_program(os: &str) -> &'static str {
+    match os {
+        "windows" => "explorer.exe",
+        "macos" => "/usr/bin/open",
+        _ => "xdg-open",
+    }
+}
+
+/// 使用平台原生命令打开 URL 或目录，不经过 shell 与用户 PATH 解析。
 fn open_with_system(target: impl AsRef<Path>) -> Result<(), String> {
+    let mut command = std::process::Command::new(system_opener_program(std::env::consts::OS));
+    command
+        .arg(target.as_ref())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
-        std::process::Command::new("explorer.exe")
-            .arg(target.as_ref())
-            .creation_flags(CREATE_NO_WINDOW)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map(|_| ())
-            .map_err(|error| format!("无法打开 {}：{error}", target.as_ref().display()))
+        command.creation_flags(CREATE_NO_WINDOW);
     }
-    #[cfg(not(windows))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(target.as_ref())
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map(|_| ())
-            .map_err(|error| format!("无法打开 {}：{error}", target.as_ref().display()))
-    }
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开 {}：{error}", target.as_ref().display()))
 }
 
 #[cfg(test)]
@@ -500,6 +501,14 @@ mod tests {
         sync::{Arc, Mutex, mpsc},
         time::Duration,
     };
+
+    /// 系统 opener 必须按平台选择固定程序，macOS 不依赖 Finder 的 PATH。
+    #[test]
+    fn system_opener_program_is_platform_specific() {
+        assert_eq!(system_opener_program("windows"), "explorer.exe");
+        assert_eq!(system_opener_program("macos"), "/usr/bin/open");
+        assert_eq!(system_opener_program("linux"), "xdg-open");
+    }
 
     fn remove_fixture() -> (tempfile::TempDir, AppPaths, SupervisorState, Workspace) {
         let directory = tempfile::tempdir().unwrap();

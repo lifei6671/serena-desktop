@@ -15,11 +15,18 @@
 
 ## Acceptance Criteria
 
-- [ ] 平台选择测试证明 macOS、Windows 和其他 Unix 分别绑定 `/usr/bin/open`、`explorer.exe` 和 `xdg-open`。
-- [ ] reopen 策略测试证明仅在没有可见窗口时请求恢复主窗口。
-- [ ] macOS 编译与 Rust 全量测试通过。
-- [ ] 现有菜单栏左键行为和 shutdown 调用路径保持不变。
-- [ ] `docs/macos-porting-checklist.md` 只勾选自动化证据已经覆盖的 Phase 4A 条目。
+- [x] 平台选择测试证明 macOS、Windows 和其他 Unix 分别绑定 `/usr/bin/open`、`explorer.exe` 和 `xdg-open`。
+- [x] reopen 策略测试证明仅在没有可见窗口时请求恢复主窗口。
+- [x] macOS 编译与 Rust 全量测试通过。
+- [x] 现有菜单栏左键行为和 shutdown 调用路径保持不变。
+- [x] `docs/macos-porting-checklist.md` 只勾选自动化证据已经覆盖的 Phase 4A 条目。
+
+## Verification
+
+- opener 与 Dock reopen 两条测试均完成 RED→GREEN。
+- `cargo fmt --check`、`cargo check --locked` 和 `cargo clippy --locked --all-targets -- -D warnings` 通过。
+- `cargo test --locked`：`1071 passed; 0 failed; 19 ignored`。
+- Dock、`Cmd+Q`、菜单栏与 single-instance 真人操作未执行，不计为通过。
 
 ## Notes
 

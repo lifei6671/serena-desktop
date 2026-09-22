@@ -55,6 +55,12 @@ fn is_autostart_launch(arguments: impl IntoIterator<Item = impl AsRef<std::ffi::
         .any(|argument| argument.as_ref() == "--autostart")
 }
 
+/// macOS Dock reopen 在没有可见窗口时需要恢复主窗口。
+#[cfg(target_os = "macos")]
+fn should_show_main_on_reopen(has_visible_windows: bool) -> bool {
+    !has_visible_windows
+}
+
 pub(crate) async fn finish_broker_startup(
     broker: std::sync::Arc<mcp::Broker>,
     serena_startup: tauri::async_runtime::JoinHandle<()>,
@@ -294,14 +300,24 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Serena Desktop");
 
-    app.run(|app, event| {
-        if let RunEvent::ExitRequested { api, .. } = event {
+    app.run(|app, event| match event {
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } => {
+            if should_show_main_on_reopen(has_visible_windows) {
+                tray::show_main_window(app);
+            }
+        }
+        RunEvent::ExitRequested { api, .. } => {
             let shutdown = app.state::<ShutdownState>();
             if !shutdown.ready.load(Ordering::Acquire) {
                 api.prevent_exit();
                 request_exit(app);
             }
         }
+        _ => {}
     });
 }
 
@@ -317,5 +333,13 @@ mod tests {
             "serena-desktop.exe",
             "--autostart=true"
         ]));
+    }
+
+    /// Dock reopen 只在应用没有可见窗口时恢复主窗口。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn dock_reopen_only_restores_when_no_window_is_visible() {
+        assert!(super::should_show_main_on_reopen(false));
+        assert!(!super::should_show_main_on_reopen(true));
     }
 }
