@@ -227,7 +227,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 
 **预估：** 2～3 个工程日
 
-**当前状态：** Phase 4A 已接入固定 `/usr/bin/open` 和 macOS Dock reopen 事件，并通过策略测试与完整 Rust Gate；Dock、`Cmd+Q`、菜单栏和 single-instance 仍需在真实 `.app` 中人工验收。通知/声音、LAN plist、文件权限和 UI 文案尚未实施。
+**当前状态：** Phase 4A 已接入固定 `/usr/bin/open` 和 macOS Dock reopen 事件；Phase 4B 已通过 AudioToolbox 接入用户首选警告音，并通过声音调用 Gate、完整 Rust Gate、arm64 `.app` 构建和 ad-hoc 签名验证。声音实际可听性仍待用户确认；真实通知矩阵被本机 `codex-cli 0.155.1` 与当前精确白名单 `0.153.4` 的兼容性阻断，通知权限和点击激活未验证。Dock、`Cmd+Q`、菜单栏、single-instance、LAN plist、文件权限和 UI 文案仍待后续处理。
 
 ### 7.1 系统行为
 

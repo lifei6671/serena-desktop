@@ -23,7 +23,7 @@
 - Modify: `src-tauri/src/agent_notification.rs:145-210`
 - Test: `src-tauri/src/agent_notification.rs:145-210`
 
-- [ ] **Step 1：先增加默认忽略的 macOS 可听性测试**
+- [x] **Step 1：先增加默认忽略的 macOS 可听性测试**
 
 在 `tests` 模块末尾增加以下测试。它既冻结 SDK 的用户首选警告音 ID，也为真人听音保留可重复命令；默认忽略，完整测试不会每次发声。
 
@@ -42,7 +42,7 @@
     }
 ```
 
-- [ ] **Step 2：运行人工 Gate，确认 RED 来自缺少原生声音常量**
+- [x] **Step 2：运行人工 Gate，确认 RED 来自缺少原生声音常量**
 
 Run:
 
@@ -53,7 +53,7 @@ cargo test --locked agent_notification::tests::macos_user_preferred_alert_is_aud
 
 Expected: 编译失败，错误指出 `USER_PREFERRED_ALERT_SOUND_ID` 不存在；不得通过修改断言绕过 RED。
 
-- [ ] **Step 3：保留 RED 证据，不单独提交不可编译状态**
+- [x] **Step 3：保留 RED 证据，不单独提交不可编译状态**
 
 记录错误摘要到本任务 `prd.md` 的 `Verification` 小节，然后直接进入 Task 2；避免留下不可编译提交。
 
@@ -63,7 +63,7 @@ Expected: 编译失败，错误指出 `USER_PREFERRED_ALERT_SOUND_ID` 不存在�
 - Modify: `src-tauri/src/agent_notification.rs:125-138`
 - Test: `src-tauri/src/agent_notification.rs:145-220`
 
-- [ ] **Step 1：增加 macOS 常量和最小 FFI 声明**
+- [x] **Step 1：增加 macOS 常量和最小 FFI 声明**
 
 在 Windows `play_system_sound` 之前加入：
 
@@ -84,7 +84,7 @@ unsafe extern "C" {
 }
 ```
 
-- [ ] **Step 2：将非 Windows 静默分支拆成 macOS 原生实现和其他平台分支**
+- [x] **Step 2：将非 Windows 静默分支拆成 macOS 原生实现和其他平台分支**
 
 保留 Windows 函数原样，将当前 `#[cfg(not(windows))]` 函数替换为：
 
@@ -112,7 +112,7 @@ fn play_system_sound() -> Result<(), ()> {
 
 同时把 Windows 函数上方注释收窄为“Windows 使用轻量系统提示音”，不得给通知 builder 增加 `.sound(...)`。
 
-- [ ] **Step 3：运行 macOS 人工 Gate，确认 GREEN 和实际可听性**
+- [x] **Step 3：运行 macOS 人工 Gate，确认 GREEN 和实际可听性**
 
 Run:
 
@@ -123,7 +123,7 @@ cargo test --locked agent_notification::tests::macos_user_preferred_alert_is_aud
 
 Expected: `1 passed; 0 failed`，并且机器播放一次当前用户首选警告音。命令通过但真人未听到时，只记录“调用通过、可听性未确认”，不得勾选声音真机 Gate。
 
-- [ ] **Step 4：验证两个能力开关仍彼此独立**
+- [x] **Step 4：验证两个能力开关仍彼此独立**
 
 Run:
 
@@ -134,7 +134,7 @@ cargo test --locked agent_notification::tests::terminal_policy_respects_independ
 
 Expected: `1 passed; 0 failed`；测试继续覆盖仅通知、仅声音和二者关闭。通知 builder 仍未设置声音，因此二者同时开启时只有 AudioToolbox 一处声音来源。
 
-- [ ] **Step 5：格式化并提交功能实现**
+- [x] **Step 5：格式化并提交功能实现**
 
 Run:
 
@@ -156,7 +156,7 @@ Expected: 提交只包含 `agent_notification.rs`，不包含 Trellis 文档或�
 - Modify: `.trellis/tasks/09-22-macos-p4b-notification-sound/prd.md`
 - Modify: `.trellis/tasks/09-22-macos-p4b-notification-sound/implement.md`
 
-- [ ] **Step 1：运行完整相关 Rust Gate**
+- [x] **Step 1：运行完整相关 Rust Gate**
 
 Run:
 
@@ -170,7 +170,7 @@ cargo test --locked
 
 Expected: 四条命令均成功；完整测试中的人工声音测试显示为 ignored，其他测试无失败。若任何命令失败，先修复本任务引入的问题并重新运行受影响命令，不弱化 lint 或测试。
 
-- [ ] **Step 2：构建真实 macOS `.app`**
+- [x] **Step 2：构建真实 macOS `.app`**
 
 Run:
 
@@ -182,6 +182,8 @@ file "src-tauri/target/release/bundle/macos/Serena Desktop.app/Contents/MacOS/se
 Expected: 构建成功，bundle 主程序包含 `arm64`。本步骤只生成本地候选，不签发 Developer ID、不公证、不创建 Release。
 
 - [ ] **Step 3：执行通知与声音人工矩阵**
+
+> 阻塞记录：2026-09-22 从新构建 `.app` 提交无修改短任务时，任务在派发前返回 `CODEX_COMPATIBILITY_BLOCKED`。本机两个 ARM64 候选为 `codex-cli 0.155.1`，当前精确白名单为 `0.153.4`，且本机没有保留 `0.153.4`。因此四种开关组合、通知权限和点击激活均保持 `未验证`；测试任务已取消，未删除。
 
 Run:
 
@@ -200,7 +202,7 @@ open "src-tauri/target/release/bundle/macos/Serena Desktop.app"
 
 再从通知中心点击已投递通知，记录应用是否激活主窗口；在系统设置中拒绝通知后重复一次并记录投递结果。该步骤需要真人观察，未观察的格子明确记录为 `未验证`，不得推断通过。
 
-- [ ] **Step 4：更新清单和任务证据**
+- [x] **Step 4：更新清单和任务证据**
 
 在 `docs/macos-porting-checklist.md` 的 Phase 4 当前状态补充 AudioToolbox 实现及本次测试结果。只有 Step 3 的真人听音确认成功时，才把“为 macOS 实现真实声音提示”改为 `[x]`；通知权限和点击激活仅在对应矩阵真实通过时勾选。
 
@@ -214,7 +216,7 @@ open "src-tauri/target/release/bundle/macos/Serena Desktop.app"
 
 按实际结果勾选 PRD Acceptance Criteria；任何未完成的人工项保持 `[ ]`。
 
-- [ ] **Step 5：提交证据文档**
+- [x] **Step 5：提交证据文档**
 
 Run:
 
