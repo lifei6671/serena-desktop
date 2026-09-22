@@ -552,6 +552,40 @@ mod tests {
         time::Duration,
     };
 
+    /// shutdown 必须尝试全部 owner，并在最后汇总稳定的 owner 诊断。
+    #[tokio::test]
+    async fn shutdown_steps_attempt_all_owners_and_aggregate_failures() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let step = |name: &'static str, result: Result<(), String>| {
+            let calls = Arc::clone(&calls);
+            Box::pin(async move {
+                calls.lock().unwrap().push(name);
+                result
+            }) as ShutdownFuture<'_>
+        };
+
+        let error = run_shutdown_steps(vec![
+            (
+                "workspace capability",
+                step("workspace capability", Err("capability failed".into())),
+            ),
+            ("agent", step("agent", Ok(()))),
+            ("broker", step("broker", Err("broker failed".into()))),
+            ("serena", step("serena", Ok(()))),
+        ])
+        .await
+        .unwrap_err();
+
+        assert_eq!(
+            calls.lock().unwrap().as_slice(),
+            ["workspace capability", "agent", "broker", "serena"]
+        );
+        assert_eq!(
+            error,
+            "workspace capability: capability failed; broker: broker failed"
+        );
+    }
+
     /// macOS 状态探针必须把正式 discovery 选中的 executable 交给版本读取器。
     #[tokio::test]
     #[cfg(target_os = "macos")]
@@ -940,21 +974,54 @@ pub(crate) async fn restart_serena_impl(broker: &crate::mcp::Broker) -> Result<(
     }
     Ok(())
 }
+type ShutdownFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + 'a>>;
+
+/// 顺序执行全部 owner 的正式 shutdown；失败只记录，不能跳过后续 owner。
+async fn run_shutdown_steps(steps: Vec<(&'static str, ShutdownFuture<'_>)>) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for (owner, step) in steps {
+        if let Err(error) = step.await {
+            errors.push(format!("{owner}: {error}"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
 pub fn shutdown_impl(app: &AppHandle) -> Result<(), String> {
     let broker = crate::mcp::get(app);
     if let Some((_, token)) = broker.operation.lock().unwrap().as_ref() {
         token.cancel();
     }
+    let capability_supervisor = app
+        .state::<std::sync::Arc<SupervisorState>>()
+        .inner()
+        .clone();
+    let serena_supervisor = capability_supervisor.clone();
+    let product = app
+        .state::<std::sync::Arc<crate::agent::product::AgentProductService>>()
+        .inner()
+        .clone();
+    let shutdown_broker = broker.clone();
     tauri::async_runtime::block_on(async {
-        app.state::<std::sync::Arc<SupervisorState>>()
-            .shutdown_capability_runtimes()
-            .await?;
-        app.state::<std::sync::Arc<crate::agent::product::AgentProductService>>()
-            .shutdown()
-            .await?;
         let _m = broker.management.lock().await;
-        broker.shutdown().await?;
-        app.state::<std::sync::Arc<SupervisorState>>().stop()
+        run_shutdown_steps(vec![
+            (
+                "workspace capability",
+                Box::pin(async move { capability_supervisor.shutdown_capability_runtimes().await }),
+            ),
+            ("agent", Box::pin(async move { product.shutdown().await })),
+            (
+                "broker",
+                Box::pin(async move { shutdown_broker.shutdown().await }),
+            ),
+            ("serena", Box::pin(async move { serena_supervisor.stop() })),
+        ])
+        .await
     })
 }
 #[tauri::command]

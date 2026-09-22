@@ -207,7 +207,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 
 - [x] Serena 主服务、Workspace Serena Runtime 和 cloudflared 均在独立 process group 中启动。
 - [x] 停止时终止完整 process group，不只调用直接 child `kill()`。
-- [ ] 超时、取消、应用退出和启动失败共用同一所有权契约。
+- [x] 超时、取消、应用退出和启动失败共用同一所有权契约；宿主退出会按 owner 顺序尝试 Workspace Capability、Agent、Broker 和 Serena 的正式 shutdown，并在最后汇总错误。
 - [x] 证明停止不会影响用户在 Terminal 中自行启动的 Serena/Codex/cloudflared。
 
 ### 6.5 Phase 3B 自动化证据（2026-09-22）
@@ -227,14 +227,14 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 
 **预估：** 2～3 个工程日
 
-**当前状态：** Phase 4A 已接入固定 `/usr/bin/open` 和 macOS Dock reopen 事件；Phase 4B 已通过 AudioToolbox 接入用户首选警告音，并通过声音调用 Gate、完整 Rust Gate、arm64 `.app` 构建和 ad-hoc 签名验证。声音实际可听性仍待用户确认；真实通知矩阵被本机 `codex-cli 0.155.1` 与当前精确白名单 `0.153.4` 的兼容性阻断，通知权限和点击激活未验证。Dock、`Cmd+Q`、菜单栏、single-instance、LAN plist、文件权限和 UI 文案仍待后续处理。
+**当前状态：** Phase 4A 已接入固定 `/usr/bin/open`、macOS Dock reopen 事件和最终 `RunEvent::Exit` shutdown 补偿；标准 Quit Apple Event 真机验证确认宿主、Serena broker 与 `9121` 监听一并退出。Phase 4B 已通过 AudioToolbox 接入用户首选警告音，并通过声音调用 Gate、完整 Rust Gate、arm64 `.app` 构建和 ad-hoc 签名验证。声音实际可听性仍待用户确认；真实通知矩阵被本机 `codex-cli 0.155.1` 与当前精确白名单 `0.153.4` 的兼容性阻断，通知权限和点击激活未验证。红色关闭按钮语义、single-instance、LaunchAgent、LAN plist、文件权限和 UI 文案仍待后续处理。
 
 ### 7.1 系统行为
 
 - [x] macOS 使用 `/usr/bin/open` 打开 URL 和日志目录，Linux 仍使用 `xdg-open`。
-- [ ] 处理 macOS Dock reopen 事件，无可见窗口时显示并聚焦主窗口。
+- [x] 处理 macOS Dock reopen 事件，无可见窗口时显示并聚焦主窗口。
 - [ ] 验证红色关闭按钮、隐藏到菜单栏和 `Cmd+Q` 的不同语义。
-- [ ] `Cmd+Q` 和菜单栏“退出”均必须等待既有 shutdown 流程完成。
+- [x] Dock、`Cmd+Q` 和菜单栏“退出”进入最终 `RunEvent::Exit` 时同步等待统一、幂等的 shutdown 流程完成。
 - [ ] 验证 single-instance 二次启动能唤醒隐藏窗口。
 - [ ] 验证 LaunchAgent 启用、禁用、登录启动和应用升级后路径。
 

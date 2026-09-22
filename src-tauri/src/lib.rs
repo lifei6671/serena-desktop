@@ -49,6 +49,29 @@ impl Default for ShutdownState {
     }
 }
 
+/// 对所有可感知退出提供单一、可重试且成功后幂等的 shutdown gate。
+fn run_shutdown_once(
+    state: &ShutdownState,
+    shutdown: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if state.ready.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    if state.started.swap(true, Ordering::AcqRel) {
+        return Err("退出清理正在进行".into());
+    }
+    match shutdown() {
+        Ok(()) => {
+            state.ready.store(true, Ordering::Release);
+            Ok(())
+        }
+        Err(error) => {
+            state.started.store(false, Ordering::Release);
+            Err(error)
+        }
+    }
+}
+
 fn is_autostart_launch(arguments: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>) -> bool {
     arguments
         .into_iter()
@@ -70,38 +93,22 @@ pub(crate) async fn finish_broker_startup(
 
 pub(crate) fn request_exit(app: &AppHandle) {
     let shutdown = app.state::<ShutdownState>();
-    if shutdown.started.swap(true, Ordering::AcqRel) {
-        return;
-    }
-
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }
-    let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || match commands::shutdown_impl(&handle) {
+    match run_shutdown_once(&shutdown, || commands::shutdown_impl(app)) {
         Ok(()) => {
-            handle
-                .state::<ShutdownState>()
-                .ready
-                .store(true, Ordering::Release);
-            handle.exit(0);
+            app.exit(0);
         }
         Err(error) => {
             logs::append(
-                &handle
-                    .state::<std::sync::Arc<SupervisorState>>()
-                    .paths
-                    .app_log,
+                &app.state::<std::sync::Arc<SupervisorState>>().paths.app_log,
                 "shutdown",
                 &error,
             );
-            handle
-                .state::<ShutdownState>()
-                .started
-                .store(false, Ordering::Release);
-            tray::show_main_window(&handle);
+            tray::show_main_window(app);
         }
-    });
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -317,13 +324,57 @@ pub fn run() {
                 request_exit(app);
             }
         }
+        #[cfg(target_os = "macos")]
+        RunEvent::Exit => {
+            let shutdown = app.state::<ShutdownState>();
+            if let Err(error) = run_shutdown_once(&shutdown, || commands::shutdown_impl(app)) {
+                logs::append(
+                    &app.state::<std::sync::Arc<SupervisorState>>().paths.app_log,
+                    "shutdown",
+                    &error,
+                );
+            }
+        }
         _ => {}
     });
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_autostart_launch;
+    use super::{ShutdownState, is_autostart_launch, run_shutdown_once};
+    use std::{cell::Cell, sync::atomic::Ordering};
+
+    /// shutdown 成功后最终 Exit 不得再次调用 owner。
+    #[test]
+    fn shutdown_once_marks_ready_and_skips_reentry() {
+        let state = ShutdownState::default();
+        let calls = Cell::new(0);
+        run_shutdown_once(&state, || {
+            calls.set(calls.get() + 1);
+            Ok(())
+        })
+        .unwrap();
+        run_shutdown_once(&state, || {
+            calls.set(calls.get() + 1);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(calls.get(), 1);
+        assert!(state.ready.load(Ordering::Acquire));
+    }
+
+    /// 可取消退出失败后必须允许用户再次触发完整 shutdown。
+    #[test]
+    fn shutdown_once_failure_allows_retry() {
+        let state = ShutdownState::default();
+        assert_eq!(
+            run_shutdown_once(&state, || Err("fixture failure".into())),
+            Err("fixture failure".into())
+        );
+        assert!(!state.started.load(Ordering::Acquire));
+        run_shutdown_once(&state, || Ok(())).unwrap();
+        assert!(state.ready.load(Ordering::Acquire));
+    }
 
     #[test]
     fn recognizes_only_explicit_autostart_argument() {
