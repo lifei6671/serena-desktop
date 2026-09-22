@@ -3,7 +3,7 @@
   "name": "macos-dock-quit-serena-cleanup",
   "title": "收口宿主退出时的全部受管子进程",
   "description": "确保 Serena Desktop 能感知到自身退出时完成统一 shutdown，不遗留任何由应用拥有的子孙进程。",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,
