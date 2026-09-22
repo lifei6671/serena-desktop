@@ -87,3 +87,14 @@
 ### Next Steps
 
 - Phase 2B 设计 StateStore migration、startup recovery 与 Claim release；证据不足时保持 unknown。
+
+## 2026-09-21｜macOS Phase 1B App Bundle 基线
+
+- 原始失败证据：本任务实施前，`npm run tauri build` 在 macOS 只留下 `src-tauri/target/release/serena-desktop` 裸 Mach-O，没有可由 Finder/LaunchServices 使用的 `.app`。
+- 配置边界：保留基础 `src-tauri/tauri.conf.json` 的唯一 Windows `nsis` target；新增独立 `src-tauri/tauri.macos.conf.json`，仅覆盖 macOS `app` target、候选最低版本 `12.0` 和 `signingIdentity: "-"`。
+- App Bundle 证据：当前 arm64、macOS 26.5.2 主机执行 `npm run tauri build` exit 0，生成 `src-tauri/target/release/bundle/macos/Serena Desktop.app`；plist 为 `APPL`，bundle identifier 为 `io.github.lifei6671.serena-desktop`，`LSMinimumSystemVersion` 为 `12.0`，`CFBundleIconFile` 指向实际 `icon.icns`。
+- 签名与启动：`codesign --verify --deep --strict` exit 0，`Signature=adhoc`、无 Developer ID；`open -na` 通过本机 LaunchServices 启动 bundle 内 executable，验证后只终止该次新建实例且无残留新 PID。
+- 前端 Gate：`npm run lint`、`npm run build`、`npm test` 均 exit 0；Node 测试 117 passed、0 failed、0 skipped。
+- Rust Gate：fmt、check、test 均 exit 0；library 941 passed、0 failed、12 ignored（共发现 953 项），main 与 doc-tests 均为 0 项。
+- 范围与 Trellis Gate：受保护的 Windows 配置、workflow、installer verifier 和 uninstall policy diff exit 0；`git diff --check` exit 0；任务 context validate exit 0。
+- 状态：Phase 1B App Bundle 基线完成，但整个 macOS 适配尚未完成。Phase 2B StateStore/Claim/Startup Recovery、DMG、Developer ID、Notarization、macOS CI/Release、最低 macOS 12 真机验证，以及 Finder/Dock/菜单栏完整人工视觉验收仍未完成。

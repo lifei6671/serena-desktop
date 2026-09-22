@@ -14,16 +14,13 @@
 
 ### 1.1 已验证事实
 
-- 当前代码在 macOS arm64 上执行 `cargo check --locked` 失败。
-- 当前输出 23 条 Rust 编译错误和 3 条警告；23 条中包含由根因引发的级联诊断，不等于 23 个独立改造项。
-- 主要编译阻断：
-  - `agent::product`、`agent::work`、`agent::task_manager` 被 `cfg(windows)` 整层裁掉，但上层仍无条件引用。
-  - `serena_capability` 无条件导入 Windows 专属的 `contain_process` 和 `terminate_managed_job`。
-  - `source_write_atomic_replace` 在 Unix 路径使用 `ErrorKind`，但导入被限制为 `cfg(windows)`。
+- 当前代码已在 arm64、macOS 26.5.2 主机通过 `cargo check --locked` 和完整 Rust 测试；最低 macOS 12.0 真机仍未验证。
+- Phase 1 的 Rust 编译阻断已经解除；Phase 2B StateStore、Claim 与 Startup Recovery 仍未完成。
 - 前端主体为 React/WebView，组件和布局可复用；平台文案和少量系统交互需要分支。
 - Tauri 配置已包含 `icon.icns`，并已初始化 `MacosLauncher::LaunchAgent`。
 - Quick Tunnel 已包含 macOS arm64/x86_64 的 cloudflared 固定版本与 SHA-256 映射。
-- 当前 GitHub Actions、bundle 目标、安装器验证和卸载策略均只覆盖 Windows/NSIS。
+- 基础 `src-tauri/tauri.conf.json` 仍是 Windows NSIS authority；macOS 已使用独立的 `src-tauri/tauri.macos.conf.json`，当前主机执行 `npm run tauri build` 会生成 `.app`。
+- 当前 GitHub Actions、Release、安装器验证和卸载策略仍只覆盖 Windows/NSIS。
 
 ### 1.2 关键证据位置
 
@@ -36,6 +33,7 @@
 - macOS cloudflared 资产：`src-tauri/src/remote/quick_tunnel.rs:41`
 - 系统打开命令：`src-tauri/src/commands.rs:457`
 - bundle 配置：`src-tauri/tauri.conf.json:32`
+- macOS bundle overlay：`src-tauri/tauri.macos.conf.json:1`
 - Windows CI：`.github/workflows/ci.yml:19`
 - Windows Release：`.github/workflows/release.yml:15`
 
@@ -244,7 +242,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 
 ### 8.1 Tauri 配置
 
-- [ ] 创建 macOS 平台配置，避免直接将全局 `targets` 从 `nsis` 改成会影响 Windows 的值。
+- [x] 创建 macOS 平台配置，避免直接将全局 `targets` 从 `nsis` 改成会影响 Windows 的值。
 - [ ] 输出 `.app` 和 `.dmg`。
 - [ ] 配置 category、minimum system version、copyright、Info.plist 和必要 entitlements。
 - [ ] 保留 Hardened Runtime，不添加未证明必要的 exception entitlement。

@@ -37,7 +37,7 @@
 - Create: `scripts/macos-bundle-config.test.mjs`
 - Create: `src-tauri/tauri.macos.conf.json`
 
-- [ ] **Step 1：创建真实配置契约测试**
+- [x] **Step 1：创建真实配置契约测试**
 
 新增 `scripts/macos-bundle-config.test.mjs`：
 
@@ -72,7 +72,7 @@ test("macOS app bundle overlay stays isolated from the Windows NSIS authority", 
 });
 ```
 
-- [ ] **Step 2：运行测试并确认 RED 来自缺少 macOS overlay**
+- [x] **Step 2：运行测试并确认 RED 来自缺少 macOS overlay**
 
 Run:
 
@@ -82,7 +82,7 @@ node --test scripts/macos-bundle-config.test.mjs
 
 Expected: FAIL；`src-tauri/tauri.macos.conf.json` 不存在，错误为 `ENOENT`。基础 Windows 配置和 icon 文件读取不应失败。
 
-- [ ] **Step 3：添加最小 macOS 平台配置**
+- [x] **Step 3：添加最小 macOS 平台配置**
 
 新增 `src-tauri/tauri.macos.conf.json`：
 
@@ -99,7 +99,7 @@ Expected: FAIL；`src-tauri/tauri.macos.conf.json` 不存在，错误为 `ENOENT
 }
 ```
 
-- [ ] **Step 4：验证配置测试转绿**
+- [x] **Step 4：验证配置测试转绿**
 
 Run:
 
@@ -115,7 +115,7 @@ Expected: 1 passed、0 failed。
 
 - Modify: `package.json`
 
-- [ ] **Step 1：扩展现有 test script，不引入新 runner**
+- [x] **Step 1：扩展现有 test script，不引入新 runner**
 
 把：
 
@@ -129,7 +129,7 @@ Expected: 1 passed、0 failed。
 "test": "node --test src/*.test.mjs scripts/macos-bundle-config.test.mjs"
 ```
 
-- [ ] **Step 2：运行标准前端 Gate**
+- [x] **Step 2：运行标准前端 Gate**
 
 Run:
 
@@ -147,7 +147,7 @@ Expected: 全部 exit 0；`npm test` 为原有 116 项加新增 1 项，共 117 
 
 - Verify: `src-tauri/target/release/bundle/macos/Serena Desktop.app`
 
-- [ ] **Step 1：使用用户原命令构建**
+- [x] **Step 1：使用用户原命令构建**
 
 Run:
 
@@ -157,11 +157,13 @@ npm run tauri build
 
 Expected: exit 0；输出包含 `Bundling Serena Desktop.app` 或等价 macOS bundle 阶段，并报告 `.app` 路径，不再只报告裸 `target/release/serena-desktop`。
 
-- [ ] **Step 2：验证 bundle 类型、身份、最低版本和 icon**
+- [x] **Step 2：验证 bundle 类型、身份、最低版本和 icon**
 
 Run:
 
 ```bash
+set -euo pipefail
+
 MACOS_APP_BUNDLE="src-tauri/target/release/bundle/macos/Serena Desktop.app"
 test -d "$MACOS_APP_BUNDLE"
 test "$(plutil -extract CFBundlePackageType raw "$MACOS_APP_BUNDLE/Contents/Info.plist")" = "APPL"
@@ -169,45 +171,134 @@ test "$(plutil -extract CFBundleIdentifier raw "$MACOS_APP_BUNDLE/Contents/Info.
 test "$(plutil -extract LSMinimumSystemVersion raw "$MACOS_APP_BUNDLE/Contents/Info.plist")" = "12.0"
 MACOS_ICON_FILE="$(plutil -extract CFBundleIconFile raw "$MACOS_APP_BUNDLE/Contents/Info.plist")"
 test -n "$MACOS_ICON_FILE"
-test -f "$MACOS_APP_BUNDLE/Contents/Resources/$MACOS_ICON_FILE"
-file "$MACOS_APP_BUNDLE/Contents/Resources/$MACOS_ICON_FILE"
+MACOS_ICON_PATH="$MACOS_APP_BUNDLE/Contents/Resources/$MACOS_ICON_FILE"
+if [ ! -f "$MACOS_ICON_PATH" ]; then
+  case "$MACOS_ICON_FILE" in
+    *.icns)
+      printf 'icon resource not found: %s\n' "$MACOS_ICON_PATH" >&2
+      exit 1
+      ;;
+    *)
+      test -f "$MACOS_ICON_PATH.icns"
+      MACOS_ICON_PATH="$MACOS_ICON_PATH.icns"
+      ;;
+  esac
+fi
+file "$MACOS_ICON_PATH" | rg 'Mac OS X icon'
 ```
 
 Expected: 所有 `test` exit 0；`file` 报告 Mac OS X icon。若 plist 返回不带 `.icns` 的逻辑名，只允许在实际 bundle 同名 `.icns` 存在时把验证解析为该文件，不修改产品图标命名来迎合测试。
 
-- [ ] **Step 3：验证 ad-hoc 签名**
+- [x] **Step 3：验证 ad-hoc 签名**
 
 Run:
 
 ```bash
+set -euo pipefail
+
 MACOS_APP_BUNDLE="src-tauri/target/release/bundle/macos/Serena Desktop.app"
 codesign --verify --deep --strict "$MACOS_APP_BUNDLE"
-codesign -dv --verbose=4 "$MACOS_APP_BUNDLE" 2>&1 | rg "Signature=adhoc"
+MACOS_CODESIGN_DETAILS="$(codesign -dv --verbose=4 "$MACOS_APP_BUNDLE" 2>&1)"
+printf '%s\n' "$MACOS_CODESIGN_DETAILS"
+printf '%s\n' "$MACOS_CODESIGN_DETAILS" | rg '^Signature=adhoc$'
+if printf '%s\n' "$MACOS_CODESIGN_DETAILS" | rg -i 'Developer ID' >/dev/null; then
+  printf 'unexpected Developer ID identity\n' >&2
+  exit 1
+fi
 ```
 
 Expected: 两条命令 exit 0；签名明确为 ad-hoc，不出现 Developer ID identity。
 
-- [ ] **Step 4：通过 LaunchServices 启动并只清理该构建实例**
+- [x] **Step 4：通过 LaunchServices 启动并只清理该构建实例**
 
 Run:
 
 ```bash
+set -euo pipefail
+
 MACOS_APP_BUNDLE="$(pwd)/src-tauri/target/release/bundle/macos/Serena Desktop.app"
+MACOS_APP_EXECUTABLE="$MACOS_APP_BUNDLE/Contents/MacOS/serena-desktop"
+
+# 只根据 ps 的完整 command 做固定字符串比较，不把带空格或点号的路径当作正则表达式。
+matching_bundle_pids() {
+  local pid command
+  while read -r pid command; do
+    if [[ "$command" == "$MACOS_APP_EXECUTABLE" || "$command" == "$MACOS_APP_EXECUTABLE "* ]]; then
+      printf '%s\n' "$pid"
+    fi
+  done < <(ps -axo pid=,command=)
+}
+
+pid_was_running_before() {
+  local candidate="$1"
+  case "$MACOS_APP_PIDS_BEFORE_PADDED" in
+    *" $candidate "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+new_bundle_pids() {
+  local candidate
+  while IFS= read -r candidate; do
+    if [[ -n "$candidate" ]] && ! pid_was_running_before "$candidate"; then
+      printf '%s\n' "$candidate"
+    fi
+  done < <(matching_bundle_pids)
+}
+
+MACOS_APP_PIDS_BEFORE="$(matching_bundle_pids)"
+MACOS_APP_PIDS_BEFORE_PADDED=" $(printf '%s' "$MACOS_APP_PIDS_BEFORE" | tr '\n' ' ') "
+if [[ -z "$MACOS_APP_PIDS_BEFORE" ]]; then
+  printf 'preexisting_exact_bundle_pids=none\n'
+else
+  printf 'preexisting_exact_bundle_pids=%s\n' "${MACOS_APP_PIDS_BEFORE//$'\n'/ }"
+fi
+
 open -na "$MACOS_APP_BUNDLE"
 MACOS_APP_PID=""
 for _ in {1..50}; do
-  MACOS_APP_PID="$(pgrep -nf "^$MACOS_APP_BUNDLE/Contents/MacOS/serena-desktop( |$)" || true)"
-  if [ -n "$MACOS_APP_PID" ]; then break; fi
+  MACOS_APP_NEW_PIDS="$(new_bundle_pids)"
+  MACOS_APP_NEW_PID_COUNT="$(printf '%s\n' "$MACOS_APP_NEW_PIDS" | awk 'NF { count++ } END { print count + 0 }')"
+  if (( MACOS_APP_NEW_PID_COUNT > 1 )); then
+    printf 'multiple new bundle PIDs: %s\n' "${MACOS_APP_NEW_PIDS//$'\n'/ }" >&2
+    exit 1
+  fi
+  if (( MACOS_APP_NEW_PID_COUNT == 1 )); then
+    MACOS_APP_PID="$MACOS_APP_NEW_PIDS"
+    break
+  fi
   sleep 0.1
 done
-test -n "$MACOS_APP_PID"
-ps -p "$MACOS_APP_PID" -o command= | rg -F "$MACOS_APP_BUNDLE/Contents/MacOS/serena-desktop"
+if [[ -z "$MACOS_APP_PID" ]]; then
+  printf 'no new bundle PID found\n' >&2
+  exit 1
+fi
+
+# kill 前重新读取该 PID 的 command，路径不匹配时立即失败且不发送信号。
+MACOS_APP_COMMAND="$(ps -p "$MACOS_APP_PID" -o command=)"
+if [[ "$MACOS_APP_COMMAND" != "$MACOS_APP_EXECUTABLE" && "$MACOS_APP_COMMAND" != "$MACOS_APP_EXECUTABLE "* ]]; then
+  printf 'PID %s command mismatch: %s\n' "$MACOS_APP_PID" "$MACOS_APP_COMMAND" >&2
+  exit 1
+fi
+printf 'new_bundle_pid=%s\n' "$MACOS_APP_PID"
+printf 'new_bundle_command=%s\n' "$MACOS_APP_COMMAND"
+
 kill -TERM "$MACOS_APP_PID"
 for _ in {1..50}; do
   if ! kill -0 "$MACOS_APP_PID" 2>/dev/null; then break; fi
   sleep 0.1
 done
-! kill -0 "$MACOS_APP_PID" 2>/dev/null
+if kill -0 "$MACOS_APP_PID" 2>/dev/null; then
+  printf 'PID %s did not exit after TERM\n' "$MACOS_APP_PID" >&2
+  exit 1
+fi
+
+MACOS_APP_REMAINING_NEW_PIDS="$(new_bundle_pids)"
+if [[ -n "$MACOS_APP_REMAINING_NEW_PIDS" ]]; then
+  printf 'remaining new bundle PIDs: %s\n' "${MACOS_APP_REMAINING_NEW_PIDS//$'\n'/ }" >&2
+  exit 1
+fi
+printf 'remaining_new_bundle_pids=none\n'
 ```
 
 Expected: `open` 通过 LaunchServices 启动 `.app/Contents/MacOS/serena-desktop`，而不是 Terminal 启动裸 release 文件；只终止从该绝对 bundle 路径观测到的 PID，最终进程退出。人工同时确认 Finder/Dock 显示项目 icon；若 Finder 缓存仍显示旧图标，只记录缓存现象，不修改资源生成策略。
@@ -221,7 +312,7 @@ Expected: `open` 通过 LaunchServices 启动 `.app/Contents/MacOS/serena-deskto
 - Modify: `.trellis/tasks/09-21-macos-p1b-app-bundle/implement.md`
 - Modify: `.trellis/workspace/codex/journal-1.md`
 
-- [ ] **Step 1：更新清单中的真实状态**
+- [x] **Step 1：更新清单中的真实状态**
 
 仅做以下文档变化：
 
@@ -230,7 +321,7 @@ Expected: `open` 通过 LaunchServices 启动 `.app/Contents/MacOS/serena-deskto
 - 勾选 Phase 5 的“创建 macOS 平台配置，避免直接将全局 targets 从 nsis 改成影响 Windows 的值”。
 - 不勾选 DMG、Developer ID、公证、最低 macOS 12 真机、Finder/Dock/菜单栏完整视觉验收。
 
-- [ ] **Step 2：运行完整相关 Gate**
+- [x] **Step 2：运行完整相关 Gate**
 
 Run:
 
@@ -248,7 +339,7 @@ python3 ./.trellis/scripts/task.py validate .trellis/tasks/09-21-macos-p1b-app-b
 
 Expected: 全部 exit 0；Windows authority、workflow 和 installer verifier 无 diff；工作区只包含当前任务范围。
 
-- [ ] **Step 3：更新验收记录但保持延期边界**
+- [x] **Step 3：更新验收记录但保持延期边界**
 
 只在真实命令通过后勾选 `prd.md`。Journal 记录：
 

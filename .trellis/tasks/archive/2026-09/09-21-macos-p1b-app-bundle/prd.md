@@ -16,13 +16,19 @@
 
 ## Acceptance Criteria
 
-- [ ] 配置测试确认 Windows 基础配置仍为唯一 `nsis` target，macOS overlay 为唯一 `app` target。
-- [ ] 配置测试确认 macOS 使用 `minimumSystemVersion: "12.0"` 和 `signingIdentity: "-"`，基础图标列表包含 `icons/icon.icns`。
-- [ ] `npm run tauri build` 在当前 arm64 macOS 主机 exit 0，并生成 `src-tauri/target/release/bundle/macos/Serena Desktop.app`。
-- [ ] App Bundle 的 `CFBundlePackageType` 为 `APPL`，`CFBundleIconFile` 指向 bundle 内实际存在的 `icon.icns`。
-- [ ] `codesign --verify --deep --strict` 接受该 App Bundle，签名身份为 ad-hoc，不依赖开发者账户。
-- [ ] 通过 `open -na` 由 LaunchServices 启动 `.app`，不把裸 Mach-O 当作用户入口。
-- [ ] Windows NSIS 配置、workflow、installer verifier 和现有 Windows 源码无变化。
+- [x] 配置测试确认 Windows 基础配置仍为唯一 `nsis` target，macOS overlay 为唯一 `app` target。
+- [x] 配置测试确认 macOS 使用 `minimumSystemVersion: "12.0"` 和 `signingIdentity: "-"`，基础图标列表包含 `icons/icon.icns`。
+- [x] `npm run tauri build` 在当前 arm64 macOS 主机 exit 0，并生成 `src-tauri/target/release/bundle/macos/Serena Desktop.app`。
+- [x] App Bundle 的 `CFBundlePackageType` 为 `APPL`，`CFBundleIconFile` 指向 bundle 内实际存在的 `icon.icns`。
+- [x] `codesign --verify --deep --strict` 接受该 App Bundle，签名身份为 ad-hoc，不依赖开发者账户。
+- [x] 通过 `open -na` 由 LaunchServices 启动 `.app`，不把裸 Mach-O 当作用户入口。
+- [x] Windows NSIS 配置、workflow、installer verifier 和现有 Windows 源码无变化。
+
+## Verification / Evidence
+
+- 当前验证主机为 arm64、macOS 26.5.2；`npm run tauri build` 生成 `src-tauri/target/release/bundle/macos/Serena Desktop.app`。
+- Bundle plist、`icon.icns`、ad-hoc 签名和本机 LaunchServices 启动均已验证；Finder、Dock 与菜单栏的完整人工视觉验收尚未确认。
+- 当前证据不覆盖 macOS 12 真机、DMG、Developer ID、Notarization、Gatekeeper 分发或 macOS CI/Release。
 
 ## Out of Scope
 
