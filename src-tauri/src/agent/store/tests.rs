@@ -10,6 +10,28 @@ mod work_runs;
 fn open(directory: &std::path::Path) -> StateStore {
     tauri::async_runtime::block_on(StateStore::open(directory.to_path_buf())).unwrap()
 }
+
+/// 从冻结 SQL 构造真实 v9 数据库，避免测试依赖当前 schema 拼装旧版本。
+fn frozen_v9_connection() -> Connection {
+    let connection = Connection::open_in_memory().unwrap();
+    connection
+        .execute_batch(include_str!("../../../tests/fixtures/agent_state_v9.sql"))
+        .unwrap();
+    connection
+}
+
+/// v9 升级测试读取的 v10 平台证据投影。
+#[derive(Debug, PartialEq, Eq)]
+struct V10PlatformProjection {
+    runtime_platform: String,
+    containment_type: String,
+    process_identity_scheme: String,
+    process_group_id: Option<i64>,
+    session_id: Option<i64>,
+    verified_at: Option<i64>,
+    evidence_type: String,
+    evidence_at: i64,
+}
 fn request(agent: &str, root: &str) -> CanonicalRequest {
     let input: CreateExecutionInput =
         serde_json::from_value(json!({"agent_id":agent,"request_key":"key",
@@ -42,7 +64,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
         let store = open(dir.path());
         let c = store.connection.lock().unwrap();
         for (pragma, expected) in [
-            ("user_version", 9),
+            ("user_version", 10),
             ("foreign_keys", 1),
             ("synchronous", 2),
             ("busy_timeout", 5000),
@@ -96,6 +118,262 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
     assert!(dir.path().join("agent-state.db").is_file());
 }
 
+/// 验证冻结的 Windows v9 Runtime/Execution/Claim 完整升级且不改写历史证据。
+#[test]
+fn migrates_frozen_v9_fixture_to_v10() {
+    let mut connection = frozen_v9_connection();
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        9
+    );
+
+    migrate(&mut connection).unwrap();
+
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        10
+    );
+    let projected = connection
+        .query_row(
+            "SELECT runtime_platform, containment_type, process_identity_scheme,
+                        containment_process_group_id, containment_session_id,
+                        containment_verified_at, termination_evidence_type,
+                        termination_evidence_at
+                 FROM runtime_instances WHERE id='runtime-v9'",
+            [],
+            |row| {
+                Ok(V10PlatformProjection {
+                    runtime_platform: row.get(0)?,
+                    containment_type: row.get(1)?,
+                    process_identity_scheme: row.get(2)?,
+                    process_group_id: row.get(3)?,
+                    session_id: row.get(4)?,
+                    verified_at: row.get(5)?,
+                    evidence_type: row.get(6)?,
+                    evidence_at: row.get(7)?,
+                })
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        projected,
+        V10PlatformProjection {
+            runtime_platform: "windows".into(),
+            containment_type: "windows_job".into(),
+            process_identity_scheme: "windows_filetime_v1".into(),
+            process_group_id: None,
+            session_id: None,
+            verified_at: None,
+            evidence_type: "managed_job_destroyed".into(),
+            evidence_at: 200,
+        }
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM workspace_claims c
+                 JOIN executions e ON e.id=c.execution_id
+                 JOIN runtime_instances r ON r.id=e.runtime_instance_id
+                 WHERE c.execution_id='execution-v9' AND r.id='runtime-v9'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        1
+    );
+}
+
+/// 验证 v10 最终历史行校验失败时新增列、触发器、数据和版本号全部回滚。
+#[test]
+fn v10_migration_failure_preserves_v9_database() {
+    let mut connection = frozen_v9_connection();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER reject_v10_validation BEFORE UPDATE ON runtime_instances
+             BEGIN SELECT RAISE(ABORT, 'fixture rejects validation update'); END;",
+        )
+        .unwrap();
+
+    assert!(
+        migrate(&mut connection)
+            .unwrap_err()
+            .contains("fixture rejects validation update")
+    );
+    assert_eq!(
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        9
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM pragma_table_info('runtime_instances')
+                 WHERE name='runtime_platform'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema
+                 WHERE type='trigger' AND name LIKE 'runtime_instances_v10_%'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM workspace_claims WHERE execution_id='execution-v9'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        1
+    );
+}
+
+/// 验证 v10 触发器拒绝平台、身份与 complete evidence 的错误组合。
+#[test]
+fn v10_runtime_platform_constraints_reject_mismatched_evidence() {
+    let mut connection = Connection::open_in_memory().unwrap();
+    migrate(&mut connection).unwrap();
+    let macos_insert = |connection: &Connection,
+                        id: &str,
+                        state: &str,
+                        pid: Option<i64>,
+                        pgid: Option<i64>,
+                        sid: Option<i64>,
+                        token: Option<&str>,
+                        verified: Option<i64>| {
+        connection.execute(
+            "INSERT INTO runtime_instances(
+                id,owner_host_instance_id,state,created_at,updated_at,
+                runtime_platform,containment_type,process_identity_scheme,
+                codex_pid,codex_process_start_token,containment_process_group_id,
+                containment_session_id,containment_verified_at)
+             VALUES(?1,'host',?2,1,1,'macos','macos_process_group',
+                    'darwin_proc_bsd_start_v1',?3,?4,?5,?6,?7)",
+            params![id, state, pid, token, pgid, sid, verified],
+        )
+    };
+
+    macos_insert(
+        &connection,
+        "prepared",
+        "preparing",
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    macos_insert(
+        &connection,
+        "running",
+        "running",
+        Some(42),
+        Some(42),
+        Some(42),
+        Some("darwin_proc_bsd_start_v1:1:2"),
+        Some(3),
+    )
+    .unwrap();
+    assert!(
+        macos_insert(
+            &connection,
+            "partial",
+            "running",
+            Some(43),
+            Some(43),
+            None,
+            Some("darwin_proc_bsd_start_v1:1:2"),
+            Some(3),
+        )
+        .is_err()
+    );
+    assert!(
+        macos_insert(
+            &connection,
+            "mismatch",
+            "running",
+            Some(44),
+            Some(45),
+            Some(44),
+            Some("darwin_proc_bsd_start_v1:1:2"),
+            Some(3),
+        )
+        .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "UPDATE runtime_instances SET termination_evidence_state='complete',
+                 termination_evidence_type='job_active_processes_zero',termination_evidence_at=9,
+                 state='terminated' WHERE id='running'",
+                [],
+            )
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "INSERT INTO runtime_instances(
+                    id,owner_host_instance_id,state,created_at,updated_at,
+                    runtime_platform,containment_type,process_identity_scheme,
+                    job_creation_mode,job_handle_inheritable,job_kill_on_close,
+                    job_breakaway_allowed,containment_process_group_id)
+                 VALUES('bad-windows','host','preparing',1,1,'windows','windows_job',
+                        'windows_filetime_v1','proc_thread_attribute_job_list',0,1,0,99)",
+                [],
+            )
+            .is_err()
+    );
+}
+
+/// 验证 Runtime 读模型直接投影 v10 原始平台证据，不从旧 Job 字段推断。
+#[test]
+fn runtime_record_projects_v10_platform_evidence() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = open(directory.path());
+    {
+        let connection = store.connection.lock().unwrap();
+        connection
+            .execute(
+                "INSERT INTO runtime_instances(
+                    id,owner_host_instance_id,state,created_at,updated_at,
+                    runtime_platform,containment_type,process_identity_scheme,
+                    codex_pid,codex_process_start_token,containment_process_group_id,
+                    containment_session_id,containment_verified_at)
+                 VALUES('mac-runtime','host','running',1,1,'macos','macos_process_group',
+                        'darwin_proc_bsd_start_v1',77,'darwin_proc_bsd_start_v1:1:2',77,77,9)",
+                [],
+            )
+            .unwrap();
+    }
+
+    let record = tauri::async_runtime::block_on(store.runtime("mac-runtime".into()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.runtime_platform, "macos");
+    assert_eq!(record.containment_type, "macos_process_group");
+    assert_eq!(record.process_identity_scheme, "darwin_proc_bsd_start_v1");
+    assert_eq!(record.containment_process_group_id, Some(77));
+    assert_eq!(record.containment_session_id, Some(77));
+    assert_eq!(record.containment_verified_at, Some(9));
+}
+
 #[test]
 fn migration_failure_rolls_back_all_ddl_and_version() {
     let mut c = Connection::open_in_memory().unwrap();
@@ -134,7 +412,7 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        9
+        10
     );
     assert_eq!(
         c.query_row(
@@ -223,7 +501,7 @@ fn v9_migration_failure_rolls_back_usage_schema_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        9
+        10
     );
 }
 
@@ -288,7 +566,7 @@ fn v2_migration_preserves_history_and_adds_nullable_activity() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        9
+        10
     );
     let old = execution_record(&c, "old").unwrap().unwrap();
     assert_eq!(old.last_activity_at, None);
@@ -320,7 +598,7 @@ fn every_pre_v6_schema_preserves_history_and_reopens_with_null_parent() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            9
+            10
         );
         let after = execution_record(&c, "old").unwrap().unwrap();
         assert_eq!((after.request_hash, after.prompt, after.thread_id), before);
@@ -351,12 +629,12 @@ fn unsupported_or_unversioned_history_is_not_guessed_or_rewritten() {
             .unwrap(),
         0
     );
-    c.pragma_update(None, "user_version", 10).unwrap();
+    c.pragma_update(None, "user_version", 11).unwrap();
     assert!(migrate(&mut c).unwrap_err().contains("unsupported"));
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        10
+        11
     );
 }
 
@@ -404,7 +682,7 @@ fn v6_upgrade_preserves_rows_and_defines_generation_one_baseline() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        9
+        10
     );
     let mut expected_executions = executions;
     expected_executions[0].push(rusqlite::types::Value::Integer(1));
@@ -697,7 +975,7 @@ fn v8_backfills_current_summary_without_inventing_history() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        9
+        10
     );
     assert_eq!(
         c.query_row(
@@ -788,7 +1066,7 @@ fn v9_migrates_real_v8_fixture_without_backfilling_usage() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            9
+            10
         );
         assert_eq!(
             c.query_row(

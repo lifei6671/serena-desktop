@@ -39,15 +39,15 @@
 
 ## Acceptance Criteria
 
-- [ ] v9 Windows fixture 可完整升级为 v10，历史 Runtime 仍保持 Windows Job 语义。
-- [ ] migration 失败注入后 v9 schema、数据和 `user_version` 均保持原样。
-- [ ] macOS live Runtime 能持久化身份，并覆盖正常退出、SIGTERM、SIGKILL 与 Store 失败后的 ownership 保留。
-- [ ] 应用强杀后，身份完全匹配的 Runtime 可恢复终止，并以 recovered group-empty evidence 原子释放 Claim。
-- [ ] leader 消失但 group 存在、PID 复用、token/PGID/SID 不匹配和观察失败时均不误发信号，Execution 进入 `unknown`，Claim 保留。
-- [ ] recovery 中 leader 在 TERM 后消失但 group 仍存在时不发送 SIGKILL。
-- [ ] group 查询失败、终止证据提交失败和最终 Claim release 失败均保持 fail-closed。
-- [ ] startup recovery 可重复执行且不产生重复释放或状态回退。
-- [ ] Windows Runtime、launcher、recovery 的既有测试与行为不变。
+- [x] v9 Windows fixture 可完整升级为 v10，历史 Runtime 仍保持 Windows Job 语义。
+- [x] migration 失败注入后 v9 schema、数据和 `user_version` 均保持原样。
+- [x] macOS live Runtime 能持久化身份，并覆盖正常退出、SIGTERM、SIGKILL 与 Store 失败后的 ownership 保留。
+- [x] 应用强杀后，身份完全匹配的 Runtime 可恢复终止，并以 recovered group-empty evidence 原子释放 Claim。
+- [x] leader 消失但 group 存在、PID 复用、token/PGID/SID 不匹配和观察失败时均不误发信号，Execution 进入 `unknown`，Claim 保留。
+- [x] recovery 中 leader 在 TERM 后消失但 group 仍存在时不发送 SIGKILL。
+- [x] group 查询失败、终止证据提交失败和最终 Claim release 失败均保持 fail-closed。
+- [x] startup recovery 可重复执行且不产生重复释放或状态回退。
+- [x] Windows Runtime、launcher、recovery 的既有测试与行为不变。
 
 ## Out of Scope
 

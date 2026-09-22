@@ -59,7 +59,7 @@ fn v4_upgrade_preserves_complete_execution_claim_and_existing_schema() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
                 .unwrap(),
-            9
+            10
         );
         for (index, (sql, expected)) in queries[..3].iter().zip(&before[..3]).enumerate() {
             let mut expected = expected.clone();
@@ -70,6 +70,15 @@ fn v4_upgrade_preserves_complete_execution_claim_and_existing_schema() {
                     // 历史 unknown 状态按既有 Product 映射确定性回填 Reconciling 摘要。
                     row.push(Value::Text("execution.reconciling".into()));
                     row.push(Value::Integer(0));
+                }
+            } else if index == 2 {
+                for row in &mut expected {
+                    row.push(Value::Text("windows".into()));
+                    row.push(Value::Text("windows_job".into()));
+                    row.push(Value::Text("windows_filetime_v1".into()));
+                    row.push(Value::Null);
+                    row.push(Value::Null);
+                    row.push(Value::Null);
                 }
             }
             assert_eq!(snapshot(&c, sql), expected, "{sql}");

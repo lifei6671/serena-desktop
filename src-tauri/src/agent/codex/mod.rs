@@ -25,6 +25,12 @@ pub(crate) mod macos_launcher;
 #[allow(dead_code)]
 pub(crate) mod macos_runtime;
 
+#[cfg(target_os = "macos")]
+pub(crate) mod macos_runtime_store;
+
+#[cfg(target_os = "macos")]
+pub(crate) mod macos_recovery;
+
 #[cfg(windows)]
 pub mod discovery;
 #[cfg(not(windows))]

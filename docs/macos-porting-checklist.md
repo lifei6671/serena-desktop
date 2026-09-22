@@ -15,7 +15,7 @@
 ### 1.1 已验证事实
 
 - 当前代码已在 arm64、macOS 26.5.2 主机通过 `cargo check --locked` 和完整 Rust 测试；最低 macOS 12.0 真机仍未验证。
-- Phase 1 的 Rust 编译阻断已经解除；Phase 2B StateStore、Claim 与 Startup Recovery 仍未完成。
+- Phase 1 的 Rust 编译阻断已经解除；Phase 2A/2B 已完成 launcher、Runtime containment、StateStore v10、Startup Recovery 与 Claim fail-closed 契约，但 macOS Codex execute/continue/cancel 产品路径仍未启用。
 - 前端主体为 React/WebView，组件和布局可复用；平台文案和少量系统交互需要分支。
 - Tauri 配置已包含 `icon.icns`，并已初始化 `MacosLauncher::LaunchAgent`。
 - Quick Tunnel 已包含 macOS arm64/x86_64 的 cloudflared 固定版本与 SHA-256 映射。
@@ -117,31 +117,33 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 
 **预估：** 7～12 个工程日
 
+**当前状态：** Phase 2A/2B 的底层进程与恢复证据契约已经实现并通过 macOS 自动化测试；本阶段退出条件仍未达成，因为真实 Codex provider 执行、业务取消和协议完成路径尚未接入。
+
 ### 5.1 macOS launcher
 
-- [ ] 使用固定 executable + argv 启动 Codex，不经过 shell command string。
-- [ ] 在 exec 前建立独立 process group/session，避免启动成功后再追加归属的竞态。
-- [ ] 保持 stdin/stdout/stderr 管道的最小继承集合。
-- [ ] 为 launcher 输入、argv、cwd、空字节和超长参数增加单元测试。
-- [ ] 定义 macOS 进程启动令牌，防止 PID 复用导致错误恢复或误杀。
+- [x] 使用固定 executable + argv 启动 Codex，不经过 shell command string。
+- [x] 在 exec 前建立独立 process group/session，避免启动成功后再追加归属的竞态。
+- [x] 保持 stdin/stdout/stderr 管道的最小继承集合。
+- [x] 为 launcher 输入、argv、cwd、空字节和超长参数增加单元测试。
+- [x] 定义 macOS 进程启动令牌，防止 PID 复用导致错误恢复或误杀。
 
 ### 5.2 Runtime 终止与证据
 
 - [ ] 为正常取消实现“中断请求 → 宽限等待 → process group 终止”。
-- [ ] 终止后同时验证直接 child 退出和受管 process group 不再存在。
-- [ ] 终止证据绑定 Runtime ID、PID/PGID、启动令牌和观测时间。
-- [ ] 无法确认终止时保持 `unknown` 和 Workspace Claim，不自动释放。
-- [ ] 定义应用崩溃/强杀后 macOS 可证明的恢复上限。
-- [ ] 若 macOS 不能证明原 Runtime 身份，必须进入人工收口，不模拟 Windows Named Job 证据。
+- [x] 终止后同时验证直接 child 退出和受管 process group 不再存在。
+- [x] 终止证据绑定 Runtime ID、PID/PGID、启动令牌和观测时间。
+- [x] 无法确认终止时保持 `unknown` 和 Workspace Claim，不自动释放。
+- [x] 定义应用崩溃/强杀后 macOS 可证明的恢复上限。
+- [x] 若 macOS 不能证明原 Runtime 身份，必须进入人工收口，不模拟 Windows Named Job 证据。
 
 ### 5.3 State Store 迁移
 
-- [ ] 设计新 migration，表达 Runtime 平台、containment 类型和平台证据。
-- [ ] 保留现有 Windows Job 字段的语义和历史数据。
-- [ ] 将当前只允许 `proc_thread_attribute_job_list` 的 CHECK 约束改为按 containment 类型验证。
-- [ ] 增加 macOS 终止证据类型，并更新 Claim 释放查询。
-- [ ] 使用真实旧库 fixture 验证 Windows 数据升级。
-- [ ] 验证 migration 失败时旧库保持完整，不产生部分迁移。
+- [x] 设计新 migration，表达 Runtime 平台、containment 类型和平台证据。
+- [x] 保留现有 Windows Job 字段的语义和历史数据。
+- [x] 将当前只允许 `proc_thread_attribute_job_list` 的 CHECK 约束改为按 containment 类型验证。
+- [x] 增加 macOS 终止证据类型，并更新 Claim 释放查询。
+- [x] 使用真实旧库 fixture 验证 Windows 数据升级。
+- [x] 验证 migration 失败时旧库保持完整，不产生部分迁移。
 
 ### 5.4 必测场景
 
@@ -149,10 +151,10 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 - [ ] 启动期取消不遗留 child/grandchild。
 - [ ] 运行期取消不提前释放 Claim。
 - [ ] Codex 直接崩溃后状态和证据一致。
-- [ ] Serena Desktop 强杀后重启不误杀无关进程。
-- [ ] PID 复用不能通过 Runtime 身份验证。
-- [ ] 终止证据不完整时保持 fail-closed。
-- [ ] 人工解锁只使用现有 Local Human Authority 入口。
+- [x] Serena Desktop 强杀后重启不误杀无关进程。
+- [x] PID 复用不能通过 Runtime 身份验证。
+- [x] 终止证据不完整时保持 fail-closed。
+- [x] 人工解锁只使用现有 Local Human Authority 入口。
 
 **退出条件：** macOS Agent 的启动、取消、终止、崩溃恢复和 Claim 释放均有平台真实证据和自动化测试。
 

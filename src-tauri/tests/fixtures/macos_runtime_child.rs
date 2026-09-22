@@ -78,6 +78,16 @@ fn main() {
                 .expect("read leader release byte");
             exit(0);
         }
+        "leader-only-exit" => {
+            // 无后代 leader 由测试释放后正常退出，用于验证 live group-empty 完成路径。
+            let marker = args.next().expect("marker path");
+            fs::write(format!("{marker}.ready"), b"ready").expect("write leader ready marker");
+            let mut release = [0_u8; 1];
+            std::io::stdin()
+                .read_exact(&mut release)
+                .expect("read leader release byte");
+            exit(0);
+        }
         "leaf" => {
             if args.next().as_deref() == Some("ignore") {
                 ignore_term();

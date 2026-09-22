@@ -14,7 +14,15 @@ use crate::agent::{
 };
 use std::{path::PathBuf, sync::Arc};
 
-/// 非 Windows 平台的 Codex Provider 占位实现，只暴露稳定的不可用契约。
+/// macOS 只保存 startup recovery 所需状态，仍不开放执行、继续或取消。
+#[cfg(target_os = "macos")]
+struct UnavailableCodexProvider {
+    store: StateStore,
+    owner: String,
+}
+
+/// 其他非 Windows 平台保持完全不可用的占位实现。
+#[cfg(not(target_os = "macos"))]
 struct UnavailableCodexProvider;
 
 impl AgentProvider for UnavailableCodexProvider {
@@ -27,13 +35,13 @@ impl AgentProvider for UnavailableCodexProvider {
         }
     }
 
-    /// 所有 Codex Runtime 能力在非 Windows 平台均不可用。
+    /// macOS 仅声明 startup recovery；其他非 Windows 平台所有能力均不可用。
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             can_execute: false,
             can_continue: false,
             can_cancel: false,
-            can_recover: false,
+            can_recover: cfg!(target_os = "macos"),
             activity: false,
             token_usage: false,
         }
@@ -68,11 +76,20 @@ impl AgentProvider for UnavailableCodexProvider {
         })
     }
 
-    /// 启动恢复不能到达不存在的 Codex 后端。
+    /// macOS 调用独立 recovery；其他非 Windows 平台仍返回 unavailable。
     fn startup_reconcile<'a>(
         &'a self,
         _context: ProviderStartupContext,
     ) -> ProviderFuture<'a, Result<ProviderReconcileSummary, ProviderError>> {
+        #[cfg(target_os = "macos")]
+        return Box::pin(async move {
+            super::macos_recovery::recover_startup(&self.store, &self.owner)
+                .await
+                .map_err(|_| ProviderError {
+                    code: ProviderErrorCode::AgentProviderOperationFailed,
+                })
+        });
+        #[cfg(not(target_os = "macos"))]
         Box::pin(async {
             Err(ProviderError {
                 code: ProviderErrorCode::AgentProviderUnavailable,
@@ -89,12 +106,16 @@ pub(crate) fn register_codex_provider_with_discovery(
     runtime_pool: Arc<super::pool::CodexRuntimePool>,
     discovery: Result<PathBuf, String>,
 ) -> Result<(), ProviderError> {
-    // 非 Windows 不启动或探测 Codex；四个输入仅保留与 Windows 注册函数一致的调用契约。
-    let _ = (store, owner, runtime_pool, discovery);
-    registry.register(
-        Arc::new(UnavailableCodexProvider),
-        ProviderHealth::Unavailable,
-    )
+    // 本阶段不启动或探测 Codex；pool/discovery 只保留与 Windows 注册函数一致的调用契约。
+    let _ = (runtime_pool, discovery);
+    #[cfg(target_os = "macos")]
+    let provider = UnavailableCodexProvider { store, owner };
+    #[cfg(not(target_os = "macos"))]
+    let provider = {
+        let _ = (store, owner);
+        UnavailableCodexProvider
+    };
+    registry.register(Arc::new(provider), ProviderHealth::Unavailable)
 }
 
 #[cfg(test)]
@@ -135,7 +156,7 @@ mod tests {
             assert!(!capabilities.can_execute);
             assert!(!capabilities.can_continue);
             assert!(!capabilities.can_cancel);
-            assert!(!capabilities.can_recover);
+            assert_eq!(capabilities.can_recover, cfg!(target_os = "macos"));
             match registry.get(&provider_id) {
                 Err(error) => assert_eq!(error.code, ProviderErrorCode::AgentProviderUnavailable),
                 Ok(_) => panic!("unavailable Codex provider resolved for dispatch"),

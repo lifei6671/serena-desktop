@@ -1,6 +1,8 @@
 use super::macos_launcher::{
     self, MacosLaunchRequest, MacosProcessIdentityAdapter, ProcessIdentity, process_group_members,
 };
+use super::macos_runtime_store::{self, MacosEvidenceKind};
+use crate::agent::store::StateStore;
 use std::{
     fmt, io, thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -14,6 +16,8 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// 当前 Host 从创建起连续持有 ownership 的 macOS Codex Runtime。
 pub(crate) struct MacosRuntime {
     id: String,
+    store: StateStore,
+    store_ready: bool,
     child: macos_launcher::CreatedChild,
     identity: ProcessIdentity,
 }
@@ -48,6 +52,27 @@ pub(crate) struct MacosRuntimeFailure {
     pub code: &'static str,
     pub message: String,
     pub runtime: Box<MacosRuntime>,
+}
+
+/// create 失败时保留 spawn 后已取得的 Runtime 或 launcher child ownership。
+pub(crate) struct MacosRuntimeCreateFailure {
+    pub code: &'static str,
+    pub message: String,
+    pub runtime: Option<Box<MacosRuntime>>,
+    pub created: Option<Box<macos_launcher::CreatedChild>>,
+}
+
+impl fmt::Debug for MacosRuntimeCreateFailure {
+    /// 调试信息仅展示稳定诊断与 ownership 类型。
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MacosRuntimeCreateFailure")
+            .field("code", &self.code)
+            .field("message", &self.message)
+            .field("retains_runtime", &self.runtime.is_some())
+            .field("retains_created_child", &self.created.is_some())
+            .finish()
+    }
 }
 
 /// 一次有序观测中直接 child 与 Process Group 的退出状态。
@@ -87,17 +112,60 @@ fn sleep_until_next_poll(deadline: Instant) {
 }
 
 impl MacosRuntime {
-    /// 从已验证的 launcher ownership 构造 live-host Runtime。
+    /// 在 spawn 前准备 Store，并在 spawn 后持久化已验证的完整进程身份。
     pub(crate) fn create(
+        store: StateStore,
+        owner: String,
         request: MacosLaunchRequest,
-    ) -> Result<Self, macos_launcher::MacosLaunchFailure> {
+    ) -> Result<Self, MacosRuntimeCreateFailure> {
         let id = request.runtime_instance_id.clone();
-        let launched = macos_launcher::launch(&request)?;
-        Ok(Self {
+        let prepared_at = now();
+        macos_runtime_store::prepare(
+            &store,
+            &id,
+            &owner,
+            &request.executable.to_string_lossy(),
+            prepared_at,
+        )
+        .map_err(|error| MacosRuntimeCreateFailure {
+            code: error.code,
+            message: error.message,
+            runtime: None,
+            created: None,
+        })?;
+        let launched =
+            macos_launcher::launch(&request).map_err(|error| MacosRuntimeCreateFailure {
+                code: error.code,
+                message: error.message,
+                runtime: None,
+                created: error.created,
+            })?;
+        let mut runtime = Self {
             id,
+            store,
+            store_ready: false,
             child: launched.child,
             identity: launched.identity,
-        })
+        };
+        if let Err(error) =
+            macos_runtime_store::start(&runtime.store, &runtime.id, &runtime.identity, now())
+        {
+            let _ = macos_runtime_store::unknown(
+                &runtime.store,
+                &runtime.id,
+                error.code,
+                &error.message,
+                now(),
+            );
+            return Err(MacosRuntimeCreateFailure {
+                code: error.code,
+                message: error.message,
+                runtime: Some(Box::new(runtime)),
+                created: None,
+            });
+        }
+        runtime.store_ready = true;
+        Ok(runtime)
     }
 
     /// 仅供单元测试篡改创建时身份，用于验证 mismatch 必须 fail closed。
@@ -114,6 +182,12 @@ impl MacosRuntime {
     ) -> Result<MacosTerminationEvidence, MacosRuntimeFailure> {
         let grace = grace.min(MAX_PHASE_TIMEOUT);
         let kill_wait = kill_wait.min(MAX_PHASE_TIMEOUT);
+        // 已持久化 Runtime 只有先固定 terminating 才可发信号；start 写入失败的 live ownership 仅做本机收口。
+        if self.store_ready
+            && let Err(error) = macos_runtime_store::terminating(&self.store, &self.id, now())
+        {
+            return Err(self.failure(error.code, error.message));
+        }
 
         // 先固定 child/group 状态，再验证 leader 身份；身份不足时绝不发送信号。
         let initial_result = self.observe_exit();
@@ -132,7 +206,7 @@ impl MacosRuntime {
                 return Err(self.unknown("leader 身份与创建时 PID、PGID、SID 或启动令牌不匹配"));
             }
             Err(error) if is_esrch(&error) && initial.is_complete() => {
-                return Ok(self.complete_evidence());
+                return self.finish_complete();
             }
             Err(error) if is_esrch(&error) => {
                 return Err(self.unknown("leader 已不可观测且直接 child 或 Process Group 仍未收口"));
@@ -142,7 +216,7 @@ impl MacosRuntime {
             }
         }
         if initial.is_complete() {
-            return Ok(self.complete_evidence());
+            return self.finish_complete();
         }
 
         let term_result = signal_group(self.identity.pgid, libc::SIGTERM);
@@ -166,7 +240,7 @@ impl MacosRuntime {
                 }
             };
             if observation.is_complete() {
-                return Ok(self.complete_evidence());
+                return self.finish_complete();
             }
             if observation.members.is_empty() {
                 group_continuously_observed_nonempty = false;
@@ -217,7 +291,7 @@ impl MacosRuntime {
                 }
             };
             if observation.is_complete() {
-                return Ok(self.complete_evidence());
+                return self.finish_complete();
             }
 
             if Instant::now() >= kill_deadline {
@@ -241,9 +315,16 @@ impl MacosRuntime {
 
     /// 构造保留完整 Runtime ownership 的稳定失败。
     fn failure(self, code: &'static str, message: impl Into<String>) -> MacosRuntimeFailure {
+        let mut message = message.into();
+        if self.store_ready
+            && let Err(error) =
+                macos_runtime_store::unknown(&self.store, &self.id, code, &message, now())
+        {
+            message.push_str(&format!("; Store unknown 写入失败: {}", error.message));
+        }
         MacosRuntimeFailure {
             code,
-            message: message.into(),
+            message,
             runtime: Box::new(self),
         }
     }
@@ -268,6 +349,31 @@ impl MacosRuntime {
             direct_child_reaped: true,
         }
     }
+
+    /// 先提交 sealed live group-empty evidence；提交失败时保留 Runtime ownership。
+    fn finish_complete(self) -> Result<MacosTerminationEvidence, MacosRuntimeFailure> {
+        let evidence = self.complete_evidence();
+        // start 身份写入失败的 Runtime 只能收口进程，不能补造可供 Claim release 使用的持久化 evidence。
+        if self.store_ready
+            && let Err(error) = macos_runtime_store::complete(
+                &self.store,
+                &self.id,
+                MacosEvidenceKind::LiveGroupEmpty,
+                evidence.observed_at,
+            )
+        {
+            return Err(self.failure(error.code, error.message));
+        }
+        Ok(evidence)
+    }
+}
+
+/// 返回当前 Unix epoch 毫秒，作为 Store 状态和 evidence 时间。
+fn now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
 }
 
 #[cfg(test)]

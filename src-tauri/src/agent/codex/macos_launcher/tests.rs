@@ -109,6 +109,30 @@ fn identity_mismatch_never_matches_created_process() {
     assert!(!actual.matches(&mismatched));
 }
 
+/// 版本化 start token 必须无损往返，且拒绝所有非契约格式。
+#[test]
+fn process_start_token_codec_is_versioned_and_strict() {
+    let token = ProcessStartToken {
+        seconds: 1_234,
+        microseconds: 567_890,
+    };
+    let encoded = token.encode();
+    assert_eq!(encoded, "darwin_proc_bsd_start_v1:1234:567890");
+    assert_eq!(ProcessStartToken::decode(&encoded).unwrap(), token);
+
+    for invalid in [
+        "windows_filetime_v1:1234:567890",
+        "darwin_proc_bsd_start_v1:1234",
+        "darwin_proc_bsd_start_v1:1234:1:extra",
+        "darwin_proc_bsd_start_v1:not-a-number:1",
+        "darwin_proc_bsd_start_v1:-1:1",
+        "darwin_proc_bsd_start_v1:1:-1",
+        "darwin_proc_bsd_start_v1:1:1000000",
+    ] {
+        assert!(ProcessStartToken::decode(invalid).is_err(), "{invalid}");
+    }
+}
+
 /// proc_pidinfo 返回零且未设置 errno 时必须解释为进程不存在。
 #[test]
 fn proc_pidinfo_read_zero_without_errno_is_esrch() {

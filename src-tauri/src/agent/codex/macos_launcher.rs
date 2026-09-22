@@ -36,6 +36,41 @@ pub(super) struct ProcessStartToken {
     pub(super) microseconds: u64,
 }
 
+impl ProcessStartToken {
+    /// 编码为持久化层唯一接受的 Darwin BSD 启动时间版本格式。
+    pub(super) fn encode(&self) -> String {
+        format!(
+            "darwin_proc_bsd_start_v1:{}:{}",
+            self.seconds, self.microseconds
+        )
+    }
+
+    /// 严格解码版本化启动令牌，拒绝未知版本、字段数量和无效时间值。
+    pub(super) fn decode(encoded: &str) -> Result<Self, &'static str> {
+        let mut fields = encoded.split(':');
+        if fields.next() != Some("darwin_proc_bsd_start_v1") {
+            return Err("CODEX_PROCESS_IDENTITY_FAILED");
+        }
+        let seconds = fields
+            .next()
+            .ok_or("CODEX_PROCESS_IDENTITY_FAILED")?
+            .parse::<u64>()
+            .map_err(|_| "CODEX_PROCESS_IDENTITY_FAILED")?;
+        let microseconds = fields
+            .next()
+            .ok_or("CODEX_PROCESS_IDENTITY_FAILED")?
+            .parse::<u64>()
+            .map_err(|_| "CODEX_PROCESS_IDENTITY_FAILED")?;
+        if fields.next().is_some() || microseconds >= 1_000_000 {
+            return Err("CODEX_PROCESS_IDENTITY_FAILED");
+        }
+        Ok(Self {
+            seconds,
+            microseconds,
+        })
+    }
+}
+
 /// launcher 创建时冻结的 leader 身份与 containment 信息。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ProcessIdentity {
