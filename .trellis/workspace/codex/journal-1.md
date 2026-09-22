@@ -212,3 +212,38 @@
 ### Next Steps
 
 - 进入独立 Phase 4 macOS 桌面集成任务。
+
+
+## Session 6: 完成 macOS Phase 4A 桌面壳层
+<!-- trellis-session: v=2 fp=30beb0ad0c8ed887 -->
+
+**Date**: 2026-09-22
+**Task**: 完成 macOS Phase 4A 桌面壳层
+**Branch**: `dev/macos`
+
+### Summary
+
+macOS 固定使用 /usr/bin/open，并在无可见窗口的 Dock reopen 事件中恢复主窗口；保留现有跨平台 opener 与有界 shutdown 语义。
+
+### Main Changes
+
+- 系统 opener 显式映射 Windows、macOS 和其他 Unix，目标仍作为独立 argv 传入。
+- Tauri RunEvent::Reopen 复用现有 show_main_window，不创建新窗口或新平台抽象。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2c85838` | feat(macos): integrate desktop shell behavior |
+
+### Testing
+
+- [OK] 两项行为均完成 TDD RED-GREEN；fmt、check、clippy 通过；cargo test 为 1071 passed、0 failed、19 ignored。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 规划 Phase 4B macOS 通知与真实声音提示。
