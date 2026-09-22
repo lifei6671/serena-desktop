@@ -18,7 +18,9 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "09-22-macos-p4a-desktop-shell"
+  ],
   "parent": "09-21-macos-platform-porting",
   "relatedFiles": [],
   "notes": "",
