@@ -5,7 +5,7 @@
   "description": "在已冻结的 macOS Runtime 证据契约上完成数据库迁移、恢复观察、Claim 释放规则和端到端故障场景。",
   "status": "planning",
   "dev_type": null,
-  "scope": "src-tauri/src/agent/schema_v1.sql,src-tauri/src/agent/store",
+  "scope": "src-tauri/src/agent/store.rs,src-tauri/src/agent/schema_v10.sql,src-tauri/src/agent/store,src-tauri/src/agent/codex/macos_runtime.rs,src-tauri/src/agent/codex/macos_runtime_store.rs,src-tauri/src/agent/codex/macos_recovery.rs,src-tauri/src/agent/codex/unavailable/provider.rs,src-tauri/src/agent/task_manager.rs,src-tauri/tests/fixtures",
   "package": null,
   "priority": "P2",
   "creator": "codex",
