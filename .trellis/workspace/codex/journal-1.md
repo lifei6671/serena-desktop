@@ -269,3 +269,36 @@ macOS 固定使用 /usr/bin/open，并在无可见窗口的 Dock reopen 事件�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 8: 统一 Codex 协议兼容检测
+<!-- trellis-session: v=2 fp=99c640280f10aad5 -->
+
+**Date**: 2026-09-22
+**Task**: 统一 Codex 协议兼容检测
+**Branch**: `dev/macos`
+
+### Summary
+
+Windows 与 macOS 统一改用 app-server JSON Schema 必要契约子集检测；兼容阶段不再按版本或哈希精确放行，也不发送 RPC。
+
+### Main Changes
+
+- 新增共享 schema 子集校验器并接入 Windows/macOS verify。
+- 移除 macOS initialize 兼容探针，保留正式 Runtime 初始化。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7ae21ea` | feat(codex): detect app-server protocol compatibility |
+| `06dd12d` | docs(codex): record protocol compatibility evidence |
+
+### Testing
+
+- [OK] Codex 模块 180 passed，完整 Rust gate 1071 passed。
+- [OK] 本机 codex-cli 0.155.1 schema-only smoke 通过。
+
+### Status
+
+[OK] **Completed**
