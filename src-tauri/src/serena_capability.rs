@@ -1,12 +1,16 @@
 //! Serena optional semantic capability 的无副作用 adapter shell。
 
+#[cfg(target_os = "macos")]
+use crate::serena::terminate_macos_process;
+#[cfg(not(target_os = "macos"))]
+use crate::serena::terminate_managed_process;
 #[cfg(windows)]
 use crate::serena::{contain_process, terminate_managed_job};
 use crate::{
     config::{self, AppPaths, ManagerConfig},
     discovery::{self, InstallationState, SerenaInstallation},
     mcp::serena::Client,
-    serena::{hidden_command, terminate_managed_process},
+    serena::hidden_command,
     workspace_capability::{
         CapabilityAction, CapabilityActionAuthority, CapabilityActionDescriptor,
         CapabilityActionExecution, CapabilityActivitySink, CapabilityFuture,
@@ -109,6 +113,8 @@ struct SerenaRuntime {
     port: u16,
     #[cfg(windows)]
     job: std::os::windows::io::OwnedHandle,
+    #[cfg(target_os = "macos")]
+    identity: crate::macos_process::Identity,
 }
 
 /// Serena Capability Provider 负责独立 Slot 的 process/client 所有权。
@@ -317,7 +323,8 @@ impl SerenaCapabilityProvider {
             .map_err(|_| deferred_operation())
     }
 
-    /// 将已经创建的 child 收敛，失败时不向 Capability 边界泄露进程细节。
+    /// 将 Windows 或其他 Unix 已创建的直接 child 收敛，不泄露进程细节。
+    #[cfg(not(target_os = "macos"))]
     async fn cleanup_child(child: &mut Child) {
         let _ = terminate_managed_process(child);
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -329,8 +336,24 @@ impl SerenaCapabilityProvider {
         }
     }
 
+    /// 使用创建时身份收敛 macOS child 与完整 process group。
+    #[cfg(target_os = "macos")]
+    async fn cleanup_child(child: &mut Child, identity: &crate::macos_process::Identity) {
+        let _ = terminate_macos_process(child, identity);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            let child_exited = matches!(child.try_wait(), Ok(Some(_)));
+            let group_empty =
+                crate::macos_process::group_is_empty(identity.pgid()).unwrap_or(false);
+            if child_exited && group_empty {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
     /// 启动一条严格绑定单个 Lease 的 Serena process，并在任一失败路径回收 child。
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     async fn start_runtime(
         &self,
         lease: &WorkspaceLease,
@@ -364,7 +387,19 @@ impl SerenaCapabilityProvider {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        #[cfg(target_os = "macos")]
+        crate::macos_process::configure_std_command(&mut command);
         let mut child = command.spawn().map_err(|_| deferred_operation())?;
+        #[cfg(target_os = "macos")]
+        let identity = match crate::macos_process::Identity::capture(child.id()) {
+            Ok(identity) => identity,
+            Err(_) => {
+                // 身份验证失败时不猜测 PGID，只回收仍由调用方直接持有的 child。
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(deferred_operation());
+            }
+        };
         #[cfg(windows)]
         let job = match contain_process(&child) {
             Ok(job) => job,
@@ -379,6 +414,9 @@ impl SerenaCapabilityProvider {
                 Ok(Some(_)) => return Err(deferred_operation()),
                 Ok(None) => {}
                 Err(_) => {
+                    #[cfg(target_os = "macos")]
+                    Self::cleanup_child(&mut child, &identity).await;
+                    #[cfg(windows)]
                     Self::cleanup_child(&mut child).await;
                     return Err(deferred_operation());
                 }
@@ -392,6 +430,9 @@ impl SerenaCapabilityProvider {
                 break;
             }
             if Instant::now() >= deadline {
+                #[cfg(target_os = "macos")]
+                Self::cleanup_child(&mut child, &identity).await;
+                #[cfg(windows)]
                 Self::cleanup_child(&mut child).await;
                 return Err(deferred_operation());
             }
@@ -402,6 +443,9 @@ impl SerenaCapabilityProvider {
         match (self.project_configuration_probe)(&lease.canonical_root) {
             Ok(true) => {}
             Ok(false) | Err(_) => {
+                #[cfg(target_os = "macos")]
+                Self::cleanup_child(&mut child, &identity).await;
+                #[cfg(windows)]
                 Self::cleanup_child(&mut child).await;
                 return Err(deferred_operation());
             }
@@ -409,11 +453,17 @@ impl SerenaCapabilityProvider {
         let client = match Client::connect(port).await {
             Ok(client) => client,
             Err(_) => {
+                #[cfg(target_os = "macos")]
+                Self::cleanup_child(&mut child, &identity).await;
+                #[cfg(windows)]
                 Self::cleanup_child(&mut child).await;
                 return Err(deferred_operation());
             }
         };
         if client.activate(&lease.canonical_root).await.is_err() {
+            #[cfg(target_os = "macos")]
+            Self::cleanup_child(&mut child, &identity).await;
+            #[cfg(windows)]
             Self::cleanup_child(&mut child).await;
             return Err(deferred_operation());
         }
@@ -424,11 +474,13 @@ impl SerenaCapabilityProvider {
             port,
             #[cfg(windows)]
             job,
+            #[cfg(target_os = "macos")]
+            identity,
         })
     }
 
-    /// Phase 1 不发布无法拥有完整进程树的 Unix 常驻 Runtime，先在创建进程前延后该操作。
-    #[cfg(not(windows))]
+    /// 其他 Unix 尚未建立可验证进程树所有权，本阶段继续 fail-closed。
+    #[cfg(all(not(windows), not(target_os = "macos")))]
     async fn start_runtime(
         &self,
         _lease: &WorkspaceLease,
@@ -733,6 +785,9 @@ impl WorkspaceCapabilityProvider for SerenaCapabilityProvider {
             if runtimes.contains_key(&key) {
                 drop(runtimes);
                 let mut runtime = runtime;
+                #[cfg(target_os = "macos")]
+                Self::cleanup_child(&mut runtime.child, &runtime.identity).await;
+                #[cfg(not(target_os = "macos"))]
                 Self::cleanup_child(&mut runtime.child).await;
                 return Err(deferred_operation());
             }
@@ -806,12 +861,34 @@ impl WorkspaceCapabilityProvider for SerenaCapabilityProvider {
             };
             drop(runtimes);
             let mut exited = matches!(owned.child.try_wait(), Ok(Some(_)));
+            #[cfg(target_os = "macos")]
+            if exited {
+                exited =
+                    crate::macos_process::group_is_empty(owned.identity.pgid()).unwrap_or(false);
+            }
             #[cfg(windows)]
             if !exited {
                 // Job 调用失败后仍等待 child；只有未确认退出才返还 Runtime ownership。
                 let _ = terminate_managed_job(&owned.job);
             }
-            #[cfg(not(windows))]
+            #[cfg(target_os = "macos")]
+            let stopped = if exited {
+                true
+            } else {
+                match terminate_macos_process(&mut owned.child, &owned.identity) {
+                    Ok(()) => {
+                        exited = true;
+                        true
+                    }
+                    Err(_) => {
+                        exited = matches!(owned.child.try_wait(), Ok(Some(_)))
+                            && crate::macos_process::group_is_empty(owned.identity.pgid())
+                                .unwrap_or(false);
+                        exited
+                    }
+                }
+            };
+            #[cfg(all(not(windows), not(target_os = "macos")))]
             let stopped = if exited {
                 true
             } else {
@@ -907,10 +984,10 @@ mod tests {
         )
     }
 
-    /// Phase 1 的 Unix Runtime 必须在任何进程创建前明确延后，避免无所有权的常驻子树逃逸。
-    #[cfg(unix)]
+    /// 未建立所有权实现的其他 Unix Runtime 仍必须在进程创建前明确延后。
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[tokio::test]
-    async fn start_runtime_is_deferred_before_spawning_on_non_windows() {
+    async fn start_runtime_is_deferred_before_spawning_on_other_unix() {
         let temporary = tempfile::tempdir().unwrap();
         let workspace = temporary.path().join("workspace");
         std::fs::create_dir_all(&workspace).unwrap();
@@ -941,6 +1018,41 @@ mod tests {
         assert_eq!(error, deferred_operation());
         assert!(provider.runtimes.lock().await.is_empty());
         assert!(!marker.exists());
+    }
+
+    /// macOS 已建立 Session/Process Group 所有权，应进入真实 spawn 路径再按健康检查失败。
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn start_runtime_on_macos_enters_owned_spawn_path() {
+        let temporary = tempfile::tempdir().unwrap();
+        let workspace = temporary.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let executable = temporary.path().join("owned-spawn");
+        let marker = executable.with_extension("spawned");
+        std::fs::write(&executable, "#!/bin/sh\n: > \"$0.spawned\"\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&executable, permissions).unwrap();
+        let detected = installation(InstallationState::Standard, executable, "fixture");
+        let provider = provider(detected.clone(), |_| Ok(true));
+
+        let result = provider
+            .start_runtime(
+                &lease(workspace),
+                detected,
+                &temporary.path().join("home"),
+                &temporary.path().join("context.yaml"),
+                39_321,
+            )
+            .await;
+
+        let Err(error) = result else {
+            panic!("macOS fixture 必须在 spawn 后因健康检查失败");
+        };
+        assert_eq!(error, deferred_operation());
+        assert!(provider.runtimes.lock().await.is_empty());
+        assert!(marker.exists());
     }
 
     /// 可控的 Provider-private Client fixture，用于在不启动真实 Serena 服务的情况下验证 call ownership。
@@ -999,10 +1111,20 @@ mod tests {
             .spawn()
             .unwrap();
         #[cfg(not(windows))]
-        let child = std::process::Command::new("sh")
-            .args(["-c", "sleep 30"])
-            .spawn()
-            .unwrap();
+        let mut command = std::process::Command::new("sh");
+        #[cfg(not(windows))]
+        command.args(["-c", "sleep 30"]);
+        #[cfg(target_os = "macos")]
+        crate::macos_process::configure_std_command(&mut command);
+        #[cfg(not(windows))]
+        let mut child = command.spawn().unwrap();
+        #[cfg(target_os = "macos")]
+        let identity =
+            crate::macos_process::Identity::capture(child.id()).unwrap_or_else(|error| {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("capture Serena capability fixture identity: {error}");
+            });
         #[cfg(windows)]
         let job = contain_process(&child).unwrap();
         SerenaRuntime {
@@ -1012,6 +1134,8 @@ mod tests {
             port: 0,
             #[cfg(windows)]
             job,
+            #[cfg(target_os = "macos")]
+            identity,
         }
     }
 
@@ -1038,8 +1162,13 @@ mod tests {
             .unwrap();
         #[cfg(windows)]
         let _ = terminate_managed_job(&runtime.job);
-        #[cfg(not(windows))]
+        #[cfg(target_os = "macos")]
+        let _ = terminate_macos_process(&mut runtime.child, &runtime.identity);
+        #[cfg(all(not(windows), not(target_os = "macos")))]
         let _ = terminate_managed_process(&mut runtime.child);
+        #[cfg(target_os = "macos")]
+        SerenaCapabilityProvider::cleanup_child(&mut runtime.child, &runtime.identity).await;
+        #[cfg(not(target_os = "macos"))]
         SerenaCapabilityProvider::cleanup_child(&mut runtime.child).await;
     }
 

@@ -14,6 +14,8 @@ mod installer;
 #[cfg(windows)]
 mod load_error;
 mod logs;
+#[cfg(target_os = "macos")]
+mod macos_process;
 mod mcp;
 mod oauth;
 mod remote;

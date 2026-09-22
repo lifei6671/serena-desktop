@@ -227,8 +227,6 @@ impl MacosRuntime {
                 return Err(self.unknown(format!("初始退出状态观测失败: {error}")));
             }
         };
-        let mut group_continuously_observed_nonempty = !initial.members.is_empty();
-
         let identity_result = MacosProcessIdentityAdapter::observe(self.identity.pid);
         match identity_result {
             Ok(observed) if self.identity.matches(&observed) => {}
@@ -272,28 +270,21 @@ impl MacosRuntime {
             if observation.is_complete() {
                 return self.finish_complete();
             }
-            if observation.members.is_empty() {
-                group_continuously_observed_nonempty = false;
-            }
-
             if Instant::now() >= grace_deadline {
                 break;
             }
             sleep_until_next_poll(grace_deadline);
         }
 
-        // grace 后重新验证 leader；leader 已退出时只接受此前组成员连续非空的 live 路径。
+        // grace 后必须重新证明同一 leader；leader 已退出时旧 PGID 已可能被复用，绝不升级信号。
         let identity_result = MacosProcessIdentityAdapter::observe(self.identity.pid);
         match identity_result {
             Ok(observed) if self.identity.matches(&observed) => {}
             Ok(_) => {
                 return Err(self.unknown("SIGKILL 前 leader 身份不再匹配创建时身份"));
             }
-            Err(error) if is_esrch(&error) && group_continuously_observed_nonempty => {}
             Err(error) if is_esrch(&error) => {
-                return Err(
-                    self.unknown("leader 已退出，但 Process Group 未保持连续、成功且非空的观测")
-                );
+                return Err(self.unknown("SIGKILL 前 leader 已退出，拒绝向可能复用的 PGID 发信号"));
             }
             Err(error) => {
                 return Err(self.unknown(format!("SIGKILL 前 leader 身份观测失败: {error}")));

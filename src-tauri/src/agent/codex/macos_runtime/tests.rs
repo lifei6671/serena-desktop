@@ -441,20 +441,24 @@ fn missing_leader_with_live_group_is_unknown_without_signalling_group() {
     cleanup.disarm();
 }
 
-/// leader 在 SIGTERM 后退出但组持续非空时，live-host shutdown 必须在 grace 后升级收口。
+/// leader 在 SIGTERM 后退出但组仍非空时，不得仅凭旧 PGID 观测升级 SIGKILL。
 #[test]
-fn leader_exits_after_term_but_continuous_group_escalates() {
+fn leader_exit_before_sigkill_is_unknown_without_group_escalation() {
     let (_directory, runtime, _marker, ready) = runtime_fixture("leader-term-exit");
     let mut cleanup = FixtureCleanup::armed(&runtime);
     wait_file(&ready);
     let started = Instant::now();
+    let pgid = runtime.identity.pgid;
 
-    let evidence = runtime
+    let failure = runtime
         .shutdown(Duration::from_millis(100), Duration::from_secs(2))
-        .unwrap();
+        .unwrap_err();
     assert!(started.elapsed() >= Duration::from_millis(100));
-    assert!(evidence.direct_child_reaped);
-    assert!(process_group_members(evidence.pgid).unwrap().is_empty());
+    assert_eq!(failure.code, "CODEX_RUNTIME_TERMINATION_UNCONFIRMED");
+    assert_eq!(failure.runtime.identity.pgid, pgid);
+    assert!(!process_group_members(pgid).unwrap().is_empty());
+
+    cleanup_fixture(*failure.runtime);
     cleanup.disarm();
 }
 
