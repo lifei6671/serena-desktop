@@ -336,3 +336,25 @@ Windows 与 macOS 统一改用 app-server JSON Schema 必要契约子集检测�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 10: 修复 macOS 退出后受管进程残留
+<!-- trellis-session: v=2 fp=0547832adaa1bda3 -->
+
+**Date**: 2026-09-22
+**Task**: 修复 macOS 退出后受管进程残留
+**Branch**: `dev/macos`
+
+### Summary
+
+为可感知宿主退出增加统一幂等 shutdown gate，按 owner 尝试全部清理并汇总错误；真实 macOS App Quit 验证 Serena broker 与监听端口无残留。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c6e17dc` | fix(macos): clean up owned processes on app exit |
+
+### Status
+
+[OK] **Completed**
