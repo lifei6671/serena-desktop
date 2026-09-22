@@ -2,7 +2,6 @@
 use super::*;
 use crate::agent::{
     codex::{
-        compatibility::{MACOS_ARM64, Target},
         macos_discovery,
         macos_runtime_adapter::{LaunchRequest, Runtime, RuntimeError, RuntimeFailure},
     },
@@ -19,9 +18,12 @@ use std::{
 };
 use tokio::io::AsyncReadExt;
 
+#[cfg(test)]
+use crate::agent::codex::compatibility::MACOS_ARM64;
+
 static NEXT_PROBE: AtomicU64 = AtomicU64::new(1);
 
-/// 完整通过 macOS ARM64 version/hash/schema/Contract 的候选证据。
+/// 完整通过 macOS ARM64 preflight 与共享 schema 契约的候选证据。
 pub struct CompatibilityEvidence {
     pub identity: CompatibilityIdentity,
     pub executable: PathBuf,
@@ -214,7 +216,6 @@ fn spawn_retained_termination(runtime: Runtime, retention: RuntimeRetention) {
 enum ProbeCheckpoint {
     Created,
     Read,
-    Initialize,
 }
 
 #[cfg(test)]
@@ -336,11 +337,6 @@ fn validate_executable_path(executable: &Path) -> Result<()> {
         .map_err(|error| ProtocolError::new(error.code, error.message))
 }
 
-/// 精确绑定 macOS ARM64 allowlist，不复用 Windows hash。
-fn validate_identity(identity: &CompatibilityIdentity) -> Result<()> {
-    identity.check(Target::MacosArm64)
-}
-
 /// 通过 cancellation-safe handoff 创建正式 probe Runtime；receiver abandonment 仍会 bounded cleanup。
 async fn create_probe_runtime(
     context: &ProbeContext,
@@ -434,59 +430,7 @@ async fn terminate_probe(runtime_id: String, runtime: OwnedRuntimeGuard) -> Prob
         .map_err(|failure| probe_runtime_failure(runtime_id, failure))
 }
 
-/// 使用真实 App Server initialize exchange 验证协议 Contract，不启动模型 Turn。
-async fn app_server_contract(
-    context: &ProbeContext,
-    executable: &Path,
-    cwd: &Path,
-    identity: &CompatibilityIdentity,
-) -> ProbeResult<()> {
-    let runtime_id = format!(
-        "macos-contract-server-{}-{}",
-        std::process::id(),
-        NEXT_PROBE.fetch_add(1, Ordering::Relaxed)
-    );
-    let runtime = create_probe_runtime(
-        context,
-        executable,
-        cwd,
-        vec!["app-server", "--listen", "stdio://"],
-        runtime_id.clone(),
-    )
-    .await?;
-    let (stdin, stdout, stderr) = match runtime.runtime().clone_stdio() {
-        Ok(pipes) => pipes,
-        Err(error) => {
-            terminate_probe(runtime_id, runtime).await?;
-            return Err(io_error(error).into());
-        }
-    };
-    let client = Client::transport(
-        runtime_id.clone(),
-        tokio::io::BufReader::new(tokio::fs::File::from_std(stdout)),
-        tokio::fs::File::from_std(stdin),
-        tokio::fs::File::from_std(stderr),
-    );
-    probe_checkpoint(executable, ProbeCheckpoint::Initialize).await;
-    let initialized = client.initialize().await;
-    let persisted = if initialized.is_ok() {
-        runtime
-            .runtime()
-            .initialized(identity)
-            .await
-            .map_err(RuntimeFailure::from)
-            .map_err(|failure| probe_runtime_failure(runtime_id.clone(), failure))
-    } else {
-        Ok(())
-    };
-    client.cancel();
-    drop(client);
-    terminate_probe(runtime_id, runtime).await?;
-    persisted?;
-    initialized.map_err(Into::into)
-}
-
-/// 对 canonical ARM64 Mach-O 执行完整 compatibility selection contract。
+/// 对 canonical ARM64 Mach-O 执行共享 schema compatibility selection contract。
 pub(crate) async fn verify(
     context: &ProbeContext,
     executable: PathBuf,
@@ -495,14 +439,11 @@ pub(crate) async fn verify(
     let temp = tempfile::tempdir()
         .map_err(io_error)
         .map_err(ProbeFailure::from)?;
-    // 冻结验证顺序：path/ARM64 preflight 后先执行 version，再读取 binary hash。
+    // 版本和 binary digest 只形成 identity 证据，不参与兼容性准入。
     let version = cli(context, &executable, temp.path(), vec!["--version"])
         .await?
         .trim()
         .to_owned();
-    if version != MACOS_ARM64.codex_version {
-        return Err(io_error("Codex version is not whitelisted for macOS ARM64").into());
-    }
     let binary = File::open(&executable)
         .map_err(io_error)
         .map_err(ProbeFailure::from)?;
@@ -515,10 +456,7 @@ pub(crate) async fn verify(
         .map_err(io_error)
         .map_err(ProbeFailure::from)?
         .map_err(ProbeFailure::from)?;
-    if hash != MACOS_ARM64.binary_sha256 {
-        return Err(io_error("Binary hash is not whitelisted for macOS ARM64").into());
-    }
-    // binary 精确命中后才导出 schema，最后执行真实 App Server Contract。
+    // 兼容检测只导出并读取 schema，不启动 app-server 或发送 JSON-RPC。
     let schema_dir = temp.path().join("schema");
     let schema_path = schema_dir
         .to_str()
@@ -536,7 +474,8 @@ pub(crate) async fn verify(
         ],
     )
     .await?;
-    let schema_file = File::open(schema_dir.join("codex_app_server_protocol.schemas.json"))
+    let schema_path = schema_dir.join("codex_app_server_protocol.schemas.json");
+    let schema_file = File::open(&schema_path)
         .map_err(io_error)
         .map_err(ProbeFailure::from)?;
     let schema = tokio::task::spawn_blocking(move || digest(schema_file))
@@ -544,13 +483,17 @@ pub(crate) async fn verify(
         .map_err(io_error)
         .map_err(ProbeFailure::from)?
         .map_err(ProbeFailure::from)?;
+    let schema_bytes = tokio::fs::read(schema_path)
+        .await
+        .map_err(io_error)
+        .map_err(ProbeFailure::from)?;
+    crate::agent::codex::compatibility::validate_schema(&schema_bytes)
+        .map_err(ProbeFailure::from)?;
     let identity = CompatibilityIdentity {
         version,
         binary_sha256: hash,
         protocol_schema_sha256: schema,
     };
-    validate_identity(&identity).map_err(ProbeFailure::from)?;
-    app_server_contract(context, &executable, temp.path(), &identity).await?;
     Ok(CompatibilityEvidence {
         identity,
         executable,
@@ -841,7 +784,6 @@ mod tests {
             compatibility::MACOS_ARM64,
             macos_launcher::{self, MacosLaunchRequest},
             macos_recovery, macos_runtime_store,
-            protocol::CompatibilityIdentity,
         },
         task_manager::AgentTaskManager,
     };
@@ -899,7 +841,7 @@ mod tests {
             .unwrap()
     }
 
-    /// version/schema/App Server 三类 probe 必须共用 Manager 的正式 Store/owner，且不创建业务行。
+    /// version/schema 两类 CLI probe 必须共用 Manager 的正式 Store/owner，且不创建业务行。
     #[tokio::test]
     async fn probe_ownership_uses_formal_store_owner_without_business_state() {
         let directory = tempfile::tempdir().unwrap();
@@ -930,19 +872,6 @@ mod tests {
         )
         .await
         .unwrap();
-        app_server_contract(
-            &context,
-            &executable,
-            directory.path(),
-            &CompatibilityIdentity {
-                version: MACOS_ARM64.codex_version.into(),
-                binary_sha256: MACOS_ARM64.binary_sha256.into(),
-                protocol_schema_sha256: MACOS_ARM64.protocol_schema_sha256.into(),
-            },
-        )
-        .await
-        .unwrap();
-
         let database =
             rusqlite::Connection::open(directory.path().join("formal-store/agent-state.db"))
                 .unwrap();
@@ -953,7 +882,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(probe_rows, 3);
+        assert_eq!(probe_rows, 2);
         for table in ["executions", "workspace_claims"] {
             let count: i64 = database
                 .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
@@ -1018,44 +947,6 @@ mod tests {
         task.abort();
         let _ = task.await;
         remove_probe_pause(&executable, ProbeCheckpoint::Read);
-        wait_runtime_state(&store, &runtime_id, "terminated").await;
-        assert_eq!(
-            store
-                .runtime(runtime_id)
-                .await
-                .unwrap()
-                .unwrap()
-                .termination_evidence_state,
-            "complete"
-        );
-    }
-
-    /// initialize await 被放弃后，Client 与 Runtime 必须由 guard 独立有界收口。
-    #[tokio::test]
-    async fn probe_ownership_initialize_cancellation_keeps_runtime_owned() {
-        let directory = tempfile::tempdir().unwrap();
-        let state_root = directory.path().join("formal-store");
-        let store = StateStore::open(state_root.clone()).await.unwrap();
-        let manager = AgentTaskManager::new(store.clone(), PathBuf::new());
-        let context = manager.probe_context();
-        let executable = probe_fixture(directory.path()).canonicalize().unwrap();
-        let pause = install_probe_pause(&executable, ProbeCheckpoint::Initialize);
-        let cwd = directory.path().to_owned();
-        let identity = CompatibilityIdentity {
-            version: MACOS_ARM64.codex_version.into(),
-            binary_sha256: MACOS_ARM64.binary_sha256.into(),
-            protocol_schema_sha256: MACOS_ARM64.protocol_schema_sha256.into(),
-        };
-        let task = tokio::spawn({
-            let context = context.clone();
-            let executable = executable.clone();
-            async move { app_server_contract(&context, &executable, &cwd, &identity).await }
-        });
-        pause.entered.notified().await;
-        let runtime_id = active_probe_id(&state_root);
-        task.abort();
-        let _ = task.await;
-        remove_probe_pause(&executable, ProbeCheckpoint::Initialize);
         wait_runtime_state(&store, &runtime_id, "terminated").await;
         assert_eq!(
             store
@@ -1256,9 +1147,9 @@ mod tests {
             .unwrap();
     }
 
-    /// 候选即使 hash 错误，也必须先完成 --version probe 再执行 binary SHA 验证。
+    /// 候选必须完成 version 与 schema 两个 CLI probe，再按共享契约判定兼容性。
     #[tokio::test]
-    async fn probe_ownership_compatibility_order_runs_version_before_binary_hash() {
+    async fn probe_ownership_compatibility_runs_version_and_schema_before_decision() {
         let directory = tempfile::tempdir().unwrap();
         let state_root = directory.path().join("formal-store");
         let store = StateStore::open(state_root.clone()).await.unwrap();
@@ -1277,51 +1168,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(complete, 1);
-    }
-
-    /// initialized Store failure 必须 typed-stop selection，即使正式 cleanup 已完整完成。
-    #[tokio::test]
-    async fn probe_ownership_initialized_store_failure_is_runtime_failure() {
-        let directory = tempfile::tempdir().unwrap();
-        let state_root = directory.path().join("formal-store");
-        let store = StateStore::open(state_root.clone()).await.unwrap();
-        let manager = AgentTaskManager::new(store.clone(), PathBuf::new());
-        let context = manager.probe_context();
-        let executable = probe_fixture(directory.path());
-        let database = rusqlite::Connection::open(state_root.join("agent-state.db")).unwrap();
-        database
-            .execute_batch(
-                "CREATE TRIGGER fail_probe_initialized BEFORE UPDATE OF state ON runtime_instances
-                 WHEN NEW.state='running' BEGIN SELECT RAISE(ABORT, 'fixture initialized failure'); END;",
-            )
-            .unwrap();
-        let failure = app_server_contract(
-            &context,
-            &executable,
-            directory.path(),
-            &CompatibilityIdentity {
-                version: MACOS_ARM64.codex_version.into(),
-                binary_sha256: MACOS_ARM64.binary_sha256.into(),
-                protocol_schema_sha256: MACOS_ARM64.protocol_schema_sha256.into(),
-            },
-        )
-        .await
-        .unwrap_err();
-        let ProbeFailure::Runtime(failure) = failure else {
-            panic!("initialized Store failure must remain typed")
-        };
-        assert_eq!(failure.failure.code, "CODEX_RUNTIME_STORE_FAILED");
-        assert!(failure.failure.runtime.is_none());
-        assert_eq!(
-            store
-                .runtime(failure.runtime_id)
-                .await
-                .unwrap()
-                .unwrap()
-                .termination_evidence_state,
-            "complete"
-        );
+        assert_eq!(complete, 2);
     }
 
     /// Compatibility 拒绝只有在该候选的 Runtime evidence complete 后才能继续下一候选。
@@ -1515,44 +1362,6 @@ mod tests {
         }
     }
 
-    /// macOS managed probe 必须绑定 MacosArm64 entry，不能复用 Windows binary hash。
-    #[test]
-    fn compatibility_probe_binds_macos_arm64_target() {
-        let identity = CompatibilityIdentity {
-            version: MACOS_ARM64.codex_version.into(),
-            binary_sha256: MACOS_ARM64.binary_sha256.into(),
-            protocol_schema_sha256: MACOS_ARM64.protocol_schema_sha256.into(),
-        };
-        assert!(validate_identity(&identity).is_ok());
-
-        let mut wrong_binary = identity.clone();
-        wrong_binary.binary_sha256 = crate::agent::codex::compatibility::WINDOWS_X86_64
-            .binary_sha256
-            .into();
-        assert_eq!(
-            validate_identity(&wrong_binary).unwrap_err().code,
-            "CODEX_APP_SERVER_INCOMPATIBLE"
-        );
-
-        let mut wrong_schema = identity;
-        wrong_schema.protocol_schema_sha256 = "00".repeat(32);
-        assert_eq!(
-            validate_identity(&wrong_schema).unwrap_err().code,
-            "CODEX_APP_SERVER_INCOMPATIBLE"
-        );
-        let mut wrong_version = CompatibilityIdentity {
-            version: "codex-cli 0.153.5".into(),
-            binary_sha256: MACOS_ARM64.binary_sha256.into(),
-            protocol_schema_sha256: MACOS_ARM64.protocol_schema_sha256.into(),
-        };
-        assert_eq!(
-            validate_identity(&wrong_version).unwrap_err().code,
-            "CODEX_APP_SERVER_INCOMPATIBLE"
-        );
-        wrong_version.version = MACOS_ARM64.codex_version.into();
-        assert!(validate_identity(&wrong_version).is_ok());
-    }
-
     /// Runtime 最终 executable 必须是 canonical absolute path。
     #[test]
     fn executable_path_must_be_absolute_and_canonical() {
@@ -1564,10 +1373,28 @@ mod tests {
         );
     }
 
-    /// 真实 Gate 只做 initialize/JSONL/shutdown，不创建 Thread/Turn，因此不消耗账户用量。
+    /// 真实兼容检测只导出 schema，不启动 app-server 或发送 JSON-RPC。
     #[tokio::test]
-    #[ignore = "requires SERENA_CODEX_SMOKE pointing to the allowlisted macOS ARM64 binary"]
-    async fn real_allowlisted_macos_arm64_lifecycle_smoke() {
+    #[ignore = "requires SERENA_CODEX_SMOKE pointing to a compatible macOS ARM64 binary"]
+    async fn real_compatible_macos_arm64_schema_smoke() {
+        let executable = std::env::var_os("SERENA_CODEX_SMOKE")
+            .map(PathBuf::from)
+            .expect("SERENA_CODEX_SMOKE must be set")
+            .canonicalize()
+            .unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let store = StateStore::open(state.path().join("state")).await.unwrap();
+        let manager = AgentTaskManager::new(store, PathBuf::new());
+        let evidence = verify(&manager.probe_context(), executable).await.unwrap();
+        assert!(!evidence.identity.version.is_empty());
+        assert!(!evidence.identity.binary_sha256.is_empty());
+        assert!(!evidence.identity.protocol_schema_sha256.is_empty());
+    }
+
+    /// 正式 connect 仍执行 initialize，并验证完整 Runtime 生命周期收口。
+    #[tokio::test]
+    #[ignore = "requires SERENA_CODEX_SMOKE pointing to a compatible macOS ARM64 binary"]
+    async fn real_compatible_macos_arm64_lifecycle_smoke() {
         let executable = std::env::var_os("SERENA_CODEX_SMOKE")
             .map(PathBuf::from)
             .expect("SERENA_CODEX_SMOKE must be set")
@@ -1591,10 +1418,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(
-            managed.compatibility.identity.version,
-            MACOS_ARM64.codex_version
-        );
+        assert!(!managed.compatibility.identity.version.is_empty());
         managed.shutdown().await.unwrap();
         let record = store.runtime(runtime_id).await.unwrap().unwrap();
         assert_eq!(record.state, "terminated");
@@ -1616,13 +1440,13 @@ mod tests {
         assert_eq!(incomplete, 0);
     }
 
-    /// 真实非 allowlist 候选必须经过同一 verifier 并收口为 COMPATIBILITY BLOCKED。
+    /// 真实不兼容 schema 候选必须经过同一 verifier 并收口为 COMPATIBILITY BLOCKED。
     #[tokio::test]
-    #[ignore = "requires SERENA_CODEX_BLOCKED_SMOKE pointing to a non-allowlisted ARM64 Codex"]
-    async fn real_non_allowlisted_candidate_is_compatibility_blocked() {
-        let executable = std::env::var_os("SERENA_CODEX_BLOCKED_SMOKE")
+    #[ignore = "requires SERENA_CODEX_INCOMPATIBLE_SMOKE pointing to an incompatible ARM64 Codex"]
+    async fn real_incompatible_candidate_is_compatibility_blocked() {
+        let executable = std::env::var_os("SERENA_CODEX_INCOMPATIBLE_SMOKE")
             .map(PathBuf::from)
-            .expect("SERENA_CODEX_BLOCKED_SMOKE must be set")
+            .expect("SERENA_CODEX_INCOMPATIBLE_SMOKE must be set")
             .canonicalize()
             .unwrap();
         let state = tempfile::tempdir().unwrap();

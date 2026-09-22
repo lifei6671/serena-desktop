@@ -1,4 +1,4 @@
-//! Adaptation for the approved 0.153.4 binary, not a permissive schema fallback.
+//! Codex app-server wire adapter；安装候选由共享 schema 子集校验器判定兼容性。
 use crate::agent::{
     activity::{ActivityPhase, ToolCategory},
     usage::USAGE_EVENT_INVALID,
@@ -53,12 +53,6 @@ pub struct CompatibilityIdentity {
     pub version: String,
     pub binary_sha256: String,
     pub protocol_schema_sha256: String,
-}
-impl CompatibilityIdentity {
-    /// 使用调用方明确提供的平台/架构目标验证精确 allowlist entry。
-    pub(crate) fn check(&self, target: super::compatibility::Target) -> Result<()> {
-        super::compatibility::check_entry(target, self)
-    }
 }
 
 #[derive(Debug)]

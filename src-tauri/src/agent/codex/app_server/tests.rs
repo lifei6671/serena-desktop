@@ -310,33 +310,6 @@ fn stale_lifecycle_envelope_runtime_remains_provider_runtime_mismatch() {
 }
 
 #[test]
-fn compatibility_identity_requires_all_three_fields() {
-    let original = CompatibilityIdentity {
-        version: VERSION.into(),
-        binary_sha256: BINARY_SHA256.into(),
-        protocol_schema_sha256: SCHEMA_SHA256.into(),
-    };
-    assert!(
-        original
-            .check(crate::agent::codex::compatibility::Target::WindowsX86_64)
-            .is_ok()
-    );
-    for field in 0..3 {
-        let mut id = original.clone();
-        match field {
-            0 => id.version.push('x'),
-            1 => id.binary_sha256.push('x'),
-            _ => id.protocol_schema_sha256.push('x'),
-        };
-        assert_eq!(
-            id.check(crate::agent::codex::compatibility::Target::WindowsX86_64)
-                .unwrap_err()
-                .code,
-            "CODEX_APP_SERVER_INCOMPATIBLE"
-        );
-    }
-}
-#[test]
 fn cursor_presence_is_not_option_normalization() {
     assert_eq!(
         TerminalPage::parse(json!({"data":[]})).unwrap().next_cursor,
@@ -1386,9 +1359,7 @@ fn real_fixed_binary_contract() {
             "verified executable path={}",
             r1.compatibility.executable.display()
         ));
-        log.push(
-            "R1 fresh whitelist/schema export + initialize/initialized experimentalApi PASS".into(),
-        );
+        log.push("R1 schema contract + initialize/initialized experimentalApi PASS".into());
         let observed=async {
             let thread=r1.client.thread_start(temp.path().to_str().unwrap(), crate::agent::execution::ExecutionMode::ReadOnly).await?;assert_eq!(thread.history_mode,HistoryMode::Paginated);
             assert_eq!(r1.client.thread_read(&thread.id).await?.id,thread.id);

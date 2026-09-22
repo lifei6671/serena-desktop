@@ -150,9 +150,6 @@ pub async fn verify(executable: PathBuf) -> Result<CompatibilityEvidence> {
             .open(&executable)
             .map_err(io_error)?;
         let hash = digest(binary.try_clone().map_err(io_error)?)?;
-        if hash != BINARY_SHA256 {
-            return Err(io_error("Binary hash is not whitelisted"));
-        }
         let temp = tempfile::tempdir().map_err(io_error)?;
         let version = cli(&executable, temp.path(), vec!["--version".into()])?
             .trim()
@@ -172,16 +169,16 @@ pub async fn verify(executable: PathBuf) -> Result<CompatibilityEvidence> {
                     .into(),
             ],
         )?;
-        let schema = digest(
-            File::open(schema_dir.join("codex_app_server_protocol.schemas.json"))
-                .map_err(io_error)?,
-        )?;
+        let schema_path = schema_dir.join("codex_app_server_protocol.schemas.json");
+        let schema = digest(File::open(&schema_path).map_err(io_error)?)?;
+        // 完整 digest 只作为 identity 证据；准入只看应用真实依赖的 schema 子集。
+        let schema_bytes = std::fs::read(schema_path).map_err(io_error)?;
+        crate::agent::codex::compatibility::validate_schema(&schema_bytes)?;
         let identity = CompatibilityIdentity {
             version,
             binary_sha256: hash,
             protocol_schema_sha256: schema,
         };
-        identity.check(crate::agent::codex::compatibility::Target::WindowsX86_64)?;
         Ok(CompatibilityEvidence {
             identity,
             executable,
