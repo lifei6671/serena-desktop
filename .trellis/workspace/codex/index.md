@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
-- **Last Active**: 2026-09-21
+- **Total Sessions**: 3
+- **Last Active**: 2026-09-22
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~89 | Active |
+| `journal-1.md` | ~138 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 3 | 2026-09-22 | Phase 2B macOS StateStore 与恢复集成 | `0728de8` | `dev/macos` |
 | 2 | 2026-09-21 | macOS Phase 2A Runtime 进程契约 | `452dc61` | `dev/macos` |
 | 1 | 2026-09-21 | macOS Phase 1 可编译基线 | `349e34f` | `dev/macos` |
 <!-- @@@/auto:session-history -->

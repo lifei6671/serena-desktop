@@ -98,3 +98,41 @@
 - Rust Gate：fmt、check、test 均 exit 0；library 941 passed、0 failed、12 ignored（共发现 953 项），main 与 doc-tests 均为 0 项。
 - 范围与 Trellis Gate：受保护的 Windows 配置、workflow、installer verifier 和 uninstall policy diff exit 0；`git diff --check` exit 0；任务 context validate exit 0。
 - 状态：Phase 1B App Bundle 基线完成，但整个 macOS 适配尚未完成。Phase 2B StateStore/Claim/Startup Recovery、DMG、Developer ID、Notarization、macOS CI/Release、最低 macOS 12 真机验证，以及 Finder/Dock/菜单栏完整人工视觉验收仍未完成。
+
+
+## Session 3: Phase 2B macOS StateStore 与恢复集成
+<!-- trellis-session: v=2 fp=9073626e0ce12721 -->
+
+**Date**: 2026-09-22
+**Task**: Phase 2B macOS StateStore 与恢复集成
+**Branch**: `dev/macos`
+
+### Summary
+
+完成 schema v10、macOS Runtime Store、跨 Host startup recovery 和 Claim fail-closed release；保留 Windows 行为与 macOS provider unavailable 边界。
+
+### Main Changes
+
+- 新增 v9 fixture 与原子 v10 migration，按平台验证 Runtime identity/containment/termination evidence。
+- 新增 macOS live Runtime 持久化及跨 Host TERM/KILL 恢复，证据不足进入 unknown 并保留 Claim。
+- macOS provider 仅启用 startup recovery，execute/continue/cancel/discovery 仍不可用。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0728de8` | feat(macos): add stateful runtime recovery |
+
+### Testing
+
+- [OK] cargo fmt/check/clippy 与 Rust 全量测试通过：963 passed，12 ignored。
+- [OK] npm lint/build 与前端测试通过：117 passed。
+- [OK] Trellis validate、git diff --check 和 Windows 保护文件无 diff。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 进入 Phase 3：macOS CLI discovery、环境继承与真实 provider 执行路径。
