@@ -4,7 +4,11 @@ use super::macos_launcher::{
 use super::macos_runtime_store::{self, MacosEvidenceKind};
 use crate::agent::store::StateStore;
 use std::{
-    fmt, io, thread,
+    fmt,
+    fs::File,
+    io,
+    os::fd::{AsRawFd, FromRawFd},
+    thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -112,6 +116,32 @@ fn sleep_until_next_poll(deadline: Instant) {
 }
 
 impl MacosRuntime {
+    /// 复制三条 stdio fd，把异步读写所有权交给 Tokio，同时保留 Runtime child ownership。
+    pub(crate) fn clone_stdio(&self) -> io::Result<(File, File, File)> {
+        /// 使用 dup 创建独立 owned fd；File Drop 只关闭复制出的描述符。
+        fn duplicate(fd: libc::c_int) -> io::Result<File> {
+            // SAFETY: fd 来自当前 Runtime 持有的有效 stdio，成功结果由 File 独占接管。
+            let duplicated = unsafe { libc::dup(fd) };
+            if duplicated < 0 {
+                Err(io::Error::last_os_error())
+            } else {
+                // SAFETY: duplicated 是本函数刚取得且尚未交给其他 owner 的有效 fd。
+                Ok(unsafe { File::from_raw_fd(duplicated) })
+            }
+        }
+
+        Ok((
+            duplicate(self.child.stdin.as_raw_fd())?,
+            duplicate(self.child.stdout.as_raw_fd())?,
+            duplicate(self.child.stderr.as_raw_fd())?,
+        ))
+    }
+
+    /// 复制初始化写入所需的稳定 Store/id，避免 blocking worker 借用 live Runtime。
+    pub(crate) fn initialization_context(&self) -> (StateStore, String) {
+        (self.store.clone(), self.id.clone())
+    }
+
     /// 在 spawn 前准备 Store，并在 spawn 后持久化已验证的完整进程身份。
     pub(crate) fn create(
         store: StateStore,

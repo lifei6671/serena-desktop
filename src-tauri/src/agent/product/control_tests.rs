@@ -394,12 +394,12 @@ async fn control_cancel_before_dispatch_matches_platform_provider_contract() {
         )
         .await
         .unwrap();
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     let before = store.execution("e".into()).await.unwrap().unwrap();
     let response = service
         .checked_operation(json!({"action":"cancel","executionId":"e"}), None)
         .await;
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
         assert_eq!(response["data"]["status"], "cancelled");
         no_dispatch(&response["control"], true);
@@ -410,9 +410,9 @@ async fn control_cancel_before_dispatch_matches_platform_provider_contract() {
         assert_eq!(invalid_resume["error"]["code"], "AGENT_RESUME_NOT_ALLOWED");
         no_dispatch(&invalid_resume["control"], true);
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
-        // Phase 1 unavailable Provider 不能伪造未派发取消或释放 Claim。
+        // 未支持平台的 Provider 不能伪造未派发取消或释放 Claim。
         assert_eq!(response["error"]["code"], "AGENT_PROVIDER_UNAVAILABLE");
         assert_eq!(store.execution("e".into()).await.unwrap().unwrap(), before);
         assert!(

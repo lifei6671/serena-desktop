@@ -346,7 +346,7 @@ async fn wrong_work_guards_are_side_effect_free_and_cancel_can_converge_inactive
         },
         None,
     );
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
         let cancelled = cancel.await.unwrap();
         assert_eq!(cancelled.status, "cancelled");
@@ -358,9 +358,9 @@ async fn wrong_work_guards_are_side_effect_free_and_cancel_can_converge_inactive
                 .is_none()
         );
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
-        // Work 归属校验通过后，unavailable Provider 仍保留稳定取消错误与 Claim。
+        // Work 归属校验通过后，未支持平台的 Provider 仍保留稳定取消错误与 Claim。
         assert_eq!(cancel.await.unwrap_err().code, "AGENT_PROVIDER_UNAVAILABLE");
         assert_eq!(store.execution("E".into()).await.unwrap(), before);
         assert!(

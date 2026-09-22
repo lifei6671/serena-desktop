@@ -7,9 +7,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::Duration;
 
-pub const VERSION: &str = "codex-cli 0.153.4";
-pub const BINARY_SHA256: &str = "444A3F0008050605CAE73CD9B7A2DCAC61294062DFAAB56DD20430FD6498518B";
-pub const SCHEMA_SHA256: &str = "B06F77062369D481A59CC70720C12B89CB9DD49C385863923262102D3AD6C978";
+pub const VERSION: &str = super::compatibility::WINDOWS_X86_64.codex_version;
+pub const BINARY_SHA256: &str = super::compatibility::WINDOWS_X86_64.binary_sha256;
+pub const SCHEMA_SHA256: &str = super::compatibility::WINDOWS_X86_64.protocol_schema_sha256;
 pub const SOURCE_COMMIT: &str = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a";
 pub const WIRE_CONTRACT: &str = "rust-v0.153.4/nextCursor-explicit-null/5-fresh-10-list/2026-09-08";
 pub const MAX_MESSAGE: usize = 16 * 1024 * 1024;
@@ -55,16 +55,9 @@ pub struct CompatibilityIdentity {
     pub protocol_schema_sha256: String,
 }
 impl CompatibilityIdentity {
-    pub fn check(&self) -> Result<()> {
-        if self.version != VERSION
-            || self.binary_sha256 != BINARY_SHA256
-            || self.protocol_schema_sha256 != SCHEMA_SHA256
-        {
-            return Err(ProtocolError::incompatible(
-                "Version, binary digest or freshly exported schema digest is not whitelisted",
-            ));
-        }
-        Ok(())
+    /// 使用调用方明确提供的平台/架构目标验证精确 allowlist entry。
+    pub(crate) fn check(&self, target: super::compatibility::Target) -> Result<()> {
+        super::compatibility::check_entry(target, self)
     }
 }
 

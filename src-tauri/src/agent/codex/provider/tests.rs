@@ -1638,6 +1638,28 @@ fn nonretry_error_waits_for_authoritative_failed_terminal() {
 
 // Full live worker path, including an independently owned ManagedClient monitor.
 // Its evidence gate stands in for the Job query; real Job queries have runtime tests.
+fn complete_fixture_runtime(database: &rusqlite::Connection, runtime_id: &str) {
+    #[cfg(windows)]
+    database
+        .execute(
+            "UPDATE runtime_instances SET state='terminated',termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',termination_evidence_at=10 WHERE id=?1",
+            [runtime_id],
+        )
+        .unwrap();
+    #[cfg(target_os = "macos")]
+    database
+        .execute(
+            "UPDATE runtime_instances SET state='terminated',runtime_platform='macos',
+             containment_type='macos_process_group',process_identity_scheme='darwin_proc_bsd_start_v1',
+             codex_pid=91,codex_process_start_token='darwin_proc_bsd_start_v1:2:3',
+             containment_process_group_id=91,containment_session_id=91,containment_verified_at=9,
+             termination_evidence_state='complete',termination_evidence_type='macos_live_process_group_empty',
+             termination_evidence_at=10 WHERE id=?1",
+            [runtime_id],
+        )
+        .unwrap();
+}
+
 async fn live_failure_case(case: &'static str, evidence: bool, bind_turn: bool) {
     let temp = tempfile::tempdir().unwrap();
     let store = StateStore::open(temp.path().into()).await.unwrap();
@@ -1661,10 +1683,10 @@ async fn live_failure_case(case: &'static str, evidence: bool, bind_turn: bool) 
         release_rx.await.unwrap();
         if evidence {
             let db = rusqlite::Connection::open(database).unwrap();
-            db.execute("UPDATE runtime_instances SET state='terminated',termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',termination_evidence_at=10 WHERE id='R1'",[]).unwrap();
+            complete_fixture_runtime(&db, "R1");
             Ok(())
         } else {
-            Err(super::super::runtime::RuntimeFailure {
+            Err(super::super::runtime_adapter::RuntimeFailure {
                 code: "CODEX_JOB_QUERY_FAILED",
                 message: "fixture query failure".into(),
                 runtime: None,
@@ -1924,7 +1946,7 @@ fn shutdown_failure_survives_unknown_persistence_failure() {
             .finish_after_shutdown(
                 &id,
                 Err("provider error".into()),
-                Err(super::super::runtime::RuntimeFailure {
+                Err(super::super::runtime_adapter::RuntimeFailure {
                     code: "CODEX_JOB_QUERY_FAILED",
                     message: "original termination error".into(),
                     runtime: None,

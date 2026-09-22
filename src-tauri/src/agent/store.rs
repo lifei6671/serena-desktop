@@ -23,9 +23,9 @@ mod usage;
 #[cfg(test)]
 mod usage_tests;
 mod work_runs;
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "macos", test))]
 pub(crate) use usage::CodexUsageBaselineIntent;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub(crate) use usage::USAGE_TERMINAL_GRACE_MS;
 pub use work_runs::{WorkExecutionLinkRecord, WorkRunRecord};
 

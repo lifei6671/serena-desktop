@@ -1,7 +1,7 @@
 //! Host-owned workspace-exclusive Runtime ownership and fail-closed quarantine.
 use super::{
     app_server::managed::ManagedClient,
-    runtime::{self, RuntimeFailure},
+    runtime_adapter::{self as runtime, RuntimeFailure},
 };
 use crate::agent::store::{RuntimeRecord, StateStore};
 use std::{
@@ -44,13 +44,7 @@ pub(crate) type TestConnect = Arc<
 >;
 
 fn terminated(row: &RuntimeRecord) -> bool {
-    row.state == "terminated"
-        && row.termination_evidence_state == "complete"
-        && matches!(
-            row.termination_evidence_type.as_deref(),
-            Some("job_active_processes_zero" | "managed_job_destroyed")
-        )
-        && row.termination_evidence_at.is_some()
+    runtime::is_complete_termination(row)
 }
 impl CodexRuntimePool {
     pub async fn enter(&self) -> Result<OwnedRwLockReadGuard<()>, String> {

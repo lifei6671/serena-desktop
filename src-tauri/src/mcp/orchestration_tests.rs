@@ -1198,7 +1198,7 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
         ))
         .await
         .unwrap();
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
         assert_eq!(cancelled.is_error, Some(false));
         let cancelled = cancelled.structured_content.unwrap();
@@ -1209,9 +1209,9 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
             json!({"requestAccepted":true,"providerInvoked":false,"dispatchCertainty":"not_dispatched","nextAction":null})
         );
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
-        // Phase 1 不伪造取消能力，未派发记录保持原状并返回稳定 unavailable。
+        // 未支持平台不伪造取消能力，未派发记录保持原状并返回稳定 unavailable。
         assert_eq!(cancelled.is_error, Some(true));
         let cancelled = cancelled.structured_content.unwrap();
         assert_eq!(cancelled["error"]["code"], "AGENT_PROVIDER_UNAVAILABLE");
@@ -1280,10 +1280,10 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     samples.push(terminal_list);
     assert_eq!(store.execution("E".into()).await.unwrap(), terminal_before);
     assert_eq!(store.work_run("work".into()).await.unwrap(), work);
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     assert!(store.workspace_claim(root.clone()).await.unwrap().is_none());
-    // 非 Windows 后端拒绝取消后不得释放缺少 Runtime 终止证据的 Claim。
-    #[cfg(not(windows))]
+    // 未支持平台的后端拒绝取消后不得释放缺少 Runtime 终止证据的 Claim。
+    #[cfg(not(any(windows, target_os = "macos")))]
     assert!(store.workspace_claim(root).await.unwrap().is_some());
     assert_eq!(
         db.query_row("SELECT count(*) FROM runtime_instances", [], |row| row

@@ -128,10 +128,40 @@ async fn initialize_starts_exactly_one_auto_recovery_worker() {
     service.shutdown().await.unwrap();
 }
 
-/// 非 Windows 产品层必须暴露真实的四类 Runtime 失败，且不得伪造终止证据释放 Claim。
-#[cfg(not(windows))]
+/// macOS discovery 的稳定架构/兼容性诊断不能在产品初始化边界降级成一般不可用。
 #[tokio::test]
-async fn non_windows_runtime_actions_preserve_unavailable_contract_and_claim() {
+async fn initialize_preserves_macos_discovery_diagnostic_codes() {
+    for code in [
+        "CODEX_HOST_ARCH_UNSUPPORTED",
+        "CODEX_ARCH_UNSUPPORTED",
+        "CODEX_EXECUTABLE_FORMAT_UNSUPPORTED",
+        "CODEX_EXECUTABLE_NOT_RUNNABLE",
+        "CODEX_COMPATIBILITY_BLOCKED",
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = StateStore::open(directory.path().into()).await.unwrap();
+        let diagnostic = format!("{code}: fixture");
+        let (service, _) = TEST_DISCOVERY
+            .scope(
+                Err(diagnostic.clone()),
+                AgentProductService::initialize(store),
+            )
+            .await
+            .unwrap();
+        assert_eq!(service.backend_diagnostic(), Some(diagnostic.as_str()));
+        assert_eq!(
+            ProductError::new(diagnostic, None).code,
+            code,
+            "{code} 必须保持为公共稳定错误码"
+        );
+        service.shutdown().await.unwrap();
+    }
+}
+
+/// 未支持的平台必须暴露真实的四类 Runtime 失败，且不得伪造终止证据释放 Claim。
+#[cfg(not(any(windows, target_os = "macos")))]
+#[tokio::test]
+async fn unsupported_runtime_actions_preserve_unavailable_contract_and_claim() {
     let directory = tempfile::tempdir().unwrap();
     let pending_root = directory.path().join("pending-workspace");
     let source_root = directory.path().join("source-workspace");

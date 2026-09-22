@@ -181,7 +181,7 @@ pub async fn verify(executable: PathBuf) -> Result<CompatibilityEvidence> {
             binary_sha256: hash,
             protocol_schema_sha256: schema,
         };
-        identity.check()?;
+        identity.check(crate::agent::codex::compatibility::Target::WindowsX86_64)?;
         Ok(CompatibilityEvidence {
             identity,
             executable,

@@ -1,5 +1,5 @@
 //! Internal execution and exact-id cancellation entry points. No scheduler.
-#[cfg(all(test, windows))]
+#[cfg(all(test, any(windows, target_os = "macos")))]
 use super::codex::provider::CodexProvider;
 use super::{
     codex::provider::register_codex_provider_with_discovery,
@@ -33,7 +33,7 @@ use std::{
 };
 
 mod automatic_recovery;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub mod recovery;
 
 #[derive(Clone)]
@@ -50,6 +50,44 @@ pub struct AgentTaskManager {
     pub(crate) test_handoff: Option<std::sync::Arc<(tokio::sync::Notify, tokio::sync::Notify)>>,
     #[cfg(test)]
     pub(crate) test_client: Option<(std::sync::Arc<super::codex::app_server::Client>, PathBuf)>,
+}
+
+/// Compatibility probe 只携带当前 Manager 已有的正式 ownership authority。
+#[derive(Clone)]
+pub(crate) struct ProbeContext {
+    store: StateStore,
+    owner: String,
+    runtime_pool: Arc<super::codex::pool::CodexRuntimePool>,
+}
+
+impl ProbeContext {
+    /// 从已有 Host authority 构造 crate-private probe context，不创建 Store 或 Pool。
+    pub(crate) fn from_existing(
+        store: StateStore,
+        owner: String,
+        runtime_pool: Arc<super::codex::pool::CodexRuntimePool>,
+    ) -> Self {
+        Self {
+            store,
+            owner,
+            runtime_pool,
+        }
+    }
+
+    /// 返回正式 StateStore clone，所有 probe Runtime 都写入该 Store。
+    pub(crate) fn store(&self) -> StateStore {
+        self.store.clone()
+    }
+
+    /// 返回当前 Host owner，probe 不使用独立身份。
+    pub(crate) fn owner(&self) -> &str {
+        &self.owner
+    }
+
+    /// 返回已有全局 Runtime Pool，cleanup failure 交由原 quarantine 管理。
+    pub(crate) fn runtime_pool(&self) -> Arc<super::codex::pool::CodexRuntimePool> {
+        self.runtime_pool.clone()
+    }
 }
 
 /// Host 唯一持有恢复消息接收端；Clone 的 Manager 仅共享同步投递端。
@@ -266,6 +304,35 @@ impl AgentTaskManager {
             #[cfg(test)]
             test_client: None,
         }
+    }
+
+    /// 从同一 Manager 导出 probe authority，不暴露 PID/PGID 等进程细节。
+    pub(crate) fn probe_context(&self) -> ProbeContext {
+        ProbeContext::from_existing(
+            self.store.clone(),
+            self.owner.clone(),
+            self.runtime_pool.clone(),
+        )
+    }
+
+    /// 使用当前 Manager 的正式 authority 执行平台 discovery。
+    pub(crate) async fn discover_backend(&self) -> Result<PathBuf, String> {
+        super::codex::discover(self.probe_context()).await
+    }
+
+    /// 在 Provider 发布前安装 discovery 结果，不改变 dispatch/state graph。
+    pub(crate) fn install_backend_resolution(&mut self, resolution: Result<PathBuf, String>) {
+        match resolution {
+            Ok(executable) => {
+                self.executable = executable;
+                self.backend_error = None;
+            }
+            Err(error) => {
+                self.executable = PathBuf::new();
+                self.backend_error = Some(error);
+            }
+        }
+        *self.registry.lock().unwrap() = None;
     }
 
     /// 在已存在 Tokio Runtime 的 Host 发布屏障后启动唯一恢复 worker。
@@ -773,9 +840,9 @@ impl AgentTaskManager {
                 .map_err(provider_failure)?;
             let telemetry = Arc::new(ExecutionTelemetryProjector::new(manager.store.clone(), id.clone()));
 
-            #[cfg(all(test, windows))]
+            #[cfg(all(test, any(windows, target_os = "macos")))]
             if let Some((client, database)) = manager.test_client.clone() {
-                // Test-only Runtime creation boundary; reuse the TASK-006 Fake wire pipeline.
+                // Test-only Runtime creation boundary；Windows/macOS 共用 Fake wire Provider 契约。
                 rusqlite::Connection::open(database).unwrap().execute(
                     "INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES (?1,'fixture','running',1,1)",
                     [client.runtime_id()],

@@ -435,6 +435,11 @@ impl ProductError {
             "AGENT_OBSERVE_INVALID_ARGUMENT",
             "BACKEND_UNAVAILABLE",
             "CODEX_APP_SERVER_INCOMPATIBLE",
+            "CODEX_HOST_ARCH_UNSUPPORTED",
+            "CODEX_ARCH_UNSUPPORTED",
+            "CODEX_EXECUTABLE_FORMAT_UNSUPPORTED",
+            "CODEX_EXECUTABLE_NOT_RUNNABLE",
+            "CODEX_COMPATIBILITY_BLOCKED",
             // Phase 1 的非 Windows Runtime 请求保留明确的 Provider 不可用诊断。
             #[cfg(not(windows))]
             "AGENT_PROVIDER_UNAVAILABLE",
@@ -622,32 +627,39 @@ impl AgentProductService {
         store: StateStore,
         terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
     ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+        // 先创建唯一 Manager shell，discovery probe 才能共用其 Store/owner/Pool。
+        let mut manager = AgentTaskManager::new_with_terminal_notifier(
+            store.clone(),
+            std::path::PathBuf::new(),
+            terminal_notifier,
+        );
         #[cfg(test)]
         let resolution = match TEST_DISCOVERY.try_with(Clone::clone) {
             Ok(result) => result,
-            Err(_) => super::codex::discovery::discover().await,
+            Err(_) => manager.discover_backend().await,
         };
         #[cfg(not(test))]
-        let resolution = super::codex::discovery::discover().await;
-        let (executable, error) = match resolution {
-            Ok(path) => (path, None),
-            Err(error) => {
-                let diagnostic = if error.starts_with("CODEX_APP_SERVER_INCOMPATIBLE")
-                    || error.starts_with("BACKEND_UNAVAILABLE")
-                {
-                    error
-                } else {
-                    format!("BACKEND_UNAVAILABLE: {error}")
-                };
-                (std::path::PathBuf::new(), Some(diagnostic))
+        let resolution = manager.discover_backend().await;
+        let resolution = resolution.map_err(|error| {
+            // Discovery 已输出稳定平台/架构类别时直接保留，避免产品边界降级成一般不可用。
+            if [
+                "BACKEND_UNAVAILABLE",
+                "CODEX_APP_SERVER_INCOMPATIBLE",
+                "CODEX_HOST_ARCH_UNSUPPORTED",
+                "CODEX_ARCH_UNSUPPORTED",
+                "CODEX_EXECUTABLE_FORMAT_UNSUPPORTED",
+                "CODEX_EXECUTABLE_NOT_RUNNABLE",
+                "CODEX_COMPATIBILITY_BLOCKED",
+            ]
+            .iter()
+            .any(|code| error.starts_with(code))
+            {
+                error
+            } else {
+                format!("BACKEND_UNAVAILABLE: {error}")
             }
-        };
-        let mut manager = AgentTaskManager::new_with_terminal_notifier(
-            store.clone(),
-            executable,
-            terminal_notifier,
-        );
-        manager.backend_error = error;
+        });
+        manager.install_backend_resolution(resolution);
         Self::recover_before_publish(store, manager).await
     }
     pub(crate) fn backend_diagnostic(&self) -> Option<&str> {
@@ -664,10 +676,10 @@ impl AgentProductService {
     #[cfg(test)]
     pub fn new(store: StateStore) -> Self {
         let manager = AgentTaskManager::new(store.clone(), std::path::PathBuf::new());
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         let manager = {
             let mut manager = manager;
-            // 测试构造器同步生产平台事实，避免绕过 unavailable 错误投影。
+            // 测试构造器同步未支持平台事实，避免绕过 unavailable 错误投影。
             manager.backend_error =
                 Some("BACKEND_UNAVAILABLE: Codex runtime is unavailable on this platform".into());
             manager

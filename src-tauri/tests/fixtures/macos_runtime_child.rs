@@ -1,6 +1,6 @@
 use std::{
     env, fs,
-    io::Read,
+    io::{BufRead, Read, Write},
     process::{exit, Command},
     thread,
     time::Duration,
@@ -58,6 +58,24 @@ fn main() {
                 env::current_dir().expect("fixture cwd").display()
             );
             eprintln!("stderr-ready");
+        }
+        "probe-output" => {
+            // Compatibility CLI fixture 不读 stdin，模拟 version/schema 命令正常退出。
+            println!("{}", args.next().unwrap_or_else(|| "probe-ok".into()));
+        }
+        "app-server" => {
+            // 只实现 initialize/initialized smoke 所需的最小 JSONL Contract，不启动 Turn。
+            let stdin = std::io::stdin();
+            let mut lines = stdin.lock().lines();
+            let request = lines.next().expect("initialize request").expect("read initialize");
+            assert!(request.contains("\"method\":\"initialize\""));
+            println!(
+                "{{\"id\":1,\"result\":{{\"userAgent\":\"fixture\",\"codexHome\":\"fixture\",\"platformFamily\":\"macos\",\"platformOs\":\"macos\"}}}}"
+            );
+            std::io::stdout().flush().expect("flush initialize response");
+            let initialized = lines.next().expect("initialized notification").expect("read initialized");
+            assert!(initialized.contains("\"method\":\"initialized\""));
+            wait_forever();
         }
         "tree" | "ignore-tree" | "leader-term-exit" => {
             // ignore-tree 的 leader 与 leaf 都忽略 SIGTERM；leader-term-exit 仅让 leaf 忽略。

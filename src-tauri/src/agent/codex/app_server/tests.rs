@@ -316,7 +316,11 @@ fn compatibility_identity_requires_all_three_fields() {
         binary_sha256: BINARY_SHA256.into(),
         protocol_schema_sha256: SCHEMA_SHA256.into(),
     };
-    assert!(original.check().is_ok());
+    assert!(
+        original
+            .check(crate::agent::codex::compatibility::Target::WindowsX86_64)
+            .is_ok()
+    );
     for field in 0..3 {
         let mut id = original.clone();
         match field {
@@ -325,7 +329,9 @@ fn compatibility_identity_requires_all_three_fields() {
             _ => id.protocol_schema_sha256.push('x'),
         };
         assert_eq!(
-            id.check().unwrap_err().code,
+            id.check(crate::agent::codex::compatibility::Target::WindowsX86_64)
+                .unwrap_err()
+                .code,
             "CODEX_APP_SERVER_INCOMPATIBLE"
         );
     }
@@ -1265,7 +1271,7 @@ pub(super) fn record_stdin<W: tokio::io::AsyncWrite + Unpin + Send + 'static>(
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub(super) fn record_output<R: tokio::io::AsyncRead + Unpin + Send + 'static>(
     reader: R,
     id: &str,
