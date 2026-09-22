@@ -235,7 +235,7 @@ Expected: 文档只陈述实际执行结果，不把未执行的权限或点击�
 - Review: `docs/macos-porting-checklist.md`
 - Review: `.trellis/tasks/09-22-macos-p4b-notification-sound/`
 
-- [ ] **Step 1：审计范围和提交历史**
+- [x] **Step 1：审计范围和提交历史**
 
 Run:
 
@@ -247,7 +247,7 @@ git diff --check HEAD~2..HEAD
 
 Expected: 产品修改仅涉及 `agent_notification.rs`；其余修改是本任务和 Phase 4 清单文档；没有依赖、前端、LAN 或通知点击监听实现。
 
-- [ ] **Step 2：检查是否需要更新 Trellis spec**
+- [x] **Step 2：检查是否需要更新 Trellis spec**
 
 本任务只增加单一平台 FFI，若未形成跨模块可复用规范，则明确记录“无需更新 spec”，不为一次性实现新增规范文件。
 
