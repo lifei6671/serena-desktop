@@ -121,6 +121,28 @@ After implementation:
 - [ ] Checked that derived state points back to the source event identifier
       (`seq`, `id`, `version`) instead of inventing a second cursor
 
+## Cancellation-Safe External Runtime Ownership
+
+An async future that owns a real child process, process group, socket, lease,
+or similar external runtime can be dropped at every `.await`. Normal return and
+explicit error cleanup therefore do not prove that ownership is preserved.
+
+When cancellation may happen after creation:
+
+- bind the resource to the product's existing ownership authority before the
+  first cancellable operation;
+- keep an owned guard until responsibility is explicitly transferred;
+- make the guard's drop path hand the resource to bounded cleanup or the
+  existing quarantine/recovery mechanism;
+- retain cleanup failures together with the live owner instead of reducing
+  them to a string-only error;
+- test cancellation at creation handoff, I/O, initialization, and termination
+  result handoff boundaries.
+
+Do not solve this by adding a detached owner, temporary state store, duplicate
+pool, or unbounded background retry. Durable state and the existing recovery
+authority remain the fallback when the host itself exits.
+
 ---
 
 ## Cross-Platform Template Consistency

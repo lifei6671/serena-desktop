@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "检查平台 adapter 未泄漏到共享 Provider，且 evidence/Claim 数据流完整"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "检查未新增重复 Provider/Pool/allowlist 逻辑或无必要抽象"}

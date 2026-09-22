@@ -15,7 +15,7 @@
 ### 1.1 已验证事实
 
 - 当前代码已在 arm64、macOS 26.5.2 主机通过 `cargo check --locked` 和完整 Rust 测试；最低 macOS 12.0 真机仍未验证。
-- Phase 1 的 Rust 编译阻断已经解除；Phase 2A/2B 已完成 launcher、Runtime containment、StateStore v10、Startup Recovery 与 Claim fail-closed 契约，但 macOS Codex execute/continue/cancel 产品路径仍未启用。
+- Phase 1 的 Rust 编译阻断已经解除；Phase 2A/2B 已完成 launcher、Runtime containment、StateStore v10、Startup Recovery 与 Claim fail-closed 契约；Phase 3A 已将 macOS ARM64 Runtime 接入共享 Codex Provider。
 - 前端主体为 React/WebView，组件和布局可复用；平台文案和少量系统交互需要分支。
 - Tauri 配置已包含 `icon.icns`，并已初始化 `MacosLauncher::LaunchAgent`。
 - Quick Tunnel 已包含 macOS arm64/x86_64 的 cloudflared 固定版本与 SHA-256 映射。
@@ -67,8 +67,8 @@ Phase 2 是关键路径。在 Runtime 身份、终止证据和崩溃恢复契约
 
 - [ ] 确定首版是否必须与 Windows 功能对齐，包含 Codex Agent、任务恢复、Remote Access 和系统通知。
 - [ ] 确定分发渠道。建议首版使用 GitHub Release + Developer ID 签名/公证 DMG，不进入 Mac App Store。
-- [ ] 确定架构范围：Apple Silicon、Intel，或者两者。
-- [ ] 确定产物策略。建议首版分别发布 arm64/x86_64 DMG，避免 Universal Binary 掩盖架构专属 CLI 问题。
+- [x] 确定首版架构范围仅为 Apple Silicon（ARM64 / aarch64）；Intel Mac 与 Rosetta x86_64 Codex 不在首版范围。
+- [x] 确定首版产物只保留 arm64 语义；Universal Mach-O 仅在包含 ARM64 slice 且通过完整 compatibility 验证时可作为候选，不因此承诺 Intel 支持。
 - [ ] 根据依赖与真机结果确定最低 macOS 版本，并写入 Tauri `minimumSystemVersion`。
 - [ ] 确认 Apple Developer Program、Developer ID Application 证书和 Notary Service 凭据可用。
 - [ ] 为后续实施创建 Trellis 父任务，并按 Phase 1～6 建立可独立验证的子任务。
@@ -117,7 +117,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 
 **预估：** 7～12 个工程日
 
-**当前状态：** Phase 2A/2B 的底层进程与恢复证据契约已经实现并通过 macOS 自动化测试；本阶段退出条件仍未达成，因为真实 Codex provider 执行、业务取消和协议完成路径尚未接入。
+**当前状态：** Phase 2A/2B 的底层进程与恢复证据契约已经实现并通过 macOS 自动化测试；Phase 3A 已接入真实 App Server initialize/stdio/shutdown，execute/continue/cancel 共享 Provider 契约已通过 fixture 回归。仍未用真实模型 Turn 消耗账户用量做端到端业务验收。
 
 ### 5.1 macOS launcher
 
@@ -129,7 +129,7 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 
 ### 5.2 Runtime 终止与证据
 
-- [ ] 为正常取消实现“中断请求 → 宽限等待 → process group 终止”。
+- [x] 业务取消保持 Codex `turn/interrupt`；Runtime teardown 独立使用 `SIGTERM → bounded grace → SIGKILL`，两套语义不互相替代。
 - [x] 终止后同时验证直接 child 退出和受管 process group 不再存在。
 - [x] 终止证据绑定 Runtime ID、PID/PGID、启动令牌和观测时间。
 - [x] 无法确认终止时保持 `unknown` 和 Workspace Claim，不自动释放。
@@ -164,19 +164,36 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 
 **预估：** 3～5 个工程日
 
+**当前状态：** Phase 3A（Codex Provider / ARM64 discovery）已实现。官方 npm `@openai/codex@0.153.4-darwin-arm64` 已通过 architecture/version/binary hash/schema hash/真实 App Server Contract 与 process-group-empty Gate；当前 ChatGPT.app bundled `0.155.0-alpha.9.2` 按精确 allowlist 得到 `COMPATIBILITY BLOCKED`。Windows 共享 Provider fixture 契约已回归，Windows 实机 Job Object / Host Crash Gate 留待 Windows 主机验证。
+
 ### 6.1 Finder/LaunchAgent 环境
 
-- [ ] 不假设 macOS GUI 进程继承 `.zshrc` 或 `.zprofile` 的 `$PATH`。
-- [ ] 按既定顺序检查应用环境 PATH、`~/.local/bin`、`/opt/homebrew/bin`、`/usr/local/bin` 和产品私有 runtime。
-- [ ] 可执行文件发现同时检查常规文件和 Unix execute bit。
+- [x] 不假设 macOS GUI 进程继承 `.zshrc` 或 `.zprofile` 的 `$PATH`；Finder 风格精简 PATH 已有自动化回归。
+- [x] 按固定顺序检查当前 PATH、`~/.local/bin`、Homebrew/npm 确定位置、npm ARM64 vendor binary，最后才是 ChatGPT.app bundled candidate。
+- [x] 可执行文件发现同时检查 regular file、Unix execute bit、canonical path 与 ARM64 Mach-O slice。
 - [ ] 状态页显示实际命中路径和稳定诊断，不暴露敏感环境内容。
 
 ### 6.2 Codex 发现
 
-- [ ] 支持直接安装的 `codex`。
-- [ ] 支持 npm 安装中的 `@openai/codex-darwin-arm64` 和 `@openai/codex-darwin-x64`。
-- [ ] 仍然解析并验证 vendor binary，不通过 npm shell shim 启动 Runtime。
-- [ ] 对架构不匹配、文件无执行权限和版本不兼容返回可区分诊断。
+- [x] 支持 PATH 或确定位置中直接安装的 ARM64 `codex`；早期不兼容候选不会阻断后续兼容候选。
+- [x] 支持 npm 安装中的 `@openai/codex-darwin-arm64` vendor binary；首版明确不支持 `darwin-x64` 或 Rosetta fallback。
+- [x] 解析并验证真实 vendor Mach-O binary，Runtime 使用 absolute executable + argv 直接启动，不通过 npm JavaScript shim 或 shell wrapper。
+- [x] 对 host/candidate 架构不匹配、无执行权限、非 Mach-O、version/hash/schema/Contract 不兼容返回稳定诊断。
+- [x] compatibility allowlist 按 `version + os + arch + binarySha256 + protocolSchemaSha256` 精确匹配，仅新增 `macos/arm64` entry，不包含 `macos/x86_64`。
+
+### 6.2.1 Phase 3A 实测证据（2026-09-22）
+
+- [x] 官方 npm artifact：`codex-cli 0.153.4`，ARM64 Mach-O，binary SHA-256 `B973D440ACAC501FD2594A43E7CA9CE41E0A65B9DFB28D0D7A7837C99E1261E3`，schema SHA-256 `B06F77062369D481A59CC70720C12B89CB9DD49C385863923262102D3AD6C978`。
+- [x] 真实 App Server lifecycle：direct Mach-O launch、initialize、JSONL stdio、orderly Client shutdown 与 `macos_live_process_group_empty` 证据通过；没有启动模型 Turn。
+- [x] 外置 APFS 卷中含空格和中文的 canonical 路径通过同一 compatibility/lifecycle Gate，测试卷与镜像已卸载删除。
+- [x] 当前 `/Applications/ChatGPT.app/Contents/Resources/codex` 是 ARM64 `codex-cli 0.155.0-alpha.9.2`，SHA-256 `9280C0754E8F1F6B72F495D30C8C82A006DBC4995BF0492916FA0901F6BFD1F9`，结果为 `COMPATIBILITY BLOCKED`，未加入 allowlist。
+- [x] Probe Ownership Amendment：version/schema/App Server compatibility probe 全部使用同一 Manager 的正式 `StateStore`、host owner 与既有 `CodexRuntimePool`；不创建 fake Execution/Workspace Claim，也不使用临时 ownership Store。
+- [x] Compatibility mismatch 只在 probe Runtime 获得 complete group-empty evidence 后继续候选；cleanup/evidence failure 保留 typed `RuntimeFailure` 与 `runtime_id`，停止 selection 并进入既有 Pool 的全局 quarantine。
+- [x] Probe create/read/initialize future 被取消时由 owned guard 独立执行 bounded termination；失败进入既有 Pool 全局 quarantine。业务 create handoff receiver 被放弃时，termination failure 进入原 Workspace quarantine，不丢弃 `RuntimeFailure.runtime`。
+- [x] Compatibility 验证严格保持 `path/regular/execute/canonical/Mach-O/ARM64 → version → binary SHA-256 → schema SHA-256 → App Server Contract`；`runtime.initialized` Store/worker failure 完成正式 cleanup 后以 typed Runtime failure 停止 selection，不降级为普通 compatibility mismatch。
+- [x] Amendment 后重新执行官方 npm ARM64 真实 lifecycle Gate：所有 probe 与业务 Runtime 行均属于同一正式 owner，最终均为 `terminated/complete`；当前 ChatGPT.app 候选仍为 `COMPATIBILITY BLOCKED`。
+- [ ] Finder 从已构建 `.app` 启动的 Codex 产品流程尚未手工验收，不记为已通过。
+- [ ] Windows 实机 Job Object / Host Crash Gate 尚未重跑；本阶段只确认共享 Provider fixture 回归。
 
 ### 6.3 uv / Serena 安装
 
