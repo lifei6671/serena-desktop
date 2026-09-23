@@ -343,9 +343,41 @@ fn action_descriptor(action_id: &str, display_name: &str) -> CapabilityActionDes
     }
 }
 
-/// 只用 PATH discovery 判断 binary 是否可执行；不启动 CLI 或推断 index 目录。
+/// 为 Capability Provider 的所有真实 CLI 调用解析同一个候选。
+fn codegraph_command() -> std::io::Result<tokio::process::Command> {
+    #[cfg(target_os = "macos")]
+    return macos_codegraph_command(which_command("codegraph"), || {
+        let home = std::env::var_os("HOME")
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::NotFound, "HOME is unavailable")
+            })?;
+        which_command(PathBuf::from(home).join(".local/bin/codegraph"))
+    });
+
+    #[cfg(not(target_os = "macos"))]
+    which_command("codegraph")
+}
+
+/// macOS 保持 PATH 优先，仅在 PATH 未命中时读取当前用户的固定安装位置。
+#[cfg(target_os = "macos")]
+fn macos_codegraph_command(
+    path: std::io::Result<tokio::process::Command>,
+    user_local: impl FnOnce() -> std::io::Result<tokio::process::Command>,
+) -> std::io::Result<tokio::process::Command> {
+    path.or_else(|_| user_local())
+}
+
+/// 使用共享候选判断 binary 是否可执行；不启动 CLI 或推断 index 目录。
 fn discover_installation() -> CapabilityInstallation {
-    match which_command("codegraph") {
+    installation_from_command(codegraph_command())
+}
+
+/// 安装状态只取决于共享候选是否可执行，不读取版本或 Workspace 状态。
+fn installation_from_command(
+    command: std::io::Result<tokio::process::Command>,
+) -> CapabilityInstallation {
+    match command {
         Ok(_) => CapabilityInstallation {
             state: CapabilityInstallationState::Installed,
             detected_version: None,
@@ -357,24 +389,50 @@ fn discover_installation() -> CapabilityInstallation {
     }
 }
 
+/// 为 status/prepare 配置共享候选，同时保持既有 argv、cwd 与受控 stdio 契约。
+fn configure_command_runner(
+    mut child: tokio::process::Command,
+    command: CodeGraphCommand,
+) -> tokio::process::Command {
+    child
+        .args(&command.args)
+        .current_dir(command.current_dir)
+        .kill_on_drop(true)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    child.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    child
+}
+
+/// 为 direct MCP Runtime 配置共享候选，不改变 Slot 对 child 的 stop ownership。
+fn configure_runtime_command(
+    mut command: tokio::process::Command,
+    lease: &WorkspaceLease,
+) -> tokio::process::Command {
+    command
+        .args(["serve", "--mcp", "--path"])
+        .arg(&lease.canonical_root)
+        .current_dir(&lease.canonical_root)
+        // 1.6.0 默认 daemon 会逃逸 RuntimeSlot stop；direct mode 的 child 才可被 handle 独占。
+        .env("CODEGRAPH_NO_DAEMON", "1")
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    command
+}
+
 /// 生产 runner 使用受控 process helper，限制输出与时长，并在 future drop 时杀死子进程。
 fn run_command(
     command: CodeGraphCommand,
 ) -> CapabilityFuture<'static, Result<String, CapabilityProviderError>> {
     Box::pin(async move {
-        let mut child = which_command("codegraph").map_err(|_| CapabilityProviderError {
+        let child = codegraph_command().map_err(|_| CapabilityProviderError {
             code: CapabilityProviderErrorCode::Unavailable,
         })?;
-        // which_command 只定位可执行文件，不承诺 stdio 已配置；受控 runner 需要 pipe 才能安全读取 status。
-        child
-            .args(&command.args)
-            .current_dir(command.current_dir)
-            .kill_on_drop(true)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        #[cfg(windows)]
-        child.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+        // 共享候选 helper 只定位可执行文件，不承诺 stdio 已配置；受控 runner 需要 pipe 才能安全读取 status。
+        let child = configure_command_runner(child, command);
         process::run(
             child,
             64 * 1024,
@@ -394,18 +452,10 @@ fn start_runtime(
     lease: WorkspaceLease,
 ) -> CapabilityFuture<'static, Result<Arc<dyn CodeGraphRuntimeClient>, CapabilityProviderError>> {
     Box::pin(async move {
-        let mut command = which_command("codegraph").map_err(|_| CapabilityProviderError {
+        let command = codegraph_command().map_err(|_| CapabilityProviderError {
             code: CapabilityProviderErrorCode::Unavailable,
         })?;
-        command
-            .args(["serve", "--mcp", "--path"])
-            .arg(&lease.canonical_root)
-            .current_dir(&lease.canonical_root)
-            // 1.6.0 默认 daemon 会逃逸 RuntimeSlot stop；direct mode 的 child 才可被 handle 独占。
-            .env("CODEGRAPH_NO_DAEMON", "1")
-            .kill_on_drop(true);
-        #[cfg(windows)]
-        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+        let command = configure_runtime_command(command, &lease);
         let (transport, stderr) = TokioChildProcess::builder(command)
             .stderr(Stdio::piped())
             .spawn()
@@ -737,6 +787,76 @@ mod tests {
         },
     };
     use tokio::sync::{Notify, oneshot};
+
+    /// Finder 精简 PATH 未命中时必须选择当前用户的固定 CodeGraph 候选。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_codegraph_command_falls_back_to_user_local() {
+        let local = PathBuf::from("/Users/fixture/.local/bin/codegraph");
+        let selected = macos_codegraph_command(
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "PATH miss",
+            )),
+            || Ok(tokio::process::Command::new(&local)),
+        )
+        .unwrap();
+
+        assert_eq!(selected.as_std().get_program(), local.as_os_str());
+    }
+
+    /// PATH 已命中时不得读取 user-local fallback，保持既有候选优先级。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_codegraph_command_prefers_path_candidate() {
+        let path = PathBuf::from("/opt/homebrew/bin/codegraph");
+        let selected = macos_codegraph_command(Ok(tokio::process::Command::new(&path)), || {
+            panic!("PATH 命中时不得读取 user-local candidate")
+        })
+        .unwrap();
+
+        assert_eq!(selected.as_std().get_program(), path.as_os_str());
+    }
+
+    /// 安装探测、status/prepare runner 与 direct Runtime 必须保留同一个解析候选。
+    #[test]
+    fn installation_runner_and_runtime_share_resolved_candidate() {
+        let candidate = PathBuf::from("fixture-codegraph");
+        let installation = installation_from_command(Ok(tokio::process::Command::new(&candidate)));
+        assert_eq!(installation.state, CapabilityInstallationState::Installed);
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = lease(directory.path().to_path_buf());
+        let runner = configure_command_runner(
+            tokio::process::Command::new(&candidate),
+            status_command(&target),
+        );
+        let runtime = configure_runtime_command(tokio::process::Command::new(&candidate), &target);
+
+        assert_eq!(runner.as_std().get_program(), candidate.as_os_str());
+        assert_eq!(runtime.as_std().get_program(), candidate.as_os_str());
+        assert_eq!(
+            runtime.as_std().get_args().collect::<Vec<_>>(),
+            [
+                "serve",
+                "--mcp",
+                "--path",
+                target.canonical_root.to_str().unwrap()
+            ]
+        );
+    }
+
+    /// 非 macOS 继续直接复用 which_command，不引入用户目录候选语义。
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn non_macos_codegraph_command_preserves_which_semantics() {
+        let shared = codegraph_command();
+        let direct = which_command("codegraph");
+        assert_eq!(shared.is_ok(), direct.is_ok());
+        if let (Ok(shared), Ok(direct)) = (shared, direct) {
+            assert_eq!(shared.as_std().get_program(), direct.as_std().get_program());
+        }
+    }
 
     /// 建立指向真实临时目录的 Lease，确保 projectPath canonical identity 可被测试验证。
     fn lease(root: PathBuf) -> WorkspaceLease {

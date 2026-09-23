@@ -462,4 +462,31 @@ mod tests {
         assert!(String::from_utf8_lossy(&output.stdout).starts_with("uv 0.12.17"));
         assert!(is_executable_file(&installed));
     }
+
+    /// 显式网络 Gate 通过产品安装入口安装固定 Serena，并验证受管可执行文件版本。
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "downloads and installs the pinned official Serena release; run explicitly for managed installer verification"]
+    fn official_macos_serena_install_matches_pinned_version() {
+        let directory = tempfile::tempdir().unwrap();
+        let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
+            config_file: directory.path().join("config.json"),
+            log_directory: directory.path().join("logs"),
+            app_log: directory.path().join("app.log"),
+            serena_log: directory.path().join("serena.log"),
+        };
+        install_serena(&paths).unwrap();
+        let installed = paths.managed_serena();
+        let output = std::process::Command::new(&installed)
+            .arg("--version")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            "Serena 1.7.0"
+        );
+        assert!(is_executable_file(&installed));
+    }
 }

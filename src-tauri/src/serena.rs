@@ -1734,6 +1734,60 @@ mod tests {
         );
     }
 
+    /// 使用官方 Serena 1.7.0 验证 Supervisor 的 start、restart、stop 与最终所有权状态。
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires SERENA_TEST_EXE pointing at the official 1.7.0 test installation"]
+    fn official_serena_start_restart_stop() {
+        let executable =
+            PathBuf::from(std::env::var_os("SERENA_TEST_EXE").expect("set SERENA_TEST_EXE"));
+        let directory = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
+            config_file: directory.path().join("config.json"),
+            log_directory: directory.path().join("logs"),
+            app_log: directory.path().join("logs/app.log"),
+            serena_log: directory.path().join("logs/serena.log"),
+        };
+        config::save(
+            &paths.config_file,
+            &ManagerConfig {
+                serena_path: Some(executable),
+                port,
+                ..ManagerConfig::default()
+            },
+        )
+        .unwrap();
+        let supervisor = SupervisorState::new(paths).unwrap();
+        let lifecycle = (|| {
+            supervisor.start()?;
+            let first = supervisor.snapshot();
+            supervisor.restart()?;
+            let restarted = supervisor.snapshot();
+            Ok::<_, String>((first, restarted))
+        })();
+        // 即使 start/restart Gate 失败，也先走正式 stop，避免测试断言制造新的进程残留。
+        let stop = supervisor.stop();
+
+        let (first, restarted) = lifecycle.unwrap();
+        stop.unwrap();
+        assert_eq!(first.server_status, ServerStatus::Running);
+        assert_eq!(restarted.server_status, ServerStatus::Running);
+        assert_ne!(
+            first.process_id.expect("Serena start must own a process"),
+            restarted
+                .process_id
+                .expect("Serena restart must own a process")
+        );
+        let stopped = supervisor.snapshot();
+        assert_eq!(stopped.server_status, ServerStatus::Stopped);
+        assert!(!stopped.managed_process_present);
+        assert!(stopped.process_id.is_none());
+    }
+
     #[test]
     fn launch_uses_private_context_and_loopback_without_project() {
         let command = start_command(

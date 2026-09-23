@@ -4,7 +4,7 @@
 )]
 mod agent;
 mod agent_notification;
-#[cfg(windows)]
+#[cfg(any(windows, all(test, target_os = "macos")))]
 mod autostart;
 mod codegraph_capability;
 mod commands;
@@ -16,6 +16,8 @@ mod load_error;
 mod logs;
 #[cfg(target_os = "macos")]
 mod macos_process;
+#[cfg(target_os = "macos")]
+mod macos_termination;
 mod mcp;
 mod oauth;
 mod remote;
@@ -197,6 +199,8 @@ pub fn run() {
             app.manage(product);
             app.manage(broker.clone());
             app.manage(ShutdownState::default());
+            #[cfg(target_os = "macos")]
+            macos_termination::install(app.handle());
             tray::create(app.handle())?;
 
             if is_autostart_launch(std::env::args_os()) {

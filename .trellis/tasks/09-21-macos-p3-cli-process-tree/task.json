@@ -20,7 +20,8 @@
   "subtasks": [],
   "children": [
     "09-22-macos-p3a-codex-provider",
-    "09-22-macos-p3b-process-tree-installer"
+    "09-22-macos-p3b-process-tree-installer",
+    "09-22-macos-p3-closeout"
   ],
   "parent": "09-21-macos-platform-porting",
   "relatedFiles": [],
