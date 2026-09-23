@@ -1060,7 +1060,17 @@ fn execution_diagnostic_message(row: &super::store::ExecutionRecord) -> Option<S
     let message = match code {
         "CODEX_TURN_ERROR" => {
             let category = safe_turn_error_category(raw).unwrap_or("other");
-            format!("{category}: Codex reported a turn diagnostic.")
+            let summary = match category {
+                "badRequest" => safe_unsupported_model_message(raw)
+                    .unwrap_or_else(|| "Codex reported a turn diagnostic.".into()),
+                "usageLimitExceeded" => "Codex usage limit reached.".into(),
+                "rateLimitExceeded" => "Codex rate limit reached.".into(),
+                "serverOverloaded" => "Codex service is overloaded.".into(),
+                "unauthorized" => "Codex authentication was rejected.".into(),
+                "contextWindowExceeded" => "Codex context window was exceeded.".into(),
+                _ => "Codex reported a turn diagnostic.".into(),
+            };
+            format!("{category}: {summary}")
         }
         "CODEX_PROVIDER_FAILURE" => match raw.split(':').next().unwrap_or("") {
             "CODEX_PROTOCOL_QUEUE_FULL" => "CODEX_PROTOCOL_QUEUE_FULL: Protocol event queue exhausted.".into(),
@@ -1084,6 +1094,37 @@ fn execution_diagnostic_message(row: &super::store::ExecutionRecord) -> Option<S
         _ => "Execution diagnostic recorded; raw details withheld.".into(),
     };
     Some(message.chars().take(256).collect())
+}
+
+/// 只匹配 Codex 的完整固定错误句式；模型标识必须是短 ASCII ID，且不能像凭据字段。
+fn safe_unsupported_model_message(raw: &str) -> Option<String> {
+    const PREFIX: &str = "The '";
+    const SUFFIX: &str = "' model is not supported when using Codex with a ChatGPT account.";
+    const REASON: &str = "is not supported when using Codex with a ChatGPT account.";
+    let value = serde_json::from_str::<Value>(raw).ok()?;
+    let message = value.pointer("/error/message")?.as_str()?;
+    let model = message.strip_prefix(PREFIX)?.strip_suffix(SUFFIX)?;
+    let lower = model.to_ascii_lowercase();
+    let looks_sensitive = [
+        "private",
+        "token",
+        "authorization",
+        "secret",
+        "password",
+        "bearer",
+    ]
+    .iter()
+    .any(|word| lower.contains(word));
+    if model.is_empty()
+        || model.len() > 64
+        || !model
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+        || looks_sensitive
+    {
+        return Some(format!("Codex model {REASON}"));
+    }
+    Some(format!("Codex model '{model}' {REASON}"))
 }
 
 fn safe_turn_error_category(raw: &str) -> Option<&'static str> {

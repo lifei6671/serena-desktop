@@ -1,8 +1,8 @@
+#[cfg(target_os = "macos")]
+use crate::serena::user_local_candidate;
 use crate::{
     config::{AppPaths, ManagerConfig},
-    serena::{
-        CapturedOutput, find_executable, hidden_command, run_with_timeout, user_local_candidate,
-    },
+    serena::{CapturedOutput, find_executable, hidden_command, run_with_timeout},
 };
 use serde::Serialize;
 use std::{
@@ -218,6 +218,7 @@ pub fn detect_codegraph_version() -> Option<String> {
 }
 
 /// Finder 精简 PATH 未命中时回退到当前用户的固定安装目录。
+#[cfg(any(target_os = "macos", test))]
 fn codegraph_candidate(path: Option<PathBuf>, user_local: Option<PathBuf>) -> Option<PathBuf> {
     path.or(user_local)
 }

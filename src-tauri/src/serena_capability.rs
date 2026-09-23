@@ -12,12 +12,10 @@ use crate::{
     mcp::serena::Client,
     serena::hidden_command,
     workspace_capability::{
-        CapabilityAction, CapabilityActionAuthority, CapabilityActionDescriptor,
-        CapabilityActionExecution, CapabilityActivitySink, CapabilityFuture,
-        CapabilityInstallation, CapabilityInstallationState, CapabilityPrepareAction,
-        CapabilityPrepareResult, CapabilityProviderError, CapabilityProviderErrorCode,
-        CapabilityReadinessProbe, CapabilityReadinessState, CapabilityRuntimeHandle,
-        CapabilityRuntimeModel, CapabilityRuntimePolicy, CapabilityRuntimeState, CapabilityStage,
+        CapabilityFuture, CapabilityInstallation, CapabilityInstallationState,
+        CapabilityProviderError, CapabilityProviderErrorCode, CapabilityReadinessProbe,
+        CapabilityReadinessState, CapabilityRuntimeHandle, CapabilityRuntimeModel,
+        CapabilityRuntimePolicy, CapabilityRuntimeState, CapabilityStage,
         CapabilityStageDescriptor, CapabilityStageRequirement, CapabilityStageState,
         CapabilityStopFailure, StopEvidence, WorkspaceCapabilityDescriptor,
         WorkspaceCapabilityProvider, WorkspaceCapabilityProviderId, WorkspaceToolCall,
@@ -30,19 +28,13 @@ use std::{
     collections::HashMap,
     net::{Ipv4Addr, TcpListener},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::Mutex;
 #[cfg(test)]
 use tokio_util::sync::CancellationToken;
-
-#[cfg(windows)]
-#[path = "serena_capability_index_windows.rs"]
-mod index_windows;
-#[cfg(windows)]
-use index_windows::IndexProcess;
 
 /// P0-005 已验证的 Serena 首版跨 Workspace 并发容量。
 const SERENA_RUNTIME_MAX_INSTANCES: usize = 2;
@@ -56,11 +48,6 @@ type InstallationDetector = Arc<dyn Fn() -> SerenaInstallation + Send + Sync>;
 /// 隔离 project.yml 文件检查的 fixture seam，错误不会携带路径或原始文件系统信息。
 type ProjectConfigurationProbe =
     Arc<dyn Fn(&Path) -> Result<bool, CapabilityProviderError> + Send + Sync>;
-
-/// 单次受管 index 的 deterministic seam；不创建新的长期 Runtime。
-type IndexRunner = Arc<
-    dyn Fn(Command) -> CapabilityFuture<'static, Result<(), CapabilityProviderError>> + Send + Sync,
->;
 
 /// Provider-private Runtime key；不形成 Manager handle 或公开数据传输对象。
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -124,7 +111,6 @@ pub(crate) struct SerenaCapabilityProvider {
     project_configuration_probe: ProjectConfigurationProbe,
     runtime_directory: PathBuf,
     runtimes: Mutex<HashMap<SerenaRuntimeKey, SerenaRuntime>>,
-    index_runner: IndexRunner,
 }
 
 impl SerenaCapabilityProvider {
@@ -160,13 +146,11 @@ impl SerenaCapabilityProvider {
                 ],
                 runtime_model: CapabilityRuntimeModel::WorkspaceScopedProcess,
                 readiness_probe: CapabilityReadinessProbe::Required,
-                preparation_policy:
-                    crate::workspace_capability::CapabilityPreparationPolicy::AutoOnFirstToolCall,
                 stage_descriptors: vec![
                     CapabilityStageDescriptor {
                         id: "project_configuration".into(),
                         display_name: "项目配置".into(),
-                        requirement: CapabilityStageRequirement::AutoPreparable,
+                        requirement: CapabilityStageRequirement::Required,
                     },
                     CapabilityStageDescriptor {
                         id: "index".into(),
@@ -179,22 +163,6 @@ impl SerenaCapabilityProvider {
                         requirement: CapabilityStageRequirement::Optional,
                     },
                 ],
-                action_descriptors: vec![
-                    CapabilityActionDescriptor {
-                        action_id: "prepare".into(),
-                        display_name: "准备".into(),
-                        authority: CapabilityActionAuthority::LocalHuman,
-                        execution: CapabilityActionExecution::ManagerEnsureRuntime,
-                        warm_runtime: true,
-                    },
-                    CapabilityActionDescriptor {
-                        action_id: "build_index".into(),
-                        display_name: "建立索引".into(),
-                        authority: CapabilityActionAuthority::LocalHuman,
-                        execution: CapabilityActionExecution::ProviderPrepare,
-                        warm_runtime: false,
-                    },
-                ],
                 runtime_policy: CapabilityRuntimePolicy {
                     max_instances: SERENA_RUNTIME_MAX_INSTANCES,
                     idle_timeout_ms: SERENA_RUNTIME_IDLE_TIMEOUT_MS,
@@ -205,7 +173,6 @@ impl SerenaCapabilityProvider {
             project_configuration_probe,
             runtime_directory,
             runtimes: Mutex::new(HashMap::new()),
-            index_runner: Arc::new(run_index),
         }
     }
 
@@ -241,7 +208,7 @@ impl SerenaCapabilityProvider {
                 id: "project_configuration".into(),
                 display_name: "项目配置".into(),
                 state: project_configuration,
-                requirement: CapabilityStageRequirement::AutoPreparable,
+                requirement: CapabilityStageRequirement::Required,
                 message_code: (project_configuration == CapabilityStageState::Absent)
                     .then(|| "CAPABILITY_STAGE_NOT_PREPARED".into()),
             },
@@ -262,20 +229,6 @@ impl SerenaCapabilityProvider {
         ]
     }
 
-    /// 将已声明动作投影到统一 observation，007 不会执行其中任何一个动作。
-    fn actions(&self) -> Vec<CapabilityAction> {
-        self.descriptor
-            .action_descriptors
-            .iter()
-            .map(|action| CapabilityAction {
-                id: action.action_id.clone(),
-                display_name: action.display_name.clone(),
-                authority: action.authority,
-                execution: action.execution,
-            })
-            .collect()
-    }
-
     /// 构造安装不可用或检查失败时的 fail-closed observation，避免读取 Workspace 文件。
     fn unavailable_observation(
         &self,
@@ -288,7 +241,6 @@ impl SerenaCapabilityProvider {
             runtime_state: CapabilityRuntimeState::Stopped,
             checked_at: checked_at(),
             stages: self.stages(CapabilityStageState::Unknown),
-            actions: self.actions(),
         }
     }
 
@@ -438,8 +390,7 @@ impl SerenaCapabilityProvider {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        // `--project` 只允许 Serena 创建 Project Configuration；在发布 opaque Runtime 前，
-        // 必须重新以同一 Lease canonical root 确认其确实成为常规文件。
+        // Runtime 启动前已确认现有配置；发布 opaque Runtime 前再次核对同一 Lease root。
         match (self.project_configuration_probe)(&lease.canonical_root) {
             Ok(true) => {}
             Ok(false) | Err(_) => {
@@ -545,7 +496,7 @@ impl SerenaCapabilityProvider {
 
 /// 只检查 Lease canonical root 下的 Serena Project Configuration，不读取其内容也不创建路径。
 fn project_configuration_exists(canonical_root: &Path) -> Result<bool, CapabilityProviderError> {
-    match std::fs::metadata(canonical_root.join(".serena").join("project.yml")) {
+    match std::fs::symlink_metadata(canonical_root.join(".serena").join("project.yml")) {
         // 只有常规文件才是可用的 Serena Project Configuration；目录、FIFO 等一律视为未准备。
         Ok(metadata) => Ok(metadata.is_file()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
@@ -564,77 +515,11 @@ fn checked_at() -> u64 {
         .unwrap_or(0)
 }
 
-/// 007 尚未实现 Runtime/Tool/Preparation 时的统一 fail-closed Provider 错误。
+/// 不泄露进程与路径细节的统一 Provider 错误。
 fn deferred_operation() -> CapabilityProviderError {
     CapabilityProviderError {
         code: CapabilityProviderErrorCode::OperationFailed,
     }
-}
-
-/// Unix index 自有进程组；只属于本次操作，不建立长期 Runtime。
-#[cfg(unix)]
-struct IndexProcess {
-    child: tokio::process::Child,
-    process_group: i32,
-}
-
-#[cfg(unix)]
-impl Drop for IndexProcess {
-    fn drop(&mut self) {
-        unsafe extern "C" {
-            fn kill(pid: i32, signal: i32) -> i32;
-        }
-        // SAFETY: process_group(0) 令 child PID 成为独占 PGID；负 PGID 只终止该组。
-        unsafe {
-            kill(-self.process_group, 9);
-        }
-        // tokio Child 的 kill_on_drop/reaper 继续负责直接 child 的回收。
-    }
-}
-
-#[cfg(unix)]
-impl IndexProcess {
-    /// Command 每次只用于本次 index，并在 exec 前建立独立进程组。
-    fn spawn(mut command: Command) -> std::io::Result<Self> {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-        let child = tokio::process::Command::from(command)
-            .kill_on_drop(true)
-            .spawn()?;
-        let process_group = child.id().expect("new index child must have a PID") as i32;
-        Ok(Self {
-            child,
-            process_group,
-        })
-    }
-
-    /// 状态仅用于当前 operation 结果，不形成 Health authority。
-    fn try_wait(&mut self) -> std::io::Result<Option<bool>> {
-        self.child
-            .try_wait()
-            .map(|status| status.map(|status| status.success()))
-    }
-}
-
-/// 不捕获 stdout/stderr；控制逻辑只检查退出状态，并提供固定执行上界。
-fn run_index(command: Command) -> CapabilityFuture<'static, Result<(), CapabilityProviderError>> {
-    Box::pin(async move {
-        let mut process = IndexProcess::spawn(command).map_err(|_| deferred_operation())?;
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(90);
-        loop {
-            match process.try_wait().map_err(|_| deferred_operation())? {
-                Some(success) => {
-                    return if success {
-                        Ok(())
-                    } else {
-                        Err(deferred_operation())
-                    };
-                }
-                None if tokio::time::Instant::now() >= deadline => return Err(deferred_operation()),
-                None => tokio::time::sleep(Duration::from_millis(50)).await,
-            }
-        }
-    })
 }
 
 impl WorkspaceCapabilityProvider for SerenaCapabilityProvider {
@@ -665,7 +550,6 @@ impl WorkspaceCapabilityProvider for SerenaCapabilityProvider {
             return Box::pin(async move { Ok(observation) });
         }
         let provider_id = self.descriptor.provider_id.clone();
-        let actions = self.actions();
         let project_configuration_probe = Arc::clone(&self.project_configuration_probe);
         Box::pin(async move {
             // Workspace authority 完全来自 Lease；不读取 Desktop selection、caller payload 或 project.yml 内容。
@@ -690,7 +574,7 @@ impl WorkspaceCapabilityProvider for SerenaCapabilityProvider {
                         id: "project_configuration".into(),
                         display_name: "项目配置".into(),
                         state: stage_state,
-                        requirement: CapabilityStageRequirement::AutoPreparable,
+                        requirement: CapabilityStageRequirement::Required,
                         message_code: (!exists).then(|| "CAPABILITY_STAGE_NOT_PREPARED".into()),
                     },
                     CapabilityStage {
@@ -708,61 +592,22 @@ impl WorkspaceCapabilityProvider for SerenaCapabilityProvider {
                         message_code: None,
                     },
                 ],
-                actions,
             })
         })
     }
 
-    /// 只执行 Descriptor 声明的显式 index；配置缺失时绝不借 index 隐式创建。
-    fn prepare<'a>(
-        &'a self,
-        lease: WorkspaceLease,
-        action: CapabilityPrepareAction,
-        _activity: &'a dyn CapabilityActivitySink,
-    ) -> CapabilityFuture<'a, Result<CapabilityPrepareResult, CapabilityProviderError>> {
-        Box::pin(async move {
-            if action.action_id != "build_index" {
-                return Err(CapabilityProviderError {
-                    code: CapabilityProviderErrorCode::ContractError,
-                });
-            }
-            let installation = (self.installation_detector)();
-            if installation.state != InstallationState::Standard {
-                return Err(deferred_operation());
-            }
-            if !(self.project_configuration_probe)(&lease.canonical_root)? {
-                return Err(deferred_operation());
-            }
-            let home = self.slot_home(&lease);
-            let context = self.slot_context(&lease);
-            config::prepare_workspace_serena_home(&home, &context)
-                .map_err(|_| deferred_operation())?;
-            config::verify_workspace_serena_home(&home, &context)
-                .map_err(|_| deferred_operation())?;
-            let mut command = hidden_command(&installation.path);
-            command
-                .args(["project", "index"])
-                .arg(&lease.canonical_root)
-                .env("SERENA_HOME", &home)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            (self.index_runner)(command).await?;
-            // 仅证明本次显式操作成功，不更新任何持久 Index Health authority。
-            Ok(CapabilityPrepareResult {
-                readiness: CapabilityReadinessState::Ready,
-            })
-        })
-    }
-
-    /// 为 Lease 启动独立 Serena Slot；缺失的 Project Configuration 仅由官方 --project 路径创建。
+    /// 仅为已有 Project Configuration 的 Lease 启动独立 Serena Slot。
     fn start(
         &self,
         lease: WorkspaceLease,
     ) -> CapabilityFuture<'_, Result<CapabilityRuntimeHandle, CapabilityProviderError>> {
         Box::pin(async move {
-            // probe 错误必须在 Slot Home/child 前 fail closed；仅明确 absent 才允许 --project 自动创建。
-            (self.project_configuration_probe)(&lease.canonical_root)?;
+            // 缺失或无效配置必须在 Slot Home 与 child 创建前 fail closed。
+            if !(self.project_configuration_probe)(&lease.canonical_root)? {
+                return Err(CapabilityProviderError {
+                    code: CapabilityProviderErrorCode::NotPrepared,
+                });
+            }
             let installation = (self.installation_detector)();
             if installation.state != InstallationState::Standard {
                 return Err(deferred_operation());
@@ -933,7 +778,6 @@ impl WorkspaceCapabilityProvider for SerenaCapabilityProvider {
 
 #[cfg(test)]
 mod tests {
-    include!("serena_capability_action_tests.rs");
     use super::*;
     use crate::{
         discovery::InstallationSource,
@@ -1300,10 +1144,7 @@ mod tests {
                     tool_names: vec![],
                     runtime_model: CapabilityRuntimeModel::InProcess,
                     readiness_probe: CapabilityReadinessProbe::Required,
-                    preparation_policy:
-                        crate::workspace_capability::CapabilityPreparationPolicy::None,
                     stage_descriptors: vec![],
-                    action_descriptors: vec![],
                     runtime_policy: CapabilityRuntimePolicy {
                         max_instances: 1,
                         idle_timeout_ms: 1,
@@ -1349,20 +1190,8 @@ mod tests {
                     runtime_state: CapabilityRuntimeState::Stopped,
                     checked_at: 0,
                     stages: vec![],
-                    actions: vec![],
                 })
             })
-        }
-
-        /// 此测试不使用准备操作，固定 fail-closed。
-        fn prepare<'a>(
-            &'a self,
-            _lease: WorkspaceLease,
-            _action: CapabilityPrepareAction,
-            _activity: &'a dyn CapabilityActivitySink,
-        ) -> CapabilityFuture<'a, Result<CapabilityPrepareResult, CapabilityProviderError>>
-        {
-            Box::pin(async { Err(deferred_operation()) })
         }
 
         /// 此测试不使用 Runtime，固定 fail-closed。
@@ -1428,15 +1257,17 @@ mod tests {
             descriptor.readiness_probe,
             CapabilityReadinessProbe::Required
         );
-        assert_eq!(
-            descriptor.preparation_policy,
-            crate::workspace_capability::CapabilityPreparationPolicy::AutoOnFirstToolCall
-        );
         assert_eq!(descriptor.stage_descriptors.len(), 3);
-        assert_eq!(descriptor.action_descriptors[0].action_id, "prepare");
-        assert!(descriptor.action_descriptors[0].warm_runtime);
-        assert_eq!(descriptor.action_descriptors[1].action_id, "build_index");
-        assert!(!descriptor.action_descriptors[1].warm_runtime);
+        assert_eq!(
+            descriptor.stage_descriptors[0].requirement,
+            CapabilityStageRequirement::Required
+        );
+        assert!(
+            serde_json::to_value(descriptor)
+                .unwrap()
+                .get("actionDescriptors")
+                .is_none()
+        );
         assert_eq!(descriptor.runtime_policy.max_instances, 2);
         assert_eq!(descriptor.runtime_policy.per_slot_concurrency, 1);
         assert_eq!(descriptor.runtime_policy.idle_timeout_ms, 60_000);
@@ -1817,16 +1648,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn absent_configuration_enters_official_auto_prepare_start_path() {
+    async fn absent_configuration_fails_acquire_without_creating_slot_home() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("workspace");
         std::fs::create_dir(&root).unwrap();
         let binary = directory.path().join("serena.exe");
         std::fs::write(&binary, "fixture").unwrap();
-        let provider = provider(
+        let provider = Arc::new(provider(
             installation(InstallationState::Standard, binary, "Serena 1.7.0"),
-            |_| Ok(false),
-        );
+            project_configuration_exists,
+        ));
 
         let observation = provider
             .observe_readiness(lease(root.clone()))
@@ -1837,12 +1668,25 @@ mod tests {
         assert_eq!(observation.stages[0].state, CapabilityStageState::Absent);
         assert_eq!(
             observation.stages[0].requirement,
-            CapabilityStageRequirement::AutoPreparable
+            CapabilityStageRequirement::Required
         );
         assert_eq!(observation.stages[1].state, CapabilityStageState::Unknown);
         assert_eq!(observation.stages[2].state, CapabilityStageState::Unknown);
-        // readiness probe 保持只读；真正的首个 acquire 由下方 official smoke 覆盖。
+        let target = lease(root.clone());
+        let registered: Arc<dyn WorkspaceCapabilityProvider> = provider.clone();
+        let manager = WorkspaceCapabilityManager::new(Arc::new(
+            WorkspaceCapabilityRegistry::new([registered]).unwrap(),
+        ));
+        let Err(error) = manager.acquire_runtime("serena", target.clone()).await else {
+            panic!("missing project.yml must fail acquire");
+        };
+        assert_eq!(
+            error.code,
+            crate::workspace_capability::WorkspaceCapabilityErrorCode::NotPrepared
+        );
         assert!(!root.join(".serena").exists());
+        assert!(!provider.slot_home(&target).exists());
+        assert!(provider.runtimes.lock().await.is_empty());
     }
 
     #[tokio::test]
@@ -1920,6 +1764,14 @@ mod tests {
         assert_eq!(observation.stages[1].state, CapabilityStageState::Unknown);
         assert_eq!(observation.stages[2].state, CapabilityStageState::Unknown);
         assert!(project_configuration.is_dir());
+        let target = lease(root.clone());
+        assert_eq!(
+            provider.start(target.clone()).await,
+            Err(CapabilityProviderError {
+                code: CapabilityProviderErrorCode::NotPrepared,
+            })
+        );
+        assert!(!provider.slot_home(&target).exists());
         assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
         assert_eq!(std::fs::read_dir(root.join(".serena")).unwrap().count(), 1);
     }
@@ -1960,67 +1812,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    #[ignore = "requires SERENA_TEST_EXE pointing at the official 1.7.0 test installation"]
-    async fn official_serena_first_acquire_auto_creates_project_configuration() {
-        let executable =
-            PathBuf::from(std::env::var_os("SERENA_TEST_EXE").expect("set SERENA_TEST_EXE"));
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().join("workspace");
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(root.join("example.py"), "def marker():\n    return 1\n").unwrap();
-        let root = std::fs::canonicalize(root).unwrap();
-        let project_configuration = root.join(".serena").join("project.yml");
-        assert!(!project_configuration.exists());
-        let installation = installation(InstallationState::Standard, executable, "Serena 1.7.0");
-        let provider = Arc::new(SerenaCapabilityProvider::with_probes(
-            Arc::new(move || installation.clone()),
-            Arc::new(project_configuration_exists),
-            directory.path().join("runtime"),
-        ));
-        let provider_port: Arc<dyn WorkspaceCapabilityProvider> = provider.clone();
-        let manager = WorkspaceCapabilityManager::new(Arc::new(
-            WorkspaceCapabilityRegistry::new([provider_port]).unwrap(),
-        ));
-        let lease = WorkspaceLease {
-            workspace_id: "workspace".into(),
-            canonical_root: root,
-            generation: 1,
-        };
-        let runtime = manager
-            .acquire_runtime("serena", lease.clone())
-            .await
-            .unwrap();
-        assert!(
-            provider
-                .slot_home(&lease)
-                .join("serena_config.yml")
-                .is_file()
-        );
-        // 本测试只调用 Runtime acquire，不会调用 index/onboarding 或 Provider prepare。
-        assert!(project_configuration.is_file());
-        drop(runtime);
-        manager.shutdown_runtimes().await.unwrap();
-        assert!(project_configuration.is_file());
-        let existing_project_configuration = std::fs::read(&project_configuration).unwrap();
-
-        // 以新的 Manager 模拟后续 acquire；既有默认 Project Configuration 不得被重建或改写。
-        let provider_port: Arc<dyn WorkspaceCapabilityProvider> = provider.clone();
-        let second_manager = WorkspaceCapabilityManager::new(Arc::new(
-            WorkspaceCapabilityRegistry::new([provider_port]).unwrap(),
-        ));
-        let runtime = second_manager
-            .acquire_runtime("serena", lease)
-            .await
-            .unwrap();
-        drop(runtime);
-        second_manager.shutdown_runtimes().await.unwrap();
-        assert_eq!(
-            std::fs::read(project_configuration).unwrap(),
-            existing_project_configuration
-        );
-    }
-
     /// 真实官方 Serena Gate：A/B Slot 必须保持独立，停止 A 不得影响 B，shutdown 后受管进程必须退出。
     #[cfg(windows)]
     #[tokio::test]
@@ -2041,6 +1832,15 @@ mod tests {
         std::fs::create_dir_all(&root_b).unwrap();
         std::fs::write(root_a.join("a.py"), "def marker_a():\n    return 'a'\n").unwrap();
         std::fs::write(root_b.join("b.py"), "def marker_b():\n    return 'b'\n").unwrap();
+        for (root, name) in [(&root_a, "workspace-a"), (&root_b, "workspace-b")] {
+            let configuration = root.join(".serena").join("project.yml");
+            std::fs::create_dir_all(configuration.parent().unwrap()).unwrap();
+            std::fs::write(
+                configuration,
+                format!("project_name: {name}\nlanguage_servers:\n- python\n"),
+            )
+            .unwrap();
+        }
         let lease_a = WorkspaceLease {
             workspace_id: "workspace-a".into(),
             canonical_root: std::fs::canonicalize(root_a).unwrap(),
@@ -2195,15 +1995,17 @@ mod tests {
         std::fs::write(root.join("example.py"), "def marker():\n    return 1\n").unwrap();
         let root = std::fs::canonicalize(root).unwrap();
         let project_configuration = root.join(".serena").join("project.yml");
+        std::fs::create_dir_all(project_configuration.parent().unwrap()).unwrap();
+        let original_configuration = "project_name: workspace\nlanguage_servers:\n- python\n";
+        std::fs::write(&project_configuration, original_configuration).unwrap();
         let probes = Arc::new(AtomicUsize::new(0));
         let probe_count = Arc::clone(&probes);
         let installation = installation(InstallationState::Standard, executable, "Serena 1.7.0");
         let provider = Arc::new(SerenaCapabilityProvider::with_probes(
             Arc::new(move || installation.clone()),
             Arc::new(move |_| {
-                // 第二次 probe 故意拒绝，以验证已创建的文件不会因 postcondition 失败被回滚。
-                probe_count.fetch_add(1, Ordering::SeqCst);
-                Ok(false)
+                // 第二次 probe 故意拒绝，确认已有配置不会因 postcondition 失败被改写。
+                Ok(probe_count.fetch_add(1, Ordering::SeqCst) == 0)
             }),
             directory.path().join("runtime"),
         ));
@@ -2222,6 +2024,9 @@ mod tests {
         assert!(project_configuration.is_file());
         assert!(provider.runtimes.lock().await.is_empty());
         manager.shutdown_runtimes().await.unwrap();
-        assert!(project_configuration.is_file());
+        assert_eq!(
+            std::fs::read_to_string(project_configuration).unwrap(),
+            original_configuration
+        );
     }
 }

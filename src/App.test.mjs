@@ -47,8 +47,9 @@ const { formatBrokerError } = await import('./useBroker.ts');
 let root;
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; });
 
-test('frontend defaults new Broker configurations to 19120 and formats stable startup errors', () => {
+test('frontend defaults new Serena and Broker configurations to separate ports and formats stable startup errors', () => {
   const source = readFileSync('src/app/useAppController.ts', 'utf8');
+  assert.match(source, /port:\s*19121,\s*dashboardEnabled:/u);
   assert.match(source, /broker:\s*\{\s*enabled:\s*false,\s*port:\s*19120,/u);
   assert.match(source, /useState\(19120\)/u);
   const error = formatBrokerError('BROKER_PORT_IN_USE: MCP 连接入口端口 19120 已被其他程序占用。');
@@ -203,6 +204,10 @@ test('Settings keeps its compact contract, truthful detection copy, and broker c
     let page = await mountSettings();
     assert.deepEqual([...page.querySelectorAll('.settings-section h2')].map(item => item.textContent), ['General', 'Agent 提醒', 'Serena', 'Serena 内部服务', 'MCP 连接入口']);
     const settingsCopy = page.textContent;
+    assert.equal(page.querySelector('label[for="serena-port"]').textContent, 'Serena 内部服务端口');
+    assert.equal(page.querySelector('label[for="broker-port"]').textContent, 'MCP Broker 连接入口端口');
+    assert.doesNotMatch(settingsCopy, /(?<!Serena )内部服务端口|(?<!MCP Broker )连接入口端口/u);
+    assert.match(settingsCopy, /ChatGPT\/Cloudflare\/Claude/u);
     for (const text of ['系统与应用生命周期', '随系统登录启动', '关闭窗口时保留后台运行', '通过 Serena Desktop 常驻菜单中的“退出”可结束应用', '也可从 Serena 页面手工打开']) {
       assert.match(settingsCopy, new RegExp(text), text);
     }
@@ -275,9 +280,9 @@ test('Service Status renders component icons, truthful actions and independent p
   const originals = { ...api };
   const project = { id: 'status-workspace', name: 'Active status workspace', root: 'E:/status-workspace', generation: 1 };
   const installation = { state: 'standard', source: 'managed', version: 'serena-actual-1.8.2', path: 'C:/Serena/runtime/serena.exe', context: 'desktop-context', error: null };
-  const config = { agentEnabled: false, broker: { enabled: true, port: 9234, allowLan: false }, workspaces: [project], workspaceRegistryRevision: 1, serenaPath: null, port: 9345, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
-  const snapshot = { config, git: { available: true, status: 'available', version: 'git-actual-2.51.3', path: 'C:/Git/cmd/git.exe', error: null }, serverStatus: 'running', installation, activeInstallation: installation, managedRuntimePresent: true, managedProcessPresent: true, activePort: 9345, endpoint: 'http://127.0.0.1:9345/mcp', dashboardEnabled: true, dashboardUrl: 'http://127.0.0.1:24283/dashboard/', autostartEnabled: false, codegraphVersion: 'codegraph-actual-1.9.4', lastError: null };
-  const broker = { running: true, port: 9234, listenAddress: '127.0.0.1', lanEndpoints: [], projects: [project], projectSources: [], syncWarnings: [], activeWorkspace: project, codegraph: { status: 'ready', workspaceId: project.id, root: project.root, generation: 1 } };
+  const config = { agentEnabled: false, broker: { enabled: true, port: 19120, allowLan: false }, workspaces: [project], workspaceRegistryRevision: 1, serenaPath: null, port: 19121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+  const snapshot = { config, git: { available: true, status: 'available', version: 'git-actual-2.51.3', path: 'C:/Git/cmd/git.exe', error: null }, serverStatus: 'running', installation, activeInstallation: installation, managedRuntimePresent: true, managedProcessPresent: true, activePort: 19121, endpoint: 'http://127.0.0.1:19121/mcp', dashboardEnabled: true, dashboardUrl: 'http://127.0.0.1:24283/dashboard/', autostartEnabled: false, codegraphVersion: 'codegraph-actual-1.9.4', lastError: null };
+  const broker = { running: true, port: 19120, listenAddress: '127.0.0.1', lanEndpoints: [], projects: [project], projectSources: [], syncWarnings: [], activeWorkspace: project, codegraph: { status: 'ready', workspaceId: project.id, root: project.root, generation: 1 } };
   let probes = 0;
   let detections = 0;
   let resolveDetection;
@@ -299,14 +304,16 @@ test('Service Status renders component icons, truthful actions and independent p
     await navigate('服务状态');
     const summary = page().querySelector('[aria-label="当前状态"]');
     assert.match(summary.textContent, /运行中/);
-    assert.ok(summary.textContent.includes('http://127.0.0.1:9234/mcp'));
+    assert.ok(summary.textContent.includes('http://127.0.0.1:19120/mcp'));
+    assert.equal(document.querySelector('footer .mono').textContent, 'Serena 内部端口：19121');
     assert.doesNotMatch(summary.textContent, /当前工作区|Active status workspace/);
     assert.match(page().textContent, /本机命令与服务/);
     assert.match(page().textContent, /环境与版本/);
     const rows = [...page().querySelectorAll('tbody tr')];
     assert.equal(rows.length, 5);
-    assert.match(rows[0].textContent, /Serena.*已发现.*serena-actual-1\.8\.2.*C:\/Serena\/runtime\/serena\.exe/);
-    assert.match(rows[1].textContent, /MCP Broker.*运行中.*HTTP · 9234.*http:\/\/127\.0\.0\.1:9234\/mcp/);
+    assert.match(rows[0].textContent, /Serena.*运行中.*serena-actual-1\.8\.2.*C:\/Serena\/runtime\/serena\.exe/);
+    assert.equal(rows[0].querySelector('.status-component-state').dataset.tone, 'healthy');
+    assert.match(rows[1].textContent, /MCP Broker.*运行中.*HTTP · 19120.*http:\/\/127\.0\.0\.1:19120\/mcp/);
     assert.match(rows[2].textContent, /Codex CLI.*CLI 可用.*codex-actual-0\.159\.7/);
     assert.match(rows[3].textContent, /CodeGraph CLI.*已发现.*codegraph-actual-1\.9\.4/);
     assert.match(rows[4].textContent, /Git CLI.*已发现.*git-actual-2\.51\.3/);
@@ -418,7 +425,7 @@ test('Service Status renders component icons, truthful actions and independent p
       assert.equal(serenaCopy.disabled, false);
 
       clipboard.writeText = async value => { copiedValues.push(value); };
-      for (const [control, value] of [[brokerCopy, 'http://127.0.0.1:9234/mcp'], [gitCopy, snapshot.git.path]]) {
+      for (const [control, value] of [[brokerCopy, 'http://127.0.0.1:19120/mcp'], [gitCopy, snapshot.git.path]]) {
         await act(async () => control.click());
         assert.equal(copiedValues.at(-1), value);
         assert.ok(control.querySelector('svg.lucide-check'));
@@ -452,11 +459,14 @@ test('Service Status renders component icons, truthful actions and independent p
     await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
     await navigate('服务状态');
     assert.match(page().querySelector('[aria-label="当前状态"]').textContent, /已停止/);
-    assert.doesNotMatch(page().textContent, /http:\/\/127\.0\.0\.1:9234\/mcp/);
+    assert.doesNotMatch(page().textContent, /http:\/\/127\.0\.0\.1:19120\/mcp/);
     assert.match(page().querySelector('tbody').textContent, /CodeGraph CLI.*已发现/);
     assert.match(page().textContent, /Actual Codex error/);
     assert.match(page().textContent, /Actual Git error/);
-    assert.match(page().textContent, /Last ErrorActual Serena error/);
+    assert.match(page().querySelector('tbody tr').textContent, /Serena.*已停止/);
+    assert.equal(page().querySelector('tbody tr .status-component-state').dataset.tone, 'inactive');
+    assert.equal(page().querySelector('.status-last-error'), null);
+    assert.match(document.querySelector('footer .footer-status').textContent, /Serena：已停止/);
     assert.equal(button('停止 Serena'), undefined);
     assert.equal(button('启动 Serena'), undefined);
     assert.equal(button('打开 Dashboard'), undefined);
@@ -470,6 +480,56 @@ test('Service Status renders component icons, truthful actions and independent p
     assert.equal(page().querySelector('.status-lifecycle-action'), null);
 
   } finally { Object.assign(api, originals); }
+});
+
+// 验证安装探测、运行状态与历史错误在状态页分别呈现。
+test('Serena runtime status and Broker port stay distinct while historical diagnostics stay hidden', async () => {
+  const { default: StatusPage } = await import('./features/status/StatusPage.tsx');
+  const installation = { state: 'standard', version: '1.8.2', path: 'C:/Serena/serena.exe', error: null };
+  const state = { activeInstallation: installation, serverStatus: 'running', lastError: null, git: { available: false, status: 'missing' }, codegraphVersion: null };
+  const props = { state, busy: null, codexLoading: false, codexVersion: null, codexError: null, brokerController: { broker: { running: true, port: 19120 } }, run() {}, detectCodex() {}, runSideEffect() {} };
+  root = createRoot(document.getElementById('root'));
+  const render = async () => act(async () => root.render(createElement(TooltipProvider, null, createElement(StatusPage, props))));
+  const serenaRow = () => document.querySelector('tbody tr:first-child');
+  await render();
+  assert.match(serenaRow().textContent, /Serena.*运行中.*1\.8\.2/);
+  assert.equal(serenaRow().querySelector('.status-component-state').dataset.tone, 'healthy');
+  assert.match(document.querySelector('tbody tr:nth-child(2)').textContent, /MCP Broker.*运行中.*19120/);
+  assert.match(document.querySelector('[aria-label="当前状态"]').textContent, /19120\/mcp/);
+
+  state.serverStatus = 'error'; state.lastError = 'Serena port 19121 unavailable';
+  await render();
+  assert.match(serenaRow().textContent, /Serena.*启动异常.*Serena port 19121 unavailable/);
+  assert.equal(serenaRow().querySelector('.status-component-state').dataset.tone, 'error');
+  assert.match(document.querySelector('.status-last-error').textContent, /Serena port 19121 unavailable/);
+  assert.match(document.querySelector('.status-environment-row').textContent, /C:\/Serena\/serena\.exe/);
+
+  state.serverStatus = 'running';
+  await render();
+  assert.equal(document.querySelector('.status-last-error'), null);
+  assert.doesNotMatch(serenaRow().textContent, /unavailable/);
+
+  state.serverStatus = 'stopped';
+  await render();
+  assert.match(serenaRow().textContent, /Serena.*已停止/);
+  assert.equal(serenaRow().querySelector('.status-component-state').dataset.tone, 'inactive');
+  assert.equal(document.querySelector('.status-last-error'), null);
+
+  state.serverStatus = 'starting';
+  await render();
+  assert.match(serenaRow().textContent, /Serena.*启动中/);
+  assert.equal(serenaRow().querySelector('.status-component-state').dataset.tone, 'pending');
+
+  state.activeInstallation = { state: 'invalid', version: null, path: installation.path, error: 'Invalid installation' };
+  state.serverStatus = 'running';
+  await render();
+  assert.match(serenaRow().textContent, /Serena.*安装异常/);
+  assert.equal(serenaRow().querySelector('.status-component-state').dataset.tone, 'error');
+
+  state.activeInstallation = { state: 'missing', version: null, path: null, error: null };
+  await render();
+  assert.match(serenaRow().textContent, /Serena.*未检测到/);
+  assert.equal(serenaRow().querySelector('.status-component-state').dataset.tone, 'inactive');
 });
 
 test('task detail clears the Agent main-navigation selection until returning to the list', async () => {

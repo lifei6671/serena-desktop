@@ -1,15 +1,12 @@
-//! CodeGraph readiness、显式索引与 Workspace-scoped query Runtime Adapter；不承载全局 Workspace 或 Remote Tool。
+//! CodeGraph 只读 readiness 与 Workspace-scoped query Runtime Adapter；不承载全局 Workspace 或 Remote Tool。
 
 use crate::{
     mcp::process,
     workspace_capability::{
-        CapabilityAction, CapabilityActionAuthority, CapabilityActionDescriptor,
-        CapabilityActionExecution, CapabilityActivitySink, CapabilityFuture,
-        CapabilityInstallation, CapabilityInstallationState, CapabilityObservation,
-        CapabilityPreparationPolicy, CapabilityPrepareAction, CapabilityPrepareResult,
-        CapabilityProviderError, CapabilityProviderErrorCode, CapabilityReadinessProbe,
-        CapabilityReadinessState, CapabilityRuntimeHandle, CapabilityRuntimeModel,
-        CapabilityRuntimePolicy, CapabilityRuntimeState, CapabilityStage,
+        CapabilityFuture, CapabilityInstallation, CapabilityInstallationState,
+        CapabilityObservation, CapabilityProviderError, CapabilityProviderErrorCode,
+        CapabilityReadinessProbe, CapabilityReadinessState, CapabilityRuntimeHandle,
+        CapabilityRuntimeModel, CapabilityRuntimePolicy, CapabilityRuntimeState, CapabilityStage,
         CapabilityStageDescriptor, CapabilityStageRequirement, CapabilityStageState,
         CapabilityStopFailure, StopEvidence, WorkspaceCapabilityDescriptor,
         WorkspaceCapabilityProvider, WorkspaceCapabilityProviderId, WorkspaceToolCall,
@@ -229,7 +226,7 @@ impl CodeGraphCapabilityProvider {
         )
     }
 
-    /// 用可控 probe 构造 Provider，供本模块测试验证 JSON、argv 和取消边界。
+    /// 用可控 probe 构造 Provider，供本模块测试验证 status JSON 与 argv。
     #[cfg(test)]
     fn with_probes(
         installation_probe: InstallationProbe,
@@ -251,17 +248,11 @@ impl CodeGraphCapabilityProvider {
                 tool_names: vec!["codegraph_explore".into()],
                 runtime_model: CapabilityRuntimeModel::WorkspaceScopedProcess,
                 readiness_probe: CapabilityReadinessProbe::Required,
-                preparation_policy: CapabilityPreparationPolicy::ExplicitOnly,
                 stage_descriptors: vec![CapabilityStageDescriptor {
                     id: "index".into(),
                     display_name: "代码图索引".into(),
                     requirement: CapabilityStageRequirement::Required,
                 }],
-                action_descriptors: vec![
-                    action_descriptor("build_index", "建立索引"),
-                    action_descriptor("update_index", "更新索引"),
-                    action_descriptor("rebuild_index", "重建索引"),
-                ],
                 // P0-007 的实机双进程、RSS 与 stop/crash 证据冻结的首版 Runtime 策略。
                 runtime_policy: CapabilityRuntimePolicy {
                     max_instances: 2,
@@ -274,20 +265,6 @@ impl CodeGraphCapabilityProvider {
             runtime_starter,
             runtimes: Mutex::new(HashMap::new()),
         }
-    }
-
-    /// 由 Descriptor 投影 action，Provider 不得篡改 Local Human 或 execution 契约。
-    fn actions(&self) -> Vec<CapabilityAction> {
-        self.descriptor
-            .action_descriptors
-            .iter()
-            .map(|action| CapabilityAction {
-                id: action.action_id.clone(),
-                display_name: action.display_name.clone(),
-                authority: action.authority,
-                execution: action.execution,
-            })
-            .collect()
     }
 
     /// 从唯一合法 authority 运行 status；不读取 .codegraph、Desktop selection 或 caller root。
@@ -311,7 +288,7 @@ impl CodeGraphCapabilityProvider {
         }
     }
 
-    /// 从 status projection 生成安全 observation；只暴露统一 stage 和 descriptor actions。
+    /// 从 status projection 生成安全 observation；只暴露统一 stage。
     fn observation(&self, status: StatusProjection) -> CapabilityObservation {
         let (state, message_code) = status.stage();
         CapabilityObservation {
@@ -327,19 +304,7 @@ impl CodeGraphCapabilityProvider {
                 requirement: CapabilityStageRequirement::Required,
                 message_code,
             }],
-            actions: self.actions(),
         }
-    }
-}
-
-/// 三个显式动作共享冻结的 Local Human / provider_prepare / cold-runtime 语义。
-fn action_descriptor(action_id: &str, display_name: &str) -> CapabilityActionDescriptor {
-    CapabilityActionDescriptor {
-        action_id: action_id.into(),
-        display_name: display_name.into(),
-        authority: CapabilityActionAuthority::LocalHuman,
-        execution: CapabilityActionExecution::ProviderPrepare,
-        warm_runtime: false,
     }
 }
 
@@ -389,7 +354,7 @@ fn installation_from_command(
     }
 }
 
-/// 为 status/prepare 配置共享候选，同时保持既有 argv、cwd 与受控 stdio 契约。
+/// 为 status 配置 CLI 候选，同时保持既有 argv、cwd 与受控 stdio 契约。
 fn configure_command_runner(
     mut child: tokio::process::Command,
     command: CodeGraphCommand,
@@ -492,17 +457,6 @@ fn status_command(lease: &WorkspaceLease) -> CodeGraphCommand {
     command_for(lease, [OsString::from("status"), OsString::from("--json")])
 }
 
-/// 生成显式索引动作的精确 argv；所有动作都以 canonical root 为唯一 path argument。
-fn prepare_command(lease: &WorkspaceLease, action_id: &str) -> Option<CodeGraphCommand> {
-    let args = match action_id {
-        "build_index" => vec![OsString::from("init"), OsString::from("--yes")],
-        "update_index" => vec![OsString::from("sync")],
-        "rebuild_index" => vec![OsString::from("index")],
-        _ => return None,
-    };
-    Some(command_for(lease, args))
-}
-
 /// 将已冻结 Lease root 追加为命令的唯一 path argument，禁止 caller root 进入此层。
 fn command_for(
     lease: &WorkspaceLease,
@@ -572,7 +526,7 @@ fn checked_at() -> u64 {
 }
 
 impl WorkspaceCapabilityProvider for CodeGraphCapabilityProvider {
-    /// 返回 immutable descriptor；不会执行 discovery、status 或任何 index action。
+    /// 返回 immutable descriptor；不会执行 discovery 或 status。
     fn descriptor(&self) -> &WorkspaceCapabilityDescriptor {
         &self.descriptor
     }
@@ -598,42 +552,6 @@ impl WorkspaceCapabilityProvider for CodeGraphCapabilityProvider {
             }
             let status = self.status(&lease).await?;
             Ok(self.observation(status))
-        })
-    }
-
-    /// 仅执行 Descriptor 声明的 Local Human 动作，并强制用 post-action status 验证结果。
-    fn prepare<'a>(
-        &'a self,
-        lease: WorkspaceLease,
-        action: CapabilityPrepareAction,
-        _activity: &'a dyn CapabilityActivitySink,
-    ) -> CapabilityFuture<'a, Result<CapabilityPrepareResult, CapabilityProviderError>> {
-        Box::pin(async move {
-            if (self.installation_probe)().state != CapabilityInstallationState::Installed {
-                return Err(CapabilityProviderError {
-                    code: CapabilityProviderErrorCode::Unavailable,
-                });
-            }
-            let command =
-                prepare_command(&lease, &action.action_id).ok_or(CapabilityProviderError {
-                    code: CapabilityProviderErrorCode::ContractError,
-                })?;
-            (self.command_runner)(command).await?;
-            let status = self.status(&lease).await?;
-            let valid = match action.action_id.as_str() {
-                "build_index" => status != StatusProjection::NotPrepared,
-                "update_index" => status != StatusProjection::NotPrepared,
-                "rebuild_index" => status == StatusProjection::Ready,
-                _ => false,
-            };
-            if !valid {
-                return Err(CapabilityProviderError {
-                    code: CapabilityProviderErrorCode::OperationFailed,
-                });
-            }
-            Ok(CapabilityPrepareResult {
-                readiness: status.readiness(),
-            })
         })
     }
 
@@ -972,6 +890,71 @@ mod tests {
         }
     }
 
+    /// 未初始化索引只能读取 status，Tool acquire 不得启动 Runtime 或运行索引命令。
+    #[tokio::test]
+    async fn uninitialized_status_fails_acquire_without_index_commands_or_runtime() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = lease(directory.path().to_path_buf());
+        let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&calls);
+        let provider = Arc::new(CodeGraphCapabilityProvider::with_runtime(
+            Arc::new(|| CapabilityInstallation {
+                state: CapabilityInstallationState::Installed,
+                detected_version: Some("1.6.0".into()),
+            }),
+            Arc::new(move |command| {
+                let output = uninitialized(&command.current_dir);
+                recorded.lock().unwrap().push(command);
+                Box::pin(async move { Ok(output) })
+            }),
+            Arc::new(|_| Box::pin(async { panic!("uninitialized index must not start Runtime") })),
+        ));
+        let observation = provider.observe_readiness(target.clone()).await.unwrap();
+        assert_eq!(observation.readiness, CapabilityReadinessState::NotPrepared);
+        let registered: Arc<dyn WorkspaceCapabilityProvider> = provider;
+        let manager = WorkspaceCapabilityManager::new(Arc::new(
+            WorkspaceCapabilityRegistry::new([registered]).unwrap(),
+        ));
+        let Err(error) = manager.acquire_runtime("codegraph", target.clone()).await else {
+            panic!("uninitialized index must fail acquire");
+        };
+        assert_eq!(
+            error.code,
+            crate::workspace_capability::WorkspaceCapabilityErrorCode::NotPrepared
+        );
+        assert_eq!(
+            calls.lock().unwrap().as_slice(),
+            &[status_command(&target), status_command(&target)]
+        );
+    }
+
+    /// 有未同步变更时仍只读取 status，Runtime 必须保持未启动。
+    #[tokio::test]
+    async fn degraded_status_fails_runtime_start_without_index_commands() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = lease(directory.path().to_path_buf());
+        let degraded = initialized(&target.canonical_root, 1, false, "complete");
+        let (provider, calls) = provider_with_responses([Ok(degraded.clone()), Ok(degraded)]);
+        assert_eq!(
+            provider
+                .observe_readiness(target.clone())
+                .await
+                .unwrap()
+                .readiness,
+            CapabilityReadinessState::Degraded
+        );
+        assert_eq!(
+            provider.start(target.clone()).await,
+            Err(CapabilityProviderError {
+                code: CapabilityProviderErrorCode::NotPrepared,
+            })
+        );
+        assert_eq!(
+            calls.lock().unwrap().as_slice(),
+            &[status_command(&target), status_command(&target)]
+        );
+    }
+
     /// 畸形 JSON、缺必需字段、命令错误与 canonical root mismatch 都不得产生 ready observation。
     #[tokio::test]
     async fn readiness_fails_closed_for_schema_command_and_root_errors() {
@@ -996,83 +979,9 @@ mod tests {
         }
     }
 
-    /// 三个动作严格冻结 CLI argv、cwd 和 post-action status；sync 成功后可合法保持 degraded。
+    /// Health DTO 从 Registry descriptor 生成 CodeGraph stage，不存在 providerId Core 特判。
     #[tokio::test]
-    async fn explicit_actions_use_exact_argv_root_and_post_status() {
-        let directory = tempfile::tempdir().unwrap();
-        let target = lease(directory.path().to_path_buf());
-        let ready = initialized(&target.canonical_root, 0, false, "complete");
-        let stale = initialized(&target.canonical_root, 0, true, "complete");
-        let (provider, calls) = provider_with_responses([
-            Ok("done".into()),
-            Ok(ready.clone()),
-            Ok("done".into()),
-            Ok(stale),
-            Ok("done".into()),
-            Ok(ready),
-        ]);
-        for (action_id, expected) in [
-            ("build_index", CapabilityReadinessState::Ready),
-            ("update_index", CapabilityReadinessState::Degraded),
-            ("rebuild_index", CapabilityReadinessState::Ready),
-        ] {
-            assert_eq!(
-                provider
-                    .prepare(
-                        target.clone(),
-                        CapabilityPrepareAction {
-                            action_id: action_id.into()
-                        },
-                        &NoopSink
-                    )
-                    .await
-                    .unwrap()
-                    .readiness,
-                expected
-            );
-        }
-        let calls = calls.lock().unwrap();
-        let root = target.canonical_root.clone().into_os_string();
-        assert_eq!(calls.len(), 6);
-        for (pair, expected) in calls.as_chunks::<2>().0.iter().zip([
-            ["init", "--yes"].as_slice(),
-            ["sync"].as_slice(),
-            ["index"].as_slice(),
-        ]) {
-            assert_eq!(pair[0].current_dir, target.canonical_root);
-            assert_eq!(
-                pair[0].args[..expected.len()],
-                expected.iter().map(OsString::from).collect::<Vec<_>>()
-            );
-            assert_eq!(pair[0].args.last(), Some(&root));
-            assert_eq!(pair[1], status_command(&target));
-        }
-    }
-
-    /// action exit 成功但 post-status 仍为未初始化时必须失败，不能按 exit code 宣称完成。
-    #[tokio::test]
-    async fn explicit_action_requires_post_status_precondition() {
-        let directory = tempfile::tempdir().unwrap();
-        let target = lease(directory.path().to_path_buf());
-        let (provider, _) =
-            provider_with_responses([Ok("done".into()), Ok(uninitialized(&target.canonical_root))]);
-        assert!(
-            provider
-                .prepare(
-                    target,
-                    CapabilityPrepareAction {
-                        action_id: "build_index".into(),
-                    },
-                    &NoopSink,
-                )
-                .await
-                .is_err()
-        );
-    }
-
-    /// Health DTO 从 Registry descriptor 生成 CodeGraph stages/actions，不存在 providerId Core 特判。
-    #[tokio::test]
-    async fn health_projects_descriptor_actions_without_a_remote_tool() {
+    async fn health_projects_descriptor_stage_without_a_remote_tool() {
         let directory = tempfile::tempdir().unwrap();
         let target = lease(directory.path().to_path_buf());
         let (provider, _) = provider_with_responses([Ok(initialized(
@@ -1089,97 +998,12 @@ mod tests {
         let codegraph = health.providers.get("codegraph").unwrap();
         assert_eq!(codegraph.readiness, CapabilityReadinessState::Ready);
         assert_eq!(codegraph.stages[0].id, "index");
-        assert_eq!(codegraph.actions.len(), 3);
         assert!(
-            codegraph
-                .actions
-                .iter()
-                .all(|action| action.authority == CapabilityActionAuthority::LocalHuman)
+            serde_json::to_value(codegraph)
+                .unwrap()
+                .get("actions")
+                .is_none()
         );
-    }
-
-    /// 同 action 使用既有 Manager flight，取消会丢弃唯一 Provider future 且不会建立 RuntimeSlot。
-    #[tokio::test]
-    async fn action_duplicates_share_manager_flight_and_cancel() {
-        let directory = tempfile::tempdir().unwrap();
-        let target = lease(directory.path().to_path_buf());
-        let entered = Arc::new(Notify::new());
-        let (_release, receiver) = oneshot::channel::<()>();
-        let receiver = Arc::new(Mutex::new(Some(receiver)));
-        let calls = Arc::new(AtomicUsize::new(0));
-        let runner_entered = Arc::clone(&entered);
-        let runner_receiver = Arc::clone(&receiver);
-        let runner_calls = Arc::clone(&calls);
-        let provider = Arc::new(CodeGraphCapabilityProvider::with_probes(
-            Arc::new(|| CapabilityInstallation {
-                state: CapabilityInstallationState::Installed,
-                detected_version: None,
-            }),
-            Arc::new(move |_| {
-                runner_calls.fetch_add(1, Ordering::SeqCst);
-                let receiver = runner_receiver.lock().unwrap().take().unwrap();
-                let entered = Arc::clone(&runner_entered);
-                Box::pin(async move {
-                    entered.notify_one();
-                    let _ = receiver.await;
-                    Ok("done".into())
-                })
-            }),
-        ));
-        let registered: Arc<dyn WorkspaceCapabilityProvider> = provider;
-        let manager = Arc::new(WorkspaceCapabilityManager::new(Arc::new(
-            WorkspaceCapabilityRegistry::new([registered]).unwrap(),
-        )));
-        let (activities, mut received) = tokio::sync::mpsc::unbounded_channel();
-        let first = {
-            let manager = Arc::clone(&manager);
-            let target = target.clone();
-            tokio::spawn(async move {
-                manager
-                    .prepare_action(
-                        target,
-                        "codegraph",
-                        "build_index",
-                        Arc::new(ActivitySink(activities)),
-                    )
-                    .await
-            })
-        };
-        entered.notified().await;
-        let running = received.recv().await.unwrap();
-        assert_eq!(running.state, "running");
-        let duplicate = {
-            let manager = Arc::clone(&manager);
-            let target = target.clone();
-            tokio::spawn(async move {
-                manager
-                    .prepare_action(target, "codegraph", "build_index", Arc::new(NoopSink))
-                    .await
-            })
-        };
-        manager.cancel_action(&running.operation_id).unwrap();
-        assert!(first.await.unwrap().is_err());
-        assert!(duplicate.await.unwrap().is_err());
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-    }
-
-    /// 空 sink 只用于直接 Provider/Manager 测试，不接收任何内部 command 信息。
-    struct NoopSink;
-    impl CapabilityActivitySink for NoopSink {}
-
-    /// 测试仅转交 Manager 已净化的活动事件，以取得 opaque operationId 触发正式取消路径。
-    struct ActivitySink(
-        tokio::sync::mpsc::UnboundedSender<crate::workspace_capability::CapabilityActivity>,
-    );
-    impl CapabilityActivitySink for ActivitySink {
-        fn publish<'a>(
-            &'a self,
-            activity: crate::workspace_capability::CapabilityActivity,
-        ) -> CapabilityFuture<'a, ()> {
-            Box::pin(async move {
-                self.0.send(activity).unwrap();
-            })
-        }
     }
 
     /// 测试 Runtime 的析构即代表 Provider 仍由目标 Slot 持有并已精确交回 stop/drop 路径。
@@ -1411,7 +1235,7 @@ mod tests {
 
     /// Descriptor 在 Registry 内声明 Runtime tool ownership；P2D-009 只在 MCP registry 恢复公开 route。
     #[test]
-    fn descriptor_keeps_runtime_contract_and_actions_generic() {
+    fn descriptor_keeps_runtime_contract() {
         let provider = CodeGraphCapabilityProvider::new();
         let descriptor = provider.descriptor();
         assert_eq!(descriptor.provider_id.as_str(), "codegraph");
@@ -1423,11 +1247,11 @@ mod tests {
         assert_eq!(descriptor.runtime_policy.max_instances, 2);
         assert_eq!(descriptor.runtime_policy.idle_timeout_ms, 300_000);
         assert_eq!(descriptor.runtime_policy.per_slot_concurrency, 1);
-        assert_eq!(descriptor.action_descriptors.len(), 3);
-        for action in &descriptor.action_descriptors {
-            assert_eq!(action.authority, CapabilityActionAuthority::LocalHuman);
-            assert_eq!(action.execution, CapabilityActionExecution::ProviderPrepare);
-            assert!(!action.warm_runtime);
-        }
+        assert!(
+            serde_json::to_value(descriptor)
+                .unwrap()
+                .get("actionDescriptors")
+                .is_none()
+        );
     }
 }

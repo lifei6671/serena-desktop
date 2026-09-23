@@ -191,7 +191,7 @@ function ProjectTasks({ workspace, hiddenIds, selectedId, onSelect, onDelete, me
           <LoaderCircle className="project-task-more-icon-loading" />
           <RefreshCw className="project-task-more-icon-retry" />
         </span>
-        <span key={loadingMore ? "loading" : moreError ? "retry" : "idle"} className="project-task-more-label">
+        <span className="project-task-more-label">
           {loadingMore ? "正在加载…" : moreError ? "重试" : "查看更多"}
         </span>
       </button>}

@@ -161,45 +161,6 @@ pub async fn workspace_remove(
     remove_workspace(&supervisor, &product, &id).await
 }
 
-/// Preparation Activity 仅发给本地 Tauri；不进入 Agent EventSink 或 Remote MCP。
-struct LocalCapabilityActivitySink(AppHandle);
-
-impl crate::workspace_capability::CapabilityActivitySink for LocalCapabilityActivitySink {
-    /// 仅序列化 Capability Manager 的安全投影。
-    fn publish<'a>(
-        &'a self,
-        activity: crate::workspace_capability::CapabilityActivity,
-    ) -> crate::workspace_capability::CapabilityFuture<'a, ()> {
-        Box::pin(async move {
-            use tauri::Emitter;
-            let _ = self.0.emit("workspace-capability-activity", activity);
-        })
-    }
-}
-
-/// 本地入口只通过 WorkspaceResolver 取得 Lease，不读取 Desktop selection。
-pub(crate) async fn prepare_workspace_capability(
-    supervisor: &SupervisorState,
-    workspace_id: &str,
-    provider_id: &str,
-    action_id: &str,
-    sink: std::sync::Arc<dyn crate::workspace_capability::CapabilityActivitySink>,
-) -> Result<crate::workspace_capability::CapabilityActionResult, String> {
-    let lease =
-        crate::workspace_resolver::WorkspaceResolver::new(supervisor).resolve(workspace_id)?;
-    supervisor
-        .workspace_capability_manager()
-        .prepare_action(lease, provider_id, action_id, sink)
-        .await
-        .map_err(|error| {
-            serde_json::to_value(error.code)
-                .expect("capability error code is serializable")
-                .as_str()
-                .expect("capability error code is a string")
-                .to_owned()
-        })
-}
-
 /// 本地 health 入口只按显式 workspaceId 解析 Lease，不读取 Desktop selection 或 Remote 会话。
 pub(crate) async fn observe_workspace_capability(
     supervisor: &SupervisorState,
@@ -221,52 +182,6 @@ pub(crate) async fn workspace_capability_observe(
 ) -> Result<crate::workspace_capability::WorkspaceCapabilityHealth, String> {
     let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
     observe_workspace_capability(&supervisor, &workspace_id).await
-}
-
-/// Local Human Authority：只注册 Tauri IPC，绝不 advertise 为 MCP Tool。
-#[tauri::command]
-pub(crate) async fn workspace_capability_prepare(
-    app: AppHandle,
-    workspace_id: String,
-    provider_id: String,
-    action_id: String,
-) -> Result<crate::workspace_capability::CapabilityActionResult, String> {
-    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
-    prepare_workspace_capability(
-        &supervisor,
-        &workspace_id,
-        &provider_id,
-        &action_id,
-        std::sync::Arc::new(LocalCapabilityActivitySink(app.clone())),
-    )
-    .await
-}
-
-/// 本地取消只接受 Manager 的 opaque operationId，错误不附带任何 Workspace 或进程信息。
-pub(crate) fn cancel_workspace_capability(
-    supervisor: &SupervisorState,
-    operation_id: &str,
-) -> Result<(), String> {
-    supervisor
-        .workspace_capability_manager()
-        .cancel_action(operation_id)
-        .map_err(|error| {
-            serde_json::to_value(error.code)
-                .expect("capability error code is serializable")
-                .as_str()
-                .expect("capability error code is a string")
-                .to_owned()
-        })
-}
-
-/// Local Human 的显式 operation cancellation；共享 flight 的结果仍由 prepare caller 观察。
-#[tauri::command]
-pub(crate) fn workspace_capability_cancel(
-    app: AppHandle,
-    operation_id: String,
-) -> Result<(), String> {
-    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
-    cancel_workspace_capability(&supervisor, &operation_id)
 }
 
 #[tauri::command]

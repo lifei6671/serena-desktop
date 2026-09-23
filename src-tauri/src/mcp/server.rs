@@ -115,6 +115,57 @@ fn safe_log_detail(value: &Value, field_name: Option<&str>) -> Value {
     }
 }
 
+/// 只读取 Agent Product 的 Execution 安全投影；普通 message 字段仍走通用隐藏规则。
+fn safe_orchestration_diagnostic(tool: &str, response: &Value) -> Option<Value> {
+    if !matches!(tool, "agent_query" | "agent_execute") {
+        return None;
+    }
+    let (code, message) = if response["ok"] == true {
+        let data = response.get("data")?;
+        let diagnostic = data.get("error").unwrap_or(data);
+        (
+            diagnostic
+                .get("code")
+                .or_else(|| diagnostic.get("errorCode"))?
+                .as_str()?,
+            diagnostic
+                .get("message")
+                .or_else(|| diagnostic.get("errorMessage"))
+                .and_then(Value::as_str),
+        )
+    } else if response["ok"] == false {
+        // 顶层 ProductError.message 可能含原始上下文，只按稳定 code 生成固定摘要。
+        (
+            response.pointer("/error/code")?.as_str()?,
+            Some("Agent operation failed."),
+        )
+    } else {
+        return None;
+    };
+    if code.is_empty()
+        || code.len() > 64
+        || !code
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        return None;
+    }
+    let mut safe = json!({"code":code});
+    if let Some(message) = message {
+        safe["message"] = json!(message.chars().take(256).collect::<String>());
+    }
+    Some(safe)
+}
+
+/// Execution 诊断会提高日志级别，但不改变 MCP CallToolResult 的协议成功状态。
+fn completed_log_level(failed: bool, diagnostic: Option<&Value>) -> &'static str {
+    if failed || diagnostic.is_some() {
+        "ERROR"
+    } else {
+        "INFO"
+    }
+}
+
 fn origin_allowed(headers: &axum::http::HeaderMap, allowed: &[String]) -> bool {
     let values: Vec<_> = headers.get_all("origin").iter().collect();
     if values.is_empty() {
@@ -161,6 +212,61 @@ mod log_detail_tests {
         assert_eq!(details["substring_pattern"], "[已隐藏]");
         assert_eq!(details["content"], "[已隐藏]");
         assert_eq!(details["access_token"], "[已隐藏]");
+        assert_eq!(
+            safe_log_detail(&json!({"message":"PRIVATE_SECRET"}), None)["message"],
+            "[已隐藏]"
+        );
+    }
+
+    #[test]
+    fn orchestration_diagnostic_logs_only_safe_execution_fields() {
+        let response = json!({"ok":true,"data":{
+            "error":{"code":"CODEX_TURN_ERROR","message":"badRequest: Codex model 'gpt-6-sol' is not supported when using Codex with a ChatGPT account."},
+            "prompt":"PRIVATE_PROMPT","canonicalWorkspaceRoot":"PRIVATE_ROOT",
+            "threadId":"PRIVATE_THREAD","finalResult":"PRIVATE_RESULT"}});
+        let diagnostic = safe_orchestration_diagnostic("agent_query", &response).unwrap();
+        assert_eq!(diagnostic["code"], "CODEX_TURN_ERROR");
+        assert!(
+            diagnostic["message"]
+                .as_str()
+                .unwrap()
+                .contains("gpt-6-sol")
+        );
+        for secret in [
+            "PRIVATE_PROMPT",
+            "PRIVATE_ROOT",
+            "PRIVATE_THREAD",
+            "PRIVATE_RESULT",
+        ] {
+            assert!(!diagnostic.to_string().contains(secret));
+        }
+        assert_eq!(completed_log_level(false, Some(&diagnostic)), "ERROR");
+    }
+
+    #[test]
+    fn orchestration_failure_never_logs_product_error_message() {
+        let response = json!({"ok":false,"error":{"code":"AGENT_OPERATION_FAILED","message":"PRIVATE_SECRET"}});
+        let diagnostic = safe_orchestration_diagnostic("agent_execute", &response).unwrap();
+        assert_eq!(
+            diagnostic,
+            json!({"code":"AGENT_OPERATION_FAILED","message":"Agent operation failed."})
+        );
+        assert!(!diagnostic.to_string().contains("PRIVATE_SECRET"));
+    }
+
+    #[test]
+    fn product_detail_diagnostic_is_supported_without_other_detail_fields() {
+        let response = json!({"ok":true,"data":{
+            "errorCode":"CODEX_TURN_ERROR",
+            "errorMessage":"usageLimitExceeded: Codex usage limit reached.",
+            "prompt":"PRIVATE_PROMPT","threadId":"PRIVATE_THREAD"}});
+        let diagnostic = safe_orchestration_diagnostic("agent_execute", &response).unwrap();
+        assert_eq!(
+            diagnostic,
+            json!({"code":"CODEX_TURN_ERROR","message":"usageLimitExceeded: Codex usage limit reached."})
+        );
+        assert!(!diagnostic.to_string().contains("PRIVATE_"));
+        assert!(safe_orchestration_diagnostic("work_query", &response).is_none());
     }
 
     #[test]
@@ -306,26 +412,47 @@ impl ServerHandler for Handler {
         let failed = result
             .as_ref()
             .map_or(true, |value| value.is_error == Some(true));
-        let transport_error = result.as_ref().err().map(ToString::to_string);
+        let agent_diagnostic = result
+            .as_ref()
+            .ok()
+            .and_then(|value| value.structured_content.as_ref())
+            .and_then(|response| safe_orchestration_diagnostic(&request.name, response));
+        let transport_error = result.as_ref().err().map(|error| {
+            if matches!(request.name.as_ref(), "agent_query" | "agent_execute") {
+                "Agent tool transport failed.".into()
+            } else {
+                error.to_string()
+            }
+        });
+        let mut completed_details = json!({
+            "kind": "tool_call",
+            "phase": "completed",
+            "requestId": request_id,
+            "tool": request.name,
+            "success": !failed,
+            "durationMs": (started.elapsed().as_secs_f64() * 1000.0),
+            "error": transport_error
+                .map(|error| Value::String(bounded_log_text(&error)))
+                .or_else(|| {
+                    if matches!(request.name.as_ref(), "agent_query" | "agent_execute") {
+                        None
+                    } else {
+                        reported_error.map(|error| safe_log_detail(&error, None))
+                    }
+                }),
+        });
+        if let Some(diagnostic) = &agent_diagnostic {
+            completed_details["agentDiagnostic"] = diagnostic.clone();
+        }
         self.0.log_tool_detail(
-            if failed { "ERROR" } else { "INFO" },
+            completed_log_level(failed, agent_diagnostic.as_ref()),
             &format!(
                 "tools/call request={request_id:?} tool={:?} success={} duration_ms={:.3}",
                 request.name,
                 !failed,
                 started.elapsed().as_secs_f64() * 1000.0
             ),
-            &json!({
-                "kind": "tool_call",
-                "phase": "completed",
-                "requestId": request_id,
-                "tool": request.name,
-                "success": !failed,
-                "durationMs": (started.elapsed().as_secs_f64() * 1000.0),
-                "error": transport_error
-                    .map(|error| Value::String(bounded_log_text(&error)))
-                    .or_else(|| reported_error.map(|error| safe_log_detail(&error, None))),
-            }),
+            &completed_details,
         );
         Ok(result
             .unwrap_or_else(|e| {

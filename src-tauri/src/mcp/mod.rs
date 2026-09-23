@@ -565,8 +565,7 @@ fn map_semantic_capability_error(error: WorkspaceCapabilityError) -> String {
 fn map_codegraph_capability_error(error: WorkspaceCapabilityError) -> String {
     match error.code {
         WorkspaceCapabilityErrorCode::Busy => "CODEGRAPH_BUSY".into(),
-        WorkspaceCapabilityErrorCode::NotPrepared
-        | WorkspaceCapabilityErrorCode::PreparationRequired => "CODEGRAPH_NOT_INITIALIZED".into(),
+        WorkspaceCapabilityErrorCode::NotPrepared => "CODEGRAPH_NOT_INITIALIZED".into(),
         WorkspaceCapabilityErrorCode::StartFailed => "CODEGRAPH_RUNTIME_START_FAILED".into(),
         WorkspaceCapabilityErrorCode::RuntimeLost => "CODEGRAPH_RUNTIME_LOST".into(),
         WorkspaceCapabilityErrorCode::NotFound => "CODEGRAPH_RUNTIME_START_FAILED".into(),
@@ -726,15 +725,13 @@ mod integration_tests {
     use crate::{
         config::{self, AppPaths, BrokerConfig, Workspace},
         workspace_capability::{
-            CapabilityActionAuthority, CapabilityActionDescriptor, CapabilityActionExecution,
-            CapabilityActivitySink, CapabilityFuture, CapabilityPreparationPolicy,
-            CapabilityPrepareAction, CapabilityPrepareResult, CapabilityProviderError,
-            CapabilityProviderErrorCode, CapabilityReadinessProbe, CapabilityRuntimeHandle,
-            CapabilityRuntimeModel, CapabilityRuntimePolicy, CapabilityRuntimeState,
-            CapabilityStageDescriptor, CapabilityStageRequirement, CapabilityStopFailure,
-            StopEvidence, WorkspaceCapabilityDescriptor, WorkspaceCapabilityManager,
-            WorkspaceCapabilityProvider, WorkspaceCapabilityProviderId,
-            WorkspaceCapabilityRegistry, WorkspaceToolCall, WorkspaceToolResult,
+            CapabilityFuture, CapabilityProviderError, CapabilityProviderErrorCode,
+            CapabilityReadinessProbe, CapabilityRuntimeHandle, CapabilityRuntimeModel,
+            CapabilityRuntimePolicy, CapabilityRuntimeState, CapabilityStageDescriptor,
+            CapabilityStageRequirement, CapabilityStopFailure, StopEvidence,
+            WorkspaceCapabilityDescriptor, WorkspaceCapabilityManager, WorkspaceCapabilityProvider,
+            WorkspaceCapabilityProviderId, WorkspaceCapabilityRegistry, WorkspaceToolCall,
+            WorkspaceToolResult,
         },
         workspace_registry::{WorkspaceRegistry, WorkspaceRegistrySnapshot},
         workspace_resolver::WorkspaceLease,
@@ -837,18 +834,10 @@ mod integration_tests {
                         .collect(),
                     runtime_model: CapabilityRuntimeModel::WorkspaceScopedProcess,
                     readiness_probe: CapabilityReadinessProbe::Required,
-                    preparation_policy: CapabilityPreparationPolicy::AutoOnFirstToolCall,
                     stage_descriptors: vec![CapabilityStageDescriptor {
                         id: "project_configuration".into(),
                         display_name: "项目配置".into(),
-                        requirement: CapabilityStageRequirement::AutoPreparable,
-                    }],
-                    action_descriptors: vec![CapabilityActionDescriptor {
-                        action_id: "prepare".into(),
-                        display_name: "准备".into(),
-                        authority: CapabilityActionAuthority::LocalHuman,
-                        execution: CapabilityActionExecution::ManagerEnsureRuntime,
-                        warm_runtime: true,
+                        requirement: CapabilityStageRequirement::Required,
                     }],
                     runtime_policy: CapabilityRuntimePolicy {
                         max_instances: 2,
@@ -871,7 +860,6 @@ mod integration_tests {
             provider.descriptor.provider_id = WorkspaceCapabilityProviderId::new("codegraph");
             provider.descriptor.display_name = "CodeGraph routing fixture".into();
             provider.descriptor.tool_names = vec!["codegraph_explore".into()];
-            provider.descriptor.preparation_policy = CapabilityPreparationPolicy::ExplicitOnly;
             provider.descriptor.runtime_policy.idle_timeout_ms = 300_000;
             provider
         }
@@ -915,20 +903,6 @@ mod integration_tests {
         > {
             self.observations
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Box::pin(async {
-                Err(CapabilityProviderError {
-                    code: CapabilityProviderErrorCode::OperationFailed,
-                })
-            })
-        }
-
-        fn prepare<'a>(
-            &'a self,
-            _lease: WorkspaceLease,
-            _action: CapabilityPrepareAction,
-            _activity: &'a dyn CapabilityActivitySink,
-        ) -> CapabilityFuture<'a, Result<CapabilityPrepareResult, CapabilityProviderError>>
-        {
             Box::pin(async {
                 Err(CapabilityProviderError {
                     code: CapabilityProviderErrorCode::OperationFailed,
@@ -1841,10 +1815,6 @@ mod integration_tests {
                 "CODEGRAPH_NOT_INITIALIZED",
             ),
             (
-                WorkspaceCapabilityErrorCode::PreparationRequired,
-                "CODEGRAPH_NOT_INITIALIZED",
-            ),
-            (
                 WorkspaceCapabilityErrorCode::StartFailed,
                 "CODEGRAPH_RUNTIME_START_FAILED",
             ),
@@ -1872,12 +1842,6 @@ mod integration_tests {
             ),
             (
                 WorkspaceCapabilityErrorCode::NotPrepared,
-                "CODEGRAPH_NOT_INITIALIZED",
-                "The active workspace has no initialized CodeGraph index.",
-                false,
-            ),
-            (
-                WorkspaceCapabilityErrorCode::PreparationRequired,
                 "CODEGRAPH_NOT_INITIALIZED",
                 "The active workspace has no initialized CodeGraph index.",
                 false,

@@ -18,7 +18,7 @@ const initialConfig: ManagerConfig = {
   workspaceRegistryRevision: 1,
   desktopSelectedWorkspaceId: null,
   serenaPath: null,
-  port: 9121,
+  port: 19121,
   dashboardEnabled: true,
   openDashboardOnLaunch: false,
   autoStartServer: true,

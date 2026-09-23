@@ -77,11 +77,14 @@ pub(crate) async fn attach(supervisor: Arc<SupervisorState>) -> Fixture {
     cmd.arg("600");
     #[cfg(target_os = "macos")]
     crate::macos_process::configure_std_command(&mut cmd);
-    let mut child = cmd
+    let child = cmd
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
+    #[cfg(target_os = "macos")]
+    // macOS 捕获身份失败时需要终止子进程。
+    let mut child = child;
     #[cfg(target_os = "macos")]
     let identity = crate::macos_process::Identity::capture(child.id()).unwrap_or_else(|error| {
         let _ = child.kill();

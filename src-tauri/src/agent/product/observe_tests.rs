@@ -1116,6 +1116,64 @@ async fn diagnostic_projection_never_exposes_raw_provider_payload() {
 }
 
 #[tokio::test]
+async fn turn_diagnostics_project_only_known_safe_model_and_category_summaries() {
+    let (_dir, store, service) = pending().await;
+    for (category, raw_message, expected) in [
+        (
+            "badRequest",
+            "The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account.",
+            "badRequest: Codex model 'gpt-6-sol' is not supported when using Codex with a ChatGPT account.",
+        ),
+        (
+            "badRequest",
+            "PRIVATE_PROMPT_MARKER Authorization: Bearer secret-token",
+            "badRequest: Codex reported a turn diagnostic.",
+        ),
+        (
+            "badRequest",
+            "The 'PRIVATE_PROMPT_MARKER' model is not supported when using Codex with a ChatGPT account.",
+            "badRequest: Codex model is not supported when using Codex with a ChatGPT account.",
+        ),
+        (
+            "serverOverloaded",
+            "PRIVATE_PROMPT_MARKER",
+            "serverOverloaded: Codex service is overloaded.",
+        ),
+        (
+            "usageLimitExceeded",
+            "secret-token",
+            "usageLimitExceeded: Codex usage limit reached.",
+        ),
+        (
+            "rateLimitExceeded",
+            "Authorization",
+            "rateLimitExceeded: Codex rate limit reached.",
+        ),
+        (
+            "unauthorized",
+            "Authorization",
+            "unauthorized: Codex authentication was rejected.",
+        ),
+        (
+            "contextWindowExceeded",
+            "PRIVATE_PROMPT_MARKER",
+            "contextWindowExceeded: Codex context window was exceeded.",
+        ),
+    ] {
+        let raw = json!({"error":{"codexErrorInfo":category,"message":raw_message,"additionalDetails":"PRIVATE_PROMPT_MARKER secret-token Authorization"}}).to_string();
+        store
+            .execution_diagnostic("e".into(), "CODEX_TURN_ERROR".into(), raw, 2)
+            .await
+            .unwrap();
+        let view = service.observe("e".into(), false).await.unwrap();
+        assert_eq!(view.error_message.as_deref(), Some(expected));
+        assert!(!expected.contains("PRIVATE_PROMPT_MARKER"));
+        assert!(!expected.contains("secret-token"));
+        assert!(!expected.contains("Authorization"));
+    }
+}
+
+#[tokio::test]
 async fn activity_v2_tokens_and_observe_diagnostics_follow_frozen_contract() {
     let (dir, store, service) = pending().await;
     let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();

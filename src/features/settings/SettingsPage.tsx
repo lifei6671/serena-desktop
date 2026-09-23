@@ -287,7 +287,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
               </header>
               <FieldGroup className="settings-body field-stack">
                 <Field className="settings-port-field">
-                  <FieldLabel htmlFor="serena-port">内部服务端口</FieldLabel>
+                  <FieldLabel htmlFor="serena-port">Serena 内部服务端口</FieldLabel>
                   <Input
                     disabled={busy !== null}
                     type="number"
@@ -301,7 +301,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                     onBlur={() =>
                       saveFields(
                         { port: draft.port },
-                        "端口已保存；重新启动 Serena 后生效。",
+                        "Serena 内部端口已保存；重新启动 Serena 后生效。",
                       )
                     }
                     onKeyDown={(event) => {
@@ -309,7 +309,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                     }}
                   />
                   <FieldDescription>
-                    仅供本机内部通信，无需填入 Cloudflare。允许范围
+                    Serena Desktop 仅在本机使用此端口提供内部 Serena 服务，与下方 MCP Broker 连接入口端口彼此独立；两者不能相同。允许范围
                     1024–65535；变更后需重新启动 Serena。
                   </FieldDescription>
                 </Field>
@@ -357,7 +357,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
               </header>
               <FieldGroup className="settings-body field-stack">
                 <Field className="settings-port-field">
-                  <FieldLabel htmlFor="broker-port">连接入口端口</FieldLabel>
+                  <FieldLabel htmlFor="broker-port">MCP Broker 连接入口端口</FieldLabel>
                   <Input
                     type="number"
                     min={1024}
@@ -371,8 +371,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                     onChange={(e) => setBrokerPort(Number(e.target.value))}
                   />
                   <FieldDescription>
-                    Cloudflare MCP upstream
-                    使用此入口，本机地址可在首页复制。停止入口后可修改端口和访问范围，重新启用时生效。
+                    ChatGPT/Cloudflare/Claude 等客户端连接的主入口，不是 Serena 内部端口。本机地址可在首页复制。停止入口后可修改端口和访问范围，重新启用时生效。
                   </FieldDescription>
                 </Field>
                 <SettingSwitch

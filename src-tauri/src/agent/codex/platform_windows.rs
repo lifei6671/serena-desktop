@@ -6,10 +6,9 @@ use crate::agent::{
     task_manager::recovery::{RecoveryOutcome, StartupRecoveryFailure},
 };
 
-pub(crate) use super::{
-    runtime::{Runtime, RuntimeError, RuntimeFailure, recover},
-    windows_launcher::LaunchRequest,
-};
+#[cfg(test)]
+pub(crate) use super::runtime::RuntimeError;
+pub(crate) use super::runtime::{RuntimeFailure, recover};
 
 /// 精确复用 Windows 既有两类完整 Job termination evidence。
 pub(crate) fn is_complete_termination(record: &RuntimeRecord) -> bool {
