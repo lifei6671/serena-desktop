@@ -463,10 +463,13 @@ fn leader_exit_before_sigkill_is_unknown_without_group_escalation() {
     cleanup.disarm();
 }
 
-/// launcher 创建返回后立即 shutdown 也必须保留同一 PGID 证据并清空该组。
+/// 单进程 launcher 创建返回后立即 shutdown 也必须保留同一 PGID 证据并清空该组。
+///
+/// Process tree 的 leader/descendant 竞态由专门的 fail-closed 测试覆盖；这里仅验证
+/// create 返回后无需额外 ready checkpoint 即可立即收口已验证的单进程 Runtime。
 #[test]
 fn shutdown_immediately_after_launch_leaves_no_process_group() {
-    let (_directory, runtime, _marker, _ready) = runtime_fixture("tree");
+    let (_directory, runtime, _marker, _ready) = runtime_fixture("report");
     let mut cleanup = FixtureCleanup::armed(&runtime);
     let pgid = runtime.identity.pgid;
 
