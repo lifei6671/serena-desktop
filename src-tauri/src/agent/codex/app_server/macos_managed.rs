@@ -398,6 +398,17 @@ async fn cli(
     );
     let mut runtime =
         create_probe_runtime(context, executable, cwd, args, runtime_id.clone()).await?;
+    #[cfg(test)]
+    if executable
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with("probe-ownership-child"))
+        && let Err(error) = runtime
+            .runtime_mut()
+            .resume_stopped_probe_for_test(Duration::from_secs(2))
+    {
+        terminate_probe(runtime_id, runtime).await?;
+        return Err(io_error(format!("Probe fixture resume failed: {error}")).into());
+    }
     let (stdin, stdout, stderr) = match runtime.runtime().clone_stdio() {
         Ok(pipes) => pipes,
         Err(error) => {
