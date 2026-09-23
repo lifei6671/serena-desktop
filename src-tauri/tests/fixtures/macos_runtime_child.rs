@@ -76,7 +76,6 @@ fn main() {
             }
         }
         "report" => {
-            pause_owned_probe_fixture();
             let argument = args.next().unwrap_or_default();
             let mut input = String::new();
             std::io::stdin()
