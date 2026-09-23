@@ -396,12 +396,20 @@ async fn cli(
         std::process::id(),
         NEXT_PROBE.fetch_add(1, Ordering::Relaxed)
     );
+    #[cfg(test)]
+    let resume_stopped_fixture = executable
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with("probe-ownership-child"))
+        && matches!(
+            args.as_slice(),
+            ["--version", ..]
+                | ["probe-output", ..]
+                | ["app-server", "generate-json-schema", ..]
+        );
     let mut runtime =
         create_probe_runtime(context, executable, cwd, args, runtime_id.clone()).await?;
     #[cfg(test)]
-    if executable
-        .file_name()
-        .is_some_and(|name| name.to_string_lossy().starts_with("probe-ownership-child"))
+    if resume_stopped_fixture
         && let Err(error) = runtime
             .runtime_mut()
             .resume_stopped_probe_for_test(Duration::from_secs(2))
