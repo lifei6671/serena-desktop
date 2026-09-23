@@ -37,9 +37,7 @@ fn unique_listener(ip: Ipv4Addr) -> TcpListener {
             Err(error) => panic!("bind Broker test listener {address}: {error}"),
         }
     }
-    panic!(
-        "no Broker test port available in {BROKER_TEST_PORT_START}..={BROKER_TEST_PORT_END}"
-    );
+    panic!("no Broker test port available in {BROKER_TEST_PORT_START}..={BROKER_TEST_PORT_END}");
 }
 
 pub(crate) fn broker_loopback_listener() -> TcpListener {
