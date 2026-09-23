@@ -20,7 +20,7 @@ async fn broker_oauth_http_pkce_native_approval_and_json_round_trip() {
         serena_log: root.join("logs/serena.log"),
     };
     let mut config = ManagerConfig::default();
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let reserved = crate::test_support::broker_loopback_listener();
     config.broker.port = reserved.local_addr().unwrap().port();
     drop(reserved);
     crate::config::save(&paths.config_file, &config).unwrap();

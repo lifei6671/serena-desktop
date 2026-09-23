@@ -14,7 +14,7 @@ pub(crate) fn fixture(root: &std::path::Path) -> Arc<Broker> {
     let broker = Arc::new(Broker::new(Arc::new(SupervisorState::new(paths).unwrap())));
     let mut config = broker.config();
     config.agent_enabled = true;
-    config.broker.port = std::net::TcpListener::bind("127.0.0.1:0")
+    config.broker.port = crate::test_support::broker_loopback_listener()
         .unwrap()
         .local_addr()
         .unwrap()
@@ -113,7 +113,9 @@ async fn active_fixture(
         };
         axum::Json(json!({"jsonrpc":"2.0","id":request["id"],"result":result})).into_response()
     }
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = crate::test_support::broker_loopback_listener();
+    listener.set_nonblocking(true).unwrap();
+    let listener = tokio::net::TcpListener::from_std(listener).unwrap();
     let port = listener.local_addr().unwrap().port();
     let read_root = allow_read.then(|| root.to_path_buf());
     let server = tokio::spawn(async move {

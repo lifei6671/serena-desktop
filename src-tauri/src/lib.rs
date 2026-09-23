@@ -23,6 +23,8 @@ mod oauth;
 mod remote;
 mod serena;
 mod serena_capability;
+#[cfg(test)]
+mod test_support;
 mod tray;
 mod workspace_capability;
 mod workspace_inspection;

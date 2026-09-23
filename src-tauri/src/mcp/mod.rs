@@ -740,11 +740,7 @@ mod integration_tests {
         ServiceExt, model::CallToolRequestParams, transport::StreamableHttpClientTransport,
     };
     fn port() -> u16 {
-        std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port()
+        crate::test_support::broker_loopback_port()
     }
     fn fixture(dir: &std::path::Path, exe: Option<PathBuf>) -> Arc<Broker> {
         let paths = AppPaths {
@@ -774,7 +770,7 @@ mod integration_tests {
     #[tokio::test]
     async fn broker_bind_addr_in_use_reports_diagnostics_and_retry_clears_last_error() {
         let directory = tempfile::tempdir().unwrap();
-        let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let occupied = crate::test_support::broker_loopback_listener();
         let occupied_port = occupied.local_addr().unwrap().port();
         let broker = fixture(directory.path(), None);
         let mut config = broker.config();

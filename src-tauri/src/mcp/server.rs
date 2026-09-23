@@ -732,7 +732,9 @@ mod quick_tunnel_transport_tests {
         let workspace = crate::workspace_registry::WorkspaceRegistry::new(&broker.supervisor)
             .register(root.to_path_buf(), Some("transport-codegraph".into()))
             .unwrap();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = crate::test_support::broker_loopback_listener();
+        listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
         let address = listener.local_addr().unwrap();
         let cancel = CancellationToken::new();
         let config = StreamableHttpServerConfig::default()
