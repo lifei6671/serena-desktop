@@ -163,6 +163,29 @@ async fn initialize_starts_exactly_one_auto_recovery_worker() {
     service.shutdown().await.unwrap();
 }
 
+/// macOS Desktop 发布与 startup recovery 不执行 CLI discovery，仍不冻结 backend 为 unavailable。
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn desktop_deferred_initialization_keeps_backend_resolvable() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().join("store"))
+        .await
+        .unwrap();
+    let (service, report) = crate::agent::codex::TEST_BACKEND_DISCOVERY
+        .scope(
+            Err("discovery must be deferred".into()),
+            AgentProductService::initialize_desktop_deferred(
+                store,
+                super::super::notification::noop_agent_terminal_notifier(),
+            ),
+        )
+        .await
+        .unwrap();
+    assert!(report.is_empty());
+    assert_eq!(service.backend_diagnostic(), None);
+    service.shutdown().await.unwrap();
+}
+
 /// macOS discovery 的稳定架构/兼容性诊断不能在产品初始化边界降级成一般不可用。
 #[tokio::test]
 async fn initialize_preserves_macos_discovery_diagnostic_codes() {

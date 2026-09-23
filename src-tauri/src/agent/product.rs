@@ -667,6 +667,21 @@ impl AgentProductService {
         manager.install_backend_resolution(resolution);
         Self::recover_before_publish(store, manager).await
     }
+
+    /// macOS Desktop 只延后 Codex backend resolution；recovery 仍在发布前完整执行。
+    #[cfg(target_os = "macos")]
+    pub(crate) async fn initialize_desktop_deferred(
+        store: StateStore,
+        terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
+    ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+        let mut manager = AgentTaskManager::new_with_terminal_notifier(
+            store.clone(),
+            std::path::PathBuf::new(),
+            terminal_notifier,
+        );
+        manager.defer_backend_resolution();
+        Self::recover_before_publish(store, manager).await
+    }
     pub(crate) fn backend_diagnostic(&self) -> Option<&str> {
         self.manager.backend_error.as_deref()
     }

@@ -18,15 +18,17 @@ pub(crate) fn install(app: &AppHandle) {
             }
         };
 
-        dispatch_termination_once(termination.recv(), || {
-            dispatch_exit_on_main_thread(app);
+        // shutdown 失败后 gate 可重试；receiver 存活期间每个 SIGTERM 都重新投递。
+        while dispatch_termination(termination.recv(), || {
+            dispatch_exit_on_main_thread(app.clone());
         })
-        .await;
+        .await
+        {}
     });
 }
 
-/// 只消费首个 SIGTERM 并投递一次退出 callback，随后由调用方结束监听任务。
-async fn dispatch_termination_once(
+/// 消费单个 SIGTERM 并投递退出 callback；返回值只表示 receiver 是否仍存活。
+async fn dispatch_termination(
     receive: impl Future<Output = Option<()>>,
     dispatch: impl FnOnce(),
 ) -> bool {
@@ -62,7 +64,7 @@ fn log_listener_error(app: &AppHandle, message: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::dispatch_termination_once;
+    use super::dispatch_termination;
     use crate::{ShutdownState, run_shutdown_once};
     use std::{cell::Cell, collections::VecDeque};
 
@@ -71,7 +73,7 @@ mod tests {
     async fn sigterm_dispatches_exit_callback_once() {
         let dispatch_calls = Cell::new(0);
 
-        let received = dispatch_termination_once(std::future::ready(Some(())), || {
+        let received = dispatch_termination(std::future::ready(Some(())), || {
             dispatch_calls.set(dispatch_calls.get() + 1);
         })
         .await;
@@ -80,20 +82,48 @@ mod tests {
         assert_eq!(dispatch_calls.get(), 1);
     }
 
-    /// 一次性 listener 消费首个通知后结束，不读取 fixture 中的第二个信号。
+    /// receiver 中的两个连续 SIGTERM 均可投递，关闭后才停止。
     #[tokio::test]
-    async fn listener_stops_before_second_signal() {
+    async fn listener_dispatches_two_signals() {
         let mut signals = VecDeque::from([(), ()]);
         let dispatch_calls = Cell::new(0);
 
-        let received = dispatch_termination_once(std::future::ready(signals.pop_front()), || {
-            dispatch_calls.set(dispatch_calls.get() + 1)
+        while dispatch_termination(std::future::ready(signals.pop_front()), || {
+            dispatch_calls.set(dispatch_calls.get() + 1);
         })
-        .await;
+        .await
+        {}
 
-        assert!(received);
-        assert_eq!(dispatch_calls.get(), 1);
-        assert_eq!(signals.len(), 1);
+        assert_eq!(dispatch_calls.get(), 2);
+        assert!(signals.is_empty());
+    }
+
+    /// 首次 shutdown 失败后，第二个 SIGTERM 可重新取得 shutdown owner。
+    #[tokio::test]
+    async fn second_sigterm_retries_failed_shutdown() {
+        let state = ShutdownState::default();
+        let shutdown_calls = Cell::new(0);
+        let mut signals = VecDeque::from([(), ()]);
+
+        while dispatch_termination(std::future::ready(signals.pop_front()), || {
+            let result = run_shutdown_once(&state, || {
+                shutdown_calls.set(shutdown_calls.get() + 1);
+                if shutdown_calls.get() == 1 {
+                    Err("first shutdown failed".into())
+                } else {
+                    Ok(())
+                }
+            });
+            if shutdown_calls.get() == 1 {
+                assert_eq!(result, Err("first shutdown failed".into()));
+            } else {
+                assert_eq!(result, Ok(()));
+            }
+        })
+        .await
+        {}
+
+        assert_eq!(shutdown_calls.get(), 2);
     }
 
     /// SIGTERM 与后续 UI 退出竞态仍只允许一个 shutdown owner。
@@ -102,7 +132,7 @@ mod tests {
         let state = ShutdownState::default();
         let shutdown_calls = Cell::new(0);
 
-        dispatch_termination_once(std::future::ready(Some(())), || {
+        dispatch_termination(std::future::ready(Some(())), || {
             run_shutdown_once(&state, || {
                 shutdown_calls.set(shutdown_calls.get() + 1);
                 Ok(())

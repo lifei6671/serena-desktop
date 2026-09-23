@@ -335,6 +335,14 @@ impl AgentTaskManager {
         *self.registry.lock().unwrap() = None;
     }
 
+    /// macOS Desktop 发布时延后 backend 探测，首次 Provider execute 仍从空 executable 发现。
+    #[cfg(target_os = "macos")]
+    pub(crate) fn defer_backend_resolution(&mut self) {
+        self.executable = PathBuf::new();
+        self.backend_error = None;
+        *self.registry.lock().unwrap() = None;
+    }
+
     /// 在已存在 Tokio Runtime 的 Host 发布屏障后启动唯一恢复 worker。
     pub(crate) fn start_auto_recovery_worker(&self) -> bool {
         if self.runtime_pool.stop.is_cancelled() {

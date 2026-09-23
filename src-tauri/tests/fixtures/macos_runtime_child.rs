@@ -45,6 +45,17 @@ fn main() {
     let mut args = env::args().skip(1);
     let mode = args.next().unwrap_or_default();
     match mode.as_str() {
+        "--version" => {
+            // compatibility probe 的版本输出有效；专用文件名模拟有输出但退出码非零。
+            println!("codex-cli fixture 1.0.0");
+            if env::current_exe()
+                .expect("fixture executable")
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().ends_with("version-nonzero"))
+            {
+                exit(7);
+            }
+        }
         "report" => {
             let argument = args.next().unwrap_or_default();
             let mut input = String::new();
@@ -64,6 +75,27 @@ fn main() {
             println!("{}", args.next().unwrap_or_else(|| "probe-ok".into()));
         }
         "app-server" => {
+            if args.next().as_deref() == Some("generate-json-schema") {
+                // 写出确定性不兼容的 schema，让测试验证共享契约拒绝而非 unknown mode。
+                assert_eq!(args.next().as_deref(), Some("--experimental"));
+                assert_eq!(args.next().as_deref(), Some("--out"));
+                let directory = args.next().expect("schema output directory");
+                fs::create_dir_all(&directory).expect("create schema directory");
+                fs::write(
+                    std::path::Path::new(&directory)
+                        .join("codex_app_server_protocol.schemas.json"),
+                    b"{\"definitions\":{}}",
+                )
+                .expect("write incompatible schema");
+                if env::current_exe()
+                    .expect("fixture executable")
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().ends_with("schema-nonzero"))
+                {
+                    exit(9);
+                }
+                return;
+            }
             // 只实现 initialize/initialized smoke 所需的最小 JSONL Contract，不启动 Turn。
             let stdin = std::io::stdin();
             let mut lines = stdin.lock().lines();

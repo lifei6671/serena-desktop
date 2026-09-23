@@ -7,15 +7,30 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /** 按顶层 job 边界读取 CI，防止一个平台的命令误满足另一个平台的断言。 */
-async function readJobs() {
-  const workflow = await readFile(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
-  const body = workflow.slice(workflow.indexOf("\njobs:\n") + "\njobs:\n".length);
+function parseJobs(source) {
+  // Windows checkout 可使用 CRLF；先统一换行，再定位确切的顶层 jobs 边界。
+  const workflow = source.replace(/\r\n/gu, "\n");
+  const boundary = /^jobs:\n/mu.exec(workflow);
+  assert.ok(boundary, "CI workflow missing top-level jobs boundary");
+  const body = workflow.slice(boundary.index + boundary[0].length);
   const sections = [...body.matchAll(/^  ([a-z][a-z-]*):\s*$/gmu)];
   const jobs = Object.fromEntries(sections.map((match, index) => [
     match[1], body.slice(match.index, sections[index + 1]?.index ?? body.length),
   ]));
   return { workflow, jobs };
 }
+
+/** 从正式 workflow 读取两个平台的独立 job。 */
+async function readJobs() {
+  return parseJobs(await readFile(path.join(root, ".github", "workflows", "ci.yml"), "utf8"));
+}
+
+test("CRLF workflow still parses only the two quality jobs", async () => {
+  const source = await readFile(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
+  const { jobs } = parseJobs(source.replace(/\r?\n/gu, "\r\n"));
+  assert.deepEqual(Object.keys(jobs), ["quality-windows", "quality-macos"]);
+  assert.throws(() => parseJobs("on:\r\n  push:\r\n"), /missing top-level jobs boundary/u);
+});
 
 test("CI workflow runs the complete Windows and Apple Silicon quality gate without a tag", async () => {
   const { workflow, jobs } = await readJobs();

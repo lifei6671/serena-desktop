@@ -8,7 +8,7 @@ use crate::agent::store::{RuntimeRecord, StateStore};
 use crate::agent::{
     provider::port::ProviderReconcileSummary, task_manager::recovery::StartupRecoveryFailure,
 };
-use std::{ffi::OsString, fmt, fs::File, path::PathBuf, time::Duration};
+use std::{ffi::OsString, fmt, fs::File, path::PathBuf, process::ExitStatus, time::Duration};
 
 /// 共享 managed 层传入的 concrete macOS launch 参数。
 pub(crate) struct LaunchRequest {
@@ -93,6 +93,16 @@ impl From<RuntimeError> for RuntimeFailure {
 }
 
 impl Runtime {
+    /// 只观测 probe 的 direct child 状态；调用方仍须独立完成 group termination。
+    pub(crate) fn probe_exit_status(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        match &mut self.ownership {
+            RuntimeOwnership::Managed(runtime) => runtime.probe_exit_status(),
+            RuntimeOwnership::Created(_) => Err(std::io::Error::other(
+                "Unverified created child has no probe exit status",
+            )),
+        }
+    }
+
     /// 在 blocking worker 创建 setsid Runtime，并完整转移任何失败 ownership。
     pub(crate) async fn create(
         store: StateStore,

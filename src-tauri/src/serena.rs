@@ -948,6 +948,18 @@ impl SupervisorState {
         #[cfg(not(target_os = "macos"))]
         let terminate_result = terminate_managed_process(&mut process.child);
         if let Err(kill_error) = terminate_result {
+            #[cfg(target_os = "macos")]
+            {
+                // child 已退出也不能代表其 Process Group 已清空，失败时保留完整 owner。
+                let message = format!("无法停止 Serena：{kill_error}");
+                let mut runtime = self.runtime.lock().expect("supervisor mutex poisoned");
+                runtime.process = Some(process);
+                runtime.status = ServerStatus::Error;
+                runtime.last_error = Some(message.clone());
+                logs::append(&self.paths.app_log, "app", &message);
+                return Err(message);
+            }
+            #[cfg(not(target_os = "macos"))]
             match process.child.try_wait() {
                 Ok(Some(_)) => {}
                 _ => {
@@ -1382,6 +1394,84 @@ mod tests {
             first,
             second,
         )
+    }
+
+    /// leader 已退出但忽略 SIGTERM 的 leaf 仍在 group 时，stop 必须保留原 owner 与身份。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn stop_retains_group_owner_when_leader_exits_before_leaf() {
+        let (directory, supervisor, _, _) = workspace_write_guard_fixture();
+        let executable = directory.path().join("serena-stop-child");
+        let output = Command::new("rustc")
+            .args(["--edition=2024", "--crate-name", "serena_stop_child"])
+            .arg(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/macos_runtime_child.rs"),
+            )
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let marker = directory.path().join("leaf.pid");
+        let mut command = Command::new(&executable);
+        command.args(["leader-term-exit"]).arg(&marker);
+        crate::macos_process::configure_std_command(&mut command);
+        let child = command.spawn().unwrap();
+        let identity = crate::macos_process::Identity::capture(child.id()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let ready = PathBuf::from(format!("{}.ready", marker.display()));
+        while !ready.exists() {
+            assert!(
+                Instant::now() < deadline,
+                "leaf fixture did not become ready"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        let leaf_pid: libc::pid_t = std::fs::read_to_string(&marker).unwrap().parse().unwrap();
+        let installation = SerenaInstallation {
+            state: InstallationState::Standard,
+            source: InstallationSource::Path,
+            path: executable,
+            version: "1.7.0".into(),
+            context: None,
+            error: None,
+        };
+        supervisor.runtime.lock().unwrap().process = Some(ManagedProcess {
+            child,
+            identity: identity.clone(),
+            port: 9121,
+            dashboard_enabled: false,
+            installation,
+        });
+
+        let result = supervisor.stop();
+        let mut runtime = supervisor.runtime.lock().unwrap();
+        let retained_identity = runtime
+            .process
+            .as_ref()
+            .map(|process| process.identity.clone());
+        let status = runtime.status;
+        let last_error = runtime.last_error.clone();
+        let direct_child_exited = runtime
+            .process
+            .as_mut()
+            .is_some_and(|process| process.child.try_wait().unwrap().is_some());
+        // 测试 teardown 只终止 marker 记录的本次 fixture leaf，并回收 direct child。
+        unsafe { libc::kill(leaf_pid, libc::SIGKILL) };
+        if let Some(mut process) = runtime.process.take() {
+            let _ = process.child.wait();
+        }
+        drop(runtime);
+
+        assert!(result.is_err());
+        assert_eq!(retained_identity, Some(identity));
+        assert!(direct_child_exited);
+        assert_eq!(status, ServerStatus::Error);
+        assert!(last_error.unwrap().contains("无法停止 Serena"));
     }
 
     #[test]

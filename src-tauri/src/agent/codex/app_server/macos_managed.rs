@@ -14,6 +14,7 @@ use std::{
     future::Future,
     io::Read,
     path::{Path, PathBuf},
+    process::ExitStatus,
     sync::atomic::{AtomicU64, Ordering},
 };
 use tokio::io::AsyncReadExt;
@@ -129,6 +130,11 @@ impl OwnedRuntimeGuard {
     /// 只借用 Runtime 执行 stdio/initialized 操作，不提前解除 cancellation ownership。
     fn runtime(&self) -> &Runtime {
         self.runtime.as_ref().expect("owned Runtime exists")
+    }
+
+    /// CLI probe 的直接 child 状态只能在 owner 仍由 guard 持有时观测。
+    fn runtime_mut(&mut self) -> &mut Runtime {
+        self.runtime.as_mut().expect("owned Runtime exists")
     }
 
     /// 显式 termination 通过独立 handoff worker 执行，调用 future 被取消也不会丢 owner。
@@ -390,7 +396,8 @@ async fn cli(
         std::process::id(),
         NEXT_PROBE.fetch_add(1, Ordering::Relaxed)
     );
-    let runtime = create_probe_runtime(context, executable, cwd, args, runtime_id.clone()).await?;
+    let mut runtime =
+        create_probe_runtime(context, executable, cwd, args, runtime_id.clone()).await?;
     let (stdin, stdout, stderr) = match runtime.runtime().clone_stdio() {
         Ok(pipes) => pipes,
         Err(error) => {
@@ -409,6 +416,23 @@ async fn cli(
         Ok::<_, std::io::Error>((out, err))
     })
     .await;
+    // stdio 关闭不等价于退出成功；有界轮询真实 direct child ExitStatus。
+    let exit_status = if matches!(&output, Ok(Ok(_))) {
+        Some(
+            tokio::time::timeout(INIT_TIMEOUT, async {
+                loop {
+                    match runtime.runtime_mut().probe_exit_status() {
+                        Ok(Some(status)) => break Ok::<ExitStatus, std::io::Error>(status),
+                        Ok(None) => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
+                        Err(error) => break Err(error),
+                    }
+                }
+            })
+            .await,
+        )
+    } else {
+        None
+    };
     // 无论读取成功、失败或超时都先完成 Process Group 收口，避免 `?` 提前丢失 live child。
     terminate_probe(runtime_id, runtime).await?;
     let (output, diagnostic) = output
@@ -416,6 +440,14 @@ async fn cli(
         .map_err(|error| ProbeFailure::from(io_error(error)))?;
     if output.len() > MAX_MESSAGE || diagnostic.len() > MAX_MESSAGE {
         return Err(io_error("Compatibility CLI output exceeded bound").into());
+    }
+    let status = exit_status
+        .expect("successful CLI output must have an exit observation")
+        .map_err(|_| ProbeFailure::from(io_error("Compatibility CLI exit status timed out")))?
+        .map_err(io_error)
+        .map_err(ProbeFailure::from)?;
+    if !status.success() {
+        return Err(io_error(format!("Compatibility CLI exited with status {status}")).into());
     }
     String::from_utf8(output)
         .map_err(io_error)
@@ -1169,6 +1201,52 @@ mod tests {
             )
             .unwrap();
         assert_eq!(complete, 2);
+    }
+
+    /// 合法 stdout 或已生成 schema 都不能覆盖非零退出码，且必须完成 probe cleanup。
+    async fn assert_nonzero_cli_rejected(suffix: &str, exit_code: &str, expected_probes: i64) {
+        let directory = tempfile::tempdir().unwrap();
+        let state_root = directory.path().join("formal-store");
+        let store = StateStore::open(state_root.clone()).await.unwrap();
+        let manager = AgentTaskManager::new(store, PathBuf::new());
+        let source = probe_fixture(directory.path());
+        let executable = directory
+            .path()
+            .join(format!("probe-ownership-child-{suffix}"));
+        std::fs::copy(source, &executable).unwrap();
+        let executable = executable.canonicalize().unwrap();
+        let failure = match verify(&manager.probe_context(), executable).await {
+            Ok(_) => panic!("nonzero compatibility CLI exit was accepted"),
+            Err(failure) => failure,
+        };
+        match failure {
+            ProbeFailure::Compatibility(error) => {
+                assert_eq!(error.code, "CODEX_APP_SERVER_INCOMPATIBLE");
+                assert!(error.message.contains(exit_code), "{}", error.message);
+            }
+            ProbeFailure::Runtime(error) => panic!("probe cleanup failed: {error:?}"),
+        }
+        let database = rusqlite::Connection::open(state_root.join("agent-state.db")).unwrap();
+        let complete: i64 = database
+            .query_row(
+                "SELECT count(*) FROM runtime_instances WHERE state='terminated' AND termination_evidence_state='complete'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(complete, expected_probes);
+    }
+
+    /// version 有合法 stdout 但退出码非零时不得接受 identity。
+    #[tokio::test]
+    async fn version_stdout_with_nonzero_exit_is_rejected() {
+        assert_nonzero_cli_rejected("version-nonzero", "7", 1).await;
+    }
+
+    /// schema 文件已经写出但导出命令退出码非零时不得接受 schema。
+    #[tokio::test]
+    async fn generated_schema_with_nonzero_exit_is_rejected() {
+        assert_nonzero_cli_rejected("schema-nonzero", "9", 2).await;
     }
 
     /// Compatibility 拒绝只有在该候选的 Runtime evidence complete 后才能继续下一候选。

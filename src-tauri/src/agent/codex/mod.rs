@@ -51,10 +51,21 @@ pub mod discovery;
 #[path = "unavailable/discovery.rs"]
 pub mod discovery;
 
+#[cfg(test)]
+tokio::task_local! {
+    /// 只在测试作用域替代真实 CLI discovery，锁定首次 execute 的惰性探测路径。
+    pub(crate) static TEST_BACKEND_DISCOVERY: Result<std::path::PathBuf, String>;
+}
+
 /// 平台私有 discovery 边界；macOS 消费正式 probe authority，其他平台保持原发现行为。
 pub(crate) async fn discover(
     context: crate::agent::task_manager::ProbeContext,
 ) -> Result<std::path::PathBuf, String> {
+    #[cfg(test)]
+    if let Ok(result) = TEST_BACKEND_DISCOVERY.try_with(Clone::clone) {
+        drop(context);
+        return result;
+    }
     #[cfg(target_os = "macos")]
     {
         macos_discovery::discover(context).await

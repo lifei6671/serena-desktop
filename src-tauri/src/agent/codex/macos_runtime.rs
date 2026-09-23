@@ -8,6 +8,7 @@ use std::{
     fs::File,
     io,
     os::fd::{AsRawFd, FromRawFd},
+    process::ExitStatus,
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -116,6 +117,11 @@ fn sleep_until_next_poll(deadline: Instant) {
 }
 
 impl MacosRuntime {
+    /// 仅供 compatibility CLI 读取 direct child 真实退出状态，不推断 Process Group 已清空。
+    pub(crate) fn probe_exit_status(&mut self) -> io::Result<Option<ExitStatus>> {
+        self.child.process.try_wait()
+    }
+
     /// 复制三条 stdio fd，把异步读写所有权交给 Tokio，同时保留 Runtime child ownership。
     pub(crate) fn clone_stdio(&self) -> io::Result<(File, File, File)> {
         /// 使用 dup 创建独立 owned fd；File Drop 只关闭复制出的描述符。

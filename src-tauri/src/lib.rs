@@ -162,13 +162,20 @@ pub fn run() {
                     app.handle().clone(),
                     supervisor,
                 ));
-            let (product, outcomes) = tauri::async_runtime::block_on(
+            // macOS Desktop 发布前保留 recovery，但把耗时的 Codex CLI probe 延到首次 Agent execute。
+            #[cfg(target_os = "macos")]
+            let initialization = agent::product::AgentProductService::initialize_desktop_deferred(
+                store,
+                terminal_notifier,
+            );
+            #[cfg(not(target_os = "macos"))]
+            let initialization =
                 agent::product::AgentProductService::initialize_with_terminal_notifier(
                     store,
                     terminal_notifier,
-                ),
-            )
-            .map_err(std::io::Error::other)?;
+                );
+            let (product, outcomes) =
+                tauri::async_runtime::block_on(initialization).map_err(std::io::Error::other)?;
             if let Some(error) = product.backend_diagnostic() {
                 logs::append(
                     &app.state::<std::sync::Arc<SupervisorState>>().paths.app_log,

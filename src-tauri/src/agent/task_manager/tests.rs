@@ -15,6 +15,50 @@ use crate::agent::store::transactions::product::{WorkExecutionContext, Workspace
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+/// deferred backend 经 startup recovery 仍可执行，首次 execute 才调用正式 discovery 入口。
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn deferred_backend_discovers_on_first_execute() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().join("store"))
+        .await
+        .unwrap();
+    let mut manager = AgentTaskManager::new(store.clone(), "stale-backend".into());
+    manager.install_backend_resolution(Err("stale error".into()));
+    manager.defer_backend_resolution();
+    assert!(manager.executable.as_os_str().is_empty());
+    assert!(manager.backend_error.is_none());
+    assert!(manager.reconcile_startup().await.unwrap().is_empty());
+    assert_eq!(
+        manager
+            .registry()
+            .unwrap()
+            .health(&ProviderId::new("codex".into()).unwrap())
+            .unwrap(),
+        ProviderHealth::Available
+    );
+
+    let created = manager
+        .create(input(directory.path(), "deferred-first-execute"))
+        .await
+        .unwrap();
+    let provider = crate::agent::codex::provider::CodexProvider {
+        store,
+        executable: manager.executable.clone(),
+        backend_error: manager.backend_error.clone(),
+        owner: manager.owner.clone(),
+        runtime_pool: manager.runtime_pool.clone(),
+    };
+    let failure = crate::agent::codex::TEST_BACKEND_DISCOVERY
+        .scope(
+            Err("DEFERRED_DISCOVERY_ATTEMPTED".into()),
+            provider.execute(&created.execution_id),
+        )
+        .await
+        .unwrap_err();
+    assert!(format!("{failure:?}").contains("DEFERRED_DISCOVERY_ATTEMPTED"));
+}
+
 /// 收集产品层终态通知，避免测试访问任何 Desktop 系统 API。
 #[derive(Default)]
 struct RecordingNotifier {
