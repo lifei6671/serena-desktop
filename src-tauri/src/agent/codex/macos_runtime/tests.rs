@@ -111,7 +111,7 @@ fn runtime_fixture(mode: &str) -> (tempfile::TempDir, MacosRuntime, PathBuf, Pat
 /// create 成功后必须持久化 launcher 已验证的完整 macOS 身份组。
 #[test]
 fn store_identity_is_persisted_after_create() {
-    let (_directory, runtime, _marker, _ready) = runtime_fixture("tree");
+    let (_directory, runtime, _marker, ready) = runtime_fixture("tree");
     let mut cleanup = FixtureCleanup::armed(&runtime);
     let record = tauri::async_runtime::block_on(runtime.store.runtime(runtime.id.clone()))
         .unwrap()
@@ -131,6 +131,7 @@ fn store_identity_is_persisted_after_create() {
         record.codex_process_start_token.as_deref(),
         Some(runtime.identity.start_token.encode().as_str())
     );
+    wait_file(&ready);
     cleanup_fixture(runtime);
     cleanup.disarm();
 }
