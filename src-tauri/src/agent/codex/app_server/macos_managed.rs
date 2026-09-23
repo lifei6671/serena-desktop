@@ -402,9 +402,7 @@ async fn cli(
         .is_some_and(|name| name.to_string_lossy().starts_with("probe-ownership-child"))
         && matches!(
             args.as_slice(),
-            ["--version", ..]
-                | ["probe-output", ..]
-                | ["app-server", "generate-json-schema", ..]
+            ["--version", ..] | ["probe-output", ..] | ["app-server", "generate-json-schema", ..]
         );
     let mut runtime =
         create_probe_runtime(context, executable, cwd, args, runtime_id.clone()).await?;
