@@ -110,9 +110,7 @@ impl Runtime {
         timeout: Duration,
     ) -> std::io::Result<()> {
         match &mut self.ownership {
-            RuntimeOwnership::Managed(runtime) => {
-                runtime.resume_stopped_probe_for_test(timeout)
-            }
+            RuntimeOwnership::Managed(runtime) => runtime.resume_stopped_probe_for_test(timeout),
             RuntimeOwnership::Created(_) => Err(std::io::Error::other(
                 "Unverified created child cannot resume probe fixture",
             )),
