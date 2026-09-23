@@ -773,6 +773,46 @@ mod integration_tests {
         Arc::new(Broker::new(Arc::new(SupervisorState::new(paths).unwrap())))
     }
 
+    /// 真实预占 loopback 端口，验证稳定错误、双日志与成功重试清理。
+    #[tokio::test]
+    async fn broker_bind_addr_in_use_reports_diagnostics_and_retry_clears_last_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let occupied_port = occupied.local_addr().unwrap().port();
+        let broker = fixture(directory.path(), None);
+        let mut config = broker.config();
+        config.broker.port = occupied_port;
+        broker.supervisor.replace_config(config).unwrap();
+
+        let error = broker.start().await.unwrap_err();
+        assert!(error.starts_with("BROKER_PORT_IN_USE:"), "{error}");
+        assert!(error.contains(&occupied_port.to_string()), "{error}");
+        let snapshot = broker.snapshot().await;
+        assert_eq!(snapshot.last_error.as_deref(), Some(error.as_str()));
+        assert!(!snapshot.running);
+        let memory_log = broker.log_snapshot().join("\n");
+        for expected in [
+            "code=BROKER_PORT_IN_USE",
+            "reason=端口已被其他程序占用",
+            "fix=在“设置 → MCP 连接入口”改用其他未占用端口后重试",
+            "error_kind=AddrInUse",
+            "raw_os_error=",
+            "system_error=",
+        ] {
+            assert!(memory_log.contains(expected), "{memory_log}");
+        }
+        let app_log = std::fs::read_to_string(&broker.supervisor.paths.app_log).unwrap();
+        assert!(app_log.contains("code=BROKER_PORT_IN_USE"), "{app_log}");
+        assert!(app_log.contains(&format!("address=127.0.0.1:{occupied_port}")));
+
+        drop(occupied);
+        broker.start().await.unwrap();
+        let recovered = broker.snapshot().await;
+        assert!(recovered.running);
+        assert_eq!(recovered.last_error, None);
+        broker.stop().await.unwrap();
+    }
+
     /// 仅用于 Broker Semantic 路由测试的 Provider，记录 server-resolved Lease 和已净化参数。
     struct SemanticRoutingProvider {
         descriptor: WorkspaceCapabilityDescriptor,

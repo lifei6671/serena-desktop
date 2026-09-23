@@ -562,6 +562,11 @@ impl AgentProductService {
         Ok(self.store.workspace_claim(root).await?.is_some())
     }
 
+    /// 返回 StateStore 中所有未终态 Execution 数量，不读取 Runtime 私有状态。
+    pub(crate) async fn nonterminal_execution_count(&self) -> Result<usize, String> {
+        self.store.product_nonterminal_count().await
+    }
+
     /// 仅供 Supervisor operation mutex 内的 Workspace Remove typed check 同步读取。
     pub(crate) fn workspace_claim_exists_blocking(&self, root: &str) -> Result<bool, String> {
         Ok(self.store.workspace_claim_blocking(root)?.is_some())

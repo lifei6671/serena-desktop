@@ -3,8 +3,9 @@ import { House, Activity, Settings, ScrollText, Bot, Globe } from "lucide-react"
 import { useRemoteAccess } from "./useRemoteAccess";
 import { RemoteApprovalDialog } from "./RemoteApprovalDialog";
 import { Button } from "@/components/ui/button";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { listen } from "@tauri-apps/api/event";
 import { ProjectPanel } from "./ProjectPanel";
 import { useAppController } from "./app/useAppController";
 import { api } from "./api";
@@ -31,6 +32,25 @@ function App() {
   const [projectNavigation, setProjectNavigation] = useState<HTMLDivElement | null>(null);
   const controller = useAppController(tab === "serena");
   const { state, brokerController } = controller;
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void listen<unknown>("tray:navigate", (event) => {
+      if (event.payload === "agent" || event.payload === "remote") {
+        setTab(event.payload);
+      }
+    })
+      .then((remove) => {
+        if (active) unlisten = remove;
+        else remove();
+      })
+      // 非 Tauri 预览或测试环境没有事件运行时；导航增强失败不阻断主界面。
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
   if (!state) {
     return (
       <main className="boot-screen">

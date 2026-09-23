@@ -81,7 +81,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                 <span>01</span>
                 <div>
                   <h2>General</h2>
-                  <p>Windows 与应用生命周期</p>
+                  <p>系统与应用生命周期</p>
                 </div>
               </header>
               <FieldGroup className="settings-body">
@@ -108,7 +108,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                   checked={state.autostartEnabled ?? false}
                   onChange={setAutostart}
                   disabled={busy !== null || state.autostartEnabled === null}
-                  label="Windows 登录后启动"
+                  label="随系统登录启动"
                   hint={
                     state.autostartError ?? "由系统登录项启动 Serena Desktop"
                   }
@@ -133,13 +133,13 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                     saveToggle(
                       { minimizeToTray: value },
                       value
-                        ? "关闭窗口时将进入托盘。"
+                        ? "关闭窗口后应用将继续在后台运行。"
                         : "关闭窗口时将退出应用。",
                     )
                   }
                   disabled={busy !== null}
-                  label="关闭窗口时进入托盘"
-                  hint="只有托盘菜单中的“退出”会结束应用"
+                  label="关闭窗口时保留后台运行"
+                  hint="通过 Serena Desktop 常驻菜单中的“退出”可结束应用"
                 />
               </FieldGroup>
             </div>
@@ -343,7 +343,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                   }
                   disabled={!draft.dashboardEnabled || busy !== null}
                   label="启动时在浏览器打开管理面板"
-                  hint="默认关闭；也可从 Serena 页面或托盘手工打开"
+                  hint="默认关闭；也可从 Serena 页面手工打开"
                 />
               </FieldGroup>
             </div>

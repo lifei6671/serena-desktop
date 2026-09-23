@@ -9,6 +9,10 @@ import { JSDOM } from 'jsdom';
 
 registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === '@tauri-apps/api/event') return {
+      url: 'data:text/javascript,export async function listen(name,handler){globalThis.__tauriEventHandlers??=new Map();const handlers=globalThis.__tauriEventHandlers.get(name)??new Set();handlers.add(handler);globalThis.__tauriEventHandlers.set(name,handlers);return()=>handlers.delete(handler)}',
+      shortCircuit: true,
+    };
     let target;
     if (specifier.startsWith('@/')) target = path.resolve('src', specifier.slice(2));
     else if (specifier.startsWith('.') && context.parentURL?.startsWith('file:')) target = path.resolve(path.dirname(fileURLToPath(context.parentURL)), specifier);
@@ -39,8 +43,46 @@ const { TooltipProvider } = await import('./components/ui/tooltip.tsx');
 const { Toaster } = await import('./components/ui/sonner.tsx');
 const { default: App } = await import('./App.tsx');
 const { api } = await import('./api.ts');
+const { formatBrokerError } = await import('./useBroker.ts');
 let root;
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; });
+
+test('frontend defaults new Broker configurations to 19120 and formats stable startup errors', () => {
+  const source = readFileSync('src/app/useAppController.ts', 'utf8');
+  assert.match(source, /broker:\s*\{\s*enabled:\s*false,\s*port:\s*19120,/u);
+  assert.match(source, /useState\(19120\)/u);
+  const error = formatBrokerError('BROKER_PORT_IN_USE: MCP 连接入口端口 19120 已被其他程序占用。');
+  assert.equal(error.title, '连接入口启动失败：端口已被占用');
+  assert.match(error.description, /^BROKER_PORT_IN_USE:/u);
+});
+
+test('tray navigation events switch to Agent or Remote and ignore unknown values', async () => {
+  const originals = { ...api };
+  const config = { agentEnabled: true, remoteSourceWriteEnabled: false, agentSuccessNotificationEnabled: true, agentFailureNotificationEnabled: true, agentSystemNotificationEnabled: true, agentSoundEnabled: true, remoteAccess: { mode: 'mcp_only', quickTunnelDesiredRunning: false, selfHosted: { provider: 'custom_https', publicOrigin: null }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } }, broker: { enabled: false, port: 19120, allowLan: false }, workspaces: [], workspaceRegistryRevision: 1, desktopSelectedWorkspaceId: null, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+  const snapshot = { config, desktopSelectedWorkspace: null, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
+  api.getState = async () => structuredClone(snapshot);
+  api.broker = async () => ({ running: false, port: 19120, listenAddress: '127.0.0.1', projects: [], projectSources: [], syncWarnings: [], activeWorkspace: null, codegraph: null, operation: null, lastError: null });
+  api.agentHistory = async () => ({ executions: [], nextCursor: null });
+  api.remoteState = async () => ({ mode: 'mcp_only', status: 'stopped', publicContext: null, lastError: null, authorizedClients: 0, pending: [], active: false });
+  const emitTrayNavigation = async payload => {
+    await act(async () => {
+      for (const handler of globalThis.__tauriEventHandlers.get('tray:navigate') ?? []) handler({ payload });
+    });
+  };
+  const currentNavigation = () => document.querySelector('nav[aria-label="主导航"] [aria-current="page"]')?.textContent;
+  try {
+    root = createRoot(document.getElementById('root'));
+    await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
+    await emitTrayNavigation('agent');
+    assert.equal(currentNavigation(), 'Agent');
+    await emitTrayNavigation('remote');
+    assert.equal(currentNavigation(), '远程访问');
+    await emitTrayNavigation('unknown');
+    assert.equal(currentNavigation(), '远程访问');
+  } finally {
+    Object.assign(api, originals);
+  }
+});
 test('lazy pages preserve settings draft and keep project navigation mounted', async () => {
   const project = { id: 'W', name: 'Persistent project', root: 'E:/project', generation: 1 };
   const config = { agentEnabled: false, remoteSourceWriteEnabled: false, agentSuccessNotificationEnabled: true, agentFailureNotificationEnabled: true, agentSystemNotificationEnabled: true, agentSoundEnabled: true, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [project], desktopSelectedWorkspaceId: project.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
@@ -160,6 +202,18 @@ test('Settings keeps its compact contract, truthful detection copy, and broker c
   try {
     let page = await mountSettings();
     assert.deepEqual([...page.querySelectorAll('.settings-section h2')].map(item => item.textContent), ['General', 'Agent 提醒', 'Serena', 'Serena 内部服务', 'MCP 连接入口']);
+    const settingsCopy = page.textContent;
+    for (const text of ['系统与应用生命周期', '随系统登录启动', '关闭窗口时保留后台运行', '通过 Serena Desktop 常驻菜单中的“退出”可结束应用', '也可从 Serena 页面手工打开']) {
+      assert.match(settingsCopy, new RegExp(text), text);
+    }
+    assert.doesNotMatch(settingsCopy, /Windows 与应用生命周期|Windows 登录后启动|进入托盘/u);
+    const settingsSource = readFileSync('src/features/settings/SettingsPage.tsx', 'utf8');
+    assert.match(settingsSource, /关闭窗口后应用将继续在后台运行。/u);
+    assert.doesNotMatch(settingsSource, /进入托盘/u);
+    const controllerCopy = readFileSync('src/app/useAppController.ts', 'utf8');
+    assert.match(controllerCopy, /已启用随系统登录启动。/u);
+    assert.match(controllerCopy, /已关闭随系统登录启动。/u);
+    assert.doesNotMatch(controllerCopy, /Windows 登录自启/u);
     for (const label of ['任务成功提醒', '任务异常提醒', '系统通知', '提示音']) {
       assert.ok([...page.querySelectorAll('[role="switch"]')].some(control => control.closest('[data-slot="field"]')?.textContent.includes(label)), label);
     }

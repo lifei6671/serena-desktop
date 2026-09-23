@@ -515,17 +515,19 @@ mod tests {
     }
 
     #[test]
-    fn old_serena_port_9120_loads_with_disabled_broker() {
+    fn old_serena_port_9120_loads_with_new_broker_default() {
         let mut config: ManagerConfig = serde_json::from_str(r#"{"port":9120}"#).unwrap();
         assert!(!config.broker.enabled);
+        assert_eq!(config.broker.port, 19120);
         assert!(config.validate().is_ok());
         config.broker.enabled = true;
-        assert!(config.validate().is_err());
+        assert!(config.validate().is_ok());
     }
 
     #[test]
     fn default_config_is_valid() {
         let config = ManagerConfig::default();
+        assert_eq!(config.broker.port, 19120);
         assert_eq!(config.workspace_registry_revision, 1);
         assert_eq!(config.desktop_selected_workspace_id, None);
         assert!(config.agent_success_notification_enabled);
@@ -533,6 +535,16 @@ mod tests {
         assert!(config.agent_system_notification_enabled);
         assert!(config.agent_sound_enabled);
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn missing_broker_uses_new_default_and_explicit_legacy_port_is_preserved() {
+        let new_config: ManagerConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(new_config.broker.port, 19120);
+
+        let legacy_config: ManagerConfig =
+            serde_json::from_str(r#"{"broker":{"enabled":false,"port":9120}}"#).unwrap();
+        assert_eq!(legacy_config.broker.port, 9120);
     }
 
     #[test]
@@ -792,10 +804,11 @@ pub struct BrokerConfig {
     pub allow_lan: bool,
 }
 impl Default for BrokerConfig {
+    /// 为未持久化 Broker 配置提供新的低冲突默认端口。
     fn default() -> Self {
         Self {
             enabled: false,
-            port: 9120,
+            port: 19120,
             allow_lan: false,
         }
     }

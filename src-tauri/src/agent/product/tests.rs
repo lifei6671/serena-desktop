@@ -108,6 +108,41 @@ async fn workspace_claim_exists_forwards_the_authoritative_store_lookup() {
 }
 
 #[tokio::test]
+async fn nonterminal_execution_count_reads_product_store_without_runtime_projection() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let service = AgentProductService::new(store.clone());
+    assert_eq!(service.nonterminal_execution_count().await.unwrap(), 0);
+
+    store
+        .product_create_fresh(
+            "execution".into(),
+            "agent".into(),
+            "key".into(),
+            "prompt".into(),
+            "workspace".into(),
+            Some(WorkspaceSnapshot {
+                id: "workspace".into(),
+                root: directory.path().to_string_lossy().into_owned(),
+                generation: 1,
+            }),
+            1,
+        )
+        .await
+        .unwrap();
+    assert_eq!(service.nonterminal_execution_count().await.unwrap(), 1);
+
+    let database = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+    database
+        .execute(
+            "UPDATE executions SET status='completed' WHERE id='execution'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(service.nonterminal_execution_count().await.unwrap(), 0);
+}
+
+#[tokio::test]
 async fn initialize_starts_exactly_one_auto_recovery_worker() {
     let directory = tempfile::tempdir().unwrap();
     let store = StateStore::open(directory.path().into()).await.unwrap();
@@ -1127,7 +1162,8 @@ fn continuation_core_and_product_action_filter_are_provider_opaque() {
     assert!(actions.contains(".can_continue("));
 }
 
-#[cfg(windows)]
+/// 使用真实 Codex 验证产品层 start、continue、cancel 与 Runtime 收口。
+#[cfg(any(windows, target_os = "macos"))]
 #[test]
 #[ignore = "Isolated fixed Codex Product start/continue/cancel E2E; run alone"]
 fn real_fixed_product_continuation_e2e() {
@@ -1145,14 +1181,19 @@ fn real_fixed_product_continuation_e2e() {
     );
     let home = temp.path().join("home");
     std::fs::create_dir(&home).unwrap();
-    std::fs::copy(
-        std::path::PathBuf::from(std::env::var_os("USERPROFILE").unwrap()).join(".codex/auth.json"),
-        home.join("auth.json"),
-    )
-    .unwrap();
+    #[cfg(windows)]
+    let auth =
+        std::path::PathBuf::from(std::env::var_os("USERPROFILE").unwrap()).join(".codex/auth.json");
+    #[cfg(target_os = "macos")]
+    let auth = std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join(".codex/auth.json");
+    // 凭据只复制到测试临时目录，不写入日志、断言或持久化 evidence。
+    std::fs::copy(auth, home.join("auth.json")).unwrap();
+    #[cfg(windows)]
     let evidence = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../docs/tasks/evidence/runtime-persistence")
         .join(format!("real-product-{}-{}", std::process::id(), now()));
+    #[cfg(target_os = "macos")]
+    let evidence = temp.path().join("evidence");
     std::fs::create_dir_all(&evidence).unwrap();
     struct Env(Vec<(&'static str, Option<std::ffi::OsString>)>);
     impl Drop for Env {

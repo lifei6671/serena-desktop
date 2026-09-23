@@ -333,6 +333,25 @@ impl StateStore {
         }).await
     }
 
+    /// 只读统计所有未进入产品终态的 Execution，供 Host 状态展示复用。
+    pub(crate) async fn product_nonterminal_count(&self) -> Result<usize, String> {
+        self.read(|connection| {
+            let count: i64 = connection.query_row(
+                "SELECT COUNT(*) FROM executions WHERE status NOT IN ('completed','failed','cancelled','interrupted')",
+                [],
+                |row| row.get(0),
+            )?;
+            usize::try_from(count).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Integer,
+                    Box::new(error),
+                )
+            })
+        })
+        .await
+    }
+
     /// Read-only attribution after an operation error; reuse the frozen canonical request.
     pub async fn product_control_context(
         &self,

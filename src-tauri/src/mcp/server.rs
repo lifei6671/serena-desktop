@@ -45,6 +45,41 @@ fn bounded_log_text(value: &str) -> String {
     }
 }
 
+/// 将系统 bind 错误稳定映射为前端可判断的错误码与可执行提示。
+fn broker_bind_error(address: std::net::SocketAddr, error: &std::io::Error) -> (String, String) {
+    let (code, reason, fix, user_message) = if error.kind() == std::io::ErrorKind::AddrInUse {
+        (
+            "BROKER_PORT_IN_USE",
+            "端口已被其他程序占用",
+            "在“设置 → MCP 连接入口”改用其他未占用端口后重试",
+            format!(
+                "MCP 连接入口端口 {} 已被其他程序占用。请在“设置 → MCP 连接入口”修改端口后重试。",
+                address.port()
+            ),
+        )
+    } else {
+        (
+            "BROKER_BIND_FAILED",
+            "监听地址绑定失败",
+            "检查端口与本机网络设置，或在“设置 → MCP 连接入口”改用其他端口后重试",
+            format!(
+                "MCP 连接入口无法监听 {}。请检查端口与本机网络设置后重试。",
+                address
+            ),
+        )
+    };
+    let raw_os_error = error
+        .raw_os_error()
+        .map_or_else(|| "none".to_owned(), |value| value.to_string());
+    let diagnostic = format!(
+        "MCP 连接入口启动失败 · code={code} · address={address} · port={} · error_kind={:?} · raw_os_error={raw_os_error} · reason={reason} · fix={fix} · system_error={}",
+        address.port(),
+        error.kind(),
+        bounded_log_text(&error.to_string())
+    );
+    (format!("{code}: {user_message}"), diagnostic)
+}
+
 /// 仅保留可诊断的调用形状，绝不把请求内容或凭据写进本地日志。
 fn safe_log_detail(value: &Value, field_name: Option<&str>) -> Value {
     if field_name.is_some_and(detail_field_is_sensitive) {
@@ -126,6 +161,23 @@ mod log_detail_tests {
         assert_eq!(details["substring_pattern"], "[已隐藏]");
         assert_eq!(details["content"], "[已隐藏]");
         assert_eq!(details["access_token"], "[已隐藏]");
+    }
+
+    #[test]
+    fn non_address_in_use_bind_errors_use_generic_stable_code_and_bounded_system_text() {
+        let address = std::net::SocketAddr::from(([127, 0, 0, 1], 19120));
+        let system_text = "x".repeat(MAX_LOG_DETAIL_TEXT + 100);
+        let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, system_text);
+        let (user_error, diagnostic) = broker_bind_error(address, &error);
+
+        assert!(
+            user_error.starts_with("BROKER_BIND_FAILED:"),
+            "{user_error}"
+        );
+        assert!(diagnostic.contains("error_kind=PermissionDenied"));
+        assert!(diagnostic.contains("raw_os_error=none"));
+        assert!(diagnostic.ends_with('…'), "{diagnostic}");
+        assert!(!diagnostic.contains(&"x".repeat(MAX_LOG_DETAIL_TEXT + 1)));
     }
 }
 
@@ -336,6 +388,7 @@ impl Broker {
     pub async fn start(self: &Arc<Self>) -> Result<(), String> {
         let mut current = self.listener.lock().await;
         if current.as_ref().is_some_and(|l| !l.handle.is_finished()) {
+            *self.error.lock().unwrap() = None;
             return Ok(());
         }
         let address = self.config().broker.bind_address();
@@ -354,10 +407,15 @@ impl Broker {
             lan_ips.sort_unstable();
             lan_ips.dedup();
         }
-        let listener = tokio::net::TcpListener::bind(address).await.map_err(|e| {
-            self.log_level("ERROR", &format!("MCP 启动失败 · 地址 {address} · {e}"));
-            format!("Broker 监听地址不可用: {e}")
-        })?;
+        let listener = tokio::net::TcpListener::bind(address)
+            .await
+            .map_err(|error| {
+                let (user_error, diagnostic) = broker_bind_error(address, &error);
+                self.log_level("ERROR", &diagnostic);
+                crate::logs::append(&self.supervisor.paths.app_log, "MCP Broker", &diagnostic);
+                *self.error.lock().unwrap() = Some(user_error.clone());
+                user_error
+            })?;
         let broker = self.clone();
         let token = CancellationToken::new();
         let mut config = StreamableHttpServerConfig::default();
@@ -489,6 +547,7 @@ impl Broker {
             cancel: token,
             handle,
         });
+        *self.error.lock().unwrap() = None;
         self.log(&format!("MCP 已监听 · http://{address}/mcp"));
         let enabled = self.config().agent_enabled;
         self.log(&registry::orchestration_contract_diagnostic(
@@ -504,6 +563,7 @@ impl Broker {
     pub async fn stop(&self) -> Result<(), String> {
         self.remote.stop().await?;
         self.stop_listener().await;
+        *self.error.lock().unwrap() = None;
         Ok(())
     }
     pub async fn shutdown(&self) -> Result<(), String> {
