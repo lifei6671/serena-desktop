@@ -10,11 +10,29 @@ unsafe extern "C" {
     fn getpid() -> i32;
     fn getpgrp() -> i32;
     fn getsid(pid: i32) -> i32;
+    fn kill(pid: i32, signal: i32) -> i32;
     fn signal(signal: i32, handler: usize) -> usize;
 }
 
 const SIGTERM: i32 = 15;
+const SIGSTOP: i32 = 17;
 const SIG_IGN: usize = 1;
+
+/// 仅让 macOS managed compatibility 测试的短命 CLI 在输出/退出前停住，
+/// 直到父测试完成 Runtime 身份采集后发送 SIGCONT。
+fn pause_owned_probe_fixture() {
+    let is_owned_probe = env::current_exe()
+        .ok()
+        .and_then(|path| path.file_name().map(|name| name.to_owned()))
+        .is_some_and(|name| name.to_string_lossy().starts_with("probe-ownership-child"));
+    if !is_owned_probe {
+        return;
+    }
+
+    // SAFETY: 测试 fixture 只向自身发送不可捕获的 SIGSTOP；父测试持有 PID 并负责 SIGCONT/收口。
+    let result = unsafe { kill(getpid(), SIGSTOP) };
+    assert_eq!(result, 0, "pause probe fixture");
+}
 
 /// 让当前测试进程忽略 SIGTERM，供强制收口场景使用。
 fn ignore_term() {
@@ -46,6 +64,7 @@ fn main() {
     let mode = args.next().unwrap_or_default();
     match mode.as_str() {
         "--version" => {
+            pause_owned_probe_fixture();
             // compatibility probe 的版本输出有效；专用文件名模拟有输出但退出码非零。
             println!("codex-cli fixture 1.0.0");
             if env::current_exe()
@@ -57,6 +76,7 @@ fn main() {
             }
         }
         "report" => {
+            pause_owned_probe_fixture();
             let argument = args.next().unwrap_or_default();
             let mut input = String::new();
             std::io::stdin()
@@ -71,11 +91,13 @@ fn main() {
             eprintln!("stderr-ready");
         }
         "probe-output" => {
+            pause_owned_probe_fixture();
             // Compatibility CLI fixture 不读 stdin，模拟 version/schema 命令正常退出。
             println!("{}", args.next().unwrap_or_else(|| "probe-ok".into()));
         }
         "app-server" => {
             if args.next().as_deref() == Some("generate-json-schema") {
+                pause_owned_probe_fixture();
                 // 写出确定性不兼容的 schema，让测试验证共享契约拒绝而非 unknown mode。
                 assert_eq!(args.next().as_deref(), Some("--experimental"));
                 assert_eq!(args.next().as_deref(), Some("--out"));
