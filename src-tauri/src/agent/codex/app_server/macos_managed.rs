@@ -1148,7 +1148,7 @@ mod tests {
             LaunchRequest {
                 executable: probe_fixture(directory.path()),
                 current_dir: directory.path().to_owned(),
-                args: vec!["probe-output".into(), "done".into()],
+                args: vec!["report".into(), "done".into()],
                 runtime_instance_id: runtime_id.clone(),
             },
             INIT_TIMEOUT,
@@ -1332,7 +1332,7 @@ mod tests {
             LaunchRequest {
                 executable,
                 current_dir: directory.path().to_owned(),
-                args: vec!["probe-output".into(), "done".into()],
+                args: vec!["report".into(), "done".into()],
                 runtime_instance_id: runtime_id.clone(),
             },
             INIT_TIMEOUT,
