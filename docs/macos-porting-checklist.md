@@ -20,7 +20,7 @@
 - Tauri 配置已包含 `icon.icns`，并已初始化 `MacosLauncher::LaunchAgent`。
 - Quick Tunnel 已包含 macOS arm64/x86_64 的 cloudflared 固定版本与 SHA-256 映射。
 - 基础 `src-tauri/tauri.conf.json` 仍是 Windows NSIS authority；macOS 已使用独立的 `src-tauri/tauri.macos.conf.json`，当前主机执行 `npm run tauri build` 会生成 `.app`。
-- 当前 GitHub Actions、Release、安装器验证和卸载策略仍只覆盖 Windows/NSIS。
+- GitHub Actions 已加入 Windows/macOS 双平台 CI、分平台构建及统一 Release 发布拓扑；macOS DMG verifier 已实现，但本机 DMG 与 GitHub hosted Gate 尚未通过实际产物验收。Windows NSIS 验证与卸载静态策略仍保留。
 
 ### 1.2 关键证据位置
 
@@ -34,8 +34,8 @@
 - 系统打开命令：`src-tauri/src/commands.rs:457`
 - bundle 配置：`src-tauri/tauri.conf.json:32`
 - macOS bundle overlay：`src-tauri/tauri.macos.conf.json:1`
-- Windows CI：`.github/workflows/ci.yml:19`
-- Windows Release：`.github/workflows/release.yml:15`
+- 双平台 CI：`.github/workflows/ci.yml`
+- 双平台 Release：`.github/workflows/release.yml`
 
 ---
 
@@ -286,6 +286,8 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked
 ## 8. Phase 5：macOS DMG、ad-hoc 签名与发布
 
 **预估：** 2～4 个工程日
+
+**2026-09-23 自动化实现状态：** CI、三阶段 Release、macOS bundle overlay 与 DMG verifier 已接入；本机质量 Gate 和 ad-hoc 签名 `.app` 静态检查通过。当前执行环境的 `hdiutil create` 返回“设备未配置”，真实 DMG 与挂载 verifier 为 `NOT_RUN/UNAVAILABLE`。GitHub hosted 双平台运行、从正式 Release 下载后的 Gatekeeper 放行及 Phase 6 真机验收仍须分别取证，本节退出条件尚未达成。
 
 ### 8.1 Tauri 配置
 

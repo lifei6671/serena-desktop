@@ -1,4 +1,4 @@
-name: Release Windows binary
+name: Release Windows and macOS installers
 
 on:
   push:
@@ -6,110 +6,203 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release:
+  release-windows:
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 90
     defaults:
       run:
         shell: pwsh
     env:
       RUSTUP_TOOLCHAIN: stable
       VITE_APP_VERSION: ${{ github.ref_name }}
-
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v6
         with:
           persist-credentials: false
-
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
-
       - name: Set up Rust
         run: rustup toolchain install stable --profile minimal
-
       - name: Install frontend dependencies
         run: npm ci
-
       - name: Apply release tag version
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: node scripts/apply-release-version.mjs --tag "$env:RELEASE_TAG"
-
       - name: Lint frontend
         run: npm run lint
-
       - name: Build frontend
         run: npm run build
-
       - name: Test frontend
         run: npm test
-
-      - name: Test release contracts
-        run: node --test scripts/apply-release-version.test.mjs scripts/check-version.test.mjs scripts/release-workflow.test.mjs scripts/verify-installer.test.mjs scripts/verify-uninstall-policy.test.mjs
-
+      - name: Test workflow contracts
+        run: node --test scripts/apply-release-version.test.mjs scripts/check-version.test.mjs scripts/ci-workflow.test.mjs scripts/release-workflow.test.mjs scripts/macos-bundle-config.test.mjs scripts/verify-installer.test.mjs scripts/verify-macos-release.test.mjs scripts/verify-uninstall-policy.test.mjs
       - name: Check Rust formatting
         working-directory: src-tauri
         run: cargo fmt --all -- --check
-
       - name: Check Rust
         working-directory: src-tauri
         run: cargo check --locked
-
       - name: Lint Rust
         working-directory: src-tauri
         run: cargo clippy --locked --all-targets -- -D warnings
-
       - name: Test Rust
         working-directory: src-tauri
         run: cargo test --locked
-
       - name: Check workspace diff
         run: git diff --check
-
       - name: Check product version for release tag
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: node scripts/check-version.mjs --tag "$env:RELEASE_TAG"
-
       - name: Check uninstall preservation policy
         run: node scripts/verify-uninstall-policy.mjs
-
       - name: Build NSIS installer
         # 直接调用仓库安装的 CLI，避免 npm 把 Tauri 的 --ci 解析成自身配置。
         run: .\node_modules\.bin\tauri.cmd build --ci -- --locked
-
       - name: Verify NSIS installer
         id: installer
         run: |
-          node scripts/verify-installer.mjs
-          $installers = @(Get-ChildItem -LiteralPath 'src-tauri/target/release/bundle/nsis' -Filter '*-setup.exe' -File)
-          if ($installers.Count -ne 1) { throw "Expected exactly one NSIS installer, found $($installers.Count)." }
-          $installer = $installers[0]
-          $sha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash
-          "path=$($installer.FullName)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
-          $summary = @(
+          $report = node scripts/verify-installer.mjs | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or -not $report.ok) { throw 'NSIS verification failed.' }
+          "path=$($report.artifact.path)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          @(
             '## NSIS installer',
-            "- filename: $($installer.Name)",
-            "- size: $($installer.Length)",
-            "- sha256: $sha256"
-          ) -join [Environment]::NewLine
-          Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $summary
+            "- filename: $($report.artifact.filename)",
+            "- size: $($report.artifact.size)",
+            "- sha256: $($report.artifact.sha256)"
+          ) | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+      - name: Upload verified NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-windows-nsis
+          path: ${{ steps.installer.outputs.path }}
+          if-no-files-found: error
 
+  release-macos:
+    runs-on: macos-14
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTUP_TOOLCHAIN: stable
+      VITE_APP_VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Verify Apple Silicon runner
+        run: test "$(uname -m)" = arm64
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Set up Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Apply release tag version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/apply-release-version.mjs --tag "$RELEASE_TAG"
+      - name: Lint frontend
+        run: npm run lint
+      - name: Build frontend
+        run: npm run build
+      - name: Test frontend
+        run: npm test
+      - name: Test workflow contracts
+        run: node --test scripts/apply-release-version.test.mjs scripts/check-version.test.mjs scripts/ci-workflow.test.mjs scripts/release-workflow.test.mjs scripts/macos-bundle-config.test.mjs scripts/verify-installer.test.mjs scripts/verify-macos-release.test.mjs scripts/verify-uninstall-policy.test.mjs
+      - name: Check Rust formatting
+        working-directory: src-tauri
+        run: cargo fmt --all -- --check
+      - name: Check Rust
+        working-directory: src-tauri
+        run: cargo check --locked
+      - name: Lint Rust
+        working-directory: src-tauri
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Test Rust
+        working-directory: src-tauri
+        run: cargo test --locked
+      - name: Check workspace diff
+        run: git diff --check
+      - name: Check product version for release tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/check-version.mjs --tag "$RELEASE_TAG"
+      - name: Build macOS app and DMG
+        run: ./node_modules/.bin/tauri build --ci -- --locked
+      - name: Verify macOS DMG
+        id: dmg
+        run: |
+          node scripts/verify-macos-release.mjs > "$RUNNER_TEMP/macos-release-report.json"
+          cat "$RUNNER_TEMP/macos-release-report.json"
+          node --input-type=module -e '
+            import { readFileSync, appendFileSync } from "node:fs";
+            const report = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            if (!report.ok) throw new Error("macOS DMG verification failed");
+            appendFileSync(process.env.GITHUB_OUTPUT, `path=${report.artifact.path}\n`);
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## macOS DMG\n- filename: ${report.artifact.filename}\n- size: ${report.artifact.size}\n- sha256: ${report.artifact.sha256}\n`);
+          ' "$RUNNER_TEMP/macos-release-report.json"
+      - name: Upload verified macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-macos-dmg
+          path: ${{ steps.dmg.outputs.path }}
+          if-no-files-found: error
+
+  publish:
+    needs: [release-windows, release-macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: verified-windows-nsis
+          path: release-assets/windows
+      - name: Download verified macOS DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: verified-macos-dmg
+          path: release-assets/macos
+      - name: Check publish inputs
+        shell: bash
+        run: |
+          shopt -s nullglob
+          windows=(release-assets/windows/*)
+          macos=(release-assets/macos/*)
+          test "${#windows[@]}" -eq 1
+          test "${#macos[@]}" -eq 1
+          [[ "${windows[0]}" == *-setup.exe ]]
+          [[ "${macos[0]}" == *.dmg ]]
+          test -s "${windows[0]}"
+          test -s "${macos[0]}"
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
-          files: ${{ steps.installer.outputs.path }}
+          files: |
+            release-assets/windows/*-setup.exe
+            release-assets/macos/*.dmg
           fail_on_unmatched_files: true
           generate_release_notes: true
+          body: |
+            macOS 首版仅支持 Apple Silicon，使用 ad-hoc 签名，未经过 Apple Developer ID 公证。首次打开如被 Gatekeeper 拦截，请前往“系统设置 → 隐私与安全性”选择“仍要打开”，再确认打开。详见 README 安装说明。

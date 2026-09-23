@@ -6,13 +6,19 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-/** 读取实际 CI workflow 文本，固定正式发布前的 Windows 质量 Gate。 */
-async function readWorkflow() {
-  return readFile(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
+/** 按顶层 job 边界读取 CI，防止一个平台的命令误满足另一个平台的断言。 */
+async function readJobs() {
+  const workflow = await readFile(path.join(root, ".github", "workflows", "ci.yml"), "utf8");
+  const body = workflow.slice(workflow.indexOf("\njobs:\n") + "\njobs:\n".length);
+  const sections = [...body.matchAll(/^  ([a-z][a-z-]*):\s*$/gmu)];
+  const jobs = Object.fromEntries(sections.map((match, index) => [
+    match[1], body.slice(match.index, sections[index + 1]?.index ?? body.length),
+  ]));
+  return { workflow, jobs };
 }
 
-test("CI workflow runs the complete Windows quality gate without a tag", async () => {
-  const workflow = await readWorkflow();
+test("CI workflow runs the complete Windows and Apple Silicon quality gate without a tag", async () => {
+  const { workflow, jobs } = await readJobs();
 
   assert.match(workflow, /^on:\s*\r?\n\s+workflow_dispatch:/mu);
   assert.match(workflow, /push:\s*\r?\n\s+branches:\s*\r?\n\s+- master/u);
@@ -22,38 +28,50 @@ test("CI workflow runs the complete Windows quality gate without a tag", async (
     workflow,
     /concurrency:\s*\r?\n\s+group: ci-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\s*\r?\n\s+cancel-in-progress: true/u,
   );
-  assert.match(workflow, /runs-on: windows-2022/u);
-  assert.match(workflow, /timeout-minutes: 45/u);
-  assert.match(workflow, /shell: pwsh/u);
-  assert.match(workflow, /RUSTUP_TOOLCHAIN: stable/u);
-  assert.match(workflow, /uses: actions\/checkout@v6/u);
-  assert.match(workflow, /persist-credentials: false/u);
-  assert.match(workflow, /uses: actions\/setup-node@v6/u);
-  assert.match(workflow, /node-version: '22'/u);
-  assert.match(workflow, /cache: npm/u);
-  assert.match(workflow, /rustup toolchain install stable --profile minimal/u);
+  assert.deepEqual(Object.keys(jobs), ["quality-windows", "quality-macos"]);
+  assert.match(jobs["quality-windows"], /runs-on: windows-2022/u);
+  assert.match(jobs["quality-windows"], /shell: pwsh/u);
+  assert.match(jobs["quality-macos"], /runs-on: macos-14/u);
+  assert.match(jobs["quality-macos"], /shell: bash/u);
+  assert.match(jobs["quality-macos"], /run: test "\$\(uname -m\)" = arm64/u);
+  assert.doesNotMatch(jobs["quality-windows"], /uname -m/u);
 
   for (const command of [
     "npm ci",
     "npm run lint",
     "npm run build",
     "npm test",
-    "node --test scripts/release-workflow.test.mjs scripts/ci-workflow.test.mjs",
+    "node --test scripts/release-workflow.test.mjs scripts/ci-workflow.test.mjs scripts/macos-bundle-config.test.mjs scripts/verify-macos-release.test.mjs",
     "cargo fmt --all -- --check",
     "cargo check --locked",
     "cargo clippy --locked --all-targets -- -D warnings",
     "cargo test --locked",
     "git diff --check",
-    "node scripts/verify-uninstall-policy.mjs",
   ]) {
-    assert.ok(workflow.includes(command), `missing CI command: ${command}`);
+    for (const [name, job] of Object.entries(jobs)) {
+      assert.ok(job.includes(command), `${name} missing CI command: ${command}`);
+    }
   }
 
-  assert.equal(
-    (workflow.match(/working-directory: src-tauri/gu) ?? []).length,
-    4,
-    "every Rust quality gate must run from src-tauri",
-  );
+  for (const [name, job] of Object.entries(jobs)) {
+    for (const value of [
+      "timeout-minutes: 90",
+      "RUSTUP_TOOLCHAIN: stable",
+      "uses: actions/checkout@v6",
+      "persist-credentials: false",
+      "uses: actions/setup-node@v6",
+      "node-version: '22'",
+      "cache: npm",
+      "rustup toolchain install stable --profile minimal",
+    ]) {
+      assert.ok(job.includes(value), `${name} missing CI setup: ${value}`);
+    }
+    assert.equal((job.match(/working-directory: src-tauri/gu) ?? []).length, 4,
+      `${name} must run every Rust quality gate from src-tauri`);
+  }
+  assert.match(jobs["quality-windows"], /run: node scripts\/verify-uninstall-policy\.mjs/u);
+  assert.doesNotMatch(jobs["quality-macos"], /verify-uninstall-policy/u);
+  assert.doesNotMatch(workflow, /matrix\.|strategy:/u);
   assert.doesNotMatch(workflow, /\btags\s*:/u);
   assert.doesNotMatch(workflow, /softprops\/action-gh-release/u);
   assert.doesNotMatch(workflow, /apply-release-version/u);
@@ -61,4 +79,5 @@ test("CI workflow runs the complete Windows quality gate without a tag", async (
   assert.doesNotMatch(workflow, /tauri(?:\.cmd)?\s+build/u);
   assert.doesNotMatch(workflow, /continue-on-error\s*:/u);
   assert.doesNotMatch(workflow, /\|\|\s*true/u);
+  assert.doesNotMatch(workflow, /x86_64|universal|--no-bundle/u);
 });

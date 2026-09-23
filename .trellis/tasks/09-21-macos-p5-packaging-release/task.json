@@ -3,7 +3,7 @@
   "name": "macos-p5-packaging-release",
   "title": "Phase 5：macOS 打包与发布",
   "description": "为 arm64 创建 macOS 平台配置、ad-hoc 签名 DMG、GitHub Actions 发布链路和产物验证，不改变 Windows NSIS 契约。",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": "src-tauri,.github/workflows,scripts",
   "package": null,
