@@ -103,6 +103,22 @@ impl Runtime {
         }
     }
 
+    /// 仅供 macOS managed compatibility 测试恢复已经自停的短命 probe fixture。
+    #[cfg(test)]
+    pub(crate) fn resume_stopped_probe_for_test(
+        &mut self,
+        timeout: Duration,
+    ) -> std::io::Result<()> {
+        match &mut self.ownership {
+            RuntimeOwnership::Managed(runtime) => {
+                runtime.resume_stopped_probe_for_test(timeout)
+            }
+            RuntimeOwnership::Created(_) => Err(std::io::Error::other(
+                "Unverified created child cannot resume probe fixture",
+            )),
+        }
+    }
+
     /// 在 blocking worker 创建 setsid Runtime，并完整转移任何失败 ownership。
     pub(crate) async fn create(
         store: StateStore,
