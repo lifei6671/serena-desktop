@@ -204,6 +204,47 @@ impl MacosRuntime {
         Ok(runtime)
     }
 
+    /// 仅供 macOS managed compatibility fixture：等待短命 probe 自身进入 SIGSTOP，
+    /// 再由已验证 leader PID 发送 SIGCONT，消除测试进程在父侧身份采集前退出的竞态。
+    #[cfg(test)]
+    pub(crate) fn resume_stopped_probe_for_test(&mut self, timeout: Duration) -> io::Result<()> {
+        let deadline = Instant::now() + timeout.min(Duration::from_secs(5));
+        loop {
+            let mut status = 0;
+            // SAFETY: identity.pid 是当前 Runtime 持有的直接 child；WUNTRACED 只读取 stop 状态，不回收进程。
+            let waited = unsafe {
+                libc::waitpid(
+                    self.identity.pid,
+                    &mut status,
+                    libc::WNOHANG | libc::WUNTRACED,
+                )
+            };
+            if waited == self.identity.pid {
+                if libc::WIFSTOPPED(status) {
+                    break;
+                }
+                if libc::WIFEXITED(status) || libc::WIFSIGNALED(status) {
+                    return Err(io::Error::from_raw_os_error(libc::ESRCH));
+                }
+                return Err(io::Error::from_raw_os_error(libc::EPROTO));
+            }
+            if waited < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            if Instant::now() >= deadline {
+                return Err(io::Error::from_raw_os_error(libc::ETIMEDOUT));
+            }
+            sleep_until_next_poll(deadline);
+        }
+
+        // SAFETY: 只恢复上面已经由 waitpid 证明处于 stopped 的同一直接 child。
+        if unsafe { libc::kill(self.identity.pid, libc::SIGCONT) } == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
+
     /// 仅供单元测试篡改创建时身份，用于验证 mismatch 必须 fail closed。
     #[cfg(test)]
     fn replace_identity_for_test(&mut self, identity: ProcessIdentity) {
