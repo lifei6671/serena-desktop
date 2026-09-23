@@ -810,14 +810,26 @@ fn delete_claim(tx: &Transaction<'_>, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Verify persisted evidence from the future Runtime collector, not live OS state.
+/// 只验证与平台元数据一致的持久化终止证据，不读取实时 OS 状态。
 fn terminated_runtime(tx: &Transaction<'_>, runtime: &str) -> Result<i64, String> {
     let at: Option<i64> = tx.query_row("SELECT termination_evidence_at FROM runtime_instances WHERE id=?1 AND state='terminated'
-        AND termination_evidence_state='complete' AND termination_evidence_at IS NOT NULL AND
-        (termination_evidence_type='job_active_processes_zero' OR
-         (termination_evidence_type='managed_job_destroyed' AND job_session_id IS NOT NULL
-          AND job_creation_mode='proc_thread_attribute_job_list' AND job_handle_inheritable=0
-          AND job_kill_on_close=1 AND job_breakaway_allowed=0 AND job_policy_verified_at IS NOT NULL))",
+        AND termination_evidence_state='complete' AND termination_evidence_at IS NOT NULL AND (
+          (runtime_platform='windows' AND containment_type='windows_job'
+           AND process_identity_scheme='windows_filetime_v1'
+           AND containment_process_group_id IS NULL AND containment_session_id IS NULL
+           AND containment_verified_at IS NULL AND
+           (termination_evidence_type='job_active_processes_zero' OR
+            (termination_evidence_type='managed_job_destroyed' AND job_session_id IS NOT NULL
+             AND job_creation_mode='proc_thread_attribute_job_list' AND job_handle_inheritable=0
+             AND job_kill_on_close=1 AND job_breakaway_allowed=0 AND job_policy_verified_at IS NOT NULL)))
+          OR
+          (runtime_platform='macos' AND containment_type='macos_process_group'
+           AND process_identity_scheme='darwin_proc_bsd_start_v1'
+           AND codex_pid IS NOT NULL AND codex_process_start_token IS NOT NULL
+           AND containment_process_group_id=codex_pid AND containment_session_id=codex_pid
+           AND containment_verified_at IS NOT NULL
+           AND termination_evidence_type IN ('macos_live_process_group_empty','macos_recovered_process_group_empty'))
+        )",
         [runtime], |r| r.get(0)).optional().map_err(|e|e.to_string())?.flatten();
     at.ok_or_else(|| "RUNTIME_TERMINATION_EVIDENCE_REQUIRED".into())
 }

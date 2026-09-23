@@ -1,7 +1,11 @@
 use super::*;
+#[cfg(windows)]
 use crate::agent::{codex::app_server::Client, coordinator::now};
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
+#[cfg(windows)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+// 只有具体 Runtime/Fake wire 测试保留 Windows gate，纯 Store/协议覆盖跨平台运行。
 #[path = "control_tests.rs"]
 mod control_tests;
 #[path = "observe_tests.rs"]
@@ -9,8 +13,10 @@ mod observe_tests;
 #[path = "orchestration_tests.rs"]
 mod orchestration_tests;
 #[path = "persistence_tests.rs"]
+#[cfg(windows)]
 mod persistence_tests;
 #[path = "restart_tests.rs"]
+#[cfg(windows)]
 mod restart_tests;
 #[path = "usage_projection_tests.rs"]
 mod usage_projection_tests;
@@ -102,6 +108,41 @@ async fn workspace_claim_exists_forwards_the_authoritative_store_lookup() {
 }
 
 #[tokio::test]
+async fn nonterminal_execution_count_reads_product_store_without_runtime_projection() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let service = AgentProductService::new(store.clone());
+    assert_eq!(service.nonterminal_execution_count().await.unwrap(), 0);
+
+    store
+        .product_create_fresh(
+            "execution".into(),
+            "agent".into(),
+            "key".into(),
+            "prompt".into(),
+            "workspace".into(),
+            Some(WorkspaceSnapshot {
+                id: "workspace".into(),
+                root: directory.path().to_string_lossy().into_owned(),
+                generation: 1,
+            }),
+            1,
+        )
+        .await
+        .unwrap();
+    assert_eq!(service.nonterminal_execution_count().await.unwrap(), 1);
+
+    let database = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+    database
+        .execute(
+            "UPDATE executions SET status='completed' WHERE id='execution'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(service.nonterminal_execution_count().await.unwrap(), 0);
+}
+
+#[tokio::test]
 async fn initialize_starts_exactly_one_auto_recovery_worker() {
     let directory = tempfile::tempdir().unwrap();
     let store = StateStore::open(directory.path().into()).await.unwrap();
@@ -112,7 +153,197 @@ async fn initialize_starts_exactly_one_auto_recovery_worker() {
         )
         .await
         .unwrap();
+    // 后端不可用时仍须暴露稳定诊断，供跨平台本地读取路径使用。
+    assert!(
+        service
+            .backend_diagnostic()
+            .is_some_and(|diagnostic| diagnostic.starts_with("BACKEND_UNAVAILABLE:"))
+    );
     assert!(!service.manager.start_auto_recovery_worker());
+    service.shutdown().await.unwrap();
+}
+
+/// macOS Desktop 发布与 startup recovery 不执行 CLI discovery，仍不冻结 backend 为 unavailable。
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn desktop_deferred_initialization_keeps_backend_resolvable() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().join("store"))
+        .await
+        .unwrap();
+    let (service, report) = crate::agent::codex::TEST_BACKEND_DISCOVERY
+        .scope(
+            Err("discovery must be deferred".into()),
+            AgentProductService::initialize_desktop_deferred(
+                store,
+                super::super::notification::noop_agent_terminal_notifier(),
+            ),
+        )
+        .await
+        .unwrap();
+    assert!(report.is_empty());
+    assert_eq!(service.backend_diagnostic(), None);
+    service.shutdown().await.unwrap();
+}
+
+/// macOS discovery 的稳定架构/兼容性诊断不能在产品初始化边界降级成一般不可用。
+#[tokio::test]
+async fn initialize_preserves_macos_discovery_diagnostic_codes() {
+    for code in [
+        "CODEX_HOST_ARCH_UNSUPPORTED",
+        "CODEX_ARCH_UNSUPPORTED",
+        "CODEX_EXECUTABLE_FORMAT_UNSUPPORTED",
+        "CODEX_EXECUTABLE_NOT_RUNNABLE",
+        "CODEX_COMPATIBILITY_BLOCKED",
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = StateStore::open(directory.path().into()).await.unwrap();
+        let diagnostic = format!("{code}: fixture");
+        let (service, _) = TEST_DISCOVERY
+            .scope(
+                Err(diagnostic.clone()),
+                AgentProductService::initialize(store),
+            )
+            .await
+            .unwrap();
+        assert_eq!(service.backend_diagnostic(), Some(diagnostic.as_str()));
+        assert_eq!(
+            ProductError::new(diagnostic, None).code,
+            code,
+            "{code} 必须保持为公共稳定错误码"
+        );
+        service.shutdown().await.unwrap();
+    }
+}
+
+/// 未支持的平台必须暴露真实的四类 Runtime 失败，且不得伪造终止证据释放 Claim。
+#[cfg(not(any(windows, target_os = "macos")))]
+#[tokio::test]
+async fn unsupported_runtime_actions_preserve_unavailable_contract_and_claim() {
+    let directory = tempfile::tempdir().unwrap();
+    let pending_root = directory.path().join("pending-workspace");
+    let source_root = directory.path().join("source-workspace");
+    std::fs::create_dir_all(&pending_root).unwrap();
+    std::fs::create_dir_all(&source_root).unwrap();
+    let store = StateStore::open(directory.path().join("store"))
+        .await
+        .unwrap();
+    let (service, _) = TEST_DISCOVERY
+        .scope(
+            Err("BACKEND_UNAVAILABLE: fixture".into()),
+            AgentProductService::initialize(store.clone()),
+        )
+        .await
+        .unwrap();
+
+    let started = service
+        .checked_operation(
+            start("pending-agent", "start-key"),
+            w(&pending_root, "pending-workspace"),
+        )
+        .await;
+    assert_eq!(started["error"]["code"], "BACKEND_UNAVAILABLE");
+    let pending_id = started["error"]["executionId"].as_str().unwrap().to_owned();
+    let resumed = service
+        .checked_operation(
+            json!({"action":"resume_pending","executionId":pending_id}),
+            None,
+        )
+        .await;
+    assert_eq!(resumed["error"]["code"], "BACKEND_UNAVAILABLE");
+
+    // Continue fixture 只补齐 Store 自有的终态与 Claim 释放事实，不创建 Runtime 或终止证据。
+    store
+        .product_create_fresh(
+            "source".into(),
+            "source-agent".into(),
+            "source-key".into(),
+            "source prompt".into(),
+            "source-workspace".into(),
+            w(&source_root, "source-workspace"),
+            1,
+        )
+        .await
+        .unwrap();
+    let database =
+        rusqlite::Connection::open(directory.path().join("store").join("agent-state.db")).unwrap();
+    database
+        .execute(
+            "UPDATE executions SET status='completed',dispatch_state='dispatched',\
+             release_evidence_state='complete',release_evidence_kind='same_runtime_cleanup',\
+             release_evidence_json='{}',completed_at=2 WHERE id='source'",
+            [],
+        )
+        .unwrap();
+    database
+        .execute(
+            "DELETE FROM workspace_claims WHERE execution_id='source'",
+            [],
+        )
+        .unwrap();
+    let source_claim_root = store
+        .execution("source".into())
+        .await
+        .unwrap()
+        .unwrap()
+        .canonical_workspace_root;
+    let execution_count_before_continue = database
+        .query_row("SELECT count(*) FROM executions", [], |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap();
+    assert_eq!(execution_count_before_continue, 2);
+    assert!(
+        store
+            .workspace_claim(source_claim_root.clone())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let continued = service
+        .checked_operation(
+            json!({"action":"continue","executionId":"source","requestKey":"continue-key","prompt":"continue"}),
+            None,
+        )
+        .await;
+    assert_eq!(continued["error"]["code"], "AGENT_CONTINUE_NOT_ALLOWED");
+    assert_eq!(
+        database
+            .query_row("SELECT count(*) FROM executions", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        execution_count_before_continue
+    );
+    assert!(
+        store
+            .workspace_claim(source_claim_root)
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    let cancelled = service
+        .checked_operation(json!({"action":"cancel","executionId":pending_id}), None)
+        .await;
+    assert_eq!(cancelled["error"]["code"], "AGENT_PROVIDER_UNAVAILABLE");
+
+    let pending = store.execution(pending_id).await.unwrap().unwrap();
+    assert!(pending.runtime_instance_id.is_none());
+    assert_ne!(pending.release_evidence_state, "complete");
+    assert!(
+        store
+            .workspace_claim(pending.canonical_workspace_root)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        database
+            .query_row("SELECT count(*) FROM runtime_instances", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
     service.shutdown().await.unwrap();
 }
 
@@ -647,6 +878,7 @@ fn execution_context_projection_is_frozen_and_read_only() {
     });
 }
 
+#[cfg(windows)]
 async fn fake_service(
     store: StateStore,
     db: std::path::PathBuf,
@@ -665,6 +897,7 @@ async fn fake_service(
 }
 
 /// 构造可显式观察首个 turn/start 的进程内 Provider 测试服务。
+#[cfg(windows)]
 async fn fake_service_with_turn_started(
     store: StateStore,
     db: std::path::PathBuf,
@@ -801,6 +1034,8 @@ async fn fake_service_with_turn_started(
         turn_started,
     )
 }
+// 以下测试使用 fake Codex Runtime 或 Windows 启动恢复边界。
+#[cfg(windows)]
 #[test]
 fn async_receipt_idempotency_and_exact_continuation() {
     run(async {
@@ -950,6 +1185,8 @@ fn continuation_core_and_product_action_filter_are_provider_opaque() {
     assert!(actions.contains(".can_continue("));
 }
 
+/// 使用真实 Codex 验证产品层 start、continue、cancel 与 Runtime 收口。
+#[cfg(any(windows, target_os = "macos"))]
 #[test]
 #[ignore = "Isolated fixed Codex Product start/continue/cancel E2E; run alone"]
 fn real_fixed_product_continuation_e2e() {
@@ -967,14 +1204,19 @@ fn real_fixed_product_continuation_e2e() {
     );
     let home = temp.path().join("home");
     std::fs::create_dir(&home).unwrap();
-    std::fs::copy(
-        std::path::PathBuf::from(std::env::var_os("USERPROFILE").unwrap()).join(".codex/auth.json"),
-        home.join("auth.json"),
-    )
-    .unwrap();
+    #[cfg(windows)]
+    let auth =
+        std::path::PathBuf::from(std::env::var_os("USERPROFILE").unwrap()).join(".codex/auth.json");
+    #[cfg(target_os = "macos")]
+    let auth = std::path::PathBuf::from(std::env::var_os("HOME").unwrap()).join(".codex/auth.json");
+    // 凭据只复制到测试临时目录，不写入日志、断言或持久化 evidence。
+    std::fs::copy(auth, home.join("auth.json")).unwrap();
+    #[cfg(windows)]
     let evidence = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../docs/tasks/evidence/runtime-persistence")
         .join(format!("real-product-{}-{}", std::process::id(), now()));
+    #[cfg(target_os = "macos")]
+    let evidence = temp.path().join("evidence");
     std::fs::create_dir_all(&evidence).unwrap();
     struct Env(Vec<(&'static str, Option<std::ffi::OsString>)>);
     impl Drop for Env {
@@ -1158,6 +1400,7 @@ fn real_fixed_product_continuation_e2e() {
     });
 }
 
+#[cfg(windows)]
 #[test]
 fn caller_drop_between_create_and_handoff_keeps_owned_work() {
     run(async {
@@ -1197,6 +1440,7 @@ fn caller_drop_between_create_and_handoff_keeps_owned_work() {
         assert_eq!(methods.iter().filter(|m| *m == "turn/start").count(), 1);
     });
 }
+#[cfg(windows)]
 #[test]
 fn continuation_rejects_wrong_identity_and_legacy_without_turn() {
     run(async {
@@ -1264,6 +1508,7 @@ fn continuation_rejects_wrong_identity_and_legacy_without_turn() {
         }
     });
 }
+#[cfg(windows)]
 #[test]
 fn product_resume_receipt_and_duplicate_rejection() {
     run(async {
@@ -1310,6 +1555,7 @@ fn product_resume_receipt_and_duplicate_rejection() {
     });
 }
 
+#[cfg(windows)]
 #[test]
 fn concurrent_identical_start_has_one_worker_and_busy_claim_is_independent() {
     run(async {
@@ -1344,6 +1590,7 @@ fn concurrent_identical_start_has_one_worker_and_busy_claim_is_independent() {
         assert_eq!(methods.iter().filter(|m| *m == "turn/start").count(), 1);
     });
 }
+#[cfg(windows)]
 #[test]
 fn unknown_reads_and_invalid_continuation_sources_are_fail_closed() {
     run(async {
@@ -1424,6 +1671,7 @@ fn unknown_reads_and_invalid_continuation_sources_are_fail_closed() {
     });
 }
 
+#[cfg(windows)]
 #[test]
 fn concurrent_new_continue_keys_have_one_creation_winner() {
     run(async {
@@ -1500,6 +1748,7 @@ fn concurrent_new_continue_keys_have_one_creation_winner() {
     });
 }
 
+#[cfg(windows)]
 #[test]
 fn concurrent_new_keys_create_only_one_lineage_worker() {
     run(async {
@@ -1531,6 +1780,7 @@ fn concurrent_new_keys_create_only_one_lineage_worker() {
     });
 }
 
+#[cfg(windows)]
 #[test]
 fn concurrent_continuations_allow_only_one_new_turn() {
     run(async {
@@ -1594,6 +1844,7 @@ fn concurrent_continuations_allow_only_one_new_turn() {
     });
 }
 
+#[cfg(windows)]
 #[test]
 fn production_startup_recovery_classifies_claims_before_service_publication() {
     run(async {
@@ -1702,6 +1953,7 @@ fn production_startup_recovery_classifies_claims_before_service_publication() {
     });
 }
 
+#[cfg(windows)]
 #[test]
 fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads() {
     run(async {
@@ -1885,6 +2137,7 @@ fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads
     });
 }
 
+#[cfg(windows)]
 #[test]
 fn unavailable_continuation_never_accepts_or_dispatches() {
     run(async {
@@ -2027,6 +2280,7 @@ process.stdin.on('end', () => {
     );
 }
 
+#[cfg(windows)]
 #[test]
 #[ignore = "Isolated real fixed Codex long-turn smoke; run alone, temporary Git workspace only"]
 fn real_fixed_long_turn_smoke() {

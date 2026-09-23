@@ -11,6 +11,7 @@ fn quarantine_is_a_stable_product_error() {
     );
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn quarantine_pending_receipts_preserve_identity_without_replay() {
     let (dir, store, service) = fixture().await;
@@ -379,7 +380,7 @@ async fn control_uncertain_resume_rejection_uses_persisted_facts_not_runtime_or_
 }
 
 #[tokio::test]
-async fn control_cancel_before_dispatch_is_terminal_but_never_provider_invoked() {
+async fn control_cancel_before_dispatch_matches_platform_provider_contract() {
     let (dir, store, service) = fixture().await;
     store
         .product_create_fresh(
@@ -393,17 +394,40 @@ async fn control_cancel_before_dispatch_is_terminal_but_never_provider_invoked()
         )
         .await
         .unwrap();
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let before = store.execution("e".into()).await.unwrap().unwrap();
     let response = service
         .checked_operation(json!({"action":"cancel","executionId":"e"}), None)
         .await;
-    assert_eq!(response["data"]["status"], "cancelled");
-    no_dispatch(&response["control"], true);
-    assert!(response["control"]["nextAction"].is_null());
-    let invalid_resume = service
-        .checked_operation(json!({"action":"resume_pending","executionId":"e"}), None)
-        .await;
-    assert_eq!(invalid_resume["error"]["code"], "AGENT_RESUME_NOT_ALLOWED");
-    no_dispatch(&invalid_resume["control"], true);
+    #[cfg(any(windows, target_os = "macos"))]
+    {
+        assert_eq!(response["data"]["status"], "cancelled");
+        no_dispatch(&response["control"], true);
+        assert!(response["control"]["nextAction"].is_null());
+        let invalid_resume = service
+            .checked_operation(json!({"action":"resume_pending","executionId":"e"}), None)
+            .await;
+        assert_eq!(invalid_resume["error"]["code"], "AGENT_RESUME_NOT_ALLOWED");
+        no_dispatch(&invalid_resume["control"], true);
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        // 未支持平台的 Provider 不能伪造未派发取消或释放 Claim。
+        assert_eq!(response["error"]["code"], "AGENT_PROVIDER_UNAVAILABLE");
+        assert_eq!(store.execution("e".into()).await.unwrap().unwrap(), before);
+        assert!(
+            store
+                .workspace_claim(dir.path().to_string_lossy().into())
+                .await
+                .unwrap()
+                .is_some()
+        );
+        let invalid_resume = service
+            .checked_operation(json!({"action":"resume_pending","executionId":"e"}), None)
+            .await;
+        assert_eq!(invalid_resume["error"]["code"], "BACKEND_UNAVAILABLE");
+        assert_eq!(store.execution("e".into()).await.unwrap().unwrap(), before);
+    }
     assert_eq!(count(dir.path(), "runtime_instances"), 0);
 }
 
@@ -433,6 +457,7 @@ async fn control_handoff_failure_after_durable_create_keeps_accepted_identity() 
     assert_eq!(count(dir.path(), "executions"), 1);
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn control_idempotent_running_retry_and_terminal_receipt_do_not_dispatch_twice() {
     let (dir, store, _) = fixture().await;
@@ -509,6 +534,7 @@ async fn expected_workspace_mismatch_has_no_durable_side_effects() {
     }
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn backend_failure_pending_can_resume_first_dispatch_or_cancel() {
     let (dir, store, mut service) = fixture().await;
@@ -571,6 +597,7 @@ async fn backend_failure_pending_can_resume_first_dispatch_or_cancel() {
     assert_eq!(count(dir.path(), "workspace_claims"), 0);
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn binary_resolution_failure_pending_can_resume_first_dispatch() {
     let (dir, store, mut service) = fixture().await;
@@ -635,6 +662,7 @@ async fn binary_resolution_failure_pending_can_resume_first_dispatch() {
     );
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn unbound_persisted_runtime_attempt_stays_fail_closed() {
     let (dir, store, service) = fixture().await;

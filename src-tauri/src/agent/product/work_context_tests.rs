@@ -64,6 +64,7 @@ async fn known_raw_sha_and_empty_context_are_valid_without_source_copying() {
     assert!(VersionedContext::parse(r#"{"summary":null,"files":[]}"#).is_err());
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn versioned_context_is_frozen_before_dispatch_and_retries_ignore_file_drift() {
     let dir = tempfile::tempdir().unwrap();
@@ -272,6 +273,7 @@ async fn invalid_and_stale_context_have_zero_durable_runtime_or_provider_effects
     let root = dir.path();
     let store = StateStore::open(root.into()).await.unwrap();
     create_work(&store, root, "work").await;
+    #[cfg(windows)]
     let (s, _release, fake) = fake_service(
         store.clone(),
         root.join("agent-state.db"),
@@ -281,6 +283,9 @@ async fn invalid_and_stale_context_have_zero_durable_runtime_or_provider_effects
         "paginated",
     )
     .await;
+    #[cfg(not(windows))]
+    // 非 Windows 使用真实 unavailable Product，证明 Context 拒绝早于 Provider 派发。
+    let s = AgentProductService::new(store.clone());
     std::fs::write(root.join("source.txt"), b"abc").unwrap();
     let sha = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
     let valid_ref = json!({"path":"source.txt", "sha256":sha});
@@ -349,6 +354,7 @@ async fn invalid_and_stale_context_have_zero_durable_runtime_or_provider_effects
         assert_eq!(counts(root), before);
     }
     drop(s);
+    #[cfg(windows)]
     assert!(fake.await.unwrap().is_empty());
 }
 

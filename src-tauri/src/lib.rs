@@ -4,7 +4,7 @@
 )]
 mod agent;
 mod agent_notification;
-#[cfg(windows)]
+#[cfg(any(windows, all(test, target_os = "macos")))]
 mod autostart;
 mod codegraph_capability;
 mod commands;
@@ -14,11 +14,17 @@ mod installer;
 #[cfg(windows)]
 mod load_error;
 mod logs;
+#[cfg(target_os = "macos")]
+mod macos_process;
+#[cfg(target_os = "macos")]
+mod macos_termination;
 mod mcp;
 mod oauth;
 mod remote;
 mod serena;
 mod serena_capability;
+#[cfg(test)]
+mod test_support;
 mod tray;
 mod workspace_capability;
 mod workspace_inspection;
@@ -47,10 +53,39 @@ impl Default for ShutdownState {
     }
 }
 
+/// 对所有可感知退出提供单一、可重试且成功后幂等的 shutdown gate。
+fn run_shutdown_once(
+    state: &ShutdownState,
+    shutdown: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    if state.ready.load(Ordering::Acquire) {
+        return Ok(());
+    }
+    if state.started.swap(true, Ordering::AcqRel) {
+        return Err("退出清理正在进行".into());
+    }
+    match shutdown() {
+        Ok(()) => {
+            state.ready.store(true, Ordering::Release);
+            Ok(())
+        }
+        Err(error) => {
+            state.started.store(false, Ordering::Release);
+            Err(error)
+        }
+    }
+}
+
 fn is_autostart_launch(arguments: impl IntoIterator<Item = impl AsRef<std::ffi::OsStr>>) -> bool {
     arguments
         .into_iter()
         .any(|argument| argument.as_ref() == "--autostart")
+}
+
+/// macOS Dock reopen 在没有可见窗口时需要恢复主窗口。
+#[cfg(target_os = "macos")]
+fn should_show_main_on_reopen(has_visible_windows: bool) -> bool {
+    !has_visible_windows
 }
 
 pub(crate) async fn finish_broker_startup(
@@ -62,38 +97,22 @@ pub(crate) async fn finish_broker_startup(
 
 pub(crate) fn request_exit(app: &AppHandle) {
     let shutdown = app.state::<ShutdownState>();
-    if shutdown.started.swap(true, Ordering::AcqRel) {
-        return;
-    }
-
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }
-    let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || match commands::shutdown_impl(&handle) {
+    match run_shutdown_once(&shutdown, || commands::shutdown_impl(app)) {
         Ok(()) => {
-            handle
-                .state::<ShutdownState>()
-                .ready
-                .store(true, Ordering::Release);
-            handle.exit(0);
+            app.exit(0);
         }
         Err(error) => {
             logs::append(
-                &handle
-                    .state::<std::sync::Arc<SupervisorState>>()
-                    .paths
-                    .app_log,
+                &app.state::<std::sync::Arc<SupervisorState>>().paths.app_log,
                 "shutdown",
                 &error,
             );
-            handle
-                .state::<ShutdownState>()
-                .started
-                .store(false, Ordering::Release);
-            tray::show_main_window(&handle);
+            tray::show_main_window(app);
         }
-    });
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -145,13 +164,20 @@ pub fn run() {
                     app.handle().clone(),
                     supervisor,
                 ));
-            let (product, outcomes) = tauri::async_runtime::block_on(
+            // macOS Desktop 发布前保留 recovery，但把耗时的 Codex CLI probe 延到首次 Agent execute。
+            #[cfg(target_os = "macos")]
+            let initialization = agent::product::AgentProductService::initialize_desktop_deferred(
+                store,
+                terminal_notifier,
+            );
+            #[cfg(not(target_os = "macos"))]
+            let initialization =
                 agent::product::AgentProductService::initialize_with_terminal_notifier(
                     store,
                     terminal_notifier,
-                ),
-            )
-            .map_err(std::io::Error::other)?;
+                );
+            let (product, outcomes) =
+                tauri::async_runtime::block_on(initialization).map_err(std::io::Error::other)?;
             if let Some(error) = product.backend_diagnostic() {
                 logs::append(
                     &app.state::<std::sync::Arc<SupervisorState>>().paths.app_log,
@@ -182,6 +208,8 @@ pub fn run() {
             app.manage(product);
             app.manage(broker.clone());
             app.manage(ShutdownState::default());
+            #[cfg(target_os = "macos")]
+            macos_termination::install(app.handle());
             tray::create(app.handle())?;
 
             if is_autostart_launch(std::env::args_os()) {
@@ -261,8 +289,6 @@ pub fn run() {
             commands::workspace_reorder,
             commands::workspace_remove,
             commands::workspace_capability_observe,
-            commands::workspace_capability_prepare,
-            commands::workspace_capability_cancel,
             workspace_inspection::workspace_inspect_directory,
             workspace_picker::workspace_pick_directory,
             commands::get_codex_version,
@@ -292,20 +318,74 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Serena Desktop");
 
-    app.run(|app, event| {
-        if let RunEvent::ExitRequested { api, .. } = event {
+    app.run(|app, event| match event {
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } => {
+            if should_show_main_on_reopen(has_visible_windows) {
+                tray::show_main_window(app);
+            }
+        }
+        RunEvent::ExitRequested { api, .. } => {
             let shutdown = app.state::<ShutdownState>();
             if !shutdown.ready.load(Ordering::Acquire) {
                 api.prevent_exit();
                 request_exit(app);
             }
         }
+        #[cfg(target_os = "macos")]
+        RunEvent::Exit => {
+            let shutdown = app.state::<ShutdownState>();
+            if let Err(error) = run_shutdown_once(&shutdown, || commands::shutdown_impl(app)) {
+                logs::append(
+                    &app.state::<std::sync::Arc<SupervisorState>>().paths.app_log,
+                    "shutdown",
+                    &error,
+                );
+            }
+        }
+        _ => {}
     });
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_autostart_launch;
+    use super::{ShutdownState, is_autostart_launch, run_shutdown_once};
+    use std::{cell::Cell, sync::atomic::Ordering};
+
+    /// shutdown 成功后最终 Exit 不得再次调用 owner。
+    #[test]
+    fn shutdown_once_marks_ready_and_skips_reentry() {
+        let state = ShutdownState::default();
+        let calls = Cell::new(0);
+        run_shutdown_once(&state, || {
+            calls.set(calls.get() + 1);
+            Ok(())
+        })
+        .unwrap();
+        run_shutdown_once(&state, || {
+            calls.set(calls.get() + 1);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(calls.get(), 1);
+        assert!(state.ready.load(Ordering::Acquire));
+    }
+
+    /// 可取消退出失败后必须允许用户再次触发完整 shutdown。
+    #[test]
+    fn shutdown_once_failure_allows_retry() {
+        let state = ShutdownState::default();
+        assert_eq!(
+            run_shutdown_once(&state, || Err("fixture failure".into())),
+            Err("fixture failure".into())
+        );
+        assert!(!state.started.load(Ordering::Acquire));
+        run_shutdown_once(&state, || Ok(())).unwrap();
+        assert!(state.ready.load(Ordering::Acquire));
+    }
 
     #[test]
     fn recognizes_only_explicit_autostart_argument() {
@@ -315,5 +395,13 @@ mod tests {
             "serena-desktop.exe",
             "--autostart=true"
         ]));
+    }
+
+    /// Dock reopen 只在应用没有可见窗口时恢复主窗口。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn dock_reopen_only_restores_when_no_window_is_visible() {
+        assert!(super::should_show_main_on_reopen(false));
+        assert!(!super::should_show_main_on_reopen(true));
     }
 }

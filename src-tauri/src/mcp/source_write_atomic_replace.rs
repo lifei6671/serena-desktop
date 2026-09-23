@@ -13,10 +13,10 @@ use super::{
 #[cfg(windows)]
 use sha2::Digest as _;
 #[cfg(windows)]
-use std::io::{ErrorKind, Read};
+use std::io::Read;
+use std::io::{self, ErrorKind, Write};
 use std::{
     fs::{self, File, Metadata},
-    io::{self, Write},
     path::Path,
 };
 use tokio_util::sync::CancellationToken;

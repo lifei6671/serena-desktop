@@ -57,6 +57,8 @@ struct ManagedProcess {
     child: Child,
     #[cfg(windows)]
     _job: std::os::windows::io::OwnedHandle,
+    #[cfg(target_os = "macos")]
+    identity: crate::macos_process::Identity,
     port: u16,
     dashboard_enabled: bool,
     installation: SerenaInstallation,
@@ -817,8 +819,19 @@ impl SupervisorState {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        #[cfg(target_os = "macos")]
+        crate::macos_process::configure_std_command(&mut command);
         let mut child = command.spawn().map_err(|error| {
             let message = format!("无法启动 Serena：{error}");
+            self.set_error(&message);
+            message
+        })?;
+        #[cfg(target_os = "macos")]
+        let identity = crate::macos_process::Identity::capture(child.id()).map_err(|error| {
+            // 身份未通过父侧验证时只能回收直接 child，绝不猜测或向 PGID 发信号。
+            let _ = child.kill();
+            let _ = child.wait();
+            let message = format!("无法验证 Serena 进程生命周期：{error}");
             self.set_error(&message);
             message
         })?;
@@ -852,6 +865,8 @@ impl SupervisorState {
                 child,
                 #[cfg(windows)]
                 _job: job,
+                #[cfg(target_os = "macos")]
+                identity,
                 port: config.port,
                 dashboard_enabled: config.dashboard_enabled,
                 installation: installation.clone(),
@@ -928,7 +943,23 @@ impl SupervisorState {
             return Ok(());
         };
 
-        if let Err(kill_error) = terminate_managed_process(&mut process.child) {
+        #[cfg(target_os = "macos")]
+        let terminate_result = terminate_macos_process(&mut process.child, &process.identity);
+        #[cfg(not(target_os = "macos"))]
+        let terminate_result = terminate_managed_process(&mut process.child);
+        if let Err(kill_error) = terminate_result {
+            #[cfg(target_os = "macos")]
+            {
+                // child 已退出也不能代表其 Process Group 已清空，失败时保留完整 owner。
+                let message = format!("无法停止 Serena：{kill_error}");
+                let mut runtime = self.runtime.lock().expect("supervisor mutex poisoned");
+                runtime.process = Some(process);
+                runtime.status = ServerStatus::Error;
+                runtime.last_error = Some(message.clone());
+                logs::append(&self.paths.app_log, "app", &message);
+                return Err(message);
+            }
+            #[cfg(not(target_os = "macos"))]
             match process.child.try_wait() {
                 Ok(Some(_)) => {}
                 _ => {
@@ -1063,7 +1094,22 @@ pub(crate) fn terminate_managed_job(
     Ok(())
 }
 
-#[cfg(not(windows))]
+/// 终止已验证的 macOS Serena Session，并同时确认 child reap 与 group empty。
+#[cfg(target_os = "macos")]
+pub(crate) fn terminate_macos_process(
+    child: &mut Child,
+    identity: &crate::macos_process::Identity,
+) -> Result<(), String> {
+    crate::macos_process::terminate_sync(
+        child,
+        identity,
+        Duration::from_secs(1),
+        Duration::from_secs(5),
+    )
+}
+
+/// 其他 Unix 平台仍保留当前直接 child 行为，本阶段不扩大平台承诺。
+#[cfg(all(not(windows), not(target_os = "macos")))]
 pub(crate) fn terminate_managed_process(child: &mut Child) -> Result<(), String> {
     child.kill().map_err(|error| error.to_string())
 }
@@ -1138,7 +1184,10 @@ pub fn user_local_candidate(name: &str) -> Option<PathBuf> {
 }
 
 pub fn hidden_command(program: impl AsRef<OsStr>) -> Command {
+    #[cfg(windows)]
     let mut command = Command::new(program);
+    #[cfg(not(windows))]
+    let command = Command::new(program);
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     command
@@ -1150,9 +1199,25 @@ pub fn run_with_timeout(
     action: &str,
 ) -> Result<CapturedOutput, String> {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(target_os = "macos")]
+    crate::macos_process::configure_std_command(&mut command);
     let mut child = command
         .spawn()
         .map_err(|error| format!("无法启动{action}进程：{error}"))?;
+    #[cfg(target_os = "macos")]
+    let identity = match crate::macos_process::Identity::capture(child.id()) {
+        Ok(identity) => Some(identity),
+        Err(_) if matches!(child.try_wait(), Ok(Some(_))) => {
+            // version/probe 等短命令可能在父侧捕获身份前已正常退出，此时没有 live owner 需要收口。
+            None
+        }
+        Err(error) => {
+            // 未验证的 live child 不能授权 group signal；只回收直接 child 并返回明确失败。
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("无法验证{action}进程生命周期：{error}"));
+        }
+    };
     let stdout = child.stdout.take().map(|mut pipe| {
         thread::spawn(move || {
             let mut bytes = Vec::new();
@@ -1173,15 +1238,47 @@ pub fn run_with_timeout(
             Ok(Some(status)) => break status,
             Ok(None) if started.elapsed() < timeout => thread::sleep(Duration::from_millis(100)),
             Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                #[cfg(target_os = "macos")]
+                let termination = identity.as_ref().map_or_else(
+                    || Err("运行中的命令缺少已验证 macOS identity".into()),
+                    |identity| {
+                        crate::macos_process::terminate_sync(
+                            &mut child,
+                            identity,
+                            Duration::from_secs(1),
+                            Duration::from_secs(5),
+                        )
+                    },
+                );
+                #[cfg(not(target_os = "macos"))]
+                let termination = child.kill().and_then(|_| child.wait()).map(|_| ());
+                if let Err(error) = termination {
+                    return Err(format!("{action}超时，且无法确认完整进程树已终止：{error}"));
+                }
                 join_reader(stdout);
                 join_reader(stderr);
                 return Err(format!("{action}超时，已终止本次进程。"));
             }
             Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                #[cfg(target_os = "macos")]
+                let termination = identity.as_ref().map_or_else(
+                    || Err("运行中的命令缺少已验证 macOS identity".into()),
+                    |identity| {
+                        crate::macos_process::terminate_sync(
+                            &mut child,
+                            identity,
+                            Duration::from_secs(1),
+                            Duration::from_secs(5),
+                        )
+                    },
+                );
+                #[cfg(not(target_os = "macos"))]
+                let termination = child.kill().and_then(|_| child.wait()).map(|_| ());
+                if let Err(termination_error) = termination {
+                    return Err(format!(
+                        "无法读取{action}进程状态：{error}；同时无法确认完整进程树已终止：{termination_error}"
+                    ));
+                }
                 join_reader(stdout);
                 join_reader(stderr);
                 return Err(format!("无法读取{action}进程状态：{error}"));
@@ -1297,6 +1394,84 @@ mod tests {
             first,
             second,
         )
+    }
+
+    /// leader 已退出但忽略 SIGTERM 的 leaf 仍在 group 时，stop 必须保留原 owner 与身份。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn stop_retains_group_owner_when_leader_exits_before_leaf() {
+        let (directory, supervisor, _, _) = workspace_write_guard_fixture();
+        let executable = directory.path().join("serena-stop-child");
+        let output = Command::new("rustc")
+            .args(["--edition=2024", "--crate-name", "serena_stop_child"])
+            .arg(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/macos_runtime_child.rs"),
+            )
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let marker = directory.path().join("leaf.pid");
+        let mut command = Command::new(&executable);
+        command.args(["leader-term-exit"]).arg(&marker);
+        crate::macos_process::configure_std_command(&mut command);
+        let child = command.spawn().unwrap();
+        let identity = crate::macos_process::Identity::capture(child.id()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let ready = PathBuf::from(format!("{}.ready", marker.display()));
+        while !ready.exists() {
+            assert!(
+                Instant::now() < deadline,
+                "leaf fixture did not become ready"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        let leaf_pid: libc::pid_t = std::fs::read_to_string(&marker).unwrap().parse().unwrap();
+        let installation = SerenaInstallation {
+            state: InstallationState::Standard,
+            source: InstallationSource::Path,
+            path: executable,
+            version: "1.7.0".into(),
+            context: None,
+            error: None,
+        };
+        supervisor.runtime.lock().unwrap().process = Some(ManagedProcess {
+            child,
+            identity: identity.clone(),
+            port: 9121,
+            dashboard_enabled: false,
+            installation,
+        });
+
+        let result = supervisor.stop();
+        let mut runtime = supervisor.runtime.lock().unwrap();
+        let retained_identity = runtime
+            .process
+            .as_ref()
+            .map(|process| process.identity.clone());
+        let status = runtime.status;
+        let last_error = runtime.last_error.clone();
+        let direct_child_exited = runtime
+            .process
+            .as_mut()
+            .is_some_and(|process| process.child.try_wait().unwrap().is_some());
+        // 测试 teardown 只终止 marker 记录的本次 fixture leaf，并回收 direct child。
+        unsafe { libc::kill(leaf_pid, libc::SIGKILL) };
+        if let Some(mut process) = runtime.process.take() {
+            let _ = process.child.wait();
+        }
+        drop(runtime);
+
+        assert!(result.is_err());
+        assert_eq!(retained_identity, Some(identity));
+        assert!(direct_child_exited);
+        assert_eq!(status, ServerStatus::Error);
+        assert!(last_error.unwrap().contains("无法停止 Serena"));
     }
 
     #[test]
@@ -1649,6 +1824,60 @@ mod tests {
         );
     }
 
+    /// 使用官方 Serena 1.7.0 验证 Supervisor 的 start、restart、stop 与最终所有权状态。
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires SERENA_TEST_EXE pointing at the official 1.7.0 test installation"]
+    fn official_serena_start_restart_stop() {
+        let executable =
+            PathBuf::from(std::env::var_os("SERENA_TEST_EXE").expect("set SERENA_TEST_EXE"));
+        let directory = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
+            config_file: directory.path().join("config.json"),
+            log_directory: directory.path().join("logs"),
+            app_log: directory.path().join("logs/app.log"),
+            serena_log: directory.path().join("logs/serena.log"),
+        };
+        config::save(
+            &paths.config_file,
+            &ManagerConfig {
+                serena_path: Some(executable),
+                port,
+                ..ManagerConfig::default()
+            },
+        )
+        .unwrap();
+        let supervisor = SupervisorState::new(paths).unwrap();
+        let lifecycle = (|| {
+            supervisor.start()?;
+            let first = supervisor.snapshot();
+            supervisor.restart()?;
+            let restarted = supervisor.snapshot();
+            Ok::<_, String>((first, restarted))
+        })();
+        // 即使 start/restart Gate 失败，也先走正式 stop，避免测试断言制造新的进程残留。
+        let stop = supervisor.stop();
+
+        let (first, restarted) = lifecycle.unwrap();
+        stop.unwrap();
+        assert_eq!(first.server_status, ServerStatus::Running);
+        assert_eq!(restarted.server_status, ServerStatus::Running);
+        assert_ne!(
+            first.process_id.expect("Serena start must own a process"),
+            restarted
+                .process_id
+                .expect("Serena restart must own a process")
+        );
+        let stopped = supervisor.snapshot();
+        assert_eq!(stopped.server_status, ServerStatus::Stopped);
+        assert!(!stopped.managed_process_present);
+        assert!(stopped.process_id.is_none());
+    }
+
     #[test]
     fn launch_uses_private_context_and_loopback_without_project() {
         let command = start_command(
@@ -1668,7 +1897,7 @@ mod tests {
                 "--host",
                 "127.0.0.1",
                 "--port",
-                "9121",
+                "19121",
                 "--open-web-dashboard",
                 "false"
             ]
@@ -1771,5 +2000,50 @@ mod tests {
         command.args(["-NoProfile", "-Command", "Start-Sleep -Seconds 5"]);
         let error = run_with_timeout(command, Duration::from_millis(100), "测试命令").unwrap_err();
         assert!(error.contains("超时"));
+    }
+
+    /// 编译固定进程树 fixture，验证 Serena 安装命令的 macOS 超时收口。
+    #[cfg(target_os = "macos")]
+    fn macos_process_fixture(directory: &Path) -> PathBuf {
+        let executable = directory.join("serena-managed-child");
+        let output = Command::new("rustc")
+            .args(["--edition=2024", "--crate-name", "serena_managed_child"])
+            .arg(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/macos_runtime_child.rs"),
+            )
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        executable
+    }
+
+    /// 超时必须终止安装命令的完整 process group，而不是只杀直接 child。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn bounded_command_timeout_reaps_descendant_process_group() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = macos_process_fixture(directory.path());
+        let marker = directory.path().join("leaf.pid");
+        let mut command = hidden_command(executable);
+        command.args(["ignore-tree"]).arg(&marker);
+
+        let error = run_with_timeout(command, Duration::from_secs(1), "测试命令").unwrap_err();
+        assert!(error.contains("超时"));
+        let leaf_pid: libc::pid_t = std::fs::read_to_string(&marker).unwrap().parse().unwrap();
+        // SAFETY: kill(pid, 0) 只探测 fixture PID 是否仍存在。
+        let alive = unsafe { libc::kill(leaf_pid, 0) } == 0;
+        if alive {
+            // SAFETY: 测试失败清理只终止 marker 中刚创建且仍存活的 fixture leaf。
+            unsafe {
+                libc::kill(leaf_pid, libc::SIGKILL);
+            }
+        }
+        assert!(!alive, "超时后仍残留 Serena 安装后代进程 {leaf_pid}");
     }
 }

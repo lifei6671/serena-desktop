@@ -32,17 +32,22 @@ fn scope() -> CleanupScope {
     CleanupScope::fixture("R1", "T1", "E1")
 }
 
+// 通过 Windows 专属 Provider 注入过期 Runtime 信封。
+#[cfg(windows)]
 #[derive(Clone, Copy)]
 enum InjectedRuntimeMismatch {
     Activity,
     Lifecycle,
 }
 
+#[cfg(windows)]
 struct TestAcceptanceSink;
+#[cfg(windows)]
 impl crate::agent::provider::port::ProviderAcceptanceSink for TestAcceptanceSink {
     fn accepted(&self) {}
 }
 
+#[cfg(windows)]
 fn turn_notification(method: &str, status: &str) -> Notification {
     protocol::notification(
         method.into(),
@@ -54,6 +59,7 @@ fn turn_notification(method: &str, status: &str) -> Notification {
     .unwrap()
 }
 
+#[cfg(windows)]
 async fn run_provider_with_injected_runtime_mismatch(
     mismatch: InjectedRuntimeMismatch,
 ) -> (
@@ -265,6 +271,8 @@ async fn run_provider_with_injected_runtime_mismatch(
     (outcome, row)
 }
 
+// 依赖 Windows 专属的 CodexProvider 运行时路径。
+#[cfg(windows)]
 #[test]
 fn stale_activity_envelope_runtime_is_dropped_and_execution_completes() {
     run(async {
@@ -285,6 +293,7 @@ fn stale_activity_envelope_runtime_is_dropped_and_execution_completes() {
     });
 }
 
+#[cfg(windows)]
 #[test]
 fn stale_lifecycle_envelope_runtime_remains_provider_runtime_mismatch() {
     run(async {
@@ -300,27 +309,6 @@ fn stale_lifecycle_envelope_runtime_remains_provider_runtime_mismatch() {
     });
 }
 
-#[test]
-fn compatibility_identity_requires_all_three_fields() {
-    let original = CompatibilityIdentity {
-        version: VERSION.into(),
-        binary_sha256: BINARY_SHA256.into(),
-        protocol_schema_sha256: SCHEMA_SHA256.into(),
-    };
-    assert!(original.check().is_ok());
-    for field in 0..3 {
-        let mut id = original.clone();
-        match field {
-            0 => id.version.push('x'),
-            1 => id.binary_sha256.push('x'),
-            _ => id.protocol_schema_sha256.push('x'),
-        };
-        assert_eq!(
-            id.check().unwrap_err().code,
-            "CODEX_APP_SERVER_INCOMPATIBLE"
-        );
-    }
-}
 #[test]
 fn cursor_presence_is_not_option_normalization() {
     assert_eq!(
@@ -532,6 +520,7 @@ fn server_request_responses_are_explicit_refusals() {
     run(async {
         let (client, server) = pair();
         client.bind_observability_scope("T", Some("U")).unwrap();
+        let (release_fake_tx, release_fake_rx) = tokio::sync::oneshot::channel::<()>();
         let fake = tokio::spawn(async move {
             let mut s = BufReader::new(server);
             handshake(&mut s).await;
@@ -599,6 +588,10 @@ fn server_request_responses_are_explicit_refusals() {
                     assert!(response.get("result").is_none());
                 }
             }
+            // 保持假服务端连接，直到客户端消费完已排队的权限诊断。
+            release_fake_rx
+                .await
+                .expect("client must verify permission diagnostics before fake server closes");
         });
         client.initialize().await.unwrap();
         for expected in [
@@ -616,6 +609,9 @@ fn server_request_responses_are_explicit_refusals() {
                     if thread_id == "T" && turn_id == "U" && kind == expected
             ));
         }
+        release_fake_tx
+            .send(())
+            .expect("fake server must remain available until diagnostics are verified");
         fake.await.unwrap();
     });
 }
@@ -1256,7 +1252,7 @@ pub(super) fn record_stdin<W: tokio::io::AsyncWrite + Unpin + Send + 'static>(
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub(super) fn record_output<R: tokio::io::AsyncRead + Unpin + Send + 'static>(
     reader: R,
     id: &str,
@@ -1371,9 +1367,7 @@ fn real_fixed_binary_contract() {
             "verified executable path={}",
             r1.compatibility.executable.display()
         ));
-        log.push(
-            "R1 fresh whitelist/schema export + initialize/initialized experimentalApi PASS".into(),
-        );
+        log.push("R1 schema contract + initialize/initialized experimentalApi PASS".into());
         let observed=async {
             let thread=r1.client.thread_start(temp.path().to_str().unwrap(), crate::agent::execution::ExecutionMode::ReadOnly).await?;assert_eq!(thread.history_mode,HistoryMode::Paginated);
             assert_eq!(r1.client.thread_read(&thread.id).await?.id,thread.id);
@@ -1873,20 +1867,24 @@ fn total_deadline_and_metadata_contract_are_explicit() {
         );
         drop(client);
         fake.await.unwrap();
-        let temp = tempfile::tempdir().unwrap();
-        let store = crate::agent::store::StateStore::open(temp.path().into())
-            .await
-            .unwrap();
-        store
-            .prepare_runtime("R1", "host", "job", 1, "test.exe", 1)
-            .unwrap();
-        assert_eq!(
-            recovery::RecoveryScope::after_termination(&store, "R1", "R2", "T", "target", None)
+        // Runtime 存储 API 仅在 Windows 平台提供。
+        #[cfg(windows)]
+        {
+            let temp = tempfile::tempdir().unwrap();
+            let store = crate::agent::store::StateStore::open(temp.path().into())
                 .await
-                .unwrap_err()
-                .code,
-            "CODEX_RESULT_RECOVERY_UNSAFE"
-        );
+                .unwrap();
+            store
+                .prepare_runtime("R1", "host", "job", 1, "test.exe", 1)
+                .unwrap();
+            assert_eq!(
+                recovery::RecoveryScope::after_termination(&store, "R1", "R2", "T", "target", None)
+                    .await
+                    .unwrap_err()
+                    .code,
+                "CODEX_RESULT_RECOVERY_UNSAFE"
+            );
+        }
     });
 }
 

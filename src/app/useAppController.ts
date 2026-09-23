@@ -8,7 +8,7 @@ import type { AppState, ManagerConfig } from "../types";
 const initialConfig: ManagerConfig = {
   agentEnabled: false,
   remoteAccess: { mode: "mcp_only", quickTunnelDesiredRunning: false, selfHosted: { provider: "custom_https", publicOrigin: null }, mcpOnly: { securityDeclaration: "external_auth", publicOrigin: null } },
-  broker: { enabled: false, port: 9120, allowLan: false },
+  broker: { enabled: false, port: 19120, allowLan: false },
   workspaces: [],
   remoteSourceWriteEnabled: false,
   agentSuccessNotificationEnabled: true,
@@ -18,7 +18,7 @@ const initialConfig: ManagerConfig = {
   workspaceRegistryRevision: 1,
   desktopSelectedWorkspaceId: null,
   serenaPath: null,
-  port: 9121,
+  port: 19121,
   dashboardEnabled: true,
   openDashboardOnLaunch: false,
   autoStartServer: true,
@@ -29,7 +29,7 @@ export function useAppController(statusVisible: boolean) {
   const [state, setState] = useState<AppState | null>(null);
   const [draft, setDraft] = useState<ManagerConfig>(initialConfig);
   const [busy, setBusy] = useState<string | null>(null);
-  const [brokerPort, setBrokerPort] = useState(9120);
+  const [brokerPort, setBrokerPort] = useState(19120);
   const [brokerAllowLan, setBrokerAllowLan] = useState(false);
   const hydrated = useRef(false);
   const requestEpoch = useRef(0);
@@ -218,7 +218,7 @@ export function useAppController(statusVisible: boolean) {
       const snapshot = await api.setAutostart(enabled);
       setState(snapshot);
       toast.success(
-        enabled ? "已启用 Windows 登录自启。" : "已关闭 Windows 登录自启。",
+        enabled ? "已启用随系统登录启动。" : "已关闭随系统登录启动。",
       );
     } catch (reason) {
       setState((current) =>

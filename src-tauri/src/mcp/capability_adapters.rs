@@ -3,13 +3,12 @@
 use super::{git, source_find, source_list, source_read, source_search};
 use crate::{
     workspace_capability::{
-        CapabilityActionDescriptor, CapabilityFuture, CapabilityInstallation,
-        CapabilityInstallationState, CapabilityObservation, CapabilityPreparationPolicy,
-        CapabilityPrepareAction, CapabilityPrepareResult, CapabilityProviderError,
-        CapabilityProviderErrorCode, CapabilityReadinessProbe, CapabilityReadinessState,
-        CapabilityRuntimeHandle, CapabilityRuntimeModel, CapabilityRuntimePolicy,
-        CapabilityRuntimeState, CapabilityStageDescriptor, CapabilityStageRequirement,
-        CapabilityStageState, CapabilityStopFailure, StopEvidence, WorkspaceCapabilityDescriptor,
+        CapabilityFuture, CapabilityInstallation, CapabilityInstallationState,
+        CapabilityObservation, CapabilityProviderError, CapabilityProviderErrorCode,
+        CapabilityReadinessProbe, CapabilityReadinessState, CapabilityRuntimeHandle,
+        CapabilityRuntimeModel, CapabilityRuntimePolicy, CapabilityRuntimeState,
+        CapabilityStageDescriptor, CapabilityStageRequirement, CapabilityStageState,
+        CapabilityStopFailure, StopEvidence, WorkspaceCapabilityDescriptor,
         WorkspaceCapabilityProvider, WorkspaceCapabilityProviderId, WorkspaceToolCall,
         WorkspaceToolResult,
     },
@@ -74,13 +73,11 @@ fn stateless_descriptor(
         tool_names: tool_names.into_iter().map(str::to_owned).collect(),
         runtime_model,
         readiness_probe: CapabilityReadinessProbe::None,
-        preparation_policy: CapabilityPreparationPolicy::None,
         stage_descriptors: vec![CapabilityStageDescriptor {
             id: "ready".into(),
             display_name: "Ready".into(),
             requirement: CapabilityStageRequirement::Optional,
         }],
-        action_descriptors: Vec::<CapabilityActionDescriptor>::new(),
         runtime_policy: CapabilityRuntimePolicy {
             max_instances: 0,
             idle_timeout_ms: 0,
@@ -122,20 +119,6 @@ macro_rules! stateless_lifecycle {
                         requirement: CapabilityStageRequirement::Optional,
                         message_code: None,
                     }],
-                    actions: vec![],
-                })
-            })
-        }
-
-        fn prepare<'a>(
-            &'a self,
-            _lease: WorkspaceLease,
-            _action: CapabilityPrepareAction,
-            _activity: &'a dyn crate::workspace_capability::CapabilityActivitySink,
-        ) -> CapabilityFuture<'a, Result<CapabilityPrepareResult, CapabilityProviderError>> {
-            Box::pin(async {
-                Err(CapabilityProviderError {
-                    code: CapabilityProviderErrorCode::ContractError,
                 })
             })
         }

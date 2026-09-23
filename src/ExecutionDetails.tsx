@@ -1,10 +1,10 @@
 import { MarkdownContent } from "@/components/MarkdownContent";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Check, Copy, Play, ShieldAlert } from "lucide-react";
-import { activityLabel, activitySilenceLabel, executionDuration, executionStatus, formatTokenCount, providerLabel, recentActivity, resultText, taskTitle } from "./agentPresentation";
+import { activityLabel, activitySilenceLabel, executionDuration, executionStatus, formatTokenCount, providerLabel, recentActivity, resultText, showExecutionDiagnostic, showExecutionIssueSection, taskTitle } from "./agentPresentation";
 import { agentRequests } from "./agentRequests";
 import type { AgentAction, ExecutionView } from "./types";
 
@@ -31,8 +31,8 @@ function technicalValue(value: string | number | null | undefined) {
   return value === null || value === undefined || value === "" ? "—" : String(value);
 }
 
-export function ExecutionDetails({ row, workspaceName, loading, error, disabled, feedback, busy, onReload, onOperate, onManualResolve }: {
-  feedback: ReactNode; busy: boolean;
+export function ExecutionDetails({ row, workspaceName, loading, error, disabled, busy, onReload, onOperate, onManualResolve }: {
+  busy: boolean;
   row: ExecutionView; workspaceName: string; loading: boolean; error: string; disabled: boolean;
   onReload: () => void; onOperate: (action: AgentAction) => Promise<boolean>;
   onManualResolve: (executionId: string) => Promise<boolean>;
@@ -91,7 +91,6 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
       </div>
     </header>
     <div className="agent-detail-body" aria-busy={loading}>
-      {feedback}
       {busy && <p role="status" className="agent-detail-notice">正在处理请求…</p>}
       {loading && <p role="status" className="agent-detail-notice">正在更新详情…</p>}
       {error && <div role="alert" className="agent-notice"><p>{error}</p><Button variant="outline" disabled={loading} onClick={onReload}>重新加载详情</Button></div>}
@@ -120,12 +119,12 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
           </div>
         </div>
       </section>
-      {(row.attention !== "none" || ["failed", "reconciling", "interrupted"].includes(row.status) || row.interruptTimedOut || row.errorCode || row.errorMessage) && <section className="agent-detail-section agent-recovery-section">
+      {showExecutionIssueSection(row) && <section className="agent-detail-section agent-recovery-section">
         <h2><ShieldAlert aria-hidden="true" />恢复 / 错误信息</h2><div className="agent-detail-warning"><p>{state.description}</p>
           {row.attention === "pending_explicit_resume" && <p>恢复将继续此任务的原始输入和执行目录。请确认该目录当前仍适合执行。</p>}
           {row.attention === "manual_resolution_required" && <p>需要人工处理：系统无法自动证明上一次 Runtime 的最终状态。</p>}
           {row.interruptTimedOut && <p>取消请求确认超时；这不代表任务已经停止。</p>}
-          {(row.errorCode || row.errorMessage) && <p className="agent-real-error">{row.errorCode && <code>{row.errorCode}</code>}{row.errorMessage && <span>{row.errorMessage}</span>}</p>}
+          {showExecutionDiagnostic(row) && <p className="agent-real-error">{row.errorCode && <code>{row.errorCode}</code>}{row.errorMessage && <span>{row.errorMessage}</span>}</p>}
         </div>
       </section>}
       {showResult && <section className="agent-detail-section agent-result-section">

@@ -13,7 +13,7 @@ use winreg::{
 
 #[cfg(windows)]
 const RUN_KEY: &str = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 const AUTOSTART_ARGUMENT: &str = "--autostart";
 
 #[cfg(windows)]
@@ -98,14 +98,26 @@ fn read_run_value(app_name: &str) -> Result<Option<String>, String> {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        process::Command,
+    };
+    #[cfg(target_os = "macos")]
+    use tauri::Manager;
     #[cfg(windows)]
     use winreg::{
         RegValue,
         enums::{KEY_SET_VALUE, RegType},
     };
 
+    #[cfg(windows)]
     const INSTALLED: &str =
         "\"C:\\Users\\lifei\\AppData\\Local\\Serena Desktop\\serena-desktop.exe\" --autostart";
+
+    #[cfg(target_os = "macos")]
+    const MACOS_TEST_APP_NAME: &str = "Serena Desktop LaunchAgent Roundtrip Test";
 
     #[cfg(windows)]
     const STARTUP_APPROVED_RUN_KEY: &str =
@@ -160,6 +172,91 @@ mod tests {
         fn drop(&mut self) {
             let _ = self.restore();
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    struct LaunchAgentRegistrationRestore {
+        path: PathBuf,
+        original: Option<Vec<u8>>,
+        restored: bool,
+    }
+
+    #[cfg(target_os = "macos")]
+    impl LaunchAgentRegistrationRestore {
+        /// 保存测试 app 自己的 plist；测试异常退出时也只恢复这一条 registration。
+        fn capture(path: PathBuf) -> std::io::Result<Self> {
+            let original = match fs::read(&path) {
+                Ok(contents) => Some(contents),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => return Err(error),
+            };
+            Ok(Self {
+                path,
+                original,
+                restored: false,
+            })
+        }
+
+        /// 精确恢复原始 plist 内容；初始不存在时只删除测试 app 自己创建的文件。
+        fn restore(&mut self) -> std::io::Result<()> {
+            if self.restored {
+                return Ok(());
+            }
+            match &self.original {
+                Some(contents) => fs::write(&self.path, contents)?,
+                None => match fs::remove_file(&self.path) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error),
+                },
+            }
+            self.restored = true;
+            Ok(())
+        }
+
+        /// 确认显式恢复后的 registration 与测试前字节级状态一致。
+        fn matches_original(&self) -> std::io::Result<bool> {
+            match &self.original {
+                Some(contents) => Ok(fs::read(&self.path)? == *contents),
+                None => Ok(!self.path.exists()),
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    impl Drop for LaunchAgentRegistrationRestore {
+        fn drop(&mut self) {
+            if let Err(error) = self.restore() {
+                eprintln!(
+                    "恢复 macOS LaunchAgent 测试 registration 失败（{}）：{error}",
+                    self.path.display()
+                );
+            }
+        }
+    }
+
+    /// 按锁定的 auto-launch 实现定位当前用户中测试 app 自己的 plist。
+    #[cfg(target_os = "macos")]
+    fn launch_agent_registration_path(home: &Path, app_name: &str) -> PathBuf {
+        home.join("Library")
+            .join("LaunchAgents")
+            .join(format!("{app_name}.plist"))
+    }
+
+    /// 使用系统 plutil 只读解析 LaunchAgent plist，避免用字符串片段猜测字段。
+    #[cfg(target_os = "macos")]
+    fn read_launch_agent_registration(path: &Path) -> serde_json::Value {
+        let output = Command::new("/usr/bin/plutil")
+            .args(["-convert", "json", "-o", "-"])
+            .arg(path)
+            .output()
+            .expect("系统 plutil 必须可执行");
+        assert!(
+            output.status.success(),
+            "LaunchAgent plist 必须可解析：{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        serde_json::from_slice(&output.stdout).expect("LaunchAgent plist 的 JSON 输出必须有效")
     }
 
     #[cfg(windows)]
@@ -246,6 +343,93 @@ mod tests {
         restore.restore().expect("测试结束必须恢复原始登录自启状态");
     }
 
+    #[cfg(target_os = "macos")]
+    /// 验证当前用户 LaunchAgent registration 的 enable/disable 回环并恢复原状态。
+    #[test]
+    #[ignore = "mutates only its dedicated current-user LaunchAgent plist and restores its exact initial state"]
+    fn macos_launch_agent_registration_roundtrip_restores_initial_state() {
+        use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+
+        let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+        context.package_info_mut().name = MACOS_TEST_APP_NAME.into();
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_autostart::init(
+                MacosLauncher::LaunchAgent,
+                Some(vec![AUTOSTART_ARGUMENT]),
+            ))
+            .build(context)
+            .expect("测试 Tauri App 必须能初始化 LaunchAgent autostart 插件");
+        let app_name = app.package_info().name.clone();
+        assert_eq!(app_name, MACOS_TEST_APP_NAME);
+        let home = app.path().home_dir().expect("当前用户 home 目录必须可解析");
+        let registration_path = launch_agent_registration_path(&home, &app_name);
+        let manager = app.autolaunch();
+        let initial_enabled = manager
+            .is_enabled()
+            .expect("测试前必须能读取 LaunchAgent enabled 状态");
+        let mut restore = LaunchAgentRegistrationRestore::capture(registration_path.clone())
+            .expect("测试前必须能快照测试 app 自己的 LaunchAgent registration");
+        assert_eq!(initial_enabled, restore.original.is_some());
+        println!(
+            "P3 LaunchAgent initial: app_name={app_name}; path={}; enabled={initial_enabled}",
+            registration_path.display()
+        );
+
+        manager.enable().expect("LaunchAgent enable 必须成功");
+        assert!(
+            manager
+                .is_enabled()
+                .expect("enable 后必须能读取 LaunchAgent enabled 状态")
+        );
+        assert!(registration_path.is_file());
+
+        let registration = read_launch_agent_registration(&registration_path);
+        assert_eq!(registration["Label"].as_str(), Some(app_name.as_str()));
+        let arguments = registration["ProgramArguments"]
+            .as_array()
+            .expect("LaunchAgent ProgramArguments 必须是数组")
+            .iter()
+            .map(|value| value.as_str())
+            .collect::<Option<Vec<_>>>()
+            .expect("LaunchAgent ProgramArguments 必须全部是字符串");
+        let executable = std::env::current_exe()
+            .expect("必须能解析当前测试可执行文件")
+            .canonicalize()
+            .expect("必须能 canonicalize 当前测试可执行文件");
+        let executable = executable.to_string_lossy();
+        assert_eq!(arguments, [executable.as_ref(), AUTOSTART_ARGUMENT]);
+        println!(
+            "P3 LaunchAgent enable: label={app_name}; target={executable}; argument={AUTOSTART_ARGUMENT}; enabled=true"
+        );
+
+        manager.disable().expect("LaunchAgent disable 必须成功");
+        assert!(
+            !manager
+                .is_enabled()
+                .expect("disable 后必须能读取 LaunchAgent enabled 状态")
+        );
+        assert!(!registration_path.exists());
+        println!("P3 LaunchAgent disable: app_name={app_name}; registration=absent; enabled=false");
+
+        restore
+            .restore()
+            .expect("测试结束必须恢复测试 app 的原始 LaunchAgent registration");
+        assert_eq!(
+            manager
+                .is_enabled()
+                .expect("恢复后必须能读取 LaunchAgent enabled 状态"),
+            initial_enabled
+        );
+        assert!(
+            restore
+                .matches_original()
+                .expect("恢复后必须能核对原始 registration")
+        );
+        println!(
+            "P3 LaunchAgent restore: app_name={app_name}; enabled={initial_enabled}; exact_state=true"
+        );
+    }
+
     #[cfg(windows)]
     #[test]
     fn restore_retry_keeps_original_snapshots_after_partial_failure() {
@@ -288,6 +472,7 @@ mod tests {
         assert!(restore.restored);
     }
 
+    #[cfg(windows)]
     #[test]
     fn disabled_entry_is_not_refreshed() {
         let mut calls = 0;
@@ -306,6 +491,7 @@ mod tests {
         assert_eq!(calls, 0);
     }
 
+    #[cfg(windows)]
     #[test]
     fn current_enabled_entry_is_not_rewritten() {
         let mut calls = 0;
@@ -319,6 +505,7 @@ mod tests {
         assert_eq!(calls, 0);
     }
 
+    #[cfg(windows)]
     #[test]
     fn stale_portable_entry_is_replaced_once_even_if_old_file_is_missing() {
         let mut calls = 0;
@@ -337,6 +524,7 @@ mod tests {
         assert_eq!(calls, 1);
     }
 
+    #[cfg(windows)]
     #[test]
     fn installed_command_quotes_space_containing_executable_path() {
         let command = expected_command(Path::new(
@@ -347,6 +535,7 @@ mod tests {
         assert_eq!(command, INSTALLED);
     }
 
+    #[cfg(windows)]
     #[test]
     fn refresh_failure_is_returned_after_exactly_one_overwrite_attempt() {
         let mut calls = 0;

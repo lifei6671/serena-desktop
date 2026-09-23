@@ -17,12 +17,16 @@ const SCHEMA_V6: &str = include_str!("schema_v6.sql");
 const SCHEMA_V7: &str = include_str!("schema_v7.sql");
 const SCHEMA_V8: &str = include_str!("schema_v8.sql");
 const SCHEMA_V9: &str = include_str!("schema_v9.sql");
+const SCHEMA_V10: &str = include_str!("schema_v10.sql");
 
 mod usage;
 #[cfg(test)]
 mod usage_tests;
 mod work_runs;
-pub(crate) use usage::{CodexUsageBaselineIntent, USAGE_TERMINAL_GRACE_MS};
+#[cfg(any(windows, target_os = "macos", test))]
+pub(crate) use usage::CodexUsageBaselineIntent;
+#[cfg(any(windows, target_os = "macos"))]
+pub(crate) use usage::USAGE_TERMINAL_GRACE_MS;
 pub use work_runs::{WorkExecutionLinkRecord, WorkRunRecord};
 
 #[derive(Clone)]
@@ -105,6 +109,12 @@ pub struct RuntimeRecord {
     pub termination_evidence_state: String,
     pub termination_evidence_type: Option<String>,
     pub termination_evidence_at: Option<i64>,
+    pub runtime_platform: String,
+    pub containment_type: String,
+    pub process_identity_scheme: String,
+    pub containment_process_group_id: Option<i64>,
+    pub containment_session_id: Option<i64>,
+    pub containment_verified_at: Option<i64>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -199,7 +209,10 @@ impl StateStore {
                 "SELECT id, owner_host_instance_id, state, job_session_id, job_creation_mode,
              job_handle_inheritable, job_kill_on_close, job_breakaway_allowed,
              job_policy_verified_at, termination_evidence_state, termination_evidence_type,
-             termination_evidence_at, job_name, codex_pid, codex_process_start_token FROM runtime_instances WHERE id = ?1",
+             termination_evidence_at, job_name, codex_pid, codex_process_start_token,
+             runtime_platform, containment_type, process_identity_scheme,
+             containment_process_group_id, containment_session_id, containment_verified_at
+             FROM runtime_instances WHERE id = ?1",
                 [&id],
                 |r| {
                     Ok(RuntimeRecord {
@@ -218,6 +231,12 @@ impl StateStore {
                         termination_evidence_state: r.get(9)?,
                         termination_evidence_type: r.get(10)?,
                         termination_evidence_at: r.get(11)?,
+                        runtime_platform: r.get(15)?,
+                        containment_type: r.get(16)?,
+                        process_identity_scheme: r.get(17)?,
+                        containment_process_group_id: r.get(18)?,
+                        containment_session_id: r.get(19)?,
+                        containment_verified_at: r.get(20)?,
                     })
                 },
             )
@@ -322,7 +341,7 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
             }
             apply_migration(&transaction, 1, SCHEMA_V1).map_err(|e| e.to_string())?;
         }
-        1..=9 => {}
+        1..=10 => {}
         _ => return Err(format!("unsupported agent state schema version: {version}")),
     }
     if version < 2 {
@@ -348,6 +367,9 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     }
     if version < 9 {
         apply_migration(&transaction, 9, SCHEMA_V9).map_err(|e| e.to_string())?;
+    }
+    if version < 10 {
+        apply_migration(&transaction, 10, SCHEMA_V10).map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())
 }

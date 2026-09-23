@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "约束 StateStore、Runtime、Provider 和 Claim 边界的数据流与验证归属"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "复用既有 migration、Claim authority 和状态转换，避免错误跨平台抽象"}
+{"file": "docs/macos-porting-checklist.md", "reason": "macOS 分阶段适配范围与 Phase 2 验收来源"}
+{"file": ".trellis/tasks/archive/2026-09/09-21-macos-p2a-runtime-contract/design.md", "reason": "Phase 2A 已冻结的 macOS 身份、ownership 与终止证据契约"}

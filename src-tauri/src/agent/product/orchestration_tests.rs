@@ -1,7 +1,10 @@
 use super::*;
+#[cfg(windows)]
 use crate::mcp::orchestration_tests::{active, fixture};
+#[cfg(windows)]
 use tokio_util::sync::CancellationToken;
 
+#[cfg(windows)]
 #[tokio::test]
 async fn public_transport_preserves_context_idempotency_and_continuation_pipeline() {
     let dir = tempfile::tempdir().unwrap();
@@ -270,6 +273,7 @@ async fn accepted_transport_errors_project_original_control_instead_of_rejecting
     assert_eq!(value["control"]["dispatchCertainty"], "uncertain");
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn public_finish_and_work_cancel_leave_execution_and_claim_to_agent_cancel() {
     let dir = tempfile::tempdir().unwrap();
@@ -407,6 +411,7 @@ async fn public_finish_and_work_cancel_leave_execution_and_claim_to_agent_cancel
     assert!(fake.await.unwrap().is_empty());
 }
 
+#[cfg(windows)]
 #[tokio::test]
 async fn public_resume_pending_http_reuses_guard_and_returns_success_is_error_false() {
     use rmcp::{
@@ -526,6 +531,7 @@ async fn public_resume_pending_http_reuses_guard_and_returns_success_is_error_fa
 }
 
 // Local public-transport E2E with fake upstreams, not real Codex or crash evidence.
+#[cfg(windows)]
 #[tokio::test]
 async fn public_vertical_work_source_start_continue_acceptance_e2e() {
     use crate::mcp::{Broker, orchestration_tests::active_with_read_file};

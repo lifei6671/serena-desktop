@@ -14,8 +14,7 @@ pub(crate) fn fixture(root: &std::path::Path) -> Arc<Broker> {
     let broker = Arc::new(Broker::new(Arc::new(SupervisorState::new(paths).unwrap())));
     let mut config = broker.config();
     config.agent_enabled = true;
-    config.broker.port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
+    config.broker.port = crate::test_support::broker_loopback_listener()
         .local_addr()
         .unwrap()
         .port();
@@ -29,6 +28,8 @@ pub(crate) async fn active(broker: &Broker, root: &std::path::Path) -> tokio::ta
     active_fixture(broker, root, false).await
 }
 
+/// 构造依赖 Windows 受管进程的 Source 读取测试夹具。
+#[cfg(windows)]
 pub(crate) async fn active_with_read_file(
     broker: &Broker,
     root: &std::path::Path,
@@ -111,7 +112,9 @@ async fn active_fixture(
         };
         axum::Json(json!({"jsonrpc":"2.0","id":request["id"],"result":result})).into_response()
     }
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = crate::test_support::broker_loopback_listener();
+    listener.set_nonblocking(true).unwrap();
+    let listener = tokio::net::TcpListener::from_std(listener).unwrap();
     let port = listener.local_addr().unwrap().port();
     let read_root = allow_read.then(|| root.to_path_buf());
     let server = tokio::spawn(async move {
@@ -1196,14 +1199,25 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
         ))
         .await
         .unwrap();
-    assert_eq!(cancelled.is_error, Some(false));
-    let cancelled = cancelled.structured_content.unwrap();
-    assert_eq!(cancelled["data"]["prompt"], prompt);
-    assert_eq!(cancelled["data"]["canonicalWorkspaceRoot"], root);
-    assert_eq!(
-        cancelled["control"],
-        json!({"requestAccepted":true,"providerInvoked":false,"dispatchCertainty":"not_dispatched","nextAction":null})
-    );
+    #[cfg(any(windows, target_os = "macos"))]
+    {
+        assert_eq!(cancelled.is_error, Some(false));
+        let cancelled = cancelled.structured_content.unwrap();
+        assert_eq!(cancelled["data"]["prompt"], prompt);
+        assert_eq!(cancelled["data"]["canonicalWorkspaceRoot"], root);
+        assert_eq!(
+            cancelled["control"],
+            json!({"requestAccepted":true,"providerInvoked":false,"dispatchCertainty":"not_dispatched","nextAction":null})
+        );
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        // 未支持平台不伪造取消能力，未派发记录保持原状并返回稳定 unavailable。
+        assert_eq!(cancelled.is_error, Some(true));
+        let cancelled = cancelled.structured_content.unwrap();
+        assert_eq!(cancelled["error"]["code"], "AGENT_PROVIDER_UNAVAILABLE");
+        assert_eq!(cancelled["control"]["requestAccepted"], false);
+    }
 
     // Seed an exact persisted terminal result. Reads must neither execute nor consume it.
     let persisted = json!({"text":"exact final result\n中文", "items":[{"id":"item-1","content":"original"}],"nested":{"zero":0,"null":null}});
@@ -1267,7 +1281,11 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     samples.push(terminal_list);
     assert_eq!(store.execution("E".into()).await.unwrap(), terminal_before);
     assert_eq!(store.work_run("work".into()).await.unwrap(), work);
-    assert!(store.workspace_claim(root).await.unwrap().is_none());
+    #[cfg(any(windows, target_os = "macos"))]
+    assert!(store.workspace_claim(root.clone()).await.unwrap().is_none());
+    // 未支持平台的后端拒绝取消后不得释放缺少 Runtime 终止证据的 Claim。
+    #[cfg(not(any(windows, target_os = "macos")))]
+    assert!(store.workspace_claim(root).await.unwrap().is_some());
     assert_eq!(
         db.query_row("SELECT count(*) FROM runtime_instances", [], |row| row
             .get::<_, i64>(0))

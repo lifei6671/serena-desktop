@@ -1050,6 +1050,9 @@ fn dispatch(
 }
 #[cfg(windows)]
 pub mod managed;
+#[cfg(target_os = "macos")]
+#[path = "app_server/macos_managed.rs"]
+pub mod managed;
 #[cfg(test)]
 mod tests;
 

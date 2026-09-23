@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "复核持久化证据到 Claim release 的跨层一致性"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "复核重复逻辑与未授权抽象"}
+{"file": "docs/macos-porting-checklist.md", "reason": "按原始 macOS 阶段清单核对范围与验证"}
+{"file": ".trellis/tasks/archive/2026-09/09-21-macos-p2a-runtime-contract/design.md", "reason": "确认 Phase 2A 契约和 Windows 行为未漂移"}

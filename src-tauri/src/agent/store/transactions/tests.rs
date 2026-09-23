@@ -379,6 +379,46 @@ fn unknown_needs_new_persisted_evidence_or_local_resolve_and_never_polling() {
     assert!(block(s.workspace_claim("root".into())).unwrap().is_some());
 }
 
+/// 验证 RuntimeTermination gate 只接受与平台元数据匹配的完整终止证据。
+#[test]
+fn runtime_termination_evidence_gate_is_platform_conditional() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = open(directory.path());
+    let mut connection = store.connection.lock().unwrap();
+    connection
+        .execute(
+            "INSERT INTO runtime_instances(
+                id,owner_host_instance_id,state,created_at,updated_at,
+                runtime_platform,containment_type,process_identity_scheme,
+                codex_pid,codex_process_start_token,containment_process_group_id,
+                containment_session_id,containment_verified_at,
+                stopped_at,termination_evidence_type,termination_evidence_at,
+                termination_evidence_state)
+             VALUES('mac','host','terminated',1,8,'macos','macos_process_group',
+                    'darwin_proc_bsd_start_v1',50,'darwin_proc_bsd_start_v1:1:2',50,50,2,
+                    8,'macos_recovered_process_group_empty',8,'complete')",
+            [],
+        )
+        .unwrap();
+    let transaction = connection.transaction().unwrap();
+    assert_eq!(terminated_runtime(&transaction, "mac").unwrap(), 8);
+    transaction.rollback().unwrap();
+
+    // 模拟损坏数据库，确认 release gate 不依赖 schema trigger 作为唯一防线。
+    connection
+        .execute_batch(
+            "DROP TRIGGER runtime_instances_v10_validate_insert;
+             DROP TRIGGER runtime_instances_v10_validate_update;
+             UPDATE runtime_instances SET containment_type='windows_job' WHERE id='mac';",
+        )
+        .unwrap();
+    let transaction = connection.transaction().unwrap();
+    assert_eq!(
+        terminated_runtime(&transaction, "mac").unwrap_err(),
+        "RUNTIME_TERMINATION_EVIDENCE_REQUIRED"
+    );
+}
+
 #[test]
 fn idempotency_precedes_busy_and_different_payload_conflicts() {
     let dir = tempfile::tempdir().unwrap();

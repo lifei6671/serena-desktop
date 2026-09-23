@@ -10,6 +10,14 @@ import type { AppController } from "../../app/useAppController";
 
 type ComponentStatus = { label: string; tone: "healthy" | "pending" | "warning" | "error" | "inactive" };
 
+// Serena 的运行状态与安装探测分开映射，避免已安装被误读为正在运行。
+const serenaRuntimeStatus: Record<AppState["serverStatus"], ComponentStatus> = {
+  running: { label: "运行中", tone: "healthy" },
+  starting: { label: "启动中", tone: "pending" },
+  error: { label: "启动异常", tone: "error" },
+  stopped: { label: "已停止", tone: "inactive" },
+};
+
 function StatusActionButton({ children, ...props }: Omit<ComponentProps<typeof Button>, "children"> & { children: string }) {
   return <Button {...props} className="status-action-button" aria-label={children}>
     <span className="status-action-label">{children}</span>
@@ -49,12 +57,13 @@ function EnvironmentValue({ name, value, copyable }: { name: string; value: stri
 
 export default function StatusPage({ state, busy, codexLoading, codexVersion, codexError, brokerController, run, detectCodex, runSideEffect }: { state: AppState } & Pick<AppController, "busy" | "codexLoading" | "codexVersion" | "codexError" | "brokerController" | "run" | "detectCodex" | "runSideEffect">) {
   const installation = state.activeInstallation;
-  const serenaStatus: ComponentStatus = installation?.state === "standard"
-    ? { label: "已发现", tone: "healthy" }
-    : installation?.state === "invalid"
-      ? { label: "安装异常", tone: "error" }
-      : installation
-        ? { label: "未检测到", tone: "inactive" }
+  // 安装探测决定服务是否可用；仅在安装正常时展示真实运行状态。
+  const serenaStatus: ComponentStatus = installation?.state === "invalid"
+    ? { label: "安装异常", tone: "error" }
+    : installation?.state === "missing"
+      ? { label: "未检测到", tone: "inactive" }
+      : installation?.state === "standard"
+        ? serenaRuntimeStatus[state.serverStatus]
         : { label: "检测中", tone: "pending" };
   const gitStatus: ComponentStatus = state.git.available
     ? { label: "已发现", tone: "healthy" }
@@ -73,7 +82,7 @@ export default function StatusPage({ state, busy, codexLoading, codexVersion, co
     ? { label: "已发现", tone: "healthy" }
     : { label: "未检测到", tone: "inactive" };
   const components = [
-    { name: "Serena", icon: Server, ...serenaStatus, value: installation?.version || "版本未检测到", detail: installation?.path || installation?.error || "仅检测本机安装，不管理启动状态" },
+    { name: "Serena", icon: Server, ...serenaStatus, value: installation?.version || "版本未检测到", detail: state.serverStatus === "error" && installation?.state === "standard" && state.lastError ? state.lastError : installation?.path || installation?.error || "尚未发现可执行文件" },
     { name: "MCP Broker", icon: Network, ...brokerStatus, value: broker ? `HTTP · ${broker.port}` : "端口不可用", detail: brokerEndpoint ?? brokerStatus.label },
     { name: "Codex CLI", icon: SquareTerminal, ...codexStatus, value: codexLoading ? "正在检测…" : codexVersion || "版本未检测到", detail: codexLoading ? "正在检测本地 CLI" : codexError || "本地 CLI 可用性" },
     { name: "CodeGraph CLI", icon: GitBranch, ...codegraphStatus, value: state.codegraphVersion ?? "版本未检测到", detail: "仅检测本机命令，不初始化或启动工作区能力" },
@@ -94,7 +103,7 @@ export default function StatusPage({ state, busy, codexLoading, codexVersion, co
   return (
     <section className="serena-page status-page">
       <div className="page-heading">
-        <div><h1>状态</h1><p>查看本机命令和服务是否已发现；项目请求会单独携带工作区。</p></div>
+        <div><h1>状态</h1><p>查看本机命令、Serena 运行状态和 MCP Broker 连接状态；项目请求会单独携带工作区。</p></div>
         <Button variant="outline" disabled={busy !== null || codexLoading} onClick={redetect} aria-busy={busy === "detect"}>
           {busy === "detect" ? <Spinner aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
           重新检测
@@ -141,7 +150,7 @@ export default function StatusPage({ state, busy, codexLoading, codexVersion, co
             <TooltipHint content={item.value}><code className="status-truncate" tabIndex={0}>{item.value}</code></TooltipHint>
             <EnvironmentValue key={item.detail} name={item.name} value={item.detail} copyable={!!item.copyable} />
           </div>)}
-          {state.lastError && <div className="status-environment-row status-last-error" data-error="true">
+          {state.serverStatus === "error" && state.lastError && <div className="status-environment-row status-last-error" data-error="true">
             <span>Last Error</span><TooltipHint content={state.lastError}><code className="status-truncate" tabIndex={0}>{state.lastError}</code></TooltipHint>
           </div>}
         </div>

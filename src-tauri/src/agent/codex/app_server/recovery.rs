@@ -152,18 +152,10 @@ impl RecoveryScope {
             .ok_or_else(|| {
                 ProtocolError::new("CODEX_RUNTIME_NOT_FOUND", "Source Runtime missing")
             })?;
-        if source == recovery
-            || row.state != "terminated"
-            || row.termination_evidence_state != "complete"
-            || row.termination_evidence_at.is_none()
-            || !matches!(
-                row.termination_evidence_type.as_deref(),
-                Some("job_active_processes_zero" | "managed_job_destroyed")
-            )
-        {
+        if source == recovery || !super::super::runtime_adapter::is_complete_termination(&row) {
             return Err(ProtocolError::new(
                 "CODEX_RESULT_RECOVERY_UNSAFE",
-                "Original Runtime Job termination is not confirmed",
+                "Original Runtime termination is not confirmed",
             ));
         }
         Ok(Self {

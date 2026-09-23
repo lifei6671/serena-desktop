@@ -39,6 +39,7 @@ const { TooltipProvider } = await import('./components/ui/tooltip.tsx');
 const { AgentPanel } = await import('./AgentPanel.tsx');
 const { api } = await import('./api.ts');
 const { agentRequests } = await import('./agentRequests.ts');
+const { showExecutionIssueSection, showExecutionDiagnostic } = await import('./agentPresentation.ts');
 const { toast } = await import('sonner');
 const notifications = [];
 toast.success = text => notifications.push(['success', text]);
@@ -333,10 +334,31 @@ test('only transport ambiguity offers exact retry, stable through input edits an
 });
 
 test('confirmed product errors do not expose transport retry and preserve execution reference', async () => {
-  await mount([], r => r.action === 'start' ? { ok:false, error:{code:'AGENT_OPERATION_FAILED',message:'failure',executionId:'old-E1'} } : undefined);
+  const completed = row({ status:'completed', attention:'none', errorCode:'HISTORICAL_ERROR', errorMessage:'先前的诊断' });
+  await mount([], r => {
+    if (r.action === 'start') return { ok:false, error:{code:'AGENT_OPERATION_FAILED',message:'failure',executionId:'old-E1'} };
+    if (r.action === 'observe') return { ok:true, data:completed };
+  });
   await input('task'); await click('开始新任务');
   assert.equal(button('重试原请求'), undefined); assert.equal(agentRequests.pending, null);
   assert.ok(button('查看相关任务')); assert.match(document.body.textContent, /操作未完成/);
+  await click('查看相关任务');
+  assert.match(document.querySelector('.agent-detail-header').textContent, /已完成/);
+  assert.equal(document.querySelector('.agent-recovery-section'), null);
+  assert.doesNotMatch(document.querySelector('.agent-detail').textContent, /操作未完成/);
+});
+
+test('confirmed product error opens a failed execution with its own diagnostic only', async () => {
+  const failed = row({ status:'failed', attention:'none', errorCode:'AGENT_FAILED', errorMessage:'执行失败原因' });
+  await mount([], r => {
+    if (r.action === 'start') return { ok:false, error:{code:'AGENT_OPERATION_FAILED',message:'failure',executionId:'old-E1'} };
+    if (r.action === 'observe') return { ok:true, data:failed };
+  });
+  await input('task'); await click('开始新任务');
+  assert.match(document.querySelector('.agent-notice').textContent, /操作未完成/);
+  await click('查看相关任务');
+  assert.match(document.querySelector('.agent-recovery-section .agent-real-error').textContent, /AGENT_FAILED.*执行失败原因/);
+  assert.doesNotMatch(document.querySelector('.agent-detail').textContent, /操作未完成/);
 });
 
 test('mutation lock prevents duplicate submit while request is outstanding', async () => {
@@ -366,15 +388,59 @@ test('read failures show feedback and do not offer operation replay', async () =
 
 
 
-test('continuation ambiguity stays in the detail pane and retries its frozen independent input', async () => {
+test('continuation ambiguity stays in list feedback and retries its frozen independent input', async () => {
   const calls = await mount([row({status:'completed',attention:'none',availableActions:{canContinue:true,canCancel:false,canResumePending:false}})], request => request.action === 'continue' ? Promise.reject(new Error('transport')) : undefined);
   await click('详情'); await input('frozen continuation', '#agent-continuation'); await click('继续任务');
   const detailPane = document.querySelector('[aria-label="任务详情"]');
-  assert.ok(button('重试原请求', detailPane));
-  await click('重试原请求', detailPane);
+  assert.equal(button('重试原请求', detailPane), undefined);
+  assert.doesNotMatch(detailPane.textContent, /请求结果未确认/);
+  await act(async () => root.unmount()); root = createRoot(document.getElementById('root'));
+  await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('A'), detailView: false }))));
+  assert.ok(button('重试原请求'));
+  await click('重试原请求');
   const requests = calls.filter(c => c.action === 'continue');
   assert.deepEqual(requests[0], requests[1]);
   assert.equal(requests[0].prompt, 'frozen continuation');
+});
+
+test('execution issue predicates ignore historical diagnostics without an issue state', () => {
+  for (const status of ['completed', 'cancelled', 'running', 'dispatch_pending', 'finalizing']) {
+    const execution = row({ status, attention:'none', errorCode:'OLD_ERROR', errorMessage:'历史诊断' });
+    assert.equal(showExecutionIssueSection(execution), false, status);
+    assert.equal(showExecutionDiagnostic(execution), false, status);
+  }
+  for (const overrides of [
+    { status:'failed' }, { status:'unknown' }, { status:'reconciling' }, { status:'interrupted' },
+    { status:'running', attention:'pending_explicit_resume' }, { status:'running', interruptTimedOut:true },
+  ]) {
+    const execution = row({ attention:'none', errorCode:'REAL_ERROR', ...overrides });
+    assert.equal(showExecutionIssueSection(execution), true);
+    assert.equal(showExecutionDiagnostic(execution), true);
+  }
+  assert.equal(showExecutionDiagnostic(row({ status:'failed', attention:'none' })), false);
+});
+
+test('completed historical diagnostic stays in raw JSON but not list or recovery UI', async () => {
+  const completed = row({ status:'completed', attention:'none', completedAt:3000, errorCode:'OLD_ERROR', errorMessage:'历史诊断', finalResult:{ finalResult:[{ type:'agentMessage', phase:'final_answer', text:'任务已完成' }] } });
+  await mount([completed]);
+  const card = document.querySelector('.agent-task-card');
+  assert.match(card.querySelector('.agent-status').textContent, /已完成/);
+  assert.equal(card.querySelector('.agent-task-error'), null);
+  assert.match(card.querySelector('.agent-task-summary').textContent, /任务已完成/);
+  await click('详情');
+  assert.equal(document.querySelector('.agent-recovery-section'), null);
+  assert.doesNotMatch(document.querySelector('.agent-detail').textContent, /操作未完成/);
+  assert.match(document.querySelector('.agent-result-section').textContent, /任务已完成/);
+  const raw = JSON.parse(document.querySelector('.agent-raw-json pre').textContent);
+  assert.equal(raw.errorCode, 'OLD_ERROR');
+  assert.equal(raw.errorMessage, '历史诊断');
+});
+
+test('failed execution retains its list error and detail diagnostic', async () => {
+  await mount([row({ status:'failed', attention:'none', errorCode:'AGENT_TIMEOUT', errorMessage:'后端超时' })]);
+  assert.match(document.querySelector('.agent-task-error').textContent, /AGENT_TIMEOUT.*后端超时/);
+  await click('详情');
+  assert.match(document.querySelector('.agent-recovery-section .agent-real-error').textContent, /AGENT_TIMEOUT.*后端超时/);
 });
 
 test('late list response cannot overwrite a newly accepted operation', async () => {
@@ -540,7 +606,7 @@ test('Agent detail presents only real execution fields and gates header actions 
     assert.ok(infoCard.querySelector('.agent-status.tone-blue'));
     assert.doesNotMatch(infoCard.textContent, /legacy-session/);
     assert.equal(document.querySelector('.agent-usage-section'), null);
-    assert.match(document.querySelector('.agent-recovery-section').textContent, /AGENT_REAL_ERROR.*后端实际错误/);
+    assert.equal(document.querySelector('.agent-recovery-section'), null);
     assert.doesNotMatch(document.querySelector('.agent-detail').textContent, /PID|CPU|RAM|Git branch/);
     await click('复制内容'); assert.equal(copiedText, execution.prompt);
     await click('恢复任务'); await click('取消任务');
@@ -619,16 +685,16 @@ test('composer describes workspace execution without a permission selector', asy
   assert.doesNotMatch(document.body.textContent, /只读执行/);
 });
 
-test('switching to a related execution from detail pane keeps its new details open', async () => {
+test('a failed continuation leaves the current execution detail free of operation feedback', async () => {
   await mount([row({status:'completed',attention:'none',availableActions:{canContinue:true,canCancel:false,canResumePending:false}})], r => {
     if (r.action === 'continue') return {ok:false,error:{code:'AGENT_OPERATION_FAILED',message:'handoff error',executionId:'new-E2'}};
     if (r.action === 'observe' && r.executionId === 'new-E2') return {ok:true,data:row({executionId:'new-E2',prompt:'new related task'})};
   });
   await click('详情'); await input('next', '#agent-continuation'); await click('继续任务');
-  await click('查看相关任务');
-  await act(async () => new Promise(resolve => setTimeout(resolve, 10)));
   assert.ok(document.querySelector('[aria-label="任务详情"]'));
-  assert.match(document.querySelector('.agent-detail-body > section .agent-prose').textContent, /new related task/);
+  assert.match(document.querySelector('.agent-detail-body > section .agent-prose').textContent, /原始任务/);
+  assert.equal(button('查看相关任务', document.querySelector('.agent-detail')), undefined);
+  assert.doesNotMatch(document.querySelector('.agent-detail').textContent, /操作未完成|handoff error/);
 });
 
 test('list refresh cannot compete with an outstanding detail observation', async () => {
@@ -964,6 +1030,7 @@ test('sidebar load-more button follows the real pending request and recovers to 
   let pending = Promise.withResolvers();
   api.agentHistory = () => pending.promise;
   const more = group.querySelector('.project-task-more');
+  const label = more.querySelector('.project-task-more-label');
   assert.equal(more.textContent.trim(), '查看更多');
   assert.equal(more.getAttribute('aria-busy'), 'false');
   assert.equal(more.dataset.state, 'idle');
@@ -971,6 +1038,7 @@ test('sidebar load-more button follows the real pending request and recovers to 
 
   await act(async () => more.click());
   assert.equal(group.querySelector('.project-task-more'), more);
+  assert.equal(more.querySelector('.project-task-more-label'), label);
   assert.equal(more.textContent.trim(), '正在加载…');
   assert.equal(more.getAttribute('aria-busy'), 'true');
   assert.equal(more.dataset.state, 'loading');
@@ -980,6 +1048,7 @@ test('sidebar load-more button follows the real pending request and recovers to 
   assert.equal(more.textContent.trim(), '查看更多');
   assert.equal(more.getAttribute('aria-busy'), 'false');
   assert.equal(more.dataset.state, 'idle');
+  assert.equal(more.querySelector('.project-task-more-label'), label);
 
   pending = Promise.withResolvers();
   api.agentHistory = () => pending.promise;
@@ -989,6 +1058,7 @@ test('sidebar load-more button follows the real pending request and recovers to 
   assert.equal(more.textContent.trim(), '重试');
   assert.equal(more.getAttribute('aria-busy'), 'false');
   assert.equal(more.dataset.state, 'retry');
+  assert.equal(more.querySelector('.project-task-more-label'), label);
   assert.equal(more.disabled, false);
   assert.ok(more.querySelector('.project-task-more-icon-retry'));
   assert.match(group.querySelector('[role="status"]').textContent, /加载更多失败，请重试/);
@@ -998,9 +1068,12 @@ test('sidebar load-more button follows the real pending request and recovers to 
   assert.equal(group.querySelector('[role="status"]'), null);
   assert.equal(more.textContent.trim(), '查看更多');
   assert.equal(more.dataset.state, 'idle');
+  assert.equal(more.querySelector('.project-task-more-label'), label);
   const styles = readFileSync('src/styles.css', 'utf8');
   assert.match(styles, /\.project-task-more\[data-state="loading"\] \.project-task-more-icon-loading \{ animation: agent-control-spin/);
-  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\r?\n  \.project-task, \.project-task-header, \.project-task-more-icon-slot svg \{ transition: none; \}\r?\n  \.project-task-more\[data-state="loading"\] \.project-task-more-icon-loading, \.project-task-more-label \{ animation: none; \}\r?\n\}/);
+  assert.doesNotMatch(styles, /\.project-task-more-label\s*\{[^}]*animation:/);
+  assert.doesNotMatch(styles, /\.project-task-more:disabled\s*\{[^}]*opacity:/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\r?\n  \.project-task, \.project-task-header, \.project-task-more-icon-slot svg \{ transition: none; \}\r?\n  \.project-task-more\[data-state="loading"\] \.project-task-more-icon-loading \{ animation: none; \}\r?\n\}/);
 });
 
 test('sidebar load-more keeps pagination retry separate from its background refresh', async () => {
@@ -1014,18 +1087,24 @@ test('sidebar load-more keeps pagination retry separate from its background refr
     const tasks = Array.from({ length: 6 }, (_, index) => row({ executionId: `task-${index}`, canonicalWorkspaceRoot: project.root }));
     await mount(tasks, undefined, { workspaces: [project], sidebarContainer: host });
     const more = host.querySelector('.project-task-more');
+    const label = more.querySelector('.project-task-more-label');
     let pending = Promise.withResolvers();
     api.agentHistory = () => pending.promise;
     assert.ok(refreshNow);
     await act(async () => refreshNow());
+    assert.equal(host.querySelector('.project-task-more'), more);
+    assert.equal(more.querySelector('.project-task-more-label'), label);
     assert.equal(more.disabled, true);
+    assert.equal(more.textContent.trim(), '查看更多');
     assert.equal(more.dataset.state, 'idle');
+    assert.doesNotMatch(readFileSync('src/styles.css', 'utf8'), /\.project-task-more:disabled\s*\{[^}]*opacity:/);
     await act(async () => more.click());
     assert.equal(more.getAttribute('aria-busy'), 'false');
     await act(async () => pending.reject(new Error('refresh unavailable')));
     assert.equal(more.disabled, false);
     assert.equal(more.textContent.trim(), '查看更多');
     assert.equal(more.dataset.state, 'idle');
+    assert.equal(more.querySelector('.project-task-more-label'), label);
     assert.match(host.querySelector('[role="status"]').textContent, /任务加载失败/);
 
     pending = Promise.withResolvers();

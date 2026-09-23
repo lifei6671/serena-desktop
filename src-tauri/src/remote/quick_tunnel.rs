@@ -635,6 +635,31 @@ pub(super) async fn stop_child(child: &mut super::process::ManagedChild) -> Resu
 mod tests {
     use super::*;
 
+    /// 编译固定进程树 fixture，验证 Quick Tunnel 的 macOS descendant 收口。
+    #[cfg(target_os = "macos")]
+    fn macos_quick_tunnel_fixture(directory: &Path) -> std::path::PathBuf {
+        let executable = directory.join("quick-tunnel-managed-child");
+        let output = std::process::Command::new("rustc")
+            .args([
+                "--edition=2024",
+                "--crate-name",
+                "quick_tunnel_managed_child",
+            ])
+            .arg(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/macos_runtime_child.rs"),
+            )
+            .arg("-o")
+            .arg(&executable)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        executable
+    }
+
     #[test]
     fn release_digest_asset_and_url_match_official_fixture() {
         let fixture: serde_json::Value =
@@ -707,15 +732,44 @@ mod tests {
         let mut command = process::command(crate::serena::find_executable("ping.exe").unwrap());
         #[cfg(windows)]
         command.args(["-n", "30", "127.0.0.1"]);
-        #[cfg(not(windows))]
+        #[cfg(all(not(windows), not(target_os = "macos")))]
         let mut command = process::command("sleep");
-        #[cfg(not(windows))]
+        #[cfg(all(not(windows), not(target_os = "macos")))]
         command.arg("30");
+        #[cfg(target_os = "macos")]
+        let directory = tempfile::tempdir().unwrap();
+        #[cfg(target_os = "macos")]
+        let marker = directory.path().join("leaf.pid");
+        #[cfg(target_os = "macos")]
+        let mut command = process::command(macos_quick_tunnel_fixture(directory.path()));
+        #[cfg(target_os = "macos")]
+        command.args(["ignore-tree"]).arg(&marker);
         let mut child = super::super::process::ManagedChild::spawn(&mut command).unwrap();
+        #[cfg(target_os = "macos")]
+        {
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while !marker.exists() {
+                assert!(std::time::Instant::now() < deadline);
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }
         assert!(child.try_wait().unwrap().is_none());
         stop_child(&mut child).await.unwrap();
         assert!(child.try_wait().unwrap().is_some());
         stop_child(&mut child).await.unwrap();
+        #[cfg(target_os = "macos")]
+        {
+            let leaf_pid: libc::pid_t = std::fs::read_to_string(marker).unwrap().parse().unwrap();
+            // SAFETY: kill(pid, 0) 只探测 fixture leaf 是否仍存在。
+            let alive = unsafe { libc::kill(leaf_pid, 0) } == 0;
+            if alive {
+                // SAFETY: 失败清理只终止 marker 中刚创建的 fixture leaf。
+                unsafe {
+                    libc::kill(leaf_pid, libc::SIGKILL);
+                }
+            }
+            assert!(!alive, "Quick Tunnel 停止后仍残留后代 {leaf_pid}");
+        }
     }
     #[tokio::test]
     async fn invalid_local_installation_never_downloads() {

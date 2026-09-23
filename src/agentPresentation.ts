@@ -33,6 +33,16 @@ export function executionStatus(row: ExecutionView) {
   return states[row.status] ?? { label: "状态待确认", description: "请查看技术详情中的原始状态。", tone: "gray" };
 }
 
+/** 仅由当前状态、关注要求和取消超时决定是否展示恢复或错误区块。 */
+export function showExecutionIssueSection(row: Pick<ExecutionView, "attention" | "status" | "interruptTimedOut">) {
+  return row.attention !== "none" || ["failed", "unknown", "reconciling", "interrupted"].includes(row.status) || row.interruptTimedOut;
+}
+
+/** 历史诊断仅在当前 Execution 确实需要处理时作为具体错误展示。 */
+export function showExecutionDiagnostic(row: Pick<ExecutionView, "attention" | "status" | "interruptTimedOut" | "errorCode" | "errorMessage">) {
+  return showExecutionIssueSection(row) && !!(row.errorCode || row.errorMessage);
+}
+
 /** 将冻结的 Provider descriptor 转换为纯展示标签，不参与任何控制判断。 */
 export function providerLabel(row: ProviderDisplaySource) {
   const provider = row.provider;

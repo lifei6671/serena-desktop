@@ -565,8 +565,7 @@ fn map_semantic_capability_error(error: WorkspaceCapabilityError) -> String {
 fn map_codegraph_capability_error(error: WorkspaceCapabilityError) -> String {
     match error.code {
         WorkspaceCapabilityErrorCode::Busy => "CODEGRAPH_BUSY".into(),
-        WorkspaceCapabilityErrorCode::NotPrepared
-        | WorkspaceCapabilityErrorCode::PreparationRequired => "CODEGRAPH_NOT_INITIALIZED".into(),
+        WorkspaceCapabilityErrorCode::NotPrepared => "CODEGRAPH_NOT_INITIALIZED".into(),
         WorkspaceCapabilityErrorCode::StartFailed => "CODEGRAPH_RUNTIME_START_FAILED".into(),
         WorkspaceCapabilityErrorCode::RuntimeLost => "CODEGRAPH_RUNTIME_LOST".into(),
         WorkspaceCapabilityErrorCode::NotFound => "CODEGRAPH_RUNTIME_START_FAILED".into(),
@@ -726,15 +725,13 @@ mod integration_tests {
     use crate::{
         config::{self, AppPaths, BrokerConfig, Workspace},
         workspace_capability::{
-            CapabilityActionAuthority, CapabilityActionDescriptor, CapabilityActionExecution,
-            CapabilityActivitySink, CapabilityFuture, CapabilityPreparationPolicy,
-            CapabilityPrepareAction, CapabilityPrepareResult, CapabilityProviderError,
-            CapabilityProviderErrorCode, CapabilityReadinessProbe, CapabilityRuntimeHandle,
-            CapabilityRuntimeModel, CapabilityRuntimePolicy, CapabilityRuntimeState,
-            CapabilityStageDescriptor, CapabilityStageRequirement, CapabilityStopFailure,
-            StopEvidence, WorkspaceCapabilityDescriptor, WorkspaceCapabilityManager,
-            WorkspaceCapabilityProvider, WorkspaceCapabilityProviderId,
-            WorkspaceCapabilityRegistry, WorkspaceToolCall, WorkspaceToolResult,
+            CapabilityFuture, CapabilityProviderError, CapabilityProviderErrorCode,
+            CapabilityReadinessProbe, CapabilityRuntimeHandle, CapabilityRuntimeModel,
+            CapabilityRuntimePolicy, CapabilityRuntimeState, CapabilityStageDescriptor,
+            CapabilityStageRequirement, CapabilityStopFailure, StopEvidence,
+            WorkspaceCapabilityDescriptor, WorkspaceCapabilityManager, WorkspaceCapabilityProvider,
+            WorkspaceCapabilityProviderId, WorkspaceCapabilityRegistry, WorkspaceToolCall,
+            WorkspaceToolResult,
         },
         workspace_registry::{WorkspaceRegistry, WorkspaceRegistrySnapshot},
         workspace_resolver::WorkspaceLease,
@@ -743,11 +740,7 @@ mod integration_tests {
         ServiceExt, model::CallToolRequestParams, transport::StreamableHttpClientTransport,
     };
     fn port() -> u16 {
-        std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port()
+        crate::test_support::broker_loopback_port()
     }
     fn fixture(dir: &std::path::Path, exe: Option<PathBuf>) -> Arc<Broker> {
         let paths = AppPaths {
@@ -771,6 +764,46 @@ mod integration_tests {
         };
         crate::config::save(&paths.config_file, &config).unwrap();
         Arc::new(Broker::new(Arc::new(SupervisorState::new(paths).unwrap())))
+    }
+
+    /// 真实预占 loopback 端口，验证稳定错误、双日志与成功重试清理。
+    #[tokio::test]
+    async fn broker_bind_addr_in_use_reports_diagnostics_and_retry_clears_last_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let occupied = crate::test_support::broker_loopback_listener();
+        let occupied_port = occupied.local_addr().unwrap().port();
+        let broker = fixture(directory.path(), None);
+        let mut config = broker.config();
+        config.broker.port = occupied_port;
+        broker.supervisor.replace_config(config).unwrap();
+
+        let error = broker.start().await.unwrap_err();
+        assert!(error.starts_with("BROKER_PORT_IN_USE:"), "{error}");
+        assert!(error.contains(&occupied_port.to_string()), "{error}");
+        let snapshot = broker.snapshot().await;
+        assert_eq!(snapshot.last_error.as_deref(), Some(error.as_str()));
+        assert!(!snapshot.running);
+        let memory_log = broker.log_snapshot().join("\n");
+        for expected in [
+            "code=BROKER_PORT_IN_USE",
+            "reason=端口已被其他程序占用",
+            "fix=在“设置 → MCP 连接入口”改用其他未占用端口后重试",
+            "error_kind=AddrInUse",
+            "raw_os_error=",
+            "system_error=",
+        ] {
+            assert!(memory_log.contains(expected), "{memory_log}");
+        }
+        let app_log = std::fs::read_to_string(&broker.supervisor.paths.app_log).unwrap();
+        assert!(app_log.contains("code=BROKER_PORT_IN_USE"), "{app_log}");
+        assert!(app_log.contains(&format!("address=127.0.0.1:{occupied_port}")));
+
+        drop(occupied);
+        broker.start().await.unwrap();
+        let recovered = broker.snapshot().await;
+        assert!(recovered.running);
+        assert_eq!(recovered.last_error, None);
+        broker.stop().await.unwrap();
     }
 
     /// 仅用于 Broker Semantic 路由测试的 Provider，记录 server-resolved Lease 和已净化参数。
@@ -797,18 +830,10 @@ mod integration_tests {
                         .collect(),
                     runtime_model: CapabilityRuntimeModel::WorkspaceScopedProcess,
                     readiness_probe: CapabilityReadinessProbe::Required,
-                    preparation_policy: CapabilityPreparationPolicy::AutoOnFirstToolCall,
                     stage_descriptors: vec![CapabilityStageDescriptor {
                         id: "project_configuration".into(),
                         display_name: "项目配置".into(),
-                        requirement: CapabilityStageRequirement::AutoPreparable,
-                    }],
-                    action_descriptors: vec![CapabilityActionDescriptor {
-                        action_id: "prepare".into(),
-                        display_name: "准备".into(),
-                        authority: CapabilityActionAuthority::LocalHuman,
-                        execution: CapabilityActionExecution::ManagerEnsureRuntime,
-                        warm_runtime: true,
+                        requirement: CapabilityStageRequirement::Required,
                     }],
                     runtime_policy: CapabilityRuntimePolicy {
                         max_instances: 2,
@@ -831,7 +856,6 @@ mod integration_tests {
             provider.descriptor.provider_id = WorkspaceCapabilityProviderId::new("codegraph");
             provider.descriptor.display_name = "CodeGraph routing fixture".into();
             provider.descriptor.tool_names = vec!["codegraph_explore".into()];
-            provider.descriptor.preparation_policy = CapabilityPreparationPolicy::ExplicitOnly;
             provider.descriptor.runtime_policy.idle_timeout_ms = 300_000;
             provider
         }
@@ -875,20 +899,6 @@ mod integration_tests {
         > {
             self.observations
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Box::pin(async {
-                Err(CapabilityProviderError {
-                    code: CapabilityProviderErrorCode::OperationFailed,
-                })
-            })
-        }
-
-        fn prepare<'a>(
-            &'a self,
-            _lease: WorkspaceLease,
-            _action: CapabilityPrepareAction,
-            _activity: &'a dyn CapabilityActivitySink,
-        ) -> CapabilityFuture<'a, Result<CapabilityPrepareResult, CapabilityProviderError>>
-        {
             Box::pin(async {
                 Err(CapabilityProviderError {
                     code: CapabilityProviderErrorCode::OperationFailed,
@@ -1801,10 +1811,6 @@ mod integration_tests {
                 "CODEGRAPH_NOT_INITIALIZED",
             ),
             (
-                WorkspaceCapabilityErrorCode::PreparationRequired,
-                "CODEGRAPH_NOT_INITIALIZED",
-            ),
-            (
                 WorkspaceCapabilityErrorCode::StartFailed,
                 "CODEGRAPH_RUNTIME_START_FAILED",
             ),
@@ -1832,12 +1838,6 @@ mod integration_tests {
             ),
             (
                 WorkspaceCapabilityErrorCode::NotPrepared,
-                "CODEGRAPH_NOT_INITIALIZED",
-                "The active workspace has no initialized CodeGraph index.",
-                false,
-            ),
-            (
-                WorkspaceCapabilityErrorCode::PreparationRequired,
                 "CODEGRAPH_NOT_INITIALIZED",
                 "The active workspace has no initialized CodeGraph index.",
                 false,

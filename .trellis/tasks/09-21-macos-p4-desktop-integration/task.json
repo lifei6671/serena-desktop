@@ -1,0 +1,29 @@
+{
+  "id": "macos-p4-desktop-integration",
+  "name": "macos-p4-desktop-integration",
+  "title": "Phase 4：macOS 桌面集成",
+  "description": "完成 macOS 打开命令、Dock/菜单栏/退出生命周期、通知、声音、LAN 权限、文件系统和平台化 UI 文案。",
+  "status": "planning",
+  "dev_type": null,
+  "scope": "src,src-tauri,docs/ui",
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-09-21",
+  "completedAt": null,
+  "branch": "dev/macos",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "09-22-macos-p4a-desktop-shell",
+    "09-22-macos-p4b-notification-sound"
+  ],
+  "parent": "09-21-macos-platform-porting",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

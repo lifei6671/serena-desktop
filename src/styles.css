@@ -1445,10 +1445,7 @@ h3 {
 .project-task-more[data-state="loading"] .project-task-more-icon-loading,
 .project-task-more[data-state="retry"] .project-task-more-icon-retry { opacity: 1; transform: scale(1) rotate(0); }
 .project-task-more[data-state="loading"] .project-task-more-icon-loading { animation: agent-control-spin .8s linear infinite; }
-.project-task-more-label { animation: project-task-more-label-in 150ms ease; }
-@keyframes project-task-more-label-in { from { opacity: 0; transform: translateY(2px); } }
 .project-task-more:hover { color: var(--foreground); }
-.project-task-more:disabled { opacity: .5; }
 .project-task-preview { z-index: 60; width: min(350px, calc(100vw - 32px)); padding: 18px 20px; border: 1px solid var(--console-line); border-radius: 14px; background: var(--background); color: var(--foreground); box-shadow: 0 6px 18px #0000000d; font-size: 12px; }
 .project-task-preview > strong { display: block; font-size: 14px; margin-bottom: 14px; overflow-wrap: anywhere; }
 .project-task-preview p { display: flex; align-items: center; gap: 8px; margin: 9px 0 0; color: var(--console-muted); overflow-wrap: anywhere; }
@@ -1480,7 +1477,7 @@ h3 {
 
 @media (prefers-reduced-motion: reduce) {
   .project-task, .project-task-header, .project-task-more-icon-slot svg { transition: none; }
-  .project-task-more[data-state="loading"] .project-task-more-icon-loading, .project-task-more-label { animation: none; }
+  .project-task-more[data-state="loading"] .project-task-more-icon-loading { animation: none; }
 }
 
 /* Markdown stays in the page flow; only wide code and tables scroll horizontally. */

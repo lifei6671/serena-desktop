@@ -337,7 +337,7 @@ fn same_session_destroyed_job_releases_but_missing_or_cross_session_retains_unkn
             let temp = tempfile::tempdir().unwrap();
             let (manager, id, db) = fixture(temp.path(), "running", "dispatched").await;
             original(&db, &id, false);
-            let session = runtime::current_session_id().unwrap();
+            let session = crate::agent::codex::runtime::current_session_id().unwrap();
             db.execute("UPDATE runtime_instances SET job_name='Local\\SerenaDesktop.Codex.R1',job_session_id=?1,job_creation_mode='proc_thread_attribute_job_list',job_handle_inheritable=0,job_kill_on_close=1,job_breakaway_allowed=0,job_policy_verified_at=1",[session]).unwrap();
             match mode {
                 "cross" => {
