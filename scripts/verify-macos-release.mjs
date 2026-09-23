@@ -47,11 +47,11 @@ export function isAdHocSignature(details) {
 }
 
 /** 验证挂载卷内应用的可见安装结构和代码身份。 */
-async function verifyMountedApp(mountPoint, version, run) {
+async function verifyMountedApp(mountPoint, version, run, readLink) {
   const entries = await readdir(mountPoint);
   if (!hasExpectedVisibleEntries(entries)) throw new Error("DMG_CONTENTS_INVALID");
   const applications = path.join(mountPoint, "Applications");
-  if ((await readlink(applications)) !== "/Applications") throw new Error("DMG_APPLICATIONS_LINK_INVALID");
+  if ((await readLink(applications)) !== "/Applications") throw new Error("DMG_APPLICATIONS_LINK_INVALID");
 
   const app = path.join(mountPoint, "Serena Desktop.app");
   if (!(await stat(app)).isDirectory()) throw new Error("DMG_APP_INVALID");
@@ -80,7 +80,7 @@ async function verifyMountedApp(mountPoint, version, run) {
 }
 
 /** 检查唯一 DMG，挂载后在成功和失败路径都卸载。 */
-export async function verifyMacosRelease({ root = PROJECT_ROOT, directory, run = runCommand } = {}) {
+export async function verifyMacosRelease({ root = PROJECT_ROOT, directory, run = runCommand, readLink = readlink } = {}) {
   try {
     if (process.platform !== "darwin" && run === runCommand) throw new Error("MACOS_REQUIRED");
     const config = JSON.parse(await readFile(path.join(root, "src-tauri", "tauri.conf.json"), "utf8"));
@@ -106,7 +106,7 @@ export async function verifyMacosRelease({ root = PROJECT_ROOT, directory, run =
       } catch {
         throw new Error("DMG_ATTACH_FAILED");
       }
-      identity = await verifyMountedApp(mountPoint, version, run);
+      identity = await verifyMountedApp(mountPoint, version, run, readLink);
     } catch (error) {
       verificationError = error;
     }

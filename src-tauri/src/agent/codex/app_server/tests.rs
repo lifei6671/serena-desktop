@@ -520,6 +520,7 @@ fn server_request_responses_are_explicit_refusals() {
     run(async {
         let (client, server) = pair();
         client.bind_observability_scope("T", Some("U")).unwrap();
+        let (release_fake_tx, release_fake_rx) = tokio::sync::oneshot::channel::<()>();
         let fake = tokio::spawn(async move {
             let mut s = BufReader::new(server);
             handshake(&mut s).await;
@@ -587,6 +588,10 @@ fn server_request_responses_are_explicit_refusals() {
                     assert!(response.get("result").is_none());
                 }
             }
+            // 保持假服务端连接，直到客户端消费完已排队的权限诊断。
+            release_fake_rx
+                .await
+                .expect("client must verify permission diagnostics before fake server closes");
         });
         client.initialize().await.unwrap();
         for expected in [
@@ -604,6 +609,9 @@ fn server_request_responses_are_explicit_refusals() {
                     if thread_id == "T" && turn_id == "U" && kind == expected
             ));
         }
+        release_fake_tx
+            .send(())
+            .expect("fake server must remain available until diagnostics are verified");
         fake.await.unwrap();
     });
 }
