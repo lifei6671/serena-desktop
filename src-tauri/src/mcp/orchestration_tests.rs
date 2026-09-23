@@ -15,7 +15,6 @@ pub(crate) fn fixture(root: &std::path::Path) -> Arc<Broker> {
     let mut config = broker.config();
     config.agent_enabled = true;
     config.broker.port = crate::test_support::broker_loopback_listener()
-        .unwrap()
         .local_addr()
         .unwrap()
         .port();
