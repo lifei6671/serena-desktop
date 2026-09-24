@@ -24,7 +24,7 @@ async fn self_hosted_probe_retry_stop_and_restart_preserve_auth_boundary() {
         serena_log: root.join("logs/serena.log"),
     };
     let mut config = ManagerConfig::default();
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let reserved = crate::test_support::broker_loopback_listener();
     config.broker.port = reserved.local_addr().unwrap().port();
     drop(reserved);
     config.broker.enabled = true;
@@ -208,11 +208,7 @@ fn broker_with_ngrok_connector(
 }
 
 fn available_loopback_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
+    crate::test_support::broker_loopback_port()
 }
 
 struct FakeNgrokTunnel {
@@ -2612,7 +2608,7 @@ async fn apply_ngrok_start_plan_persistence_failure_restores_config_and_oauth() 
 async fn apply_ngrok_start_plan_bind_failure_rolls_back_config_and_runtime() {
     let directory = tempfile::tempdir().unwrap();
     let connector_calls = Arc::new(AtomicUsize::new(0));
-    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let occupied = crate::test_support::broker_loopback_listener();
     let mut config = ManagerConfig::default();
     config.broker.port = occupied.local_addr().unwrap().port();
     config.port = if config.broker.port == 9121 {
@@ -2932,7 +2928,7 @@ async fn lan_configuration_allows_start_without_changing_listener_scope() {
     };
     let mut config = ManagerConfig::default();
     config.broker.allow_lan = true;
-    let reserved = std::net::TcpListener::bind("0.0.0.0:0").unwrap();
+    let reserved = crate::test_support::broker_wildcard_listener();
     config.broker.port = reserved.local_addr().unwrap().port();
     drop(reserved);
     crate::config::save(&paths.config_file, &config).unwrap();
@@ -2959,7 +2955,7 @@ async fn switching_between_modes_stops_old_runtime_and_applies_each_target() {
         serena_log: root.join("logs/serena.log"),
     };
     let mut config = ManagerConfig::default();
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let reserved = crate::test_support::broker_loopback_listener();
     config.broker.port = reserved.local_addr().unwrap().port();
     drop(reserved);
     config.remote_access.mode = RemoteAccessMode::SelfHostedOAuth;
@@ -3048,7 +3044,7 @@ async fn official_quick_tunnel_start_probe_stop() {
         serena_log: root.join("logs/serena.log"),
     };
     let mut config = ManagerConfig::default();
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let reserved = crate::test_support::broker_loopback_listener();
     config.broker.port = reserved.local_addr().unwrap().port();
     drop(reserved);
     crate::config::save(&paths.config_file, &config).unwrap();

@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+use crate::serena::user_local_candidate;
 use crate::{
     config::{AppPaths, ManagerConfig},
     serena::{CapturedOutput, find_executable, hidden_command, run_with_timeout},
@@ -74,9 +76,29 @@ pub fn detect(config: &ManagerConfig, paths: &AppPaths) -> SerenaInstallation {
     discover(
         config.serena_path.as_deref(),
         &paths.managed_serena(),
-        || find_executable("serena"),
+        serena_path_candidate,
         inspect_candidate,
     )
+}
+
+/// macOS GUI 精简 PATH 未命中时回退到当前用户的固定安装目录。
+fn serena_path_candidate() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    return macos_serena_path_candidate(find_executable("serena"), || {
+        user_local_candidate("serena")
+    });
+
+    #[cfg(not(target_os = "macos"))]
+    find_executable("serena")
+}
+
+/// 保持 PATH 优先，只在 macOS PATH 未命中时使用 `~/.local/bin/serena`。
+#[cfg(target_os = "macos")]
+fn macos_serena_path_candidate(
+    path: Option<PathBuf>,
+    user_local: impl FnOnce() -> Option<PathBuf>,
+) -> Option<PathBuf> {
+    path.or_else(user_local)
 }
 
 fn discover(
@@ -175,6 +197,12 @@ fn successful_text(output: CapturedOutput, action: &str) -> Result<String, Strin
 }
 
 pub fn detect_codegraph_version() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    let mut command = hidden_command(codegraph_candidate(
+        find_executable("codegraph"),
+        user_local_candidate("codegraph"),
+    )?);
+    #[cfg(not(target_os = "macos"))]
     let mut command = rmcp::transport::which_command("codegraph").ok()?.into_std();
     #[cfg(windows)]
     {
@@ -187,6 +215,12 @@ pub fn detect_codegraph_version() -> Option<String> {
         Duration::from_secs(5),
         "读取 CodeGraph 版本",
     ))
+}
+
+/// Finder 精简 PATH 未命中时回退到当前用户的固定安装目录。
+#[cfg(any(target_os = "macos", test))]
+fn codegraph_candidate(path: Option<PathBuf>, user_local: Option<PathBuf>) -> Option<PathBuf> {
+    path.or(user_local)
 }
 
 fn codegraph_version(output: Result<CapturedOutput, String>) -> Option<String> {
@@ -258,6 +292,40 @@ mod tests {
         assert_eq!(codegraph_version(Ok(output(1, "failed"))), None);
         assert_eq!(codegraph_version(Ok(output(0, ""))), None);
         assert_eq!(codegraph_version(Err("timeout".into())), None);
+    }
+
+    /// Finder 精简 PATH 未命中时必须使用当前用户的 `~/.local/bin` 候选。
+    #[test]
+    fn codegraph_candidate_falls_back_to_user_local_bin() {
+        let local = PathBuf::from("/Users/fixture/.local/bin/codegraph");
+        assert_eq!(
+            codegraph_candidate(None, Some(local.clone())),
+            Some(local.clone())
+        );
+        let path = PathBuf::from("/opt/homebrew/bin/codegraph");
+        assert_eq!(
+            codegraph_candidate(Some(path.clone()), Some(local)),
+            Some(path)
+        );
+    }
+
+    /// Finder 风格 PATH 未命中时回退用户目录，PATH 命中时仍保持 PATH 优先。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_serena_candidate_falls_back_to_user_local_after_path() {
+        let local = PathBuf::from("/Users/fixture/.local/bin/serena");
+        assert_eq!(
+            macos_serena_path_candidate(None, || Some(local.clone())),
+            Some(local.clone())
+        );
+
+        let path = PathBuf::from("/opt/homebrew/bin/serena");
+        assert_eq!(
+            macos_serena_path_candidate(Some(path.clone()), || {
+                panic!("PATH 命中时不得读取 user-local candidate")
+            }),
+            Some(path)
+        );
     }
 
     #[test]

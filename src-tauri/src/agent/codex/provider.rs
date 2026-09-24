@@ -13,14 +13,19 @@ use crate::agent::{
         port::{
             AgentEventSink, AgentProvider, ProviderAcceptanceSink, ProviderContinuationContext,
             ProviderContinuationDecision, ProviderExecutionFailure, ProviderFuture,
-            ProviderReconcileItem, ProviderReconcileKind, ProviderReconcileSummary,
+            ProviderReconcileSummary,
         },
         registry::{ProviderHealth, ProviderRegistry},
     },
     store::{ExecutionRecord, StateStore},
-    task_manager::recovery::{RecoveryOutcome, recover_startup_with_authority},
 };
 use std::{path::PathBuf, sync::Arc, time::Duration};
+
+#[cfg(test)]
+use crate::agent::{
+    provider::port::{ProviderReconcileItem, ProviderReconcileKind},
+    task_manager::recovery::RecoveryOutcome,
+};
 
 pub(crate) struct CodexProvider {
     pub store: StateStore,
@@ -32,7 +37,7 @@ pub(crate) struct CodexProvider {
 #[derive(Debug)]
 pub enum ExecutionFailure {
     State(String),
-    Runtime(super::runtime::RuntimeFailure),
+    Runtime(super::runtime_adapter::RuntimeFailure),
 }
 
 fn provider_execution_failure(error: ExecutionFailure) -> ProviderExecutionFailure {
@@ -265,7 +270,12 @@ impl CodexProvider {
         if lease.is_none() {
             let runtime_id = crate::agent::task_manager::AgentTaskManager::id("runtime");
             let executable = if self.executable.as_os_str().is_empty() {
-                match super::discovery::discover().await {
+                let probe_context = crate::agent::task_manager::ProbeContext::from_existing(
+                    self.store.clone(),
+                    self.owner.clone(),
+                    self.runtime_pool.clone(),
+                );
+                match super::discover(probe_context).await {
                     Ok(path) => path,
                     Err(error) => {
                         let diagnostic = match self.failed(id).await {
@@ -334,7 +344,7 @@ impl CodexProvider {
         runtime_id: String,
         executable: PathBuf,
         workspace: PathBuf,
-    ) -> Result<managed::ManagedClient, super::runtime::RuntimeFailure> {
+    ) -> Result<managed::ManagedClient, super::runtime_adapter::RuntimeFailure> {
         #[cfg(test)]
         {
             let connect = self.runtime_pool.test_connect.lock().unwrap().clone();
@@ -343,14 +353,15 @@ impl CodexProvider {
                     .reserve_runtime_attempt(id.into(), runtime_id.clone(), now())
                     .await
                     .map_err(|e| {
-                        super::runtime::RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", e)
+                        super::runtime_adapter::RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", e)
                     })?;
                 return connect(runtime_id, workspace).await;
             }
         }
-        managed::connect(
+        super::connect_managed(
             store,
             owner,
+            self.runtime_pool.clone(),
             runtime_id,
             executable,
             workspace,
@@ -425,7 +436,7 @@ impl CodexProvider {
         &self,
         id: &str,
         result: Result<ExecutionRecord, String>,
-        termination: Result<(), super::runtime::RuntimeFailure>,
+        termination: Result<(), super::runtime_adapter::RuntimeFailure>,
     ) -> Result<ExecutionRecord, ExecutionFailure> {
         use crate::agent::task_manager::recovery::{
             RecoveryOutcome, mark_unknown, reconcile_execution_after_runtime_end,
@@ -1032,12 +1043,17 @@ pub(crate) async fn register_codex_provider(
     owner: String,
     runtime_pool: Arc<super::pool::CodexRuntimePool>,
 ) -> Result<(), ProviderError> {
+    let probe_context = crate::agent::task_manager::ProbeContext::from_existing(
+        store.clone(),
+        owner.clone(),
+        runtime_pool.clone(),
+    );
     register_codex_provider_with_discovery(
         registry,
         store,
         owner,
         runtime_pool,
-        super::discovery::discover().await,
+        super::discover(probe_context).await,
     )
 }
 
@@ -1064,44 +1080,8 @@ pub(crate) fn register_codex_provider_with_discovery(
     )
 }
 
-fn provider_run_result(row: ExecutionRecord) -> Result<ProviderRunResult, ProviderError> {
-    let outcome = match row.status.as_str() {
-        "completed" => ProviderOutcome::Completed,
-        "failed" => ProviderOutcome::Failed,
-        "cancelled" => ProviderOutcome::Cancelled,
-        "interrupted" => ProviderOutcome::Interrupted,
-        _ => {
-            return Err(ProviderError {
-                code: ProviderErrorCode::AgentProviderContractError,
-            });
-        }
-    };
-    let result_completeness = match row.result_completeness.as_str() {
-        "unknown" => ProviderResultCompleteness::Unknown,
-        "partial" => ProviderResultCompleteness::Partial,
-        "complete" => ProviderResultCompleteness::Complete,
-        _ => {
-            return Err(ProviderError {
-                code: ProviderErrorCode::AgentProviderContractError,
-            });
-        }
-    };
-    let result = row
-        .final_result_json
-        .map(|value| serde_json::from_str(&value))
-        .transpose()
-        .map_err(|_| ProviderError {
-            code: ProviderErrorCode::AgentProviderContractError,
-        })?;
-    Ok(ProviderRunResult {
-        execution_id: row.id,
-        outcome,
-        result,
-        result_completeness,
-        diagnostic_code: row.error_code,
-    })
-}
-
+/// 测试锁定既有 RecoveryOutcome 投影；生产平台 adapter 使用同一映射语义。
+#[cfg(test)]
 fn provider_reconcile_item(outcome: &RecoveryOutcome) -> ProviderReconcileItem {
     let (subject_id, kind) = match outcome {
         RecoveryOutcome::OrphanRuntime {
@@ -1144,6 +1124,44 @@ fn provider_reconcile_item(outcome: &RecoveryOutcome) -> ProviderReconcileItem {
         ),
     };
     ProviderReconcileItem { subject_id, kind }
+}
+
+fn provider_run_result(row: ExecutionRecord) -> Result<ProviderRunResult, ProviderError> {
+    let outcome = match row.status.as_str() {
+        "completed" => ProviderOutcome::Completed,
+        "failed" => ProviderOutcome::Failed,
+        "cancelled" => ProviderOutcome::Cancelled,
+        "interrupted" => ProviderOutcome::Interrupted,
+        _ => {
+            return Err(ProviderError {
+                code: ProviderErrorCode::AgentProviderContractError,
+            });
+        }
+    };
+    let result_completeness = match row.result_completeness.as_str() {
+        "unknown" => ProviderResultCompleteness::Unknown,
+        "partial" => ProviderResultCompleteness::Partial,
+        "complete" => ProviderResultCompleteness::Complete,
+        _ => {
+            return Err(ProviderError {
+                code: ProviderErrorCode::AgentProviderContractError,
+            });
+        }
+    };
+    let result = row
+        .final_result_json
+        .map(|value| serde_json::from_str(&value))
+        .transpose()
+        .map_err(|_| ProviderError {
+            code: ProviderErrorCode::AgentProviderContractError,
+        })?;
+    Ok(ProviderRunResult {
+        execution_id: row.id,
+        outcome,
+        result,
+        result_completeness,
+        diagnostic_code: row.error_code,
+    })
 }
 
 impl AgentProvider for CodexProvider {
@@ -1227,7 +1245,7 @@ impl AgentProvider for CodexProvider {
         _context: ProviderStartupContext,
     ) -> ProviderFuture<'a, Result<ProviderReconcileSummary, ProviderError>> {
         Box::pin(async move {
-            let outcomes = recover_startup_with_authority(
+            super::runtime_adapter::recover_startup(
                 &self.store,
                 &self.executable,
                 &self.owner,
@@ -1241,9 +1259,6 @@ impl AgentProvider for CodexProvider {
                 } else {
                     ProviderErrorCode::AgentProviderOperationFailed
                 },
-            })?;
-            Ok(ProviderReconcileSummary {
-                items: outcomes.iter().map(provider_reconcile_item).collect(),
             })
         })
     }

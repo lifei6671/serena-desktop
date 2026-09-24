@@ -119,6 +119,7 @@ pub struct ManagerConfig {
     pub remote_access: crate::remote::RemoteAccessConfig,
     pub agent_enabled: bool,
     pub remote_source_write_enabled: bool,
+    pub remote_command_execution_enabled: bool,
     pub agent_success_notification_enabled: bool,
     pub agent_failure_notification_enabled: bool,
     pub agent_system_notification_enabled: bool,
@@ -142,6 +143,7 @@ impl Default for ManagerConfig {
             remote_access: crate::remote::RemoteAccessConfig::default(),
             agent_enabled: false,
             remote_source_write_enabled: false,
+            remote_command_execution_enabled: false,
             agent_success_notification_enabled: true,
             agent_failure_notification_enabled: true,
             agent_system_notification_enabled: true,
@@ -150,7 +152,7 @@ impl Default for ManagerConfig {
             workspace_registry_revision: 1,
             desktop_selected_workspace_id: None,
             serena_path: None,
-            port: 9121,
+            port: 19121,
             dashboard_enabled: true,
             open_dashboard_on_launch: false,
             auto_start_server: true,
@@ -184,7 +186,7 @@ impl ManagerConfig {
             }
         }
         if self.port < 1024 {
-            return Err("MCP 端口必须在 1024–65535 之间。".into());
+            return Err("Serena 内部服务端口必须在 1024–65535 之间。".into());
         }
         if !self.dashboard_enabled && self.open_dashboard_on_launch {
             return Err("Dashboard 已关闭时不能配置为启动时自动打开。".into());
@@ -515,17 +517,20 @@ mod tests {
     }
 
     #[test]
-    fn old_serena_port_9120_loads_with_disabled_broker() {
+    fn old_serena_port_9120_loads_with_new_broker_default() {
         let mut config: ManagerConfig = serde_json::from_str(r#"{"port":9120}"#).unwrap();
         assert!(!config.broker.enabled);
+        assert_eq!(config.broker.port, 19120);
         assert!(config.validate().is_ok());
         config.broker.enabled = true;
-        assert!(config.validate().is_err());
+        assert!(config.validate().is_ok());
     }
 
     #[test]
     fn default_config_is_valid() {
         let config = ManagerConfig::default();
+        assert_eq!(config.port, 19121);
+        assert_eq!(config.broker.port, 19120);
         assert_eq!(config.workspace_registry_revision, 1);
         assert_eq!(config.desktop_selected_workspace_id, None);
         assert!(config.agent_success_notification_enabled);
@@ -533,6 +538,39 @@ mod tests {
         assert!(config.agent_system_notification_enabled);
         assert!(config.agent_sound_enabled);
         assert!(config.validate().is_ok());
+    }
+
+    /// 验证缺失端口采用新默认值，显式旧端口继续按用户配置加载。
+    #[test]
+    fn serena_port_defaults_only_when_missing_and_preserves_explicit_legacy_port() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        fs::write(&path, "{}").unwrap();
+        let missing_port = load(&path).unwrap();
+        assert_eq!(missing_port.port, 19121);
+        assert_eq!(missing_port.broker.port, 19120);
+
+        fs::write(&path, r#"{"port":9121}"#).unwrap();
+        let explicit_legacy_port = load(&path).unwrap();
+        assert_eq!(explicit_legacy_port.port, 9121);
+        assert_eq!(fs::read_to_string(&path).unwrap(), r#"{"port":9121}"#);
+
+        let mut invalid_port = missing_port;
+        invalid_port.port = 1023;
+        assert_eq!(
+            invalid_port.validate().unwrap_err(),
+            "Serena 内部服务端口必须在 1024–65535 之间。"
+        );
+    }
+
+    #[test]
+    fn missing_broker_uses_new_default_and_explicit_legacy_port_is_preserved() {
+        let new_config: ManagerConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(new_config.broker.port, 19120);
+
+        let legacy_config: ManagerConfig =
+            serde_json::from_str(r#"{"broker":{"enabled":false,"port":9120}}"#).unwrap();
+        assert_eq!(legacy_config.broker.port, 9120);
     }
 
     #[test]
@@ -670,6 +708,21 @@ mod tests {
     }
 
     #[test]
+    fn remote_command_execution_is_opt_in_and_persisted() {
+        let mut config: ManagerConfig = serde_json::from_str("{}").unwrap();
+        assert!(!config.remote_command_execution_enabled);
+        config.remote_command_execution_enabled = true;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        save(&path, &config).unwrap();
+        assert!(load(&path).unwrap().remote_command_execution_enabled);
+        assert_eq!(
+            serde_json::to_value(&config).unwrap()["remoteCommandExecutionEnabled"],
+            true
+        );
+    }
+
+    #[test]
     fn remote_source_write_is_opt_in_and_persisted() {
         let mut config: ManagerConfig = serde_json::from_str("{}").unwrap();
         assert!(!config.remote_source_write_enabled);
@@ -792,10 +845,11 @@ pub struct BrokerConfig {
     pub allow_lan: bool,
 }
 impl Default for BrokerConfig {
+    /// 为未持久化 Broker 配置提供新的低冲突默认端口。
     fn default() -> Self {
         Self {
             enabled: false,
-            port: 9120,
+            port: 19120,
             allow_lan: false,
         }
     }

@@ -112,10 +112,10 @@ pub fn safe_relative(root: &Path, value: &str) -> Result<PathBuf, String> {
     }
     Ok(resolved)
 }
-#[cfg(test)]
+// 进程树清理由 Windows API 与命令提供。
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
-    #[cfg(windows)]
     #[tokio::test]
     async fn cancellation_and_timeout_reap_commands() {
         for cancelled in [true, false] {
@@ -138,7 +138,6 @@ mod tests {
             );
         }
     }
-    #[cfg(windows)]
     #[test]
     fn rejects_junction_escape() {
         let dir = tempfile::tempdir().unwrap();

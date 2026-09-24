@@ -2859,47 +2859,48 @@ WORKSPACE_CLAIM_INCONSISTENT
 
 ---
 
-# 49. Codex Version Contract
+# 49. Codex Compatibility Contract
 
-SerenaDesktop Release 必须针对一个明确测试过的 Codex CLI / App Server 版本完成兼容性验收。
+SerenaDesktop 不承诺“任意 Codex 版本自动兼容”，但当前准入 Authority 也不再以单一 version / binary SHA-256 / 完整 schema SHA-256 白名单决定兼容性。
 
-运行时至少执行：
+候选 Codex 必须先通过平台自己的 executable preflight，例如 Windows 的受管 executable 边界或 macOS 的 regular file、execute bit、canonical path、Mach-O 与 ARM64 slice 校验。通过平台预检后，兼容性探针只执行受管 CLI：
 
 ```text
 codex --version
+codex app-server generate-json-schema --experimental --out <bounded-temp-dir>
 ```
 
-并记录到日志。
-
-V0.4 不要求实现通用：
+探针不启动 App Server，不发送 initialize 或任何业务 JSON-RPC。它必须记录：
 
 ```text
-任意 Codex 版本自动兼容
+codex version
+binary SHA-256
+generated protocol schema SHA-256
+platform / architecture
 ```
 
-如果 App Server initialize 或必需方法与当前契约不兼容：
+这些值属于 Runtime identity、诊断和回归 Evidence，不是精确准入白名单。
+
+当前兼容性判断由 Windows/macOS 共用的必要 JSON Schema 子集校验器完成，只验证 SerenaDesktop 实际依赖的协议能力，包括：
 
 ```text
-CODEX_APP_SERVER_INCOMPATIBLE
+Client Request / Notification methods
+Server Notification / Request methods
+关键 request/response/notification 字段及类型
+Thread / Turn / ThreadItem 必要变体
+Token Usage 等已消费结构
 ```
 
-不得降级绕过：
+兼容规则固定为：
 
-```text
-Background Terminal Evidence
-Job Evidence
-Atomic Claim Release
-```
+- 新增方法、定义或可选字段属于向后兼容扩展，不应仅因完整 schema hash 变化而拒绝；
+- 缺少 SerenaDesktop 必需的方法、字段、变体，或关键字段类型发生不兼容变化时返回 `CODEX_APP_SERVER_INCOMPATIBLE`；
+- version、binary SHA-256 或完整 schema SHA-256 与历史已验证值不同，不单独构成拒绝理由；
+- schema probe 通过只表示“静态必要协议形状兼容”，不能替代正式 Runtime 的 initialize / initialized、JSONL framing、Provider lifecycle、History Recovery、Background Terminal Cleanup、Runtime termination evidence 和 Atomic Claim Release。
 
-等安全契约。
+如果正式 Runtime 的 initialize、实际 wire response、分页、后台清理、归属或终态语义与本文安全契约不一致，必须 fail closed，并在影响既有 Runtime Safety Contract 时报告 **Material Contract Difference**。不得因为 schema probe 通过而猜测缺失行为、删减分页验证、把 accepted 当 empty、自动切换恢复路径或弱化任何可靠性契约。
 
-Codex Experimental API 的变化必须作为后续 Runtime Contract 变更处理。
-
-本次依据[官方 App Server 文档](https://learn.chatgpt.com/docs/app-server)核对了 stdio JSONL、初始化顺序及后台终端分页能力；本文请求示例不是已固定版本的完整 API Schema。`clean` 成功仅被本控制面视为 accepted，这是安全证据规则，不是对其所有内部行为的推测。
-
-实施 Phase 3 前必须选择并记录实际 Codex 精确版本、codex.exe 路径和二进制摘要，使用该版本导出的 JSON Schema/协议定义（先核验该版本工具用法）及真实 Contract Test 冻结 request、response、Server Request、Notification 字段和终态映射。记录 schema SHA-256、Windows 版本及测试结果。未验证版本不进入兼容白名单；SerenaDesktop release 只承诺兼容该白名单版本，不承诺任意 Codex App Server 版本。
-
-如固定版本在初始化、后台清理分页、归属或终态语义上与正文不同，立即停止受影响实现并报告 **Material Contract Difference**：实际版本与证据、具体字段/行为差异、影响的正文契约、需要用户决定的事项。不得猜测 Schema、删减分页验证、把 accepted 当 empty、自动换执行路径或弱化任何可靠性契约。无关且已授权的 State Store 工作可继续。
+历史固定版本的 version/hash/schema 仍可作为 Contract Test fixture、回归基线或专项 Evidence；它们不再自动定义所有后续 Codex 版本的全局兼容白名单。
 
 ---
 

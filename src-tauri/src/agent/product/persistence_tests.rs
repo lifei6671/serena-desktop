@@ -703,6 +703,7 @@ fn work_adapter_queries_are_passive_and_inactive_work_cancels_running_execution(
                     acceptance: Some(HostAcceptance {
                         summary: "Host review".into(),
                         execution_ids: vec![],
+                        command_run_ids: vec![],
                     }),
                 },
                 None,

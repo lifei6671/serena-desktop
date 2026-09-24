@@ -730,11 +730,21 @@ pub fn orchestration_contract_diagnostic(enabled: bool, descriptors: &[Tool]) ->
 /// 返回完全由 Broker 本地定义的公开 Tool surface；Discovery 不连接 Serena。
 #[cfg(test)]
 pub fn list(agent_enabled: bool) -> Vec<Tool> {
-    list_with_source_write(agent_enabled, false)
+    list_with_capabilities(agent_enabled, false, false)
 }
 
-/// 返回当前 Broker 配置允许公开的 Tool surface；写工具仅受本地持久化开关控制。
+/// 兼容现有测试；Command 工具默认不加入旧 helper 的 surface。
+#[cfg(test)]
 pub fn list_with_source_write(agent_enabled: bool, remote_source_write_enabled: bool) -> Vec<Tool> {
+    list_with_capabilities(agent_enabled, remote_source_write_enabled, false)
+}
+
+/// 返回当前 Broker 配置允许公开的完整 Tool surface。
+pub fn list_with_capabilities(
+    agent_enabled: bool,
+    remote_source_write_enabled: bool,
+    remote_command_execution_enabled: bool,
+) -> Vec<Tool> {
     let mut list = vec![
         tool(
             "workspace_list",
@@ -813,9 +823,15 @@ pub fn list_with_source_write(agent_enabled: bool, remote_source_write_enabled: 
     if agent_enabled {
         list.extend(super::orchestration::descriptors());
     }
+    if remote_command_execution_enabled {
+        list.extend(super::command::descriptors());
+    }
     list
 }
 pub fn validate(name: &str, args: &Value) -> Result<(), String> {
+    if super::command::contains(name) {
+        return super::command::validate(name, args);
+    }
     if super::orchestration::contains(name) {
         return super::orchestration::validate(name, args);
     }
@@ -1228,7 +1244,7 @@ mod tests {
             ),
             (
                 "agent_execute",
-                "545a7f6f77331ad3a44b22a308f9c3517a897612ffa2a7e8b987644c02b8a63c",
+                "96bf4a39676c38b508b76d95d7e61290a8a51f323f4d70af9b73957a7f51878b",
             ),
         ] {
             let tool = tools.iter().find(|tool| tool.name == name).unwrap();
@@ -1361,6 +1377,39 @@ mod tests {
                 .collect::<Vec<_>>(),
             disabled
         );
+    }
+
+    #[test]
+    fn command_toggle_only_adds_query_and_execute_descriptors() {
+        let disabled = list_with_capabilities(true, false, false);
+        let enabled = list_with_capabilities(true, false, true);
+        let disabled_names = disabled
+            .iter()
+            .map(|tool| tool.name.as_ref())
+            .collect::<std::collections::HashSet<_>>();
+        let added = enabled
+            .iter()
+            .filter(|tool| !disabled_names.contains(tool.name.as_ref()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(added.len(), 2);
+        assert_eq!(
+            added
+                .iter()
+                .map(|tool| tool.name.as_ref())
+                .collect::<std::collections::HashSet<_>>(),
+            super::super::command::NAMES.into_iter().collect()
+        );
+        for tool in added {
+            let annotations = tool.annotations.as_ref().unwrap();
+            if tool.name == "command_query" {
+                assert_eq!(annotations.read_only_hint, Some(true));
+                assert_eq!(annotations.destructive_hint, Some(false));
+            } else {
+                assert_eq!(annotations.read_only_hint, Some(false));
+                assert_eq!(annotations.destructive_hint, Some(true));
+            }
+        }
     }
 
     #[test]
@@ -1981,6 +2030,38 @@ mod tests {
     }
 
     #[test]
+    fn execution_descriptions_route_known_commands_and_iterative_coding() {
+        // 从公开的 Tool 列表检查路由提示，避免只验证模块内的文案常量。
+        let tools = list_with_capabilities(true, false, true);
+        let agent = tools
+            .iter()
+            .find(|tool| tool.name == "agent_execute")
+            .and_then(|tool| tool.description.as_deref())
+            .unwrap();
+        for phrase in [
+            "方案已明确",
+            "阅读代码、修改实现、根据中间结果调整并完成验证",
+            "优先使用 command_execute",
+            "command_execute 能完成的确定性命令不应转交 Agent",
+        ] {
+            assert!(agent.contains(phrase), "agent_execute: {phrase}");
+        }
+
+        let command = tools
+            .iter()
+            .find(|tool| tool.name == "command_execute")
+            .and_then(|tool| tool.description.as_deref())
+            .unwrap();
+        for phrase in [
+            "Git 写操作、构建、测试、包管理、脚本、本地诊断",
+            "executable/args 或 shell command 已确定时优先使用",
+            "自主读代码、修改实现并根据结果迭代，应使用 agent_execute",
+        ] {
+            assert!(command.contains(phrase), "command_execute: {phrase}");
+        }
+    }
+
+    #[test]
     fn list_succeeds_without_upstream_or_serena() {
         let tools = list(true);
         for &name in LOCAL_SOURCES.iter().chain(SEMANTIC_SOURCES) {
@@ -2153,8 +2234,7 @@ mod agent_contract_tests {
         }
         let description = agent.description.as_deref().unwrap();
         for contract in [
-            "ChatGPT",
-            "Review",
+            "复合编码任务",
             "continue",
             "新 Execution",
             "Thread",

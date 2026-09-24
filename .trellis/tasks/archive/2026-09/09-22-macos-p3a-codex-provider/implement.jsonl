@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "约束 Provider、managed adapter、Runtime、Store 与 recovery 的跨层数据流和单一验证边界"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "禁止复制 Provider/Pool，并复用既有 Runtime 与 recovery 契约"}

@@ -16,8 +16,7 @@ fn paths(root: &std::path::Path) -> AppPaths {
 }
 fn configuration() -> ManagerConfig {
     let mut config = ManagerConfig::default();
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    config.broker.port = listener.local_addr().unwrap().port();
+    config.broker.port = crate::test_support::broker_loopback_port();
     config
 }
 fn broker(paths: AppPaths) -> Arc<Broker> {
@@ -205,7 +204,7 @@ async fn self_hosted_first_listener_request_has_metadata_and_complete_challenge(
 async fn self_hosted_bind_failure_restores_previous_runtime_and_config() {
     let directory = tempfile::tempdir().unwrap();
     let paths = paths(directory.path());
-    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let occupied = crate::test_support::broker_loopback_listener();
     let mut config = configuration();
     config.broker.port = occupied.local_addr().unwrap().port();
     config.remote_access.mode = RemoteAccessMode::SelfHostedOAuth;
@@ -457,7 +456,7 @@ async fn listener_bind_failure_rolls_back_config_and_policy_before_returning() {
     let directory = tempfile::tempdir().unwrap();
     let paths = paths(directory.path());
     let mut config = configuration();
-    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let occupied = crate::test_support::broker_loopback_listener();
     config.broker.port = occupied.local_addr().unwrap().port();
     config::save(&paths.config_file, &config).unwrap();
     let broker = broker(paths.clone());
@@ -1034,7 +1033,7 @@ async fn oauth_transition_protects_existing_listener_before_slow_persistence() {
 async fn bind_and_rollback_failure_converge_to_protected_error() {
     let directory = tempfile::tempdir().unwrap();
     let paths = paths(directory.path());
-    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let occupied = crate::test_support::broker_loopback_listener();
     let mut config = configuration();
     config.broker.port = occupied.local_addr().unwrap().port();
     config::save(&paths.config_file, &config).unwrap();

@@ -21,7 +21,7 @@ async fn isolated_quick_tunnel_host() {
         serena_log: root.join("logs/serena.log"),
     };
     let mut config = ManagerConfig::default();
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = crate::test_support::broker_loopback_listener();
     config.broker.port = listener.local_addr().unwrap().port();
     drop(listener);
     crate::config::save(&paths.config_file, &config).unwrap();

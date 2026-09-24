@@ -8,7 +8,7 @@
   开源 · 多种 Agent 协作 · 会话与工作区 · 内网穿透<br>
 </p>
 <p align="center">
-    <a href="https://github.com/lifei6671/serena-desktop/releases">下载 Windows 版本</a> ·
+    <a href="https://github.com/lifei6671/serena-desktop/releases">下载 Windows / macOS 版本</a> ·
     <a href="#快速开始">快速开始</a>  · <a href="#连接之后你可以这样说">看看可以怎么用</a> ·
     <a href="https://github.com/lifei6671/serena-desktop/issues">反馈与建议</a>
 </p>
@@ -101,13 +101,15 @@ ChatGPT 获取执行结果，检查变更，与你继续迭代
 
 ### 1. 准备本地环境
 
-从 [Releases](https://github.com/lifei6671/serena-desktop/releases) 下载 Windows 版本。预先安装 Git，在 Serena Desktop 中检测或安装官方 Serena，并启动服务。
+从 [Releases](https://github.com/lifei6671/serena-desktop/releases) 下载 Windows x64 安装包，或适用于 Apple Silicon（arm64）的 macOS DMG。预先安装 Git，在 Serena Desktop 中检测或安装官方 Serena，并启动服务。
+
+macOS 首版要求 macOS 12.0 或更高版本，不支持 Intel Mac。打开 DMG，将 `Serena Desktop.app` 拖入 `Applications`。此版本使用 ad-hoc 签名，未经过 Apple Developer ID 公证。首次打开若被 Gatekeeper 拦截，先尝试打开应用，再进入“系统设置 → 隐私与安全性”选择“仍要打开”，并在弹窗中再次确认。后续可从“应用程序”启动。首次使用局域网 MCP/Broker 时，请按系统提示允许本地网络访问。
 
 如果希望 ChatGPT 指挥 Codex 工作，还需要本机已安装、完成登录且可用的 Codex，并在 Serena Desktop 中启用 Agent 能力。
 
 ### 2. 连接你的项目
 
-在 Git 仓库根目录打开 PowerShell，初始化 Serena 项目并建立索引：
+在 Git 仓库根目录打开终端（Windows 可用 PowerShell），初始化 Serena 项目并建立索引：
 
 ```powershell
 serena project create --index
@@ -200,7 +202,7 @@ serena project index
 <details>
 <summary>本地开发</summary>
 
-需要 Node.js `^20.19.0` 或 `>=22.12.0`、npm、Rust 和 Tauri 2 的 Windows 构建依赖。
+需要 Node.js `^20.19.0` 或 `>=22.12.0`、npm、Rust，以及目标平台的 Tauri 2 构建依赖。macOS 构建需 Apple Silicon Mac、Xcode Command Line Tools；Windows 构建需 Windows 工具链。
 
 ```powershell
 npm install
@@ -218,7 +220,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 npm run tauri build
 ```
 
-当前配置关闭安装包 bundling，构建产物为 `src-tauri/target/release/serena-desktop.exe`。自动发布流程见 [Release 工作流](.github/workflows/release.yml)。
+Windows 使用 NSIS 安装包，macOS 使用 ad-hoc 签名的 `.app` 与 `.dmg`。在 macOS 上运行 `npm run tauri build` 后，可用 `node scripts/verify-macos-release.mjs` 验证 DMG；自动发布流程见 [Release 工作流](.github/workflows/release.yml)。
 
 </details>
 

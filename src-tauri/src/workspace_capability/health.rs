@@ -1,7 +1,7 @@
 //! Workspace capability health 的只读、Descriptor 驱动投影。
 
 use super::{
-    CapabilityAction, CapabilityAvailability, CapabilityInstallationState, CapabilityObservation,
+    CapabilityAvailability, CapabilityInstallationState, CapabilityObservation,
     CapabilityReadinessState, CapabilityRuntimeState, CapabilityStage, CapabilityStageState,
     RuntimeSlotKey, WorkspaceCapabilityDescriptor, WorkspaceCapabilityManager,
     WorkspaceCapabilityProvider, lock_unpoisoned,
@@ -37,7 +37,6 @@ pub(crate) struct WorkspaceProviderHealth {
     pub(crate) runtime_state: CapabilityRuntimeState,
     pub(crate) checked_at: u64,
     pub(crate) stages: Vec<CapabilityStage>,
-    pub(crate) actions: Vec<CapabilityAction>,
 }
 
 /// Provider task 只保留安全枚举和 observation，不把原始错误跨越投影边界。
@@ -48,7 +47,7 @@ enum ProviderObserveResult {
 }
 
 impl WorkspaceCapabilityManager {
-    /// 并行形成指定 Lease 的新鲜 health snapshot，绝不启动 Runtime 或执行准备动作。
+    /// 并行形成指定 Lease 的新鲜 health snapshot，不启动 Runtime。
     pub(crate) async fn observe_health(&self, lease: WorkspaceLease) -> WorkspaceCapabilityHealth {
         let mut observations = JoinSet::new();
         let mut providers = BTreeMap::new();
@@ -157,7 +156,6 @@ fn project_provider_health(
                 runtime_state,
                 checked_at: observation.checked_at,
                 stages: project_stages(descriptor, &observation),
-                actions: descriptor_actions(descriptor),
             }
         }
         ProviderObserveResult::Observation(_) => failure_projection(
@@ -181,7 +179,6 @@ fn unavailable_projection(
         runtime_state,
         checked_at: current_checked_at(),
         stages: descriptor_stages(descriptor, CapabilityStageState::Unknown),
-        actions: descriptor_actions(descriptor),
     }
 }
 
@@ -216,15 +213,10 @@ fn failure_projection(
         } else {
             Default::default()
         },
-        actions: if descriptor_valid {
-            descriptor_actions(descriptor)
-        } else {
-            Default::default()
-        },
     }
 }
 
-/// stage/action 必须一一对应 Descriptor；Provider 无权覆盖静态显示和执行元数据。
+/// Stage 必须一一对应 Descriptor；Provider 无权覆盖静态显示元数据。
 fn observation_matches_descriptor(
     descriptor: &WorkspaceCapabilityDescriptor,
     observation: &CapabilityObservation,
@@ -239,13 +231,6 @@ fn observation_matches_descriptor(
                 .map(|stage| stage.id.as_str()),
             observation.stages.iter().map(|stage| stage.id.as_str()),
         )
-        && same_unique_ids(
-            descriptor
-                .action_descriptors
-                .iter()
-                .map(|action| action.action_id.as_str()),
-            observation.actions.iter().map(|action| action.id.as_str()),
-        )
 }
 
 /// 只接受非空且不重复的 Descriptor identity，防止错误 Provider 形成歧义投影。
@@ -255,11 +240,6 @@ fn descriptor_identities_are_valid(descriptor: &WorkspaceCapabilityDescriptor) -
             .stage_descriptors
             .iter()
             .map(|stage| stage.id.as_str()),
-    ) && unique_nonempty(
-        descriptor
-            .action_descriptors
-            .iter()
-            .map(|action| action.action_id.as_str()),
     )
 }
 
@@ -325,20 +305,6 @@ fn descriptor_stages(
         .collect()
 }
 
-/// action 的名称、Authority 与执行方式只由编译期 Descriptor 提供。
-fn descriptor_actions(descriptor: &WorkspaceCapabilityDescriptor) -> Vec<CapabilityAction> {
-    descriptor
-        .action_descriptors
-        .iter()
-        .map(|action| CapabilityAction {
-            id: action.action_id.clone(),
-            display_name: action.display_name.clone(),
-            authority: action.authority,
-            execution: action.execution,
-        })
-        .collect()
-}
-
 /// 失败投影自带本次时间戳，但永不将时间写入 Workspace Authority。
 fn current_checked_at() -> u64 {
     SystemTime::now()
@@ -351,11 +317,10 @@ fn current_checked_at() -> u64 {
 mod tests {
     use super::*;
     use crate::workspace_capability::{
-        CapabilityActionAuthority, CapabilityActionDescriptor, CapabilityActionExecution,
-        CapabilityFuture, CapabilityInstallation, CapabilityPrepareAction, CapabilityPrepareResult,
-        CapabilityProviderError, CapabilityProviderErrorCode, CapabilityReadinessProbe,
-        CapabilityRuntimeHandle, CapabilityRuntimeModel, CapabilityRuntimePolicy,
-        CapabilityStageDescriptor, CapabilityStageRequirement, CapabilityStopFailure, StopEvidence,
+        CapabilityFuture, CapabilityInstallation, CapabilityProviderError,
+        CapabilityProviderErrorCode, CapabilityReadinessProbe, CapabilityRuntimeHandle,
+        CapabilityRuntimeModel, CapabilityRuntimePolicy, CapabilityStageDescriptor,
+        CapabilityStageRequirement, CapabilityStopFailure, StopEvidence,
         WorkspaceCapabilityProviderId, WorkspaceCapabilityRegistry, WorkspaceToolCall,
         WorkspaceToolResult,
     };
@@ -374,12 +339,11 @@ mod tests {
         observation: Mutex<Result<CapabilityObservation, CapabilityProviderError>>,
         probes: AtomicUsize,
         observations: AtomicUsize,
-        prepares: AtomicUsize,
         starts: AtomicUsize,
     }
 
     impl HealthProvider {
-        /// 构造一个提供单 stage/action 的纯 observation fake。
+        /// 构造一个提供单 stage 的纯 observation fake。
         fn new(id: &str, installation: CapabilityInstallationState) -> Arc<Self> {
             let descriptor = test_descriptor(id);
             let observation = ready_observation(&descriptor, CapabilityReadinessState::Ready);
@@ -389,7 +353,6 @@ mod tests {
                 observation: Mutex::new(Ok(observation)),
                 probes: AtomicUsize::new(0),
                 observations: AtomicUsize::new(0),
-                prepares: AtomicUsize::new(0),
                 starts: AtomicUsize::new(0),
             })
         }
@@ -430,17 +393,6 @@ mod tests {
             Box::pin(async move { observation })
         }
 
-        fn prepare<'a>(
-            &'a self,
-            _lease: WorkspaceLease,
-            _action: CapabilityPrepareAction,
-            _activity: &'a dyn super::super::CapabilityActivitySink,
-        ) -> CapabilityFuture<'a, Result<CapabilityPrepareResult, CapabilityProviderError>>
-        {
-            self.prepares.fetch_add(1, Ordering::SeqCst);
-            Box::pin(async { panic!("health observation must not prepare") })
-        }
-
         fn start(
             &self,
             _lease: WorkspaceLease,
@@ -475,18 +427,10 @@ mod tests {
             tool_names: vec![format!("{id}_tool")],
             runtime_model: CapabilityRuntimeModel::WorkspaceScopedProcess,
             readiness_probe: CapabilityReadinessProbe::Required,
-            preparation_policy: super::super::CapabilityPreparationPolicy::ExplicitOnly,
             stage_descriptors: vec![CapabilityStageDescriptor {
                 id: "index".into(),
                 display_name: "Descriptor index".into(),
                 requirement: CapabilityStageRequirement::Required,
-            }],
-            action_descriptors: vec![CapabilityActionDescriptor {
-                action_id: "prepare_index".into(),
-                display_name: "Descriptor prepare".into(),
-                authority: CapabilityActionAuthority::LocalHuman,
-                execution: CapabilityActionExecution::ProviderPrepare,
-                warm_runtime: false,
             }],
             runtime_policy: CapabilityRuntimePolicy {
                 max_instances: 2,
@@ -513,12 +457,6 @@ mod tests {
                 state: CapabilityStageState::Ready,
                 requirement: CapabilityStageRequirement::Optional,
                 message_code: Some("INDEX_READY".into()),
-            }],
-            actions: vec![CapabilityAction {
-                id: "prepare_index".into(),
-                display_name: "Untrusted provider action".into(),
-                authority: CapabilityActionAuthority::LocalHuman,
-                execution: CapabilityActionExecution::ManagerEnsureRuntime,
             }],
         }
     }
@@ -580,8 +518,12 @@ mod tests {
             ready_health.stages[0].message_code.as_deref(),
             Some("INDEX_READY")
         );
-        assert_eq!(ready_health.actions[0].display_name, "Descriptor prepare");
-        assert_eq!(ready.prepares.load(Ordering::SeqCst), 0);
+        assert!(
+            serde_json::to_value(ready_health)
+                .unwrap()
+                .get("actions")
+                .is_none()
+        );
         assert_eq!(ready.starts.load(Ordering::SeqCst), 0);
     }
 
@@ -716,12 +658,11 @@ mod tests {
         ] {
             assert!(!wire.contains(forbidden), "health wire leaked {forbidden}");
         }
-        assert_eq!(provider.prepares.load(Ordering::SeqCst), 0);
         assert_eq!(provider.starts.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
-    async fn health_projection_isolates_provider_id_and_action_identity_mismatches() {
+    async fn health_projection_isolates_provider_id_and_stage_identity_mismatches() {
         let provider_id_mismatch = HealthProvider::new(
             "third-provider-mismatch",
             CapabilityInstallationState::Installed,
@@ -733,23 +674,21 @@ mod tests {
         wrong_provider.provider_id = WorkspaceCapabilityProviderId::new("another-provider");
         provider_id_mismatch.set_observation(Ok(wrong_provider));
 
-        let action_mismatch = HealthProvider::new(
-            "third-action-mismatch",
+        let stage_mismatch = HealthProvider::new(
+            "third-stage-mismatch",
             CapabilityInstallationState::Installed,
         );
-        let mut duplicate_action = ready_observation(
-            action_mismatch.descriptor(),
-            CapabilityReadinessState::Ready,
-        );
-        duplicate_action
-            .actions
-            .push(duplicate_action.actions[0].clone());
-        action_mismatch.set_observation(Ok(duplicate_action));
+        let mut duplicate_stage =
+            ready_observation(stage_mismatch.descriptor(), CapabilityReadinessState::Ready);
+        duplicate_stage
+            .stages
+            .push(duplicate_stage.stages[0].clone());
+        stage_mismatch.set_observation(Ok(duplicate_stage));
 
         let normal = HealthProvider::new("fourth-normal", CapabilityInstallationState::Installed);
         let manager = health_manager(vec![
             Arc::clone(&provider_id_mismatch),
-            Arc::clone(&action_mismatch),
+            Arc::clone(&stage_mismatch),
             Arc::clone(&normal),
         ]);
 
@@ -759,7 +698,7 @@ mod tests {
             CapabilityAvailability::Error
         );
         assert_eq!(
-            health.providers["third-action-mismatch"].status,
+            health.providers["third-stage-mismatch"].status,
             CapabilityAvailability::Error
         );
         assert_eq!(

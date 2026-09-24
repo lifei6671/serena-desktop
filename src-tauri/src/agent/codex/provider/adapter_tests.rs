@@ -122,7 +122,7 @@ fn execution_failures_map_to_the_provider_boundary_without_runtime_identity() {
     );
     assert_eq!(
         provider_execution_failure(ExecutionFailure::Runtime(
-            super::super::runtime::RuntimeFailure {
+            super::super::runtime_adapter::RuntimeFailure {
                 code: "CODEX_RUNTIME_TEST_FAILED",
                 message: "safe diagnostic".into(),
                 runtime: None,
@@ -135,8 +135,8 @@ fn execution_failures_map_to_the_provider_boundary_without_runtime_identity() {
     );
 }
 
-fn runtime_failure(code: &'static str) -> super::super::runtime::RuntimeFailure {
-    super::super::runtime::RuntimeFailure {
+fn runtime_failure(code: &'static str) -> super::super::runtime_adapter::RuntimeFailure {
+    super::super::runtime_adapter::RuntimeFailure {
         code,
         message: "private runtime failure".into(),
         runtime: None,
@@ -1598,6 +1598,7 @@ fn trait_startup_reconcile_projects_shared_recovery_errors_to_operation_failed()
 }
 
 #[test]
+#[cfg(windows)]
 fn registered_backend_diagnostics_reach_startup_recovery_without_summary_leakage() {
     run(async {
         let source = include_str!("../provider.rs");

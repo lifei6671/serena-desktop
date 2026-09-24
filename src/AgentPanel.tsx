@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { api } from "./api";
 import { agentRequests } from "./agentRequests";
-import { executionStatus, executionTime, executionDuration, executionWorkspace, resultText, taskSummary, taskTitle } from "./agentPresentation";
+import { executionStatus, executionTime, executionDuration, executionWorkspace, resultText, showExecutionDiagnostic, taskSummary, taskTitle } from "./agentPresentation";
 const ExecutionDetails = lazy(() => import("./ExecutionDetails").then(module => ({ default: module.ExecutionDetails })));
 import type { AgentAction, ExecutionView, Workspace } from "./types";
 
@@ -316,11 +316,10 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
         const status = executionStatus(row);
         const title = taskTitle(row);
         const duration = `${row.status === "running" || row.progress?.phase === "dispatching" ? "已运行" : "耗时"} ${executionDuration(row)}`;
-        const error = [row.errorCode, row.errorMessage].filter((value): value is string => !!value).join(" · ");
         return <article className={`agent-task-card tone-${status.tone}`} key={row.executionId}>
           <div className="agent-task-main"><div className="agent-task-title"><StatusIcon tone={status.tone} /><TooltipHint content={title}><h3 tabIndex={0}>{title}</h3></TooltipHint></div>
             <div className="agent-meta"><TooltipHint content={row.canonicalWorkspaceRoot}><span tabIndex={0}>{executionWorkspace(row, [...workspaces, ...(workspace ? [workspace] : [])])}</span></TooltipHint><span>·</span><TooltipHint content={executionTime(row.createdAt)}><time tabIndex={0} dateTime={new Date(row.createdAt).toISOString()}>{executionTime(row.createdAt)}</time></TooltipHint><span>·</span><span>{duration}</span></div>
-            {error ? <p className="agent-task-error">{row.errorCode && <code>{row.errorCode}</code>}{row.errorMessage && <span>{row.errorMessage}</span>}</p> : <p className="agent-task-summary">{row.status === "completed" ? taskSummary(resultText(row.finalResult)) || status.description : status.description}</p>}
+            {showExecutionDiagnostic(row) ? <p className="agent-task-error">{row.errorCode && <code>{row.errorCode}</code>}{row.errorMessage && <span>{row.errorMessage}</span>}</p> : <p className="agent-task-summary">{row.status === "completed" ? taskSummary(resultText(row.finalResult)) || status.description : status.description}</p>}
           </div><div className="agent-task-side"><span className={`agent-status tone-${status.tone}`}><StatusIcon tone={status.tone} />{status.label}</span><div className="agent-row-actions agent-task-actions">
               {row.availableActions.canResumePending && <Button variant="outline" size="sm" disabled={disabled || !!listError} onClick={() => void operate({ action: "resume_pending", executionId: row.executionId })}>恢复任务</Button>}
               {row.availableActions.canCancel && <Button variant="ghost" size="sm" disabled={disabled || !!listError} onClick={() => void operate({ action: "cancel", executionId: row.executionId })}>取消任务</Button>}
@@ -333,6 +332,6 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
       {(nextCursor || loadingMore) && <div className="agent-load-more"><Button className="agent-load-more-button" variant="outline" disabled={loadingMore || refreshing || busy} aria-busy={loadingMore} data-state={loadingMore ? "loading" : moreError ? "retry" : "idle"} onClick={() => void loadMore()}><span className="agent-load-more-icon-slot" aria-hidden="true"><ChevronDown className="agent-load-more-icon-idle" /><LoaderCircle className="agent-load-more-icon-loading" /><RefreshCw className="agent-load-more-icon-retry" /></span><span className="agent-load-more-label">{loadingMore ? "正在加载…" : moreError ? "重试加载更多" : "展开更多（5条）"}</span></Button></div>}
     </section>
     </div>
-    {detail && detailView && <Suspense fallback={<p role="status">正在加载任务详情…</p>}><ExecutionDetails row={detail} workspaceName={executionWorkspace(detail, [...workspaces, ...(workspace ? [workspace] : [])])} feedback={feedback} busy={busy} loading={detailLoading} error={detailError} disabled={disabled} onReload={() => void openDetails(detail.executionId, detail)} onOperate={operate} onManualResolve={manualResolve} /></Suspense>}
+    {detail && detailView && <Suspense fallback={<p role="status">正在加载任务详情…</p>}><ExecutionDetails row={detail} workspaceName={executionWorkspace(detail, [...workspaces, ...(workspace ? [workspace] : [])])} busy={busy} loading={detailLoading} error={detailError} disabled={disabled} onReload={() => void openDetails(detail.executionId, detail)} onOperate={operate} onManualResolve={manualResolve} /></Suspense>}
   </section></>;
 }

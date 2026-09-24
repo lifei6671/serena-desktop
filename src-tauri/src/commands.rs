@@ -161,45 +161,6 @@ pub async fn workspace_remove(
     remove_workspace(&supervisor, &product, &id).await
 }
 
-/// Preparation Activity 仅发给本地 Tauri；不进入 Agent EventSink 或 Remote MCP。
-struct LocalCapabilityActivitySink(AppHandle);
-
-impl crate::workspace_capability::CapabilityActivitySink for LocalCapabilityActivitySink {
-    /// 仅序列化 Capability Manager 的安全投影。
-    fn publish<'a>(
-        &'a self,
-        activity: crate::workspace_capability::CapabilityActivity,
-    ) -> crate::workspace_capability::CapabilityFuture<'a, ()> {
-        Box::pin(async move {
-            use tauri::Emitter;
-            let _ = self.0.emit("workspace-capability-activity", activity);
-        })
-    }
-}
-
-/// 本地入口只通过 WorkspaceResolver 取得 Lease，不读取 Desktop selection。
-pub(crate) async fn prepare_workspace_capability(
-    supervisor: &SupervisorState,
-    workspace_id: &str,
-    provider_id: &str,
-    action_id: &str,
-    sink: std::sync::Arc<dyn crate::workspace_capability::CapabilityActivitySink>,
-) -> Result<crate::workspace_capability::CapabilityActionResult, String> {
-    let lease =
-        crate::workspace_resolver::WorkspaceResolver::new(supervisor).resolve(workspace_id)?;
-    supervisor
-        .workspace_capability_manager()
-        .prepare_action(lease, provider_id, action_id, sink)
-        .await
-        .map_err(|error| {
-            serde_json::to_value(error.code)
-                .expect("capability error code is serializable")
-                .as_str()
-                .expect("capability error code is a string")
-                .to_owned()
-        })
-}
-
 /// 本地 health 入口只按显式 workspaceId 解析 Lease，不读取 Desktop selection 或 Remote 会话。
 pub(crate) async fn observe_workspace_capability(
     supervisor: &SupervisorState,
@@ -223,64 +184,68 @@ pub(crate) async fn workspace_capability_observe(
     observe_workspace_capability(&supervisor, &workspace_id).await
 }
 
-/// Local Human Authority：只注册 Tauri IPC，绝不 advertise 为 MCP Tool。
 #[tauri::command]
-pub(crate) async fn workspace_capability_prepare(
-    app: AppHandle,
-    workspace_id: String,
-    provider_id: String,
-    action_id: String,
-) -> Result<crate::workspace_capability::CapabilityActionResult, String> {
-    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
-    prepare_workspace_capability(
-        &supervisor,
-        &workspace_id,
-        &provider_id,
-        &action_id,
-        std::sync::Arc::new(LocalCapabilityActivitySink(app.clone())),
-    )
-    .await
-}
-
-/// 本地取消只接受 Manager 的 opaque operationId，错误不附带任何 Workspace 或进程信息。
-pub(crate) fn cancel_workspace_capability(
-    supervisor: &SupervisorState,
-    operation_id: &str,
-) -> Result<(), String> {
-    supervisor
-        .workspace_capability_manager()
-        .cancel_action(operation_id)
-        .map_err(|error| {
-            serde_json::to_value(error.code)
-                .expect("capability error code is serializable")
-                .as_str()
-                .expect("capability error code is a string")
-                .to_owned()
-        })
-}
-
-/// Local Human 的显式 operation cancellation；共享 flight 的结果仍由 prepare caller 观察。
-#[tauri::command]
-pub(crate) fn workspace_capability_cancel(
-    app: AppHandle,
-    operation_id: String,
-) -> Result<(), String> {
-    let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
-    cancel_workspace_capability(&supervisor, &operation_id)
-}
-
-#[tauri::command]
-pub async fn get_codex_version() -> Result<String, String> {
+pub async fn get_codex_version(app: AppHandle) -> Result<String, String> {
     #[cfg(windows)]
     {
+        drop(app);
         let executable = crate::agent::codex::discovery::discover().await?;
         let evidence = crate::agent::codex::app_server::managed::verify(executable)
             .await
             .map_err(|e| e.to_string())?;
         Ok(evidence.identity.version)
     }
-    #[cfg(not(windows))]
-    Err("当前平台不支持本地 Codex Agent".into())
+    #[cfg(target_os = "macos")]
+    {
+        let product = app
+            .state::<std::sync::Arc<AgentProductService>>()
+            .inner()
+            .clone();
+        codex_version_with(product.discover_backend(), probe_codex_version).await
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        drop(app);
+        Err("当前平台不支持本地 Codex Agent".into())
+    }
+}
+
+/// 将正式 discovery 选中的兼容 executable 交给阻塞版本读取器。
+#[cfg(target_os = "macos")]
+async fn codex_version_with<F, P>(discovery: F, probe: P) -> Result<String, String>
+where
+    F: std::future::Future<Output = Result<std::path::PathBuf, String>>,
+    P: FnOnce(std::path::PathBuf) -> Result<String, String> + Send + 'static,
+{
+    let executable = discovery.await?;
+    tauri::async_runtime::spawn_blocking(move || probe(executable))
+        .await
+        .map_err(|error| format!("Codex 版本检测任务异常结束：{error}"))?
+}
+
+/// 从已通过正式兼容检测的绝对路径读取实际 Codex CLI 版本。
+#[cfg(target_os = "macos")]
+fn probe_codex_version(executable: std::path::PathBuf) -> Result<String, String> {
+    let mut command = crate::serena::hidden_command(executable);
+    command.arg("--version");
+    let output = crate::serena::run_with_timeout(
+        command,
+        std::time::Duration::from_secs(10),
+        "读取 Codex 版本",
+    )?;
+    if !output.status.success() {
+        return Err(format!("Codex --version 失败（{}）。", output.status));
+    }
+    let text = String::from_utf8_lossy(if output.stdout.is_empty() {
+        &output.stderr
+    } else {
+        &output.stdout
+    });
+    let version = text.lines().next().unwrap_or_default().trim();
+    if version.is_empty() {
+        return Err("Codex --version 未返回有效输出。".into());
+    }
+    Ok(version.to_owned())
 }
 
 #[tauri::command]
@@ -454,32 +419,33 @@ pub fn open_external_url(target: &str) -> Result<(), String> {
     open_with_system(url)
 }
 
+/// 返回当前桌面平台固定的系统 opener；目标始终作为独立 argv 传入。
+fn system_opener_program(os: &str) -> &'static str {
+    match os {
+        "windows" => "explorer.exe",
+        "macos" => "/usr/bin/open",
+        _ => "xdg-open",
+    }
+}
+
+/// 使用平台原生命令打开 URL 或目录，不经过 shell 与用户 PATH 解析。
 fn open_with_system(target: impl AsRef<Path>) -> Result<(), String> {
+    let mut command = std::process::Command::new(system_opener_program(std::env::consts::OS));
+    command
+        .arg(target.as_ref())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
-        std::process::Command::new("explorer.exe")
-            .arg(target.as_ref())
-            .creation_flags(CREATE_NO_WINDOW)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map(|_| ())
-            .map_err(|error| format!("无法打开 {}：{error}", target.as_ref().display()))
+        command.creation_flags(CREATE_NO_WINDOW);
     }
-    #[cfg(not(windows))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(target.as_ref())
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map(|_| ())
-            .map_err(|error| format!("无法打开 {}：{error}", target.as_ref().display()))
-    }
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开 {}：{error}", target.as_ref().display()))
 }
 
 #[cfg(test)]
@@ -500,6 +466,66 @@ mod tests {
         sync::{Arc, Mutex, mpsc},
         time::Duration,
     };
+
+    /// shutdown 必须尝试全部 owner，并在最后汇总稳定的 owner 诊断。
+    #[tokio::test]
+    async fn shutdown_steps_attempt_all_owners_and_aggregate_failures() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let step = |name: &'static str, result: Result<(), String>| {
+            let calls = Arc::clone(&calls);
+            Box::pin(async move {
+                calls.lock().unwrap().push(name);
+                result
+            }) as ShutdownFuture<'_>
+        };
+
+        let error = run_shutdown_steps(vec![
+            (
+                "workspace capability",
+                step("workspace capability", Err("capability failed".into())),
+            ),
+            ("agent", step("agent", Ok(()))),
+            ("broker", step("broker", Err("broker failed".into()))),
+            ("serena", step("serena", Ok(()))),
+        ])
+        .await
+        .unwrap_err();
+
+        assert_eq!(
+            calls.lock().unwrap().as_slice(),
+            ["workspace capability", "agent", "broker", "serena"]
+        );
+        assert_eq!(
+            error,
+            "workspace capability: capability failed; broker: broker failed"
+        );
+    }
+
+    /// macOS 状态探针必须把正式 discovery 选中的 executable 交给版本读取器。
+    #[tokio::test]
+    #[cfg(target_os = "macos")]
+    async fn codex_status_uses_discovered_executable() {
+        let expected = std::path::PathBuf::from("/fixture/codex");
+        let observed = expected.clone();
+        let version = codex_version_with(
+            std::future::ready(Ok(expected.clone())),
+            move |executable| {
+                assert_eq!(executable, observed);
+                Ok("codex-cli 0.155.1".to_owned())
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(version, "codex-cli 0.155.1");
+    }
+
+    /// 系统 opener 必须按平台选择固定程序，macOS 不依赖 Finder 的 PATH。
+    #[test]
+    fn system_opener_program_is_platform_specific() {
+        assert_eq!(system_opener_program("windows"), "explorer.exe");
+        assert_eq!(system_opener_program("macos"), "/usr/bin/open");
+        assert_eq!(system_opener_program("linux"), "xdg-open");
+    }
 
     fn remove_fixture() -> (tempfile::TempDir, AppPaths, SupervisorState, Workspace) {
         let directory = tempfile::tempdir().unwrap();
@@ -863,21 +889,65 @@ pub(crate) async fn restart_serena_impl(broker: &crate::mcp::Broker) -> Result<(
     }
     Ok(())
 }
+type ShutdownFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + 'a>>;
+
+/// 顺序执行全部 owner 的正式 shutdown；失败只记录，不能跳过后续 owner。
+async fn run_shutdown_steps(steps: Vec<(&'static str, ShutdownFuture<'_>)>) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for (owner, step) in steps {
+        if let Err(error) = step.await {
+            errors.push(format!("{owner}: {error}"));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
 pub fn shutdown_impl(app: &AppHandle) -> Result<(), String> {
     let broker = crate::mcp::get(app);
     if let Some((_, token)) = broker.operation.lock().unwrap().as_ref() {
         token.cancel();
     }
+    let capability_supervisor = app
+        .state::<std::sync::Arc<SupervisorState>>()
+        .inner()
+        .clone();
+    let serena_supervisor = capability_supervisor.clone();
+    let product = app
+        .state::<std::sync::Arc<crate::agent::product::AgentProductService>>()
+        .inner()
+        .clone();
+    let command = broker.command.get().cloned();
+    let shutdown_broker = broker.clone();
     tauri::async_runtime::block_on(async {
-        app.state::<std::sync::Arc<SupervisorState>>()
-            .shutdown_capability_runtimes()
-            .await?;
-        app.state::<std::sync::Arc<crate::agent::product::AgentProductService>>()
-            .shutdown()
-            .await?;
         let _m = broker.management.lock().await;
-        broker.shutdown().await?;
-        app.state::<std::sync::Arc<SupervisorState>>().stop()
+        run_shutdown_steps(vec![
+            (
+                "workspace capability",
+                Box::pin(async move { capability_supervisor.shutdown_capability_runtimes().await }),
+            ),
+            (
+                "command",
+                Box::pin(async move {
+                    if let Some(command) = command {
+                        command.shutdown().await
+                    } else {
+                        Ok(())
+                    }
+                }),
+            ),
+            ("agent", Box::pin(async move { product.shutdown().await })),
+            (
+                "broker",
+                Box::pin(async move { shutdown_broker.shutdown().await }),
+            ),
+            ("serena", Box::pin(async move { serena_supervisor.stop() })),
+        ])
+        .await
     })
 }
 #[tauri::command]
@@ -1014,6 +1084,20 @@ pub async fn download_mcp_logs(app: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub async fn agent_operation(app: AppHandle, request: serde_json::Value) -> serde_json::Value {
     crate::mcp::get(&app).agent_operation(request).await
+}
+
+#[tauri::command]
+pub async fn command_query(app: AppHandle, request: serde_json::Value) -> serde_json::Value {
+    crate::mcp::get(&app)
+        .command_operation("command_query", request)
+        .await
+}
+
+#[tauri::command]
+pub async fn command_execute(app: AppHandle, request: serde_json::Value) -> serde_json::Value {
+    crate::mcp::get(&app)
+        .command_operation("command_execute", request)
+        .await
 }
 
 /// 仅本机 Tauri IPC 可达的人工收口；Remote MCP 不注册此 mutation。

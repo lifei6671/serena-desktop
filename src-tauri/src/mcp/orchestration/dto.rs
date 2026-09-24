@@ -229,6 +229,8 @@ pub(super) enum Outcome {
 pub(super) struct AcceptanceInput {
     pub summary: String,
     pub execution_ids: Vec<String>,
+    #[serde(default)]
+    pub command_run_ids: Vec<String>,
 }
 #[derive(Deserialize, JsonSchema)]
 #[serde(
@@ -398,6 +400,8 @@ struct AcceptanceView {
     decision: Decision,
     summary: String,
     execution_ids: Vec<String>,
+    #[serde(default)]
+    command_run_ids: Vec<String>,
     accepted_at: i64,
 }
 #[derive(Serialize, JsonSchema)]

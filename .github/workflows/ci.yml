@@ -1,4 +1,4 @@
-name: Windows Quality Gate
+name: Windows and macOS Quality Gate
 
 on:
   workflow_dispatch:
@@ -17,9 +17,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
+  quality-windows:
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 90
     defaults:
       run:
         shell: pwsh
@@ -54,7 +54,7 @@ jobs:
         run: npm test
 
       - name: Test workflow contracts
-        run: node --test scripts/release-workflow.test.mjs scripts/ci-workflow.test.mjs
+        run: node --test scripts/release-workflow.test.mjs scripts/ci-workflow.test.mjs scripts/macos-bundle-config.test.mjs scripts/verify-macos-release.test.mjs
 
       - name: Check Rust formatting
         working-directory: src-tauri
@@ -77,3 +77,64 @@ jobs:
 
       - name: Check uninstall preservation policy
         run: node scripts/verify-uninstall-policy.mjs
+
+  quality-macos:
+    runs-on: macos-14
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTUP_TOOLCHAIN: stable
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Verify Apple Silicon runner
+        run: test "$(uname -m)" = arm64
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Set up Rust
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Test frontend
+        run: npm test
+
+      - name: Test workflow contracts
+        run: node --test scripts/release-workflow.test.mjs scripts/ci-workflow.test.mjs scripts/macos-bundle-config.test.mjs scripts/verify-macos-release.test.mjs
+
+      - name: Check Rust formatting
+        working-directory: src-tauri
+        run: cargo fmt --all -- --check
+
+      - name: Check Rust
+        working-directory: src-tauri
+        run: cargo check --locked
+
+      - name: Lint Rust
+        working-directory: src-tauri
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test Rust
+        working-directory: src-tauri
+        run: cargo test --locked
+
+      - name: Check workspace diff
+        run: git diff --check

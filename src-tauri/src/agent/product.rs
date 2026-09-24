@@ -435,6 +435,14 @@ impl ProductError {
             "AGENT_OBSERVE_INVALID_ARGUMENT",
             "BACKEND_UNAVAILABLE",
             "CODEX_APP_SERVER_INCOMPATIBLE",
+            "CODEX_HOST_ARCH_UNSUPPORTED",
+            "CODEX_ARCH_UNSUPPORTED",
+            "CODEX_EXECUTABLE_FORMAT_UNSUPPORTED",
+            "CODEX_EXECUTABLE_NOT_RUNNABLE",
+            "CODEX_COMPATIBILITY_BLOCKED",
+            // Phase 1 的非 Windows Runtime 请求保留明确的 Provider 不可用诊断。
+            #[cfg(not(windows))]
+            "AGENT_PROVIDER_UNAVAILABLE",
         ];
         let code = codes
             .iter()
@@ -554,6 +562,11 @@ impl AgentProductService {
         Ok(self.store.workspace_claim(root).await?.is_some())
     }
 
+    /// 返回 StateStore 中所有未终态 Execution 数量，不读取 Runtime 私有状态。
+    pub(crate) async fn nonterminal_execution_count(&self) -> Result<usize, String> {
+        self.store.product_nonterminal_count().await
+    }
+
     /// 仅供 Supervisor operation mutex 内的 Workspace Remove typed check 同步读取。
     pub(crate) fn workspace_claim_exists_blocking(&self, root: &str) -> Result<bool, String> {
         Ok(self.store.workspace_claim_blocking(root)?.is_some())
@@ -619,36 +632,64 @@ impl AgentProductService {
         store: StateStore,
         terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
     ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+        // 先创建唯一 Manager shell，discovery probe 才能共用其 Store/owner/Pool。
+        let mut manager = AgentTaskManager::new_with_terminal_notifier(
+            store.clone(),
+            std::path::PathBuf::new(),
+            terminal_notifier,
+        );
         #[cfg(test)]
         let resolution = match TEST_DISCOVERY.try_with(Clone::clone) {
             Ok(result) => result,
-            Err(_) => super::codex::discovery::discover().await,
+            Err(_) => manager.discover_backend().await,
         };
         #[cfg(not(test))]
-        let resolution = super::codex::discovery::discover().await;
-        let (executable, error) = match resolution {
-            Ok(path) => (path, None),
-            Err(error) => {
-                let diagnostic = if error.starts_with("CODEX_APP_SERVER_INCOMPATIBLE")
-                    || error.starts_with("BACKEND_UNAVAILABLE")
-                {
-                    error
-                } else {
-                    format!("BACKEND_UNAVAILABLE: {error}")
-                };
-                (std::path::PathBuf::new(), Some(diagnostic))
+        let resolution = manager.discover_backend().await;
+        let resolution = resolution.map_err(|error| {
+            // Discovery 已输出稳定平台/架构类别时直接保留，避免产品边界降级成一般不可用。
+            if [
+                "BACKEND_UNAVAILABLE",
+                "CODEX_APP_SERVER_INCOMPATIBLE",
+                "CODEX_HOST_ARCH_UNSUPPORTED",
+                "CODEX_ARCH_UNSUPPORTED",
+                "CODEX_EXECUTABLE_FORMAT_UNSUPPORTED",
+                "CODEX_EXECUTABLE_NOT_RUNNABLE",
+                "CODEX_COMPATIBILITY_BLOCKED",
+            ]
+            .iter()
+            .any(|code| error.starts_with(code))
+            {
+                error
+            } else {
+                format!("BACKEND_UNAVAILABLE: {error}")
             }
-        };
+        });
+        manager.install_backend_resolution(resolution);
+        Self::recover_before_publish(store, manager).await
+    }
+
+    /// macOS Desktop 只延后 Codex backend resolution；recovery 仍在发布前完整执行。
+    #[cfg(target_os = "macos")]
+    pub(crate) async fn initialize_desktop_deferred(
+        store: StateStore,
+        terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
+    ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
         let mut manager = AgentTaskManager::new_with_terminal_notifier(
             store.clone(),
-            executable,
+            std::path::PathBuf::new(),
             terminal_notifier,
         );
-        manager.backend_error = error;
+        manager.defer_backend_resolution();
         Self::recover_before_publish(store, manager).await
     }
     pub(crate) fn backend_diagnostic(&self) -> Option<&str> {
         self.manager.backend_error.as_deref()
+    }
+
+    /// macOS 状态页复用正式 Manager authority，重新执行只读 discovery/compatibility probe。
+    #[cfg(target_os = "macos")]
+    pub(crate) async fn discover_backend(&self) -> Result<std::path::PathBuf, String> {
+        self.manager.discover_backend().await
     }
     async fn recover_before_publish(
         store: StateStore,
@@ -660,10 +701,16 @@ impl AgentProductService {
     }
     #[cfg(test)]
     pub fn new(store: StateStore) -> Self {
-        Self {
-            manager: AgentTaskManager::new(store.clone(), std::path::PathBuf::new()),
-            store,
-        }
+        let manager = AgentTaskManager::new(store.clone(), std::path::PathBuf::new());
+        #[cfg(not(any(windows, target_os = "macos")))]
+        let manager = {
+            let mut manager = manager;
+            // 测试构造器同步未支持平台事实，避免绕过 unavailable 错误投影。
+            manager.backend_error =
+                Some("BACKEND_UNAVAILABLE: Codex runtime is unavailable on this platform".into());
+            manager
+        };
+        Self { manager, store }
     }
     /// 构造在 Provider 接受前确定性拒绝派发的测试专用服务。
     #[cfg(test)]
@@ -1028,7 +1075,17 @@ fn execution_diagnostic_message(row: &super::store::ExecutionRecord) -> Option<S
     let message = match code {
         "CODEX_TURN_ERROR" => {
             let category = safe_turn_error_category(raw).unwrap_or("other");
-            format!("{category}: Codex reported a turn diagnostic.")
+            let summary = match category {
+                "badRequest" => safe_unsupported_model_message(raw)
+                    .unwrap_or_else(|| "Codex reported a turn diagnostic.".into()),
+                "usageLimitExceeded" => "Codex usage limit reached.".into(),
+                "rateLimitExceeded" => "Codex rate limit reached.".into(),
+                "serverOverloaded" => "Codex service is overloaded.".into(),
+                "unauthorized" => "Codex authentication was rejected.".into(),
+                "contextWindowExceeded" => "Codex context window was exceeded.".into(),
+                _ => "Codex reported a turn diagnostic.".into(),
+            };
+            format!("{category}: {summary}")
         }
         "CODEX_PROVIDER_FAILURE" => match raw.split(':').next().unwrap_or("") {
             "CODEX_PROTOCOL_QUEUE_FULL" => "CODEX_PROTOCOL_QUEUE_FULL: Protocol event queue exhausted.".into(),
@@ -1052,6 +1109,37 @@ fn execution_diagnostic_message(row: &super::store::ExecutionRecord) -> Option<S
         _ => "Execution diagnostic recorded; raw details withheld.".into(),
     };
     Some(message.chars().take(256).collect())
+}
+
+/// 只匹配 Codex 的完整固定错误句式；模型标识必须是短 ASCII ID，且不能像凭据字段。
+fn safe_unsupported_model_message(raw: &str) -> Option<String> {
+    const PREFIX: &str = "The '";
+    const SUFFIX: &str = "' model is not supported when using Codex with a ChatGPT account.";
+    const REASON: &str = "is not supported when using Codex with a ChatGPT account.";
+    let value = serde_json::from_str::<Value>(raw).ok()?;
+    let message = value.pointer("/error/message")?.as_str()?;
+    let model = message.strip_prefix(PREFIX)?.strip_suffix(SUFFIX)?;
+    let lower = model.to_ascii_lowercase();
+    let looks_sensitive = [
+        "private",
+        "token",
+        "authorization",
+        "secret",
+        "password",
+        "bearer",
+    ]
+    .iter()
+    .any(|word| lower.contains(word));
+    if model.is_empty()
+        || model.len() > 64
+        || !model
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._:-".contains(&byte))
+        || looks_sensitive
+    {
+        return Some(format!("Codex model {REASON}"));
+    }
+    Some(format!("Codex model '{model}' {REASON}"))
 }
 
 fn safe_turn_error_category(raw: &str) -> Option<&'static str> {

@@ -31,6 +31,11 @@ fn detail_field_is_sensitive(name: &str) -> bool {
             | "oldcontent"
             | "substring_pattern"
             | "message"
+            | "command"
+            | "args"
+            | "env"
+            | "spec"
+            | "stdin"
     )
 }
 
@@ -43,6 +48,41 @@ fn bounded_log_text(value: &str) -> String {
     } else {
         bounded
     }
+}
+
+/// 将系统 bind 错误稳定映射为前端可判断的错误码与可执行提示。
+fn broker_bind_error(address: std::net::SocketAddr, error: &std::io::Error) -> (String, String) {
+    let (code, reason, fix, user_message) = if error.kind() == std::io::ErrorKind::AddrInUse {
+        (
+            "BROKER_PORT_IN_USE",
+            "端口已被其他程序占用",
+            "在“设置 → MCP 连接入口”改用其他未占用端口后重试",
+            format!(
+                "MCP 连接入口端口 {} 已被其他程序占用。请在“设置 → MCP 连接入口”修改端口后重试。",
+                address.port()
+            ),
+        )
+    } else {
+        (
+            "BROKER_BIND_FAILED",
+            "监听地址绑定失败",
+            "检查端口与本机网络设置，或在“设置 → MCP 连接入口”改用其他端口后重试",
+            format!(
+                "MCP 连接入口无法监听 {}。请检查端口与本机网络设置后重试。",
+                address
+            ),
+        )
+    };
+    let raw_os_error = error
+        .raw_os_error()
+        .map_or_else(|| "none".to_owned(), |value| value.to_string());
+    let diagnostic = format!(
+        "MCP 连接入口启动失败 · code={code} · address={address} · port={} · error_kind={:?} · raw_os_error={raw_os_error} · reason={reason} · fix={fix} · system_error={}",
+        address.port(),
+        error.kind(),
+        bounded_log_text(&error.to_string())
+    );
+    (format!("{code}: {user_message}"), diagnostic)
 }
 
 /// 仅保留可诊断的调用形状，绝不把请求内容或凭据写进本地日志。
@@ -77,6 +117,57 @@ fn safe_log_detail(value: &Value, field_name: Option<&str>) -> Value {
         }
         Value::String(value) => Value::String(bounded_log_text(value)),
         _ => value.clone(),
+    }
+}
+
+/// 只读取 Agent Product 的 Execution 安全投影；普通 message 字段仍走通用隐藏规则。
+fn safe_orchestration_diagnostic(tool: &str, response: &Value) -> Option<Value> {
+    if !matches!(tool, "agent_query" | "agent_execute") {
+        return None;
+    }
+    let (code, message) = if response["ok"] == true {
+        let data = response.get("data")?;
+        let diagnostic = data.get("error").unwrap_or(data);
+        (
+            diagnostic
+                .get("code")
+                .or_else(|| diagnostic.get("errorCode"))?
+                .as_str()?,
+            diagnostic
+                .get("message")
+                .or_else(|| diagnostic.get("errorMessage"))
+                .and_then(Value::as_str),
+        )
+    } else if response["ok"] == false {
+        // 顶层 ProductError.message 可能含原始上下文，只按稳定 code 生成固定摘要。
+        (
+            response.pointer("/error/code")?.as_str()?,
+            Some("Agent operation failed."),
+        )
+    } else {
+        return None;
+    };
+    if code.is_empty()
+        || code.len() > 64
+        || !code
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+    {
+        return None;
+    }
+    let mut safe = json!({"code":code});
+    if let Some(message) = message {
+        safe["message"] = json!(message.chars().take(256).collect::<String>());
+    }
+    Some(safe)
+}
+
+/// Execution 诊断会提高日志级别，但不改变 MCP CallToolResult 的协议成功状态。
+fn completed_log_level(failed: bool, diagnostic: Option<&Value>) -> &'static str {
+    if failed || diagnostic.is_some() {
+        "ERROR"
+    } else {
+        "INFO"
     }
 }
 
@@ -126,6 +217,78 @@ mod log_detail_tests {
         assert_eq!(details["substring_pattern"], "[已隐藏]");
         assert_eq!(details["content"], "[已隐藏]");
         assert_eq!(details["access_token"], "[已隐藏]");
+        assert_eq!(
+            safe_log_detail(&json!({"message":"PRIVATE_SECRET"}), None)["message"],
+            "[已隐藏]"
+        );
+    }
+
+    #[test]
+    fn orchestration_diagnostic_logs_only_safe_execution_fields() {
+        let response = json!({"ok":true,"data":{
+            "error":{"code":"CODEX_TURN_ERROR","message":"badRequest: Codex model 'gpt-6-sol' is not supported when using Codex with a ChatGPT account."},
+            "prompt":"PRIVATE_PROMPT","canonicalWorkspaceRoot":"PRIVATE_ROOT",
+            "threadId":"PRIVATE_THREAD","finalResult":"PRIVATE_RESULT"}});
+        let diagnostic = safe_orchestration_diagnostic("agent_query", &response).unwrap();
+        assert_eq!(diagnostic["code"], "CODEX_TURN_ERROR");
+        assert!(
+            diagnostic["message"]
+                .as_str()
+                .unwrap()
+                .contains("gpt-6-sol")
+        );
+        for secret in [
+            "PRIVATE_PROMPT",
+            "PRIVATE_ROOT",
+            "PRIVATE_THREAD",
+            "PRIVATE_RESULT",
+        ] {
+            assert!(!diagnostic.to_string().contains(secret));
+        }
+        assert_eq!(completed_log_level(false, Some(&diagnostic)), "ERROR");
+    }
+
+    #[test]
+    fn orchestration_failure_never_logs_product_error_message() {
+        let response = json!({"ok":false,"error":{"code":"AGENT_OPERATION_FAILED","message":"PRIVATE_SECRET"}});
+        let diagnostic = safe_orchestration_diagnostic("agent_execute", &response).unwrap();
+        assert_eq!(
+            diagnostic,
+            json!({"code":"AGENT_OPERATION_FAILED","message":"Agent operation failed."})
+        );
+        assert!(!diagnostic.to_string().contains("PRIVATE_SECRET"));
+    }
+
+    #[test]
+    fn product_detail_diagnostic_is_supported_without_other_detail_fields() {
+        let response = json!({"ok":true,"data":{
+            "errorCode":"CODEX_TURN_ERROR",
+            "errorMessage":"usageLimitExceeded: Codex usage limit reached.",
+            "prompt":"PRIVATE_PROMPT","threadId":"PRIVATE_THREAD"}});
+        let diagnostic = safe_orchestration_diagnostic("agent_execute", &response).unwrap();
+        assert_eq!(
+            diagnostic,
+            json!({"code":"CODEX_TURN_ERROR","message":"usageLimitExceeded: Codex usage limit reached."})
+        );
+        assert!(!diagnostic.to_string().contains("PRIVATE_"));
+        assert!(safe_orchestration_diagnostic("work_query", &response).is_none());
+    }
+
+    #[test]
+    fn non_address_in_use_bind_errors_use_generic_stable_code_and_bounded_system_text() {
+        let address = std::net::SocketAddr::from(([127, 0, 0, 1], 19120));
+        let system_text = "x".repeat(MAX_LOG_DETAIL_TEXT + 100);
+        let error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, system_text);
+        let (user_error, diagnostic) = broker_bind_error(address, &error);
+
+        assert!(
+            user_error.starts_with("BROKER_BIND_FAILED:"),
+            "{user_error}"
+        );
+        assert!(diagnostic.contains("error_kind=PermissionDenied"));
+        assert!(diagnostic.contains("raw_os_error=none"));
+        assert!(diagnostic.ends_with('…'), "{diagnostic}");
+        assert!(!diagnostic.contains(&"x".repeat(MAX_LOG_DETAIL_TEXT + 1)));
     }
 }
 
@@ -156,9 +319,10 @@ impl ServerHandler for Handler {
     ) -> Result<ListToolsResult, ErrorData> {
         self.0.log("tools/list · 生成本地公开工具描述");
         let config = self.0.config();
-        let tools = registry::list_with_source_write(
+        let tools = registry::list_with_capabilities(
             config.agent_enabled,
             config.remote_source_write_enabled,
+            config.remote_command_execution_enabled && cfg!(any(windows, target_os = "macos")),
         );
         self.0.log(&registry::orchestration_contract_diagnostic(
             config.agent_enabled,
@@ -241,6 +405,7 @@ impl ServerHandler for Handler {
                     let mut result = if (request.name == "codegraph_explore"
                         && v.get("error").is_some())
                         || (super::orchestration::contains(&request.name) && v["ok"] == false)
+                        || (super::command::contains(&request.name) && v["ok"] == false)
                     {
                         reported_error = v.get("error").cloned();
                         CallToolResult::error(content)
@@ -254,26 +419,49 @@ impl ServerHandler for Handler {
         let failed = result
             .as_ref()
             .map_or(true, |value| value.is_error == Some(true));
-        let transport_error = result.as_ref().err().map(ToString::to_string);
+        let agent_diagnostic = result
+            .as_ref()
+            .ok()
+            .and_then(|value| value.structured_content.as_ref())
+            .and_then(|response| safe_orchestration_diagnostic(&request.name, response));
+        let transport_error = result.as_ref().err().map(|error| {
+            if matches!(request.name.as_ref(), "agent_query" | "agent_execute") {
+                "Agent tool transport failed.".into()
+            } else if super::command::contains(&request.name) {
+                "Command tool transport failed.".into()
+            } else {
+                error.to_string()
+            }
+        });
+        let mut completed_details = json!({
+            "kind": "tool_call",
+            "phase": "completed",
+            "requestId": request_id,
+            "tool": request.name,
+            "success": !failed,
+            "durationMs": (started.elapsed().as_secs_f64() * 1000.0),
+            "error": transport_error
+                .map(|error| Value::String(bounded_log_text(&error)))
+                .or_else(|| {
+                    if matches!(request.name.as_ref(), "agent_query" | "agent_execute") {
+                        None
+                    } else {
+                        reported_error.map(|error| safe_log_detail(&error, None))
+                    }
+                }),
+        });
+        if let Some(diagnostic) = &agent_diagnostic {
+            completed_details["agentDiagnostic"] = diagnostic.clone();
+        }
         self.0.log_tool_detail(
-            if failed { "ERROR" } else { "INFO" },
+            completed_log_level(failed, agent_diagnostic.as_ref()),
             &format!(
                 "tools/call request={request_id:?} tool={:?} success={} duration_ms={:.3}",
                 request.name,
                 !failed,
                 started.elapsed().as_secs_f64() * 1000.0
             ),
-            &json!({
-                "kind": "tool_call",
-                "phase": "completed",
-                "requestId": request_id,
-                "tool": request.name,
-                "success": !failed,
-                "durationMs": (started.elapsed().as_secs_f64() * 1000.0),
-                "error": transport_error
-                    .map(|error| Value::String(bounded_log_text(&error)))
-                    .or_else(|| reported_error.map(|error| safe_log_detail(&error, None))),
-            }),
+            &completed_details,
         );
         Ok(result
             .unwrap_or_else(|e| {
@@ -336,6 +524,7 @@ impl Broker {
     pub async fn start(self: &Arc<Self>) -> Result<(), String> {
         let mut current = self.listener.lock().await;
         if current.as_ref().is_some_and(|l| !l.handle.is_finished()) {
+            *self.error.lock().unwrap() = None;
             return Ok(());
         }
         let address = self.config().broker.bind_address();
@@ -354,10 +543,15 @@ impl Broker {
             lan_ips.sort_unstable();
             lan_ips.dedup();
         }
-        let listener = tokio::net::TcpListener::bind(address).await.map_err(|e| {
-            self.log_level("ERROR", &format!("MCP 启动失败 · 地址 {address} · {e}"));
-            format!("Broker 监听地址不可用: {e}")
-        })?;
+        let listener = tokio::net::TcpListener::bind(address)
+            .await
+            .map_err(|error| {
+                let (user_error, diagnostic) = broker_bind_error(address, &error);
+                self.log_level("ERROR", &diagnostic);
+                crate::logs::append(&self.supervisor.paths.app_log, "MCP Broker", &diagnostic);
+                *self.error.lock().unwrap() = Some(user_error.clone());
+                user_error
+            })?;
         let broker = self.clone();
         let token = CancellationToken::new();
         let mut config = StreamableHttpServerConfig::default();
@@ -489,6 +683,7 @@ impl Broker {
             cancel: token,
             handle,
         });
+        *self.error.lock().unwrap() = None;
         self.log(&format!("MCP 已监听 · http://{address}/mcp"));
         let enabled = self.config().agent_enabled;
         self.log(&registry::orchestration_contract_diagnostic(
@@ -504,6 +699,7 @@ impl Broker {
     pub async fn stop(&self) -> Result<(), String> {
         self.remote.stop().await?;
         self.stop_listener().await;
+        *self.error.lock().unwrap() = None;
         Ok(())
     }
     pub async fn shutdown(&self) -> Result<(), String> {
@@ -545,7 +741,9 @@ mod quick_tunnel_transport_tests {
         let workspace = crate::workspace_registry::WorkspaceRegistry::new(&broker.supervisor)
             .register(root.to_path_buf(), Some("transport-codegraph".into()))
             .unwrap();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = crate::test_support::broker_loopback_listener();
+        listener.set_nonblocking(true).unwrap();
+        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
         let address = listener.local_addr().unwrap();
         let cancel = CancellationToken::new();
         let config = StreamableHttpServerConfig::default()
@@ -628,6 +826,9 @@ mod quick_tunnel_transport_tests {
                             assert!(names.contains("codegraph_explore"), "{value}");
                             for tool in super::super::source_write_domain::SourceWriteTool::ALL {
                                 assert!(!names.contains(tool.code()), "{}: {value}", tool.code());
+                            }
+                            for name in super::super::command::NAMES {
+                                assert!(!names.contains(name), "{name}: {value}");
                             }
                         }
                         "workspace_list" => {

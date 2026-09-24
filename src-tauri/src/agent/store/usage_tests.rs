@@ -235,6 +235,8 @@ async fn expired_and_frozen_usage_are_atomic_noops_without_codex_complete() {
     );
 }
 
+// 依赖 Windows 专属的 Codex Runtime 终结证据。
+#[cfg(windows)]
 #[tokio::test]
 async fn freeze_and_runtime_termination_preserve_public_usage_and_isolate_runtimes() {
     let directory = tempfile::tempdir().unwrap();

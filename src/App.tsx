@@ -3,8 +3,9 @@ import { House, Activity, Settings, ScrollText, Bot, Globe } from "lucide-react"
 import { useRemoteAccess } from "./useRemoteAccess";
 import { RemoteApprovalDialog } from "./RemoteApprovalDialog";
 import { Button } from "@/components/ui/button";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { listen } from "@tauri-apps/api/event";
 import { ProjectPanel } from "./ProjectPanel";
 import { useAppController } from "./app/useAppController";
 import { api } from "./api";
@@ -18,11 +19,11 @@ const McpLogs = lazy(() => import("./McpLogs").then(module => ({ default: module
 
 const appLogo = new URL("../src-tauri/icons/128x128.png", import.meta.url).href;
 
-const statusCopy: Record<ServerStatus, { label: string; detail: string }> = {
-  stopped: { label: "已停止", detail: "MCP 端口未监听" },
-  starting: { label: "启动中", detail: "正在等待本机端口响应" },
-  running: { label: "运行中", detail: "本机 MCP 链路可用" },
-  error: { label: "异常", detail: "Serena 未能保持运行" },
+const statusCopy: Record<ServerStatus, string> = {
+  stopped: "已停止",
+  starting: "启动中",
+  running: "运行中",
+  error: "启动异常",
 };
 
 function App() {
@@ -31,6 +32,25 @@ function App() {
   const [projectNavigation, setProjectNavigation] = useState<HTMLDivElement | null>(null);
   const controller = useAppController(tab === "serena");
   const { state, brokerController } = controller;
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | undefined;
+    void listen<unknown>("tray:navigate", (event) => {
+      if (event.payload === "agent" || event.payload === "remote") {
+        setTab(event.payload);
+      }
+    })
+      .then((remove) => {
+        if (active) unlisten = remove;
+        else remove();
+      })
+      // 非 Tauri 预览或测试环境没有事件运行时；导航增强失败不阻断主界面。
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
   if (!state) {
     return (
       <main className="boot-screen">
@@ -40,22 +60,6 @@ function App() {
     );
   }
 
-  const status = statusCopy[state.serverStatus];
-  const isRunning =
-    state.serverStatus === "running" ||
-    state.serverStatus === "starting" ||
-    state.managedProcessPresent;
-  const installation = state.activeInstallation;
-  const isInstalled = installation?.state === "standard";
-  const installationLabel = installation
-    ? (
-        {
-          missing: "未安装",
-          standard: "官方 Serena",
-          invalid: "安装不兼容或已损坏",
-        } as const
-      )[installation.state]
-    : "检测中";
   const setMcpRunning = (enabled: boolean) => {
     brokerController.perform(
       "更新连接入口",
@@ -151,7 +155,7 @@ function App() {
       <footer>
         <span className={`footer-status status-${state.serverStatus}`}>
           <i />
-          Serena：{isRunning || isInstalled ? status.label : installationLabel}
+          Serena：{statusCopy[state.serverStatus]}
         </span>
         <span className="mono">Serena 内部端口：{state.activePort}</span>
       </footer>

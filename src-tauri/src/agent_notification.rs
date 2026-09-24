@@ -122,7 +122,22 @@ fn send_system_notification(app: &AppHandle, plan: &AgentNotificationPlan) -> Re
         .map_err(|_| ())
 }
 
-/// Windows 使用轻量系统提示音；其他平台暂时安全静默。
+/// macOS SDK 定义的用户首选警告音 ID。
+#[cfg(target_os = "macos")]
+const USER_PREFERRED_ALERT_SOUND_ID: u32 = 0x0000_1000;
+
+#[cfg(target_os = "macos")]
+#[link(name = "AudioToolbox", kind = "framework")]
+unsafe extern "C" {
+    /// 提交系统警告音；空 completion block 表示调用方无需完成回调。
+    #[link_name = "AudioServicesPlayAlertSoundWithCompletion"]
+    fn audio_services_play_alert_sound_with_completion(
+        system_sound_id: u32,
+        completion_block: *const std::ffi::c_void,
+    );
+}
+
+/// Windows 使用轻量系统提示音。
 #[cfg(windows)]
 fn play_system_sound() -> Result<(), ()> {
     if unsafe { windows_sys::Win32::System::Diagnostics::Debug::MessageBeep(0) } == 0 {
@@ -131,8 +146,22 @@ fn play_system_sound() -> Result<(), ()> {
     Ok(())
 }
 
-/// 非 Windows 不引入额外音频依赖，保持构建与运行安全。
-#[cfg(not(windows))]
+/// macOS 使用用户在系统设置中选择的警告音；提交调用本身没有错误返回值。
+#[cfg(target_os = "macos")]
+fn play_system_sound() -> Result<(), ()> {
+    // SAFETY: 函数由当前目标 SDK 的 AudioToolbox 提供，声音 ID 来自同一 SDK，
+    // completion block 明确允许为空且调用不转移任何 Rust 所有权。
+    unsafe {
+        audio_services_play_alert_sound_with_completion(
+            USER_PREFERRED_ALERT_SOUND_ID,
+            std::ptr::null(),
+        );
+    }
+    Ok(())
+}
+
+/// 其他非 Windows、非 macOS 平台保持既有静默行为。
+#[cfg(all(not(windows), not(target_os = "macos")))]
 fn play_system_sound() -> Result<(), ()> {
     Ok(())
 }
@@ -206,5 +235,18 @@ mod tests {
         );
         assert!(claim_notification(&ids, "execution-1").unwrap());
         assert!(!claim_notification(&ids, "execution-1").unwrap());
+    }
+
+    /// 人工 Gate：macOS 必须提交用户首选警告音，并留出实际播放时间。
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "需要真人确认系统首选警告音可听"]
+    fn macos_user_preferred_alert_is_audible() {
+        assert_eq!(
+            std::hint::black_box(USER_PREFERRED_ALERT_SOUND_ID),
+            0x0000_1000
+        );
+        play_system_sound().expect("macOS 用户首选警告音应可提交");
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }

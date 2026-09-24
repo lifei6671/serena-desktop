@@ -4,7 +4,7 @@ use super::AgentTaskManager;
 use crate::agent::{
     codex::{
         app_server::{managed, recovery::RecoveryScope},
-        runtime,
+        runtime_adapter as runtime,
     },
     coordinator::{WorkspaceExecutionCoordinator, now},
     execution::state::{RecoveryBasis, Transition},
@@ -76,7 +76,7 @@ pub(crate) async fn recover_startup_with_authority(
     store: &crate::agent::store::StateStore,
     executable: &std::path::Path,
     owner: &str,
-    runtime_pool: &crate::agent::codex::pool::CodexRuntimePool,
+    runtime_pool: &std::sync::Arc<crate::agent::codex::pool::CodexRuntimePool>,
     backend_error: Option<&str>,
 ) -> Result<Vec<RecoveryOutcome>, StartupRecoveryFailure> {
     let outcomes = StartupRecoveryAuthority {
@@ -109,7 +109,7 @@ struct StartupRecoveryAuthority<'a> {
     store: &'a crate::agent::store::StateStore,
     executable: &'a std::path::Path,
     owner: &'a str,
-    runtime_pool: &'a crate::agent::codex::pool::CodexRuntimePool,
+    runtime_pool: &'a std::sync::Arc<crate::agent::codex::pool::CodexRuntimePool>,
     backend_error: Option<&'a str>,
 }
 
@@ -274,7 +274,7 @@ pub(crate) async fn reconcile_execution_after_runtime_end(
     store: &crate::agent::store::StateStore,
     executable: &std::path::Path,
     owner: &str,
-    pool: &crate::agent::codex::pool::CodexRuntimePool,
+    pool: &std::sync::Arc<crate::agent::codex::pool::CodexRuntimePool>,
     backend_error: Option<&str>,
     execution_id: &str,
 ) -> Result<RecoveryOutcome, String> {
@@ -291,15 +291,10 @@ pub(crate) async fn reconcile_execution_after_runtime_end(
         });
     };
     let evidence = store.runtime(original.clone()).await?;
-    if !evidence.as_ref().is_some_and(|r| {
-        r.state == "terminated"
-            && r.termination_evidence_state == "complete"
-            && matches!(
-                r.termination_evidence_type.as_deref(),
-                Some("job_active_processes_zero" | "managed_job_destroyed")
-            )
-            && r.termination_evidence_at.is_some()
-    }) {
+    if !evidence
+        .as_ref()
+        .is_some_and(runtime::is_complete_termination)
+    {
         mark_unknown(store, &id).await?;
         return Ok(RecoveryOutcome::Unknown {
             execution_id: id,
@@ -353,9 +348,10 @@ pub(crate) async fn reconcile_execution_after_runtime_end(
                     })
                 } else {
                     pool.check_workspace(&row.canonical_workspace_root)?;
-                    managed::connect(
+                    crate::agent::codex::connect_managed(
                         store.clone(),
                         owner.to_owned(),
+                        pool.clone(),
                         recovery_id.clone(),
                         executable.to_owned(),
                         PathBuf::from(&row.canonical_workspace_root),
@@ -448,5 +444,5 @@ pub(crate) async fn mark_unknown(
         .await
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests;

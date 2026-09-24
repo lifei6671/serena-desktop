@@ -20,9 +20,7 @@ use tokio::sync::Notify;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
 use tokio_util::sync::CancellationToken;
 
-mod actions;
 mod health;
-pub(crate) use actions::CapabilityActionResult;
 pub(crate) use health::WorkspaceCapabilityHealth;
 
 /// Provider stop 的最大等待时间；超时后后台 single-flight 仍保有 handle 并继续完成清理。
@@ -69,21 +67,11 @@ pub(crate) enum CapabilityReadinessProbe {
     None,
 }
 
-/// 首次 Tool 调用前的准备策略。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum CapabilityPreparationPolicy {
-    None,
-    AutoOnFirstToolCall,
-    ExplicitOnly,
-}
-
 /// Stage 的准备要求，供未来 UI 以通用方式投影。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CapabilityStageRequirement {
     Required,
-    AutoPreparable,
     Optional,
 }
 
@@ -94,32 +82,6 @@ pub(crate) struct CapabilityStageDescriptor {
     pub(crate) id: String,
     pub(crate) display_name: String,
     pub(crate) requirement: CapabilityStageRequirement,
-}
-
-/// 显式准备动作的授权边界。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum CapabilityActionAuthority {
-    LocalHuman,
-}
-
-/// Manager 与 Provider 分别负责的动作执行模式。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum CapabilityActionExecution {
-    ManagerEnsureRuntime,
-    ProviderPrepare,
-}
-
-/// Descriptor 中声明的单个准备动作。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CapabilityActionDescriptor {
-    pub(crate) action_id: String,
-    pub(crate) display_name: String,
-    pub(crate) authority: CapabilityActionAuthority,
-    pub(crate) execution: CapabilityActionExecution,
-    pub(crate) warm_runtime: bool,
 }
 
 /// Provider Runtime 的调度上限；实际容量和 LRU 由后续 Manager 负责。
@@ -140,9 +102,7 @@ pub(crate) struct WorkspaceCapabilityDescriptor {
     pub(crate) tool_names: Vec<String>,
     pub(crate) runtime_model: CapabilityRuntimeModel,
     pub(crate) readiness_probe: CapabilityReadinessProbe,
-    pub(crate) preparation_policy: CapabilityPreparationPolicy,
     pub(crate) stage_descriptors: Vec<CapabilityStageDescriptor>,
-    pub(crate) action_descriptors: Vec<CapabilityActionDescriptor>,
     pub(crate) runtime_policy: CapabilityRuntimePolicy,
 }
 
@@ -167,7 +127,6 @@ pub(crate) struct CapabilityInstallation {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CapabilityReadinessState {
     NotPrepared,
-    Preparing,
     Ready,
     Degraded,
     Error,
@@ -228,53 +187,6 @@ pub(crate) struct CapabilityObservation {
     pub(crate) runtime_state: CapabilityRuntimeState,
     pub(crate) checked_at: u64,
     pub(crate) stages: Vec<CapabilityStage>,
-    pub(crate) actions: Vec<CapabilityAction>,
-}
-
-/// §8.2 observation 内的可执行动作投影。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CapabilityAction {
-    pub(crate) id: String,
-    pub(crate) display_name: String,
-    pub(crate) authority: CapabilityActionAuthority,
-    pub(crate) execution: CapabilityActionExecution,
-}
-
-/// 由 Local Human Authority 发起的已声明准备动作。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CapabilityPrepareAction {
-    pub(crate) action_id: String,
-}
-
-/// Provider prepare 的最小结果，仅回传统一 readiness 投影。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CapabilityPrepareResult {
-    pub(crate) readiness: CapabilityReadinessState,
-}
-
-/// 提供给准备流程的 provider-agnostic 活动事件。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CapabilityActivity {
-    pub(crate) operation_id: String,
-    pub(crate) workspace_id: String,
-    pub(crate) provider_id: WorkspaceCapabilityProviderId,
-    pub(crate) action_id: String,
-    pub(crate) stage_code: &'static str,
-    pub(crate) state: &'static str,
-    pub(crate) revision: u64,
-    pub(crate) message_code: &'static str,
-}
-
-/// Provider 向后续统一 activity 投影发布状态的 object-safe port。
-pub(crate) trait CapabilityActivitySink: Send + Sync {
-    /// 发布不包含 Provider 私有 Runtime 证据的活动事件。
-    fn publish<'a>(&'a self, _activity: CapabilityActivity) -> CapabilityFuture<'a, ()> {
-        Box::pin(async {})
-    }
 }
 
 /// Manager-owned Runtime identity；其字段不形成 serde wire，也不暴露进程细节。
@@ -318,6 +230,7 @@ pub(crate) enum CapabilityProviderErrorCode {
     ContractError,
     Unavailable,
     OperationFailed,
+    ToolFailed,
 }
 
 /// Provider Port 的安全错误 envelope。
@@ -359,12 +272,6 @@ pub(crate) enum WorkspaceCapabilityErrorCode {
     NotInstalled,
     #[serde(rename = "WORKSPACE_CAPABILITY_NOT_PREPARED")]
     NotPrepared,
-    #[serde(rename = "WORKSPACE_CAPABILITY_PREPARATION_REQUIRED")]
-    PreparationRequired,
-    #[serde(rename = "WORKSPACE_CAPABILITY_PREPARING")]
-    Preparing,
-    #[serde(rename = "WORKSPACE_CAPABILITY_PREPARE_FAILED")]
-    PrepareFailed,
     #[serde(rename = "WORKSPACE_CAPABILITY_OBSERVE_FAILED")]
     ObserveFailed,
     #[serde(rename = "WORKSPACE_CAPABILITY_BUSY")]
@@ -373,6 +280,8 @@ pub(crate) enum WorkspaceCapabilityErrorCode {
     StartFailed,
     #[serde(rename = "WORKSPACE_CAPABILITY_RUNTIME_LOST")]
     RuntimeLost,
+    #[serde(rename = "WORKSPACE_CAPABILITY_OPERATION_FAILED")]
+    OperationFailed,
     #[serde(rename = "WORKSPACE_CAPABILITY_STOP_FAILED")]
     StopFailed,
     #[serde(rename = "WORKSPACE_CAPABILITY_CONTRACT_ERROR")]
@@ -405,13 +314,6 @@ impl WorkspaceCapabilityError {
     fn start_failed() -> Self {
         Self {
             code: WorkspaceCapabilityErrorCode::StartFailed,
-        }
-    }
-
-    /// 返回显式准备后才可启动 Runtime 的统一错误，绝不由 acquire 隐式执行 prepare。
-    fn preparation_required() -> Self {
-        Self {
-            code: WorkspaceCapabilityErrorCode::PreparationRequired,
         }
     }
 
@@ -478,14 +380,6 @@ pub(crate) trait WorkspaceCapabilityProvider: Send + Sync {
         &self,
         lease: WorkspaceLease,
     ) -> CapabilityFuture<'_, Result<CapabilityObservation, CapabilityProviderError>>;
-
-    /// 按已声明动作执行 Provider 准备，不承担 Agent lifecycle 权限。
-    fn prepare<'a>(
-        &'a self,
-        lease: WorkspaceLease,
-        action: CapabilityPrepareAction,
-        activity: &'a dyn CapabilityActivitySink,
-    ) -> CapabilityFuture<'a, Result<CapabilityPrepareResult, CapabilityProviderError>>;
 
     /// 为 server-resolved Lease 启动或取得 Runtime handle。
     fn start(
@@ -928,7 +822,6 @@ fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// Manager 内部的 Slot 表与全局单调使用序号，共同构成容量调度线性化边界。
 struct RuntimeSlotTable {
     slots: HashMap<RuntimeSlotKey, Arc<RuntimeSlot>>,
-    operations: HashMap<(RuntimeSlotKey, String), Arc<actions::ActionFlight>>,
     next_used_sequence: u64,
     removing_workspaces: HashSet<(String, u64)>,
     shutting_down: bool,
@@ -971,7 +864,6 @@ enum StopCompletion {
         lease: WorkspaceLease,
         max_instances: usize,
         per_slot_concurrency: usize,
-        operation_id: Option<String>,
     },
 }
 
@@ -999,7 +891,6 @@ impl WorkspaceCapabilityManager {
             registry,
             runtime_slots: Arc::new(Mutex::new(RuntimeSlotTable {
                 slots: HashMap::new(),
-                operations: HashMap::new(),
                 next_used_sequence: 0,
                 removing_workspaces: HashSet::new(),
                 shutting_down: false,
@@ -1061,16 +952,6 @@ impl WorkspaceCapabilityManager {
         provider_id: &str,
         lease: WorkspaceLease,
     ) -> Result<RuntimeInFlightGuard, WorkspaceCapabilityError> {
-        self.acquire_action_runtime(provider_id, lease, None).await
-    }
-
-    /// action 自身可在 exclusive claim 内 warm；外部 acquire 永远不持有此 operation identity。
-    async fn acquire_action_runtime(
-        &self,
-        provider_id: &str,
-        lease: WorkspaceLease,
-        operation_id: Option<&str>,
-    ) -> Result<RuntimeInFlightGuard, WorkspaceCapabilityError> {
         let provider = self.provider(provider_id)?;
         let descriptor = provider.descriptor();
         if descriptor.runtime_model != CapabilityRuntimeModel::WorkspaceScopedProcess {
@@ -1082,7 +963,6 @@ impl WorkspaceCapabilityManager {
             &lease,
             descriptor.runtime_policy.max_instances,
             descriptor.runtime_policy.per_slot_concurrency,
-            operation_id,
         )?;
         loop {
             match decision {
@@ -1115,12 +995,7 @@ impl WorkspaceCapabilityManager {
                 RuntimeAcquireDecision::Busy => return Err(WorkspaceCapabilityError::busy()),
                 RuntimeAcquireDecision::Evict(eviction) => {
                     decision = self
-                        .stop_lru_and_resume_acquire(
-                            eviction,
-                            Arc::clone(&provider),
-                            &lease,
-                            operation_id,
-                        )
+                        .stop_lru_and_resume_acquire(eviction, Arc::clone(&provider), &lease)
                         .await?;
                 }
             }
@@ -1175,7 +1050,6 @@ impl WorkspaceCapabilityManager {
         lease: &WorkspaceLease,
         max_instances: usize,
         per_slot_concurrency: usize,
-        operation_id: Option<&str>,
     ) -> Result<RuntimeAcquireDecision, WorkspaceCapabilityError> {
         let key = RuntimeSlotKey::new(provider_id.clone(), lease);
         let mut table = lock_unpoisoned(&self.runtime_slots);
@@ -1185,7 +1059,6 @@ impl WorkspaceCapabilityManager {
             lease,
             max_instances,
             per_slot_concurrency,
-            operation_id,
         )
     }
 
@@ -1196,14 +1069,8 @@ impl WorkspaceCapabilityManager {
         lease: &WorkspaceLease,
         max_instances: usize,
         per_slot_concurrency: usize,
-        operation_id: Option<&str>,
     ) -> Result<RuntimeAcquireDecision, WorkspaceCapabilityError> {
         if table.shutting_down
-            || table.operations.iter().any(|((operation_key, _), flight)| {
-                operation_key == &key
-                    && flight.exclusive
-                    && Some(flight.operation_id.as_str()) != operation_id
-            })
             || table
                 .removing_workspaces
                 .contains(&(key.workspace_id.clone(), key.generation))
@@ -1338,13 +1205,6 @@ impl WorkspaceCapabilityManager {
                 if key.provider_id != *provider_id {
                     return None;
                 }
-                if table
-                    .operations
-                    .keys()
-                    .any(|(operation_key, _)| operation_key == key)
-                {
-                    return None;
-                }
                 let state = lock_unpoisoned(&slot.state);
                 (state.lifecycle == CapabilityRuntimeState::Ready
                     && state.in_flight == 0
@@ -1410,13 +1270,6 @@ impl WorkspaceCapabilityManager {
         let table = lock_unpoisoned(&self.runtime_slots);
         let mut candidate = None;
         for (key, slot) in &table.slots {
-            if table
-                .operations
-                .keys()
-                .any(|(operation_key, _)| operation_key == key)
-            {
-                continue;
-            }
             let provider = self
                 .registry
                 .provider(key.provider_id.as_str())
@@ -1449,7 +1302,6 @@ impl WorkspaceCapabilityManager {
         eviction: RuntimeStop,
         provider: Arc<dyn WorkspaceCapabilityProvider>,
         lease: &WorkspaceLease,
-        operation_id: Option<&str>,
     ) -> Result<RuntimeAcquireDecision, WorkspaceCapabilityError> {
         let descriptor = provider.descriptor();
         let completion = StopCompletion::Eviction {
@@ -1457,7 +1309,6 @@ impl WorkspaceCapabilityManager {
             lease: lease.clone(),
             max_instances: descriptor.runtime_policy.max_instances,
             per_slot_concurrency: descriptor.runtime_policy.per_slot_concurrency,
-            operation_id: operation_id.map(str::to_owned),
         };
         match self.stop_runtime(eviction, provider, completion).await? {
             StopResult::ResumeAcquire(decision) => Ok(decision),
@@ -1525,14 +1376,12 @@ impl WorkspaceCapabilityManager {
                         lease,
                         max_instances,
                         per_slot_concurrency,
-                        operation_id,
                     } => StopResult::ResumeAcquire(Self::begin_capacity_acquire_locked(
                         &mut table,
                         RuntimeSlotKey::new(provider_id, &lease),
                         &lease,
                         max_instances,
                         per_slot_concurrency,
-                        operation_id.as_deref(),
                     )?),
                 };
                 drop(table);
@@ -1638,9 +1487,9 @@ impl WorkspaceCapabilityManager {
             .await
             .map(Arc::new)
             .map_err(|error| match error.code {
-                CapabilityProviderErrorCode::NotPrepared => {
-                    WorkspaceCapabilityError::preparation_required()
-                }
+                CapabilityProviderErrorCode::NotPrepared => WorkspaceCapabilityError {
+                    code: WorkspaceCapabilityErrorCode::NotPrepared,
+                },
                 _ => WorkspaceCapabilityError::start_failed(),
             })
             .and_then(|runtime| {
@@ -1734,11 +1583,6 @@ impl WorkspaceCapabilityManager {
         let mut table = lock_unpoisoned(&self.runtime_slots);
         let identity = (lease.workspace_id.clone(), lease.generation);
         if table.shutting_down || table.removing_workspaces.contains(&identity) {
-            return Err(WorkspaceCapabilityError::busy());
-        }
-        if table.operations.keys().any(|(key, _)| {
-            key.workspace_id == lease.workspace_id && key.generation == lease.generation
-        }) {
             return Err(WorkspaceCapabilityError::busy());
         }
         for (key, slot) in &table.slots {
@@ -1853,30 +1697,13 @@ impl WorkspaceCapabilityManager {
 
     /// Host shutdown 先封闭新的 admission，再逐一停止所有 live 或 retained-handle Slot。
     pub(crate) async fn shutdown_runtimes(&self) -> Result<(), WorkspaceCapabilityError> {
-        let operations = {
-            let mut table = lock_unpoisoned(&self.runtime_slots);
-            table.shutting_down = true;
-            table
-                .operations
-                .values()
-                .map(|operation| operation.completion.subscribe())
-                .collect::<Vec<_>>()
-        };
-        #[cfg(test)]
-        self.shutdown_admission.notify_waiters();
-        // 已获授权的 bounded operation 先完成并归还 claim，随后统一停止 warm Runtime。
-        for mut completion in operations {
-            while completion.borrow_and_update().is_none() {
-                if completion.changed().await.is_err() {
-                    break;
-                }
-            }
-        }
         let keys = {
             let mut table = lock_unpoisoned(&self.runtime_slots);
             table.shutting_down = true;
             table.slots.keys().cloned().collect::<Vec<_>>()
         };
+        #[cfg(test)]
+        self.shutdown_admission.notify_waiters();
         let mut failure = None;
         for key in keys {
             if let Err(error) = self.drain_shutdown_slot(&key).await {
@@ -1997,9 +1824,12 @@ impl WorkspaceCapabilityManager {
             | CapabilityProviderErrorCode::OperationFailed => WorkspaceCapabilityError {
                 code: WorkspaceCapabilityErrorCode::RuntimeLost,
             },
-            CapabilityProviderErrorCode::NotPrepared => {
-                WorkspaceCapabilityError::preparation_required()
-            }
+            CapabilityProviderErrorCode::ToolFailed => WorkspaceCapabilityError {
+                code: WorkspaceCapabilityErrorCode::OperationFailed,
+            },
+            CapabilityProviderErrorCode::NotPrepared => WorkspaceCapabilityError {
+                code: WorkspaceCapabilityErrorCode::NotPrepared,
+            },
             CapabilityProviderErrorCode::RuntimeIdentityMismatch
             | CapabilityProviderErrorCode::ContractError => {
                 WorkspaceCapabilityError::contract_error()
@@ -2038,8 +1868,6 @@ fn runtime_matches(
 
 #[cfg(test)]
 mod tests {
-    // 子模块复用既有 fake Provider；所有 action 测试仍属于 workspace_capability::tests。
-    include!("workspace_capability/action_tests.rs");
     use super::*;
     use serde_json::json;
     use std::{
@@ -2059,18 +1887,10 @@ mod tests {
             tool_names: vec!["fake_tool".into()],
             runtime_model: CapabilityRuntimeModel::WorkspaceScopedProcess,
             readiness_probe: CapabilityReadinessProbe::Required,
-            preparation_policy: CapabilityPreparationPolicy::ExplicitOnly,
             stage_descriptors: vec![CapabilityStageDescriptor {
                 id: "index".into(),
                 display_name: "Index".into(),
                 requirement: CapabilityStageRequirement::Required,
-            }],
-            action_descriptors: vec![CapabilityActionDescriptor {
-                action_id: "prepare_index".into(),
-                display_name: "Prepare index".into(),
-                authority: CapabilityActionAuthority::LocalHuman,
-                execution: CapabilityActionExecution::ProviderPrepare,
-                warm_runtime: false,
             }],
             runtime_policy: CapabilityRuntimePolicy {
                 max_instances: 2,
@@ -2118,7 +1938,6 @@ mod tests {
         descriptor: WorkspaceCapabilityDescriptor,
         probes: std::sync::atomic::AtomicUsize,
         observations: std::sync::atomic::AtomicUsize,
-        prepares: std::sync::atomic::AtomicUsize,
         starts: std::sync::atomic::AtomicUsize,
         calls: std::sync::atomic::AtomicUsize,
         stops: std::sync::atomic::AtomicUsize,
@@ -2127,9 +1946,6 @@ mod tests {
         start_plans: Mutex<VecDeque<oneshot::Receiver<StartPlan>>>,
         start_entered: Arc<Notify>,
         call_plans: Mutex<VecDeque<oneshot::Receiver<CallPlan>>>,
-        prepare_plans: Mutex<VecDeque<oneshot::Receiver<CallPlan>>>,
-        prepare_entered: Arc<Notify>,
-        prepared_leases: Mutex<Vec<WorkspaceLease>>,
         call_entered: Arc<Notify>,
         stop_plans: Mutex<VecDeque<oneshot::Receiver<StopPlan>>>,
         stop_entered: Arc<Notify>,
@@ -2148,7 +1964,6 @@ mod tests {
                 descriptor,
                 probes: std::sync::atomic::AtomicUsize::new(0),
                 observations: std::sync::atomic::AtomicUsize::new(0),
-                prepares: std::sync::atomic::AtomicUsize::new(0),
                 starts: std::sync::atomic::AtomicUsize::new(0),
                 calls: std::sync::atomic::AtomicUsize::new(0),
                 stops: std::sync::atomic::AtomicUsize::new(0),
@@ -2157,9 +1972,6 @@ mod tests {
                 start_plans: Mutex::new(VecDeque::new()),
                 start_entered: Arc::new(Notify::new()),
                 call_plans: Mutex::new(VecDeque::new()),
-                prepare_plans: Mutex::new(VecDeque::new()),
-                prepare_entered: Arc::new(Notify::new()),
-                prepared_leases: Mutex::new(Vec::new()),
                 call_entered: Arc::new(Notify::new()),
                 stop_plans: Mutex::new(VecDeque::new()),
                 stop_entered: Arc::new(Notify::new()),
@@ -2178,13 +1990,6 @@ mod tests {
         fn enqueue_stop(&self) -> oneshot::Sender<StopPlan> {
             let (sender, receiver) = oneshot::channel();
             lock_unpoisoned(&self.stop_plans).push_back(receiver);
-            sender
-        }
-
-        /// 在显式 prepare 内确定性暂停，以验证 duplicate/cancel/remove。
-        fn enqueue_prepare(&self) -> oneshot::Sender<CallPlan> {
-            let (sender, receiver) = oneshot::channel();
-            lock_unpoisoned(&self.prepare_plans).push_back(receiver);
             sender
         }
 
@@ -2212,7 +2017,6 @@ mod tests {
             for counter in [
                 &self.probes,
                 &self.observations,
-                &self.prepares,
                 &self.starts,
                 &self.calls,
                 &self.stops,
@@ -2255,33 +2059,6 @@ mod tests {
                     runtime_state: CapabilityRuntimeState::Stopped,
                     checked_at: 0,
                     stages: vec![],
-                    actions: vec![],
-                })
-            })
-        }
-
-        fn prepare<'a>(
-            &'a self,
-            lease: WorkspaceLease,
-            _action: CapabilityPrepareAction,
-            _activity: &'a dyn CapabilityActivitySink,
-        ) -> CapabilityFuture<'a, Result<CapabilityPrepareResult, CapabilityProviderError>>
-        {
-            self.prepares
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            lock_unpoisoned(&self.prepared_leases).push(lease);
-            let plan = lock_unpoisoned(&self.prepare_plans).pop_front();
-            Box::pin(async move {
-                self.prepare_entered.notify_one();
-                if let Some(plan) = plan
-                    && matches!(plan.await, Ok(CallPlan::Failure) | Err(_))
-                {
-                    return Err(CapabilityProviderError {
-                        code: CapabilityProviderErrorCode::OperationFailed,
-                    });
-                }
-                Ok(CapabilityPrepareResult {
-                    readiness: CapabilityReadinessState::Ready,
                 })
             })
         }
@@ -2658,27 +2435,11 @@ mod tests {
         assert_eq!(descriptor["displayName"], "Fake capability");
         assert_eq!(descriptor["runtimeModel"], "workspace_scoped_process");
         assert_eq!(descriptor["readinessProbe"], "required");
-        assert_eq!(descriptor["preparationPolicy"], "explicit_only");
         assert_eq!(descriptor["stageDescriptors"][0]["id"], "index");
         assert_eq!(descriptor["stageDescriptors"][0]["displayName"], "Index");
         assert_eq!(descriptor["stageDescriptors"][0]["requirement"], "required");
-        assert_eq!(
-            descriptor["actionDescriptors"][0]["actionId"],
-            "prepare_index"
-        );
-        assert_eq!(
-            descriptor["actionDescriptors"][0]["displayName"],
-            "Prepare index"
-        );
-        assert_eq!(
-            descriptor["actionDescriptors"][0]["authority"],
-            "local_human"
-        );
-        assert_eq!(
-            descriptor["actionDescriptors"][0]["execution"],
-            "provider_prepare"
-        );
-        assert_eq!(descriptor["actionDescriptors"][0]["warmRuntime"], false);
+        assert!(descriptor.get("preparationPolicy").is_none());
+        assert!(descriptor.get("actionDescriptors").is_none());
         assert_eq!(descriptor["runtimePolicy"]["maxInstances"], 2);
         assert_eq!(descriptor["runtimePolicy"]["idleTimeoutMs"], 30_000);
         assert_eq!(descriptor["runtimePolicy"]["perSlotConcurrency"], 1);
@@ -2697,12 +2458,6 @@ mod tests {
                 requirement: CapabilityStageRequirement::Required,
                 message_code: Some("CAPABILITY_STAGE_NOT_PREPARED".into()),
             }],
-            actions: vec![CapabilityAction {
-                id: "prepare".into(),
-                display_name: "Prepare".into(),
-                authority: CapabilityActionAuthority::LocalHuman,
-                execution: CapabilityActionExecution::ManagerEnsureRuntime,
-            }],
         })
         .unwrap();
         assert_eq!(observation["providerId"], "third");
@@ -2716,12 +2471,7 @@ mod tests {
             observation["stages"][0]["messageCode"],
             "CAPABILITY_STAGE_NOT_PREPARED"
         );
-        assert_eq!(observation["actions"][0]["id"], "prepare");
-        assert_eq!(observation["actions"][0]["authority"], "local_human");
-        assert_eq!(
-            observation["actions"][0]["execution"],
-            "manager_ensure_runtime"
-        );
+        assert!(observation.get("actions").is_none());
         assert!(observation.get("status").is_none());
         assert!(observation.get("availability").is_none());
 
@@ -2732,10 +2482,6 @@ mod tests {
         assert_eq!(
             serde_json::to_value(CapabilityInstallationState::CheckFailed).unwrap(),
             "check_failed"
-        );
-        assert_eq!(
-            serde_json::to_value(CapabilityReadinessState::Preparing).unwrap(),
-            "preparing"
         );
         assert_eq!(
             serde_json::to_value(CapabilityReadinessState::Degraded).unwrap(),
@@ -2765,10 +2511,6 @@ mod tests {
             serde_json::to_value(CapabilityRuntimeModel::StatelessCommand).unwrap(),
             "stateless_command"
         );
-        assert_eq!(
-            serde_json::to_value(CapabilityPreparationPolicy::AutoOnFirstToolCall).unwrap(),
-            "auto_on_first_tool_call"
-        );
     }
 
     #[test]
@@ -2782,7 +2524,6 @@ mod tests {
         }
         for (value, expected) in [
             (CapabilityReadinessState::NotPrepared, "not_prepared"),
-            (CapabilityReadinessState::Preparing, "preparing"),
             (CapabilityReadinessState::Ready, "ready"),
             (CapabilityReadinessState::Degraded, "degraded"),
             (CapabilityReadinessState::Error, "error"),
@@ -2812,10 +2553,6 @@ mod tests {
         }
         for (value, expected) in [
             (CapabilityStageRequirement::Required, "required"),
-            (
-                CapabilityStageRequirement::AutoPreparable,
-                "auto_preparable",
-            ),
             (CapabilityStageRequirement::Optional, "optional"),
         ] {
             assert_eq!(serde_json::to_value(value).unwrap(), expected);
@@ -2829,32 +2566,6 @@ mod tests {
             (
                 CapabilityRuntimeModel::WorkspaceScopedProcess,
                 "workspace_scoped_process",
-            ),
-        ] {
-            assert_eq!(serde_json::to_value(value).unwrap(), expected);
-        }
-        for (value, expected) in [
-            (CapabilityPreparationPolicy::None, "none"),
-            (
-                CapabilityPreparationPolicy::AutoOnFirstToolCall,
-                "auto_on_first_tool_call",
-            ),
-            (CapabilityPreparationPolicy::ExplicitOnly, "explicit_only"),
-        ] {
-            assert_eq!(serde_json::to_value(value).unwrap(), expected);
-        }
-        assert_eq!(
-            serde_json::to_value(CapabilityActionAuthority::LocalHuman).unwrap(),
-            "local_human"
-        );
-        for (value, expected) in [
-            (
-                CapabilityActionExecution::ManagerEnsureRuntime,
-                "manager_ensure_runtime",
-            ),
-            (
-                CapabilityActionExecution::ProviderPrepare,
-                "provider_prepare",
             ),
         ] {
             assert_eq!(serde_json::to_value(value).unwrap(), expected);
@@ -3088,6 +2799,37 @@ mod tests {
         assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
     }
 
+    #[test]
+    /// Serena 工具失败、连接丢失和契约错误在 Manager 层保持独立代码。
+    fn provider_call_error_categories_remain_distinct() {
+        for (provider, manager) in [
+            (
+                CapabilityProviderErrorCode::ToolFailed,
+                WorkspaceCapabilityErrorCode::OperationFailed,
+            ),
+            (
+                CapabilityProviderErrorCode::Unavailable,
+                WorkspaceCapabilityErrorCode::RuntimeLost,
+            ),
+            (
+                CapabilityProviderErrorCode::ContractError,
+                WorkspaceCapabilityErrorCode::ContractError,
+            ),
+            (
+                CapabilityProviderErrorCode::RuntimeIdentityMismatch,
+                WorkspaceCapabilityErrorCode::ContractError,
+            ),
+        ] {
+            assert_eq!(
+                WorkspaceCapabilityManager::map_provider_call_error(CapabilityProviderError {
+                    code: provider
+                })
+                .code,
+                manager
+            );
+        }
+    }
+
     #[tokio::test]
     /// 验证取消中的 Manager call 会释放 guard，后续 acquire 与 stop 均可继续推进。
     async fn cancelled_manager_call_releases_in_flight_for_following_acquire_and_stop() {
@@ -3145,18 +2887,6 @@ mod tests {
                 "WORKSPACE_CAPABILITY_NOT_PREPARED",
             ),
             (
-                WorkspaceCapabilityErrorCode::PreparationRequired,
-                "WORKSPACE_CAPABILITY_PREPARATION_REQUIRED",
-            ),
-            (
-                WorkspaceCapabilityErrorCode::Preparing,
-                "WORKSPACE_CAPABILITY_PREPARING",
-            ),
-            (
-                WorkspaceCapabilityErrorCode::PrepareFailed,
-                "WORKSPACE_CAPABILITY_PREPARE_FAILED",
-            ),
-            (
                 WorkspaceCapabilityErrorCode::ObserveFailed,
                 "WORKSPACE_CAPABILITY_OBSERVE_FAILED",
             ),
@@ -3183,6 +2913,15 @@ mod tests {
         ] {
             assert_eq!(serde_json::to_value(code).unwrap(), wire);
         }
+    }
+
+    #[test]
+    /// Provider 调用报告未准备好时，Manager 保留只读 readiness 错误语义。
+    fn provider_call_not_prepared_maps_to_not_prepared() {
+        let error = WorkspaceCapabilityManager::map_provider_call_error(CapabilityProviderError {
+            code: CapabilityProviderErrorCode::NotPrepared,
+        });
+        assert_eq!(error.code, WorkspaceCapabilityErrorCode::NotPrepared);
     }
 
     #[tokio::test]
@@ -3223,7 +2962,6 @@ mod tests {
         assert!(std::ptr::eq(first.runtime(), second.runtime()));
         assert_eq!(provider.starts.load(Ordering::SeqCst), 1);
         assert_eq!(provider.observations.load(Ordering::SeqCst), 0);
-        assert_eq!(provider.prepares.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
