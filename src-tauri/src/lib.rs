@@ -7,6 +7,7 @@ mod agent_notification;
 #[cfg(any(windows, all(test, target_os = "macos")))]
 mod autostart;
 mod codegraph_capability;
+mod command;
 mod commands;
 mod config;
 mod discovery;
@@ -159,10 +160,19 @@ pub fn run() {
                 app.handle(),
             ))
             .map_err(std::io::Error::other)?;
+            let command_service = std::sync::Arc::new(
+                tauri::async_runtime::block_on(command::CommandService::new(
+                    store.clone(),
+                    supervisor.clone(),
+                ))
+                .map_err(std::io::Error::other)?,
+            );
+            let _ = broker.command.set(command_service.clone());
+            app.manage(command_service);
             let terminal_notifier =
                 std::sync::Arc::new(agent_notification::DesktopAgentTerminalNotifier::new(
                     app.handle().clone(),
-                    supervisor,
+                    supervisor.clone(),
                 ));
             // macOS Desktop 发布前保留 recovery，但把耗时的 Codex CLI probe 延到首次 Agent execute。
             #[cfg(target_os = "macos")]
@@ -278,6 +288,8 @@ pub fn run() {
             remote::remote_probe,
             remote::remote_approve,
             commands::agent_operation,
+            commands::command_query,
+            commands::command_execute,
             commands::agent_manual_resolve,
             commands::agent_history,
             commands::get_app_state,
