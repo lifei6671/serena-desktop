@@ -25,10 +25,7 @@ mod usage;
 #[cfg(test)]
 mod usage_tests;
 mod work_runs;
-pub use command_runs::{
-    CommandRunReceipt, CommandRunRecord, CreateCommandRunInput, CreateCommandRunOutcome,
-    WorkCommandLinkRecord,
-};
+pub use command_runs::{CommandRunReceipt, CommandRunRecord, CreateCommandRunInput};
 #[cfg(any(windows, target_os = "macos", test))]
 pub(crate) use usage::CodexUsageBaselineIntent;
 #[cfg(any(windows, target_os = "macos"))]
