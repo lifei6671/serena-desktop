@@ -134,6 +134,43 @@ async fn explicit_relative_path_is_rejected_by_command_entry() {
     service.shutdown().await.unwrap();
 }
 
+/// Process 通过 PATH 命中的 symlink proxy 启动时必须保留入口名，覆盖 rustup/corepack 多调用语义。
+#[tokio::test]
+async fn process_preserves_path_proxy_entry_end_to_end() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let (directory, service, _) = fixture().await;
+    let bin = directory.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let target = bin.join("multicall");
+    let proxy = bin.join("cargo");
+    std::fs::write(&target, "#!/bin/sh\nprintf '%s|%s' \"$0\" \"$1\"\n").unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700)).unwrap();
+    symlink(&target, &proxy).unwrap();
+
+    let result = run(service
+        .execute(ExecuteRequest::Start {
+            workspace_id: "command-test".into(),
+            request_key: "proxy-entry".into(),
+            work_run_id: None,
+            spec: CommandSpec::Process {
+                executable: "cargo".into(),
+                args: vec!["--probe".into()],
+            },
+            relative_cwd: None,
+            env: BTreeMap::from([("PATH".into(), format!("{}:/usr/bin:/bin", bin.display()))]),
+            timeout_ms: Some(10_000),
+            execution_mode: Some(ExecutionMode::Sync),
+            yield_time_ms: Some(5_000),
+        })
+        .await);
+    assert_eq!(result.status, "completed");
+    assert_eq!(result.exit_code, Some(0));
+    let contents = output(&service, result.command_run_id).await;
+    assert_eq!(contents.stdout.text, format!("{}|--probe", proxy.display()));
+    service.shutdown().await.unwrap();
+}
+
 /// 原生命令输出、失败 exit code、工作目录及请求幂等均经过真实进程。
 #[tokio::test]
 async fn process_executes_and_keeps_cwd_output_and_request_key() {

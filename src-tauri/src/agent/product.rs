@@ -241,6 +241,7 @@ pub enum MismatchKind {
 pub enum NextAction {
     Observe { wait_ms: u32 },
     ReviewResult { include_result: bool },
+    Continue,
     ResumePending,
     ManualResolution,
     CorrectInput,

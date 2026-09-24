@@ -241,16 +241,16 @@ fn tool(name: &'static str, desc: &'static str, value: Value) -> Tool {
 fn source_description(name: &str) -> &'static str {
     match name {
         "source_read_file" => {
-            "【做什么】\n读取指定 Workspace 中一个文本文件的全部或指定行范围，并返回已验证相对路径、完整文件 SHA-256 与 Workspace provenance。\n\n【什么时候使用】\n需要查看已登记 Workspace 内的源文件或文本配置时使用。\n\n【关键约束】\nworkspaceId 与 relative_path 必填；路径只能相对该 Workspace 根目录且不得越界。只支持 UTF-8 文本，max_bytes 默认 32768、范围 1–131072；超限时返回 truncated。"
+            "【做什么】\n读取指定 Workspace 中一个文本文件的全部或指定行范围，并返回已验证相对路径、完整文件 SHA-256 与 Workspace provenance。\n\n【什么时候使用】\n需要查看已登记 Workspace 内的源文件或文本配置时使用。\n\n【关键约束】\nworkspaceId 与 relative_path 必填；路径只能相对该 Workspace 根目录且不得越界。start_line/end_line 可选，沿用 0-based inclusive 读取语义；省略 end_line 表示读到文件末尾，start_line > end_line 返回空文本。Source Write 的行号契约为 1-based，不能直接混用。只支持 UTF-8 文本，max_bytes 默认 32768、范围 1–131072；超限时返回 truncated。"
         }
         "source_list_dir" => {
             "【做什么】\n列出指定 Workspace 内目录的文件和子目录，可选择递归返回。\n\n【什么时候使用】\n需要浏览某个源码目录的结构、确认文件或子目录时使用；relative_path 传 `.` 可列出该 Workspace 根目录。\n\n【关键约束】\nworkspaceId 与 relative_path 必填；`.` 仅表示该 workspaceId 解析出的 Workspace root，其他路径只能相对该根目录且不得越界。recursive 默认 false；max_bytes 默认 65536、范围 1–262144；超限时返回 truncated。"
         }
         "source_find_file" => {
-            "【做什么】\n在指定 Workspace 内按文件名 glob 查找文件，返回 Workspace-relative 路径。\n\n【什么时候使用】\n已知文件名、扩展名或通配模式，需要定位候选文件时使用。\n\n【关键约束】\nworkspaceId 与 file_mask 必填；relative_path 可限制搜索子树。搜索不会跟随 Workspace 外链接，并遵循本地忽略和隐藏文件规则；max_bytes 默认 65536、范围 1–262144。"
+            "【做什么】\n在指定 Workspace 内按文件名 glob 查找文件，返回 Workspace-relative 路径。\n\n【什么时候使用】\n已知文件名、扩展名或通配模式，需要定位候选文件时使用。\n\n【关键约束】\nworkspaceId 与 file_mask 必填；relative_path 可省略，提供时必须指向 Workspace 内目录并用于限制搜索子树。搜索不会跟随 Workspace 外链接。默认遍历遵循 Workspace-local .gitignore 并跳过未显式指定的隐藏项；显式 relative_path target 本身可以是隐藏目录。max_bytes 默认 65536、范围 1–262144。"
         }
         "source_search_pattern" => {
-            "【做什么】\n在指定 Workspace 的文本文件中执行逐行、大小写敏感的正则表达式搜索，返回命中的相对路径、0-based 行号和整行内容。\n\n【什么时候使用】\n需要用正则定位某段代码、配置值或文本片段出现位置时使用。\n\n【关键约束】\nworkspaceId 与 substring_pattern 必填；relative_path 可限制搜索子树。只搜索本地可读文本，不跟随 Workspace 外链接，并遵循本地忽略和隐藏文件规则；max_bytes 默认 65536、范围 1–262144。"
+            "【做什么】\n在指定 Workspace 的文本文件中执行逐行、大小写敏感的正则表达式搜索，返回命中的相对路径、0-based 行号和整行内容。\n\n【什么时候使用】\n需要用正则定位某段代码、配置值或文本片段出现位置时使用；已知具体文件时可直接把该文件作为 relative_path，避免扫描整个目录。\n\n【关键约束】\nworkspaceId 与 substring_pattern 必填；relative_path 可省略，传文件时只搜索该文件，传目录时搜索该目录子树。路径必须相对 Workspace 根目录且不得越界；只搜索本地可读文本，不跟随 Workspace 外链接。默认目录遍历遵循 Workspace-local .gitignore 并跳过未显式指定的隐藏项；显式 relative_path target 本身可以是隐藏文件或隐藏目录。max_bytes 默认 65536、范围 1–262144。"
         }
         "source_symbols_overview" => {
             "【做什么】\n获取指定 Workspace 文件或目录的语义符号概览。\n\n【什么时候使用】\n需要理解代码结构、顶层符号或模块轮廓时使用。\n\n【关键约束】\nworkspaceId 与 relative_path 必填；语义分析由该 Workspace 的 Serena capability 按需提供。Serena 不可用时调用会返回既有 capability 错误；max_bytes 默认 65536、范围 1–262144。"
@@ -390,6 +390,7 @@ pub(crate) fn agent_output_schema() -> Value {
               "enum": [
                 "observe",
                 "review_result",
+                "continue",
                 "resume_pending",
                 "manual_resolution",
                 "correct_input",
@@ -764,6 +765,17 @@ pub fn list_with_capabilities(
             .unwrap()
             .retain(|key, _| allowed.contains(&key.as_str()));
         s["required"] = json!(required);
+        // SourceArgs 为复用 DTO 使用 Option，但公共 Tool 中的业务必填字符串不能继续声明 nullable；
+        // 否则 Host 会认为 null 合法，而 validate/handler 又会按缺失参数拒绝。
+        for &field in required {
+            let property = s["properties"][field]
+                .as_object_mut()
+                .expect("SourceArgs properties must be object schemas");
+            property.insert("type".into(), json!("string"));
+            property.remove("default");
+            property.remove("anyOf");
+            property.remove("oneOf");
+        }
         if is_workspace_scoped_source(name) {
             // Source Tool 的 Workspace Authority 只公开 workspaceId；root 不进入公共 Schema。
             s["properties"]["workspaceId"] =
@@ -1240,11 +1252,11 @@ mod tests {
         for (name, expected) in [
             (
                 "agent_query",
-                "67f707ccd1b8cc2853b1e48160ad6185ec064d4a3e8e2ce60edc8e50e3f7f60c",
+                "e9d3bdabccec0ec8771cd551d2dc7d37d4ea61ef60a25721df42e8a761434027",
             ),
             (
                 "agent_execute",
-                "96bf4a39676c38b508b76d95d7e61290a8a51f323f4d70af9b73957a7f51878b",
+                "d889e222c362c1e898a5aabe1897d8e4abb3c8e95962b5d0daf1c352be5f02da",
             ),
         ] {
             let tool = tools.iter().find(|tool| tool.name == name).unwrap();
@@ -1792,6 +1804,36 @@ mod tests {
     }
 
     #[test]
+    fn source_required_business_fields_are_non_nullable_in_public_schema() {
+        let tools = list(true);
+        for &(name, _, required_fields) in SOURCES {
+            let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+            for &field in required_fields {
+                let property = &tool.input_schema["properties"][field];
+                assert_eq!(
+                    property["type"], "string",
+                    "{name}.{field} must not advertise null"
+                );
+                for nullable_marker in ["default", "anyOf", "oneOf"] {
+                    assert!(
+                        property.get(nullable_marker).is_none(),
+                        "{name}.{field} leaked {nullable_marker}"
+                    );
+                }
+                let mut args = serde_json::Map::new();
+                args.insert("workspaceId".into(), json!("known"));
+                args.insert(field.into(), Value::Null);
+                assert!(
+                    validate(name, &Value::Object(args))
+                        .unwrap_err()
+                        .starts_with("INVALID_PARAMS"),
+                    "{name}.{field}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn sources_validate_workspace_context_before_business_arguments() {
         for &(name, _, _) in SOURCES {
             for args in [json!({}), json!({"workspaceId": null})] {
@@ -2039,12 +2081,21 @@ mod tests {
             .and_then(|tool| tool.description.as_deref())
             .unwrap();
         for phrase in [
-            "方案已明确",
+            "调用方已明确任务目标和约束",
             "阅读代码、修改实现、根据中间结果调整并完成验证",
             "优先使用 command_execute",
+            "每个 WorkRun 只有第一个 Execution 使用 start",
+            "同一 WorkRun 只能成功 start 一次",
+            "后续执行必须使用 continue",
             "command_execute 能完成的确定性命令不应转交 Agent",
         ] {
             assert!(agent.contains(phrase), "agent_execute: {phrase}");
+        }
+        for client_brand in ["ChatGPT", "Claude", "Gemini"] {
+            assert!(
+                !agent.contains(client_brand),
+                "agent_execute description must stay client-agnostic: {client_brand}"
+            );
         }
 
         let command = tools
@@ -2053,7 +2104,7 @@ mod tests {
             .and_then(|tool| tool.description.as_deref())
             .unwrap();
         for phrase in [
-            "Git 写操作、构建、测试、包管理、脚本、本地诊断",
+            "Git 写操作、构建、测试、包管理、脚本或本地诊断",
             "executable/args 或 shell command 已确定时优先使用",
             "自主读代码、修改实现并根据结果迭代，应使用 agent_execute",
         ] {

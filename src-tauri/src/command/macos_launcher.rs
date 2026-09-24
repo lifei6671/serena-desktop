@@ -124,14 +124,15 @@ fn select_shell(account_shell: Option<PathBuf>) -> Result<PathBuf, String> {
         .ok_or_else(|| "COMMAND_SHELL_NOT_FOUND".into())
 }
 
-/// 按本次 CommandRun 的 PATH 顺序发现第一个当前用户可执行的真实文件。
+/// 按本次 CommandRun 的 PATH 顺序发现第一个当前用户可执行入口。
+///
+/// 保留 PATH 命中的入口路径而不解析 symlink：rustup/corepack 等多调用代理依赖
+/// argv[0] 的入口名选择子命令，canonicalize 会把 cargo 等代理错误地变成 rustup 本体。
 fn resolve_executable(name: &str, directories: &[PathBuf]) -> Option<PathBuf> {
     for directory in directories {
         let candidate = directory.join(name);
-        if executable_file(&candidate)
-            && let Ok(path) = candidate.canonicalize()
-        {
-            return Some(path);
+        if executable_file(&candidate) {
+            return Some(candidate);
         }
     }
     None
@@ -350,6 +351,30 @@ mod tests {
         assert!(shell.is_absolute());
     }
 
+    /// PATH 命中的 symlink 代理必须保留入口名，避免 rustup/corepack 等多调用程序丢失 argv[0] 语义。
+    #[test]
+    fn executable_resolution_preserves_symlink_proxy_name() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("multicall");
+        let proxy = directory.path().join("cargo");
+        std::fs::write(&target, "#!/bin/sh\nprintf '%s' \"$0\"\n").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700)).unwrap();
+        symlink(&target, &proxy).unwrap();
+
+        let resolved = resolve_executable("cargo", &[directory.path().to_path_buf()]).unwrap();
+        assert_eq!(resolved, proxy);
+        assert_ne!(resolved, target.canonicalize().unwrap());
+
+        let output = Command::new(&resolved).output().unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            resolved.to_string_lossy()
+        );
+    }
+
     /// 显式 PATH 保留顺序，且 Process 发现与 Shell child 均使用同一覆盖值。
     #[test]
     fn explicit_path_controls_discovery_and_child() {
@@ -388,7 +413,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             invocation(&process, &command_path).unwrap().0,
-            allowed.join(name).canonicalize().unwrap()
+            allowed.join(name)
         );
 
         let child_env = environment(&explicit, "workspace", &command_path);

@@ -149,8 +149,8 @@ where
         None => root.clone(),
     };
     let metadata = fs::metadata(&target).map_err(|_| "INVALID_PATH: target is unavailable")?;
-    if !metadata.is_dir() {
-        return Err("INVALID_PATH: expected a directory".into());
+    if !metadata.is_dir() && !metadata.is_file() {
+        return Err("INVALID_PATH: expected a file or directory".into());
     }
     // Host compatibility：非法 regex 是成功的空结果，而不是公开参数错误。
     let Ok(regex) = Regex::new(substring_pattern) else {
@@ -161,10 +161,39 @@ where
     if serialized_matches(&matches).len() > max_bytes {
         return finish_matches(matches, true);
     }
-    let builder = workspace_walk_builder(&root, &target, lease, limits.max_depth)?;
     let started = Instant::now();
-    let mut entries_seen = 0usize;
     let mut match_count = 0usize;
+
+    // 显式文件路径直接搜索该文件，避免调用方为了单文件搜索先退化为全目录扫描。
+    if metadata.is_file() {
+        if metadata.len() > limits.max_file_bytes {
+            return finish_matches(matches, true);
+        }
+        match validate_text_file(&target, cancel, started, limits, &mut on_read)? {
+            TextFileStatus::Valid => {}
+            TextFileStatus::Binary => return finish_matches(matches, false),
+            TextFileStatus::TooLarge | TextFileStatus::Stopped => {
+                return finish_matches(matches, true);
+            }
+        }
+        let relative = workspace_relative_path(&root, &target)?;
+        let truncated = search_text_file(
+            &target,
+            &relative,
+            &regex,
+            max_bytes,
+            &mut matches,
+            &mut match_count,
+            cancel,
+            started,
+            limits,
+            &mut on_read,
+        )?;
+        return finish_matches(matches, truncated);
+    }
+
+    let builder = workspace_walk_builder(&root, &target, lease, limits.max_depth)?;
+    let mut entries_seen = 0usize;
     let mut truncated = false;
 
     for entry in builder.build() {

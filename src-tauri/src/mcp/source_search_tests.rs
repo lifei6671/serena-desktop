@@ -126,6 +126,13 @@ async fn source_search_pattern_scopes_root_nested_and_explicit_hidden_subtree() 
         matches(&search_at(&lease, hidden).await.unwrap()),
         json!({path(&[".serena", "secret.txt"]): ["  >   0:needle hidden"]})
     );
+
+    let mut hidden_file = arguments("needle");
+    hidden_file.relative_path = Some(path(&[".serena", "secret.txt"]));
+    assert_eq!(
+        matches(&search_at(&lease, hidden_file).await.unwrap()),
+        json!({path(&[".serena", "secret.txt"]): ["  >   0:needle hidden"]})
+    );
 }
 
 /// 只读取 Workspace-local root/nested ignore；negation 生效而祖先规则不能介入。
@@ -180,7 +187,7 @@ async fn source_search_pattern_skips_binary_and_invalid_utf8_whole_files() {
     assert_eq!(output["truncated"], false);
 }
 
-/// path、目录目标和公开 budget 都必须严格保持既有参数边界。
+/// path、显式文件/目录目标和公开 budget 都必须严格保持既有参数边界。
 #[tokio::test]
 async fn source_search_pattern_rejects_invalid_paths_and_enforces_budgets() {
     let directory = tempfile::tempdir().unwrap();
@@ -216,8 +223,8 @@ async fn source_search_pattern_rejects_invalid_paths_and_enforces_budgets() {
     let mut file_target = arguments("needle");
     file_target.relative_path = Some("file.txt".into());
     assert_eq!(
-        search_at(&lease, file_target).await,
-        Err("INVALID_PATH: expected a directory".into())
+        matches(&search_at(&lease, file_target).await.unwrap()),
+        json!({"file.txt": ["  >   0:needle"]})
     );
     for max_bytes in [None, Some(65_536), Some(262_144)] {
         let mut args = arguments("needle");

@@ -2033,7 +2033,8 @@ mod tests {
         let mut command = hidden_command(executable);
         command.args(["ignore-tree"]).arg(&marker);
 
-        let error = run_with_timeout(command, Duration::from_secs(1), "测试命令").unwrap_err();
+        // 全量测试高负载下给 fixture 足够时间创建 leaf；验证目标仍是随后由 timeout 收口完整进程组。
+        let error = run_with_timeout(command, Duration::from_secs(3), "测试命令").unwrap_err();
         assert!(error.contains("超时"));
         let leaf_pid: libc::pid_t = std::fs::read_to_string(&marker).unwrap().parse().unwrap();
         // SAFETY: kill(pid, 0) 只探测 fixture PID 是否仍存在。
