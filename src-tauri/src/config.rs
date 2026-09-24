@@ -119,6 +119,7 @@ pub struct ManagerConfig {
     pub remote_access: crate::remote::RemoteAccessConfig,
     pub agent_enabled: bool,
     pub remote_source_write_enabled: bool,
+    pub remote_command_execution_enabled: bool,
     pub agent_success_notification_enabled: bool,
     pub agent_failure_notification_enabled: bool,
     pub agent_system_notification_enabled: bool,
@@ -142,6 +143,7 @@ impl Default for ManagerConfig {
             remote_access: crate::remote::RemoteAccessConfig::default(),
             agent_enabled: false,
             remote_source_write_enabled: false,
+            remote_command_execution_enabled: false,
             agent_success_notification_enabled: true,
             agent_failure_notification_enabled: true,
             agent_system_notification_enabled: true,
@@ -703,6 +705,21 @@ mod tests {
         save(&path, &config).unwrap();
         assert!(load(&path).unwrap().agent_enabled);
         assert_eq!(serde_json::to_value(&config).unwrap()["agentEnabled"], true);
+    }
+
+    #[test]
+    fn remote_command_execution_is_opt_in_and_persisted() {
+        let mut config: ManagerConfig = serde_json::from_str("{}").unwrap();
+        assert!(!config.remote_command_execution_enabled);
+        config.remote_command_execution_enabled = true;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        save(&path, &config).unwrap();
+        assert!(load(&path).unwrap().remote_command_execution_enabled);
+        assert_eq!(
+            serde_json::to_value(&config).unwrap()["remoteCommandExecutionEnabled"],
+            true
+        );
     }
 
     #[test]

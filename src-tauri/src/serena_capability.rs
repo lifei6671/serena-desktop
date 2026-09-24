@@ -86,9 +86,24 @@ impl SerenaRuntimeClient for Client {
         Box::pin(async move {
             Client::call(self, name, arguments)
                 .await
-                .map_err(|_| deferred_operation())
+                .map_err(classify_client_error)
         })
     }
+}
+
+/// 仅在既有 Serena Client adapter 兼容边界解释稳定前缀，丢弃上游正文。
+fn classify_client_error(error: String) -> CapabilityProviderError {
+    let code = if error.starts_with("BACKEND_UNAVAILABLE:") {
+        CapabilityProviderErrorCode::Unavailable
+    } else if error == "TOOL_TIMEOUT"
+        || error.starts_with("BACKEND_ERROR:")
+        || error.starts_with("OUTPUT_LIMIT_EXCEEDED:")
+    {
+        CapabilityProviderErrorCode::ToolFailed
+    } else {
+        CapabilityProviderErrorCode::ContractError
+    };
+    CapabilityProviderError { code }
 }
 
 /// Provider-private 进程与 Client 所有权；Manager 只持有 opaque handle。
@@ -275,6 +290,17 @@ impl SerenaCapabilityProvider {
             .map_err(|_| deferred_operation())
     }
 
+    /// 配置 Serena Slot 的受控环境，macOS 仅补充同一份用户 PATH。
+    fn configure_child_environment(command: &mut std::process::Command, home: &Path) {
+        command
+            .env("SERENA_HOME", home)
+            .env("UV_CACHE_DIR", home.join("uv-cache"))
+            .env("UV_TOOL_DIR", home.join("uv-tools"))
+            .env("FASTMCP_JSON_RESPONSE", "false");
+        #[cfg(target_os = "macos")]
+        command.env("PATH", crate::macos_user_path::value());
+    }
+
     /// 将 Windows 或其他 Unix 已创建的直接 child 收敛，不泄露进程细节。
     #[cfg(not(target_os = "macos"))]
     async fn cleanup_child(child: &mut Child) {
@@ -315,6 +341,7 @@ impl SerenaCapabilityProvider {
         port: u16,
     ) -> Result<SerenaRuntime, CapabilityProviderError> {
         let mut command = hidden_command(&installation.path);
+        Self::configure_child_environment(&mut command, home);
         command
             .args(["start-mcp-server", "--project"])
             // 仅在 Serena CLI 边界去除 Windows verbatim 前缀；Lease 仍保留 canonical Authority。
@@ -331,11 +358,6 @@ impl SerenaCapabilityProvider {
                 "--open-web-dashboard",
                 "false",
             ])
-            .env("SERENA_HOME", home)
-            // uvx/pyright 的 cache 与 tool lock 也必须随 Slot 隔离，避免共享用户目录的竞争或权限失败。
-            .env("UV_CACHE_DIR", home.join("uv-cache"))
-            .env("UV_TOOL_DIR", home.join("uv-tools"))
-            .env("FASTMCP_JSON_RESPONSE", "false")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -789,6 +811,108 @@ mod tests {
         path::PathBuf,
         sync::atomic::{AtomicUsize, Ordering},
     };
+
+    /// Client 原始文本只在 adapter 边界分类，绝不进入 Provider 错误外壳。
+    #[test]
+    fn client_errors_keep_operation_transport_and_contract_distinct() {
+        for (raw, expected) in [
+            (
+                "BACKEND_ERROR: secret upstream detail",
+                CapabilityProviderErrorCode::ToolFailed,
+            ),
+            ("TOOL_TIMEOUT", CapabilityProviderErrorCode::ToolFailed),
+            (
+                "OUTPUT_LIMIT_EXCEEDED: detail",
+                CapabilityProviderErrorCode::ToolFailed,
+            ),
+            (
+                "BACKEND_UNAVAILABLE: connection closed",
+                CapabilityProviderErrorCode::Unavailable,
+            ),
+            (
+                "BACKEND_INCOMPATIBLE: schema",
+                CapabilityProviderErrorCode::ContractError,
+            ),
+        ] {
+            let error = classify_client_error(raw.into());
+            assert_eq!(error.code, expected);
+            assert!(!serde_json::to_string(&error).unwrap().contains("secret"));
+        }
+    }
+
+    /// Serena child 获得共享 PATH，同时保留 Slot 专属 Home 和 uv 目录。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn serena_child_receives_shared_path() {
+        let mut command = std::process::Command::new("/usr/bin/true");
+        SerenaCapabilityProvider::configure_child_environment(&mut command, Path::new("/tmp/slot"));
+        let env = command.get_envs().collect::<Vec<_>>();
+        let value = |key| {
+            env.iter()
+                .find(|(name, _)| *name == std::ffi::OsStr::new(key))
+                .and_then(|(_, value)| *value)
+        };
+        let expected_path = crate::macos_user_path::value();
+        assert_eq!(value("PATH"), Some(expected_path.as_os_str()));
+        assert_eq!(
+            value("SERENA_HOME"),
+            Some(std::ffi::OsStr::new("/tmp/slot"))
+        );
+        assert_eq!(
+            value("UV_CACHE_DIR"),
+            Some(std::ffi::OsStr::new("/tmp/slot/uv-cache"))
+        );
+    }
+
+    /// 真实 Mac Slot 在临时 Rust Workspace 中完成一次符号概览并清理进程组。
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    #[ignore = "requires SERENA_TEST_EXE pointing at local Serena 1.7.0"]
+    async fn live_macos_slot_gets_rust_symbols_overview() {
+        let executable =
+            PathBuf::from(std::env::var_os("SERENA_TEST_EXE").expect("SERENA_TEST_EXE"));
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("workspace");
+        std::fs::create_dir_all(root.join(".serena")).unwrap();
+        std::fs::write(root.join("sample.rs"), "fn path_smoke_marker() {}\n").unwrap();
+        std::fs::write(
+            root.join(".serena/project.yml"),
+            "project_name: path-smoke\nlanguage_servers:\n- rust\n",
+        )
+        .unwrap();
+        let lease = lease(root.canonicalize().unwrap());
+        let installation = installation(InstallationState::Standard, executable, "Serena 1.7.0");
+        let provider = SerenaCapabilityProvider::with_probes(
+            Arc::new(move || installation.clone()),
+            Arc::new(project_configuration_exists),
+            directory.path().join("runtime"),
+        );
+        let home = provider.slot_home(&lease);
+        let context = provider.slot_context(&lease);
+        config::prepare_workspace_serena_home(&home, &context).unwrap();
+        let port = SerenaCapabilityProvider::select_loopback_port().unwrap();
+        let mut runtime = provider
+            .start_runtime(
+                &lease,
+                (provider.installation_detector)(),
+                &home,
+                &context,
+                port,
+            )
+            .await
+            .unwrap();
+        let result = runtime
+            .client
+            .call(
+                "get_symbols_overview",
+                serde_json::json!({"relative_path":"sample.rs","max_answer_chars":65536}),
+            )
+            .await;
+        SerenaCapabilityProvider::cleanup_child(&mut runtime.child, &runtime.identity).await;
+        assert!(runtime.child.try_wait().unwrap().is_some());
+        assert!(crate::macos_process::group_is_empty(runtime.identity.pgid()).unwrap());
+        assert!(result.unwrap().contains("path_smoke_marker"));
+    }
 
     /// 构造不依赖本机 Serena 的安装探测结果。
     fn installation(state: InstallationState, path: PathBuf, version: &str) -> SerenaInstallation {

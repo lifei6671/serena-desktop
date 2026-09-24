@@ -9,6 +9,7 @@ struct AcceptedWork<'a> {
     decision: &'static str,
     summary: &'a str,
     execution_ids: &'a [String],
+    command_run_ids: &'a [String],
     accepted_at: i64,
 }
 
@@ -33,7 +34,14 @@ impl StateStore {
                          WHERE l.work_run_id=?1 AND e.status NOT IN ('completed','failed','cancelled','interrupted'))",
                         [&id], |row| row.get(0),
                     ).map_err(|e| e.to_string())?;
-                    if unresolved {
+                    let unresolved_commands: bool = tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM work_command_links l
+                         JOIN command_runs c ON c.id=l.command_run_id
+                         WHERE l.work_run_id=?1 AND c.status NOT IN
+                         ('completed','failed','cancelled','interrupted'))",
+                        [&id], |row| row.get(0),
+                    ).map_err(|e| e.to_string())?;
+                    if unresolved || unresolved_commands {
                         return Err("WORK_HAS_ACTIVE_EXECUTIONS".into());
                     }
                     match outcome {
@@ -62,8 +70,24 @@ impl StateStore {
                                     return Err("EXECUTION_NOT_IN_WORK".into());
                                 }
                             }
+                            let mut seen_commands = std::collections::HashSet::new();
+                            for command_run_id in &acceptance.command_run_ids {
+                                validate_id(command_run_id)?;
+                                if !seen_commands.insert(command_run_id) {
+                                    return Err("WORK_INVALID_ARGUMENT".into());
+                                }
+                                let link = super::super::command_runs::work_command_link_record(tx, command_run_id)
+                                    .map_err(|e| e.to_string())?;
+                                if link.as_ref().is_none_or(|link| link.work_run_id != id) {
+                                    return Err("COMMAND_RUN_NOT_IN_WORK".into());
+                                }
+                            }
                             let json = serde_json::to_string(&AcceptedWork {
-                                decision: "accepted", summary, execution_ids: &acceptance.execution_ids, accepted_at: now,
+                                decision: "accepted",
+                                summary,
+                                execution_ids: &acceptance.execution_ids,
+                                command_run_ids: &acceptance.command_run_ids,
+                                accepted_at: now,
                             }).map_err(|e| e.to_string())?;
                             ("completed", Some(json))
                         }
@@ -80,5 +104,116 @@ impl StateStore {
             }
             work_run_record(tx, &id).map_err(|e| e.to_string())?.ok_or_else(|| "WORK_NOT_FOUND".into())
         }).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::{
+        store::{CommandRunReceipt, CreateCommandRunInput},
+        work::HostAcceptance,
+    };
+
+    #[tokio::test]
+    async fn command_run_blocks_work_finish_until_durable_terminal_receipt_exists() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = StateStore::open(directory.path().join("state"))
+            .await
+            .unwrap();
+        store
+            .create_work_run(
+                "work-command".into(),
+                "workspace".into(),
+                "root".into(),
+                7,
+                "verify command".into(),
+                None,
+                1,
+            )
+            .await
+            .unwrap();
+        store
+            .create_command_run(
+                "command-1".into(),
+                CreateCommandRunInput {
+                    request_key: "request-1".into(),
+                    request_hash: "hash-1".into(),
+                    workspace_id: "workspace".into(),
+                    canonical_workspace_root: "root".into(),
+                    workspace_generation: 7,
+                    work_run_id: Some("work-command".into()),
+                    mode: "process".into(),
+                    relative_cwd: ".".into(),
+                    execution_mode: "auto".into(),
+                    timeout_ms: 30_000,
+                    runtime_platform: "windows".into(),
+                    containment_type: "job_at_creation".into(),
+                },
+                2,
+            )
+            .await
+            .unwrap();
+
+        let acceptance = || HostAcceptance {
+            summary: "host verified".into(),
+            execution_ids: Vec::new(),
+            command_run_ids: vec!["command-1".into()],
+        };
+        assert_eq!(
+            store
+                .work_terminal(
+                    "work-command".into(),
+                    TerminalAction::Finish {
+                        outcome: FinishOutcome::Completed,
+                        acceptance: Some(acceptance()),
+                    },
+                    3,
+                )
+                .await,
+            Err("WORK_HAS_ACTIVE_EXECUTIONS".into())
+        );
+
+        store
+            .command_mark_running("command-1".into(), 123, 4)
+            .await
+            .unwrap();
+        store
+            .command_mark_terminal(
+                "command-1".into(),
+                "completed".into(),
+                CommandRunReceipt {
+                    exit_code: Some(0),
+                    termination_reason: Some("exited".into()),
+                    stdout_total_bytes: 12,
+                    stderr_total_bytes: 0,
+                    stdout_sha256: Some("stdout-digest".into()),
+                    stderr_sha256: Some("stderr-digest".into()),
+                    ..CommandRunReceipt::default()
+                },
+                5,
+            )
+            .await
+            .unwrap();
+
+        let finished = store
+            .work_terminal(
+                "work-command".into(),
+                TerminalAction::Finish {
+                    outcome: FinishOutcome::Completed,
+                    acceptance: Some(acceptance()),
+                },
+                6,
+            )
+            .await
+            .unwrap();
+        assert_eq!(finished.status, "completed");
+        let acceptance: serde_json::Value =
+            serde_json::from_str(finished.acceptance_json.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            acceptance["commandRunIds"],
+            serde_json::json!(["command-1"])
+        );
+        assert_eq!(acceptance["executionIds"], serde_json::json!([]));
     }
 }

@@ -18,11 +18,14 @@ const SCHEMA_V7: &str = include_str!("schema_v7.sql");
 const SCHEMA_V8: &str = include_str!("schema_v8.sql");
 const SCHEMA_V9: &str = include_str!("schema_v9.sql");
 const SCHEMA_V10: &str = include_str!("schema_v10.sql");
+const SCHEMA_V11: &str = include_str!("schema_v11.sql");
 
+mod command_runs;
 mod usage;
 #[cfg(test)]
 mod usage_tests;
 mod work_runs;
+pub use command_runs::{CommandRunReceipt, CommandRunRecord, CreateCommandRunInput};
 #[cfg(any(windows, target_os = "macos", test))]
 pub(crate) use usage::CodexUsageBaselineIntent;
 #[cfg(any(windows, target_os = "macos"))]
@@ -341,7 +344,7 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
             }
             apply_migration(&transaction, 1, SCHEMA_V1).map_err(|e| e.to_string())?;
         }
-        1..=10 => {}
+        1..=11 => {}
         _ => return Err(format!("unsupported agent state schema version: {version}")),
     }
     if version < 2 {
@@ -370,6 +373,9 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     }
     if version < 10 {
         apply_migration(&transaction, 10, SCHEMA_V10).map_err(|e| e.to_string())?;
+    }
+    if version < 11 {
+        apply_migration(&transaction, 11, SCHEMA_V11).map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())
 }

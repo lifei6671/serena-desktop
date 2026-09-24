@@ -43,6 +43,7 @@ pub enum FinishOutcome {
 pub struct HostAcceptance {
     pub summary: String,
     pub execution_ids: Vec<String>,
+    pub command_run_ids: Vec<String>,
 }
 
 pub(crate) enum TerminalAction {

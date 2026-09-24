@@ -1,6 +1,7 @@
 use super::*;
 use crate::agent::store::transactions::product::WorkExecutionContext;
 use rusqlite::{Connection, types::Value};
+use serde_json::json;
 
 fn snapshot(root: &std::path::Path, include_work: bool) -> Vec<Vec<Vec<Value>>> {
     let db = Connection::open(root.join("agent-state.db")).unwrap();
@@ -77,6 +78,7 @@ fn acceptance(ids: &[&str]) -> HostAcceptance {
     HostAcceptance {
         summary: "  Host reviewed\n ".into(),
         execution_ids: ids.iter().map(|s| (*s).into()).collect(),
+        command_run_ids: vec![],
     }
 }
 
@@ -129,6 +131,87 @@ async fn every_unresolved_execution_blocks_both_outcomes_without_mutating_any_ro
 }
 
 #[tokio::test]
+async fn active_command_run_blocks_work_until_receipt_is_terminal_and_accepted() {
+    use crate::agent::store::{CommandRunReceipt, CreateCommandRunInput};
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    create(&store, "work").await;
+    store
+        .create_command_run(
+            "C1".into(),
+            CreateCommandRunInput {
+                request_key: "command-key".into(),
+                request_hash: "command-hash".into(),
+                workspace_id: "W".into(),
+                canonical_workspace_root: "root".into(),
+                workspace_generation: 1,
+                work_run_id: Some("work".into()),
+                mode: "process".into(),
+                relative_cwd: ".".into(),
+                execution_mode: "auto".into(),
+                timeout_ms: 1000,
+                runtime_platform: "windows".into(),
+                containment_type: "test".into(),
+            },
+            2,
+        )
+        .await
+        .unwrap();
+    store
+        .command_mark_running("C1".into(), 1234, 3)
+        .await
+        .unwrap();
+
+    let service = WorkProductService::new(store.clone());
+    let acceptance = || HostAcceptance {
+        summary: "Host verified command".into(),
+        execution_ids: vec![],
+        command_run_ids: vec!["C1".into()],
+    };
+    assert_eq!(
+        service
+            .update(
+                finish("work", FinishOutcome::Completed, Some(acceptance()),),
+                None,
+            )
+            .await
+            .unwrap_err(),
+        "WORK_HAS_ACTIVE_EXECUTIONS"
+    );
+
+    store
+        .command_mark_terminal(
+            "C1".into(),
+            "completed".into(),
+            CommandRunReceipt {
+                exit_code: Some(0),
+                stdout_total_bytes: 3,
+                stderr_total_bytes: 0,
+                stdout_sha256: Some("stdout-digest".into()),
+                stderr_sha256: Some("stderr-digest".into()),
+                ..CommandRunReceipt::default()
+            },
+            4,
+        )
+        .await
+        .unwrap();
+
+    let work = service
+        .update(
+            finish("work", FinishOutcome::Completed, Some(acceptance())),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(work.status, "completed");
+    let acceptance: serde_json::Value =
+        serde_json::from_str(work.acceptance_json.as_deref().unwrap()).unwrap();
+    assert_eq!(acceptance["commandRunIds"], json!(["C1"]));
+    assert_eq!(acceptance["executionIds"], json!([]));
+}
+
+#[tokio::test]
 async fn completed_acceptance_is_canonical_server_timed_and_reopens_exactly() {
     let dir = tempfile::tempdir().unwrap();
     let store = StateStore::open(dir.path().into()).await.unwrap();
@@ -164,7 +247,7 @@ async fn completed_acceptance_is_canonical_server_timed_and_reopens_exactly() {
     assert_eq!(
         result.acceptance_json,
         Some(format!(
-            r#"{{"decision":"accepted","summary":"Host reviewed","executionIds":["E4","E2"],"acceptedAt":{}}}"#,
+            r#"{{"decision":"accepted","summary":"Host reviewed","executionIds":["E4","E2"],"commandRunIds":[],"acceptedAt":{}}}"#,
             result.updated_at
         ))
     );
@@ -213,6 +296,7 @@ async fn acceptance_validation_and_terminal_work_errors_have_zero_side_effects()
             Some(HostAcceptance {
                 summary: " \n\t".into(),
                 execution_ids: vec![],
+                command_run_ids: vec![],
             }),
             "WORK_INVALID_ARGUMENT",
         ),

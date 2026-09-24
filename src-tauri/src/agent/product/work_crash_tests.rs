@@ -44,6 +44,7 @@ fn complete_work(work: &str, execution: &str) -> UpdateAction {
         acceptance: Some(HostAcceptance {
             summary: "Host reviewed the resumed result".into(),
             execution_ids: vec![execution.into()],
+            command_run_ids: vec![],
         }),
     }
 }

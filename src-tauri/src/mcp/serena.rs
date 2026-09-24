@@ -93,24 +93,7 @@ impl Client {
         .map_err(|e| format!("BACKEND_UNAVAILABLE: {e}"))?;
         flight.0 = None;
         let value = serde_json::to_value(result).map_err(|e| e.to_string())?;
-        if value["isError"] == true {
-            return Err(format!("BACKEND_ERROR: {}", value["content"]));
-        }
-        let content = value["content"]
-            .as_array()
-            .ok_or("BACKEND_INCOMPATIBLE: 无文本结果")?;
-        let mut texts = Vec::new();
-        for item in content {
-            if item["type"] != "text" {
-                return Err("BACKEND_INCOMPATIBLE: 仅接受文本/JSON 工具结果".into());
-            }
-            texts.push(item["text"].as_str().ok_or("BACKEND_INCOMPATIBLE")?);
-        }
-        let text = texts.join("\n");
-        if text.starts_with("The answer is too long") {
-            return Err("OUTPUT_LIMIT_EXCEEDED: 请缩小查询范围".into());
-        }
-        Ok(text)
+        tool_text(value)
     }
     pub async fn activate(&self, root: &Path) -> Result<(), String> {
         let result = self
@@ -128,6 +111,28 @@ impl Client {
     pub fn closed(&self) -> bool {
         self.service.is_closed()
     }
+}
+
+/// 解析 Tool 回执，保留现有 Client 私有错误前缀供 Capability adapter 分类。
+fn tool_text(value: Value) -> Result<String, String> {
+    if value["isError"] == true {
+        return Err(format!("BACKEND_ERROR: {}", value["content"]));
+    }
+    let content = value["content"]
+        .as_array()
+        .ok_or("BACKEND_INCOMPATIBLE: 无文本结果")?;
+    let mut texts = Vec::new();
+    for item in content {
+        if item["type"] != "text" {
+            return Err("BACKEND_INCOMPATIBLE: 仅接受文本/JSON 工具结果".into());
+        }
+        texts.push(item["text"].as_str().ok_or("BACKEND_INCOMPATIBLE")?);
+    }
+    let text = texts.join("\n");
+    if text.starts_with("The answer is too long") {
+        return Err("OUTPUT_LIMIT_EXCEEDED: 请缩小查询范围".into());
+    }
+    Ok(text)
 }
 
 /// 将 Windows verbatim 路径和普通路径统一为 Serena 回执可比较的形式。
@@ -190,6 +195,15 @@ pub fn display(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// MCP isError 被识别为上游工具失败，供 adapter 投影为 OperationFailed。
+    #[test]
+    fn upstream_is_error_uses_tool_failure_prefix() {
+        let error =
+            tool_text(json!({"isError":true,"content":[{"type":"text","text":"private detail"}]}))
+                .unwrap_err();
+        assert!(error.starts_with("BACKEND_ERROR:"));
+    }
 
     #[test]
     fn activation_header_accepts_normal_windows_root() {

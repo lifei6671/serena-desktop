@@ -64,7 +64,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
         let store = open(dir.path());
         let c = store.connection.lock().unwrap();
         for (pragma, expected) in [
-            ("user_version", 10),
+            ("user_version", 11),
             ("foreign_keys", 1),
             ("synchronous", 2),
             ("busy_timeout", 5000),
@@ -87,6 +87,8 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
             "workspace_claims",
             "work_runs",
             "work_execution_links",
+            "command_runs",
+            "work_command_links",
             "execution_activity_events",
             "execution_usage",
             "codex_thread_usage_epochs",
@@ -120,7 +122,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
 
 /// 验证冻结的 Windows v9 Runtime/Execution/Claim 完整升级且不改写历史证据。
 #[test]
-fn migrates_frozen_v9_fixture_to_v10() {
+fn migrates_frozen_v9_fixture_through_v11() {
     let mut connection = frozen_v9_connection();
     assert_eq!(
         connection
@@ -135,7 +137,7 @@ fn migrates_frozen_v9_fixture_to_v10() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        10
+        11
     );
     let projected = connection
         .query_row(
@@ -412,7 +414,7 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        10
+        11
     );
     assert_eq!(
         c.query_row(
@@ -501,7 +503,7 @@ fn v9_migration_failure_rolls_back_usage_schema_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        10
+        11
     );
 }
 
@@ -566,7 +568,7 @@ fn v2_migration_preserves_history_and_adds_nullable_activity() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        10
+        11
     );
     let old = execution_record(&c, "old").unwrap().unwrap();
     assert_eq!(old.last_activity_at, None);
@@ -598,7 +600,7 @@ fn every_pre_v6_schema_preserves_history_and_reopens_with_null_parent() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            10
+            11
         );
         let after = execution_record(&c, "old").unwrap().unwrap();
         assert_eq!((after.request_hash, after.prompt, after.thread_id), before);
@@ -629,12 +631,12 @@ fn unsupported_or_unversioned_history_is_not_guessed_or_rewritten() {
             .unwrap(),
         0
     );
-    c.pragma_update(None, "user_version", 11).unwrap();
+    c.pragma_update(None, "user_version", 12).unwrap();
     assert!(migrate(&mut c).unwrap_err().contains("unsupported"));
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        11
+        12
     );
 }
 
@@ -682,7 +684,7 @@ fn v6_upgrade_preserves_rows_and_defines_generation_one_baseline() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        10
+        11
     );
     let mut expected_executions = executions;
     expected_executions[0].push(rusqlite::types::Value::Integer(1));
@@ -975,7 +977,7 @@ fn v8_backfills_current_summary_without_inventing_history() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        10
+        11
     );
     assert_eq!(
         c.query_row(
@@ -1066,7 +1068,7 @@ fn v9_migrates_real_v8_fixture_without_backfilling_usage() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            10
+            11
         );
         assert_eq!(
             c.query_row(

@@ -36,6 +36,7 @@ export interface ManagerConfig {
   remoteAccess: RemoteAccessConfig;
   agentEnabled: boolean;
   remoteSourceWriteEnabled: boolean;
+  remoteCommandExecutionEnabled: boolean;
   agentSuccessNotificationEnabled: boolean;
   agentFailureNotificationEnabled: boolean;
   agentSystemNotificationEnabled: boolean;

@@ -279,12 +279,10 @@ impl CodeGraphCapabilityProvider {
     /// 启动前复用同一 status authority，禁止 Runtime acquire 借机 init/sync/index。
     async fn require_ready(&self, lease: &WorkspaceLease) -> Result<(), CapabilityProviderError> {
         match self.status(lease).await? {
-            StatusProjection::Ready => Ok(()),
-            StatusProjection::NotPrepared | StatusProjection::Degraded => {
-                Err(CapabilityProviderError {
-                    code: CapabilityProviderErrorCode::NotPrepared,
-                })
-            }
+            StatusProjection::Ready | StatusProjection::Degraded => Ok(()),
+            StatusProjection::NotPrepared => Err(CapabilityProviderError {
+                code: CapabilityProviderErrorCode::NotPrepared,
+            }),
         }
     }
 
@@ -928,31 +926,68 @@ mod tests {
         );
     }
 
-    /// 有未同步变更时仍只读取 status，Runtime 必须保持未启动。
+    /// 索引完整但 stale 时允许 acquire/query，health 保留 stale，且不触发任何索引更新命令。
     #[tokio::test]
-    async fn degraded_status_fails_runtime_start_without_index_commands() {
-        let directory = tempfile::tempdir().unwrap();
-        let target = lease(directory.path().to_path_buf());
-        let degraded = initialized(&target.canonical_root, 1, false, "complete");
-        let (provider, calls) = provider_with_responses([Ok(degraded.clone()), Ok(degraded)]);
-        assert_eq!(
-            provider
-                .observe_readiness(target.clone())
+    async fn degraded_status_allows_acquire_and_query_without_index_commands() {
+        for (added, reindex_recommended) in [(1, false), (0, true)] {
+            let directory = tempfile::tempdir().unwrap();
+            let target = lease(directory.path().to_path_buf());
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let recorded = Arc::clone(&calls);
+            let starts = Arc::new(AtomicUsize::new(0));
+            let counted = Arc::clone(&starts);
+            let provider = CodeGraphCapabilityProvider::with_runtime(
+                Arc::new(|| CapabilityInstallation {
+                    state: CapabilityInstallationState::Installed,
+                    detected_version: Some("1.6.0".into()),
+                }),
+                Arc::new(move |command| {
+                    let output =
+                        initialized(&command.current_dir, added, reindex_recommended, "complete");
+                    recorded.lock().unwrap().push(command);
+                    Box::pin(async move { Ok(output) })
+                }),
+                Arc::new(move |_| {
+                    counted.fetch_add(1, Ordering::SeqCst);
+                    Box::pin(async {
+                        Ok(Arc::new(DropProbeClient {
+                            drops: Arc::new(AtomicUsize::new(0)),
+                        })
+                            as Arc<dyn CodeGraphRuntimeClient>)
+                    })
+                }),
+            );
+            let manager = codegraph_manager(provider);
+            let health = manager.observe_health(target.clone()).await;
+            let codegraph = health.providers.get("codegraph").unwrap();
+            assert_eq!(codegraph.readiness, CapabilityReadinessState::Degraded);
+            assert_eq!(codegraph.stages[0].state, CapabilityStageState::Stale);
+
+            drop(
+                manager
+                    .acquire_runtime("codegraph", target.clone())
+                    .await
+                    .unwrap(),
+            );
+            let result = manager
+                .call(
+                    "codegraph",
+                    target.clone(),
+                    WorkspaceToolCall {
+                        tool_name: "codegraph_explore".into(),
+                        arguments: json!({"query":"stale index"}),
+                        cancellation: CancellationToken::new(),
+                    },
+                )
                 .await
-                .unwrap()
-                .readiness,
-            CapabilityReadinessState::Degraded
-        );
-        assert_eq!(
-            provider.start(target.clone()).await,
-            Err(CapabilityProviderError {
-                code: CapabilityProviderErrorCode::NotPrepared,
-            })
-        );
-        assert_eq!(
-            calls.lock().unwrap().as_slice(),
-            &[status_command(&target), status_command(&target)]
-        );
+                .unwrap();
+            assert_eq!(result.result, Value::String("ok".into()));
+            assert_eq!(starts.load(Ordering::SeqCst), 1);
+            assert_eq!(
+                calls.lock().unwrap().as_slice(),
+                &[status_command(&target), status_command(&target)]
+            );
+        }
     }
 
     /// 畸形 JSON、缺必需字段、命令错误与 canonical root mismatch 都不得产生 ready observation。
