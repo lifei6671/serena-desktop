@@ -733,7 +733,8 @@ pub fn list(agent_enabled: bool) -> Vec<Tool> {
     list_with_capabilities(agent_enabled, false, false)
 }
 
-/// 兼容现有测试与内部调用；Command 工具默认不加入旧 helper 的 surface。
+/// 兼容现有测试；Command 工具默认不加入旧 helper 的 surface。
+#[cfg(test)]
 pub fn list_with_source_write(agent_enabled: bool, remote_source_write_enabled: bool) -> Vec<Tool> {
     list_with_capabilities(agent_enabled, remote_source_write_enabled, false)
 }
