@@ -1344,6 +1344,203 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     broker.stop().await.unwrap();
 }
 
+#[cfg(windows)]
+#[tokio::test]
+async fn http_command_runtime_executes_observes_cancels_and_links_work_evidence() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace_root = dir.path().join("workspace");
+    std::fs::create_dir(&workspace_root).unwrap();
+    let workspace_root = std::fs::canonicalize(workspace_root).unwrap();
+
+    let broker = fixture(dir.path());
+    let store = StateStore::open(dir.path().join("state")).await.unwrap();
+    assert!(
+        broker
+            .product
+            .set(Arc::new(AgentProductService::new(store.clone())))
+            .is_ok()
+    );
+    let command = Arc::new(
+        crate::command::CommandService::new(store.clone(), broker.supervisor.clone())
+            .await
+            .unwrap(),
+    );
+    assert!(broker.command.set(command.clone()).is_ok());
+
+    let mut config = broker.config();
+    config.remote_command_execution_enabled = true;
+    config.workspaces = vec![Workspace {
+        id: "W".into(),
+        name: "Workspace".into(),
+        root: workspace_root,
+        generation: 1,
+    }];
+    broker.supervisor.replace_config(config).unwrap();
+    broker.start().await.unwrap();
+
+    let client = ()
+        .serve(StreamableHttpClientTransport::from_uri(format!(
+            "http://127.0.0.1:{}/mcp",
+            broker.config().broker.port
+        )))
+        .await
+        .unwrap();
+    let request = |name: &str, args: Value| {
+        CallToolRequestParams::new(name.to_string())
+            .with_arguments(args.as_object().unwrap().clone())
+    };
+
+    let work = client
+        .call_tool(request(
+            "work_update",
+            json!({"action":"begin","workspaceId":"W","title":"command MCP acceptance"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(work.is_error, Some(false));
+    let work = work.structured_content.unwrap();
+    let work_run_id = work["data"]["workRun"]["workRunId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let started = client
+        .call_tool(request(
+            "command_execute",
+            json!({
+                "action":"start",
+                "workspaceId":"W",
+                "workRunId":work_run_id,
+                "requestKey":"mcp-native-process",
+                "spec":{"mode":"process","executable":"where.exe","args":["cmd.exe"]},
+                "executionMode":"auto",
+                "yieldTimeMs":5000,
+                "timeoutMs":10000
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(started.is_error, Some(false));
+    let started = started.structured_content.unwrap();
+    let run = &started["data"]["commandRun"];
+    assert_eq!(run["status"], "completed", "{started}");
+    assert_eq!(run["exitCode"], 0);
+    assert_eq!(run["commandOk"], true);
+    let command_run_id = run["commandRunId"].as_str().unwrap().to_owned();
+    assert_eq!(run["workspaceId"], "W");
+    assert_eq!(run["relativeCwd"], ".");
+
+    let output = client
+        .call_tool(request(
+            "command_query",
+            json!({
+                "action":"output",
+                "commandRunId":command_run_id,
+                "stdoutCursor":0,
+                "stderrCursor":0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(output.is_error, Some(false));
+    let output = output.structured_content.unwrap();
+    assert_eq!(output["data"]["output"]["retained"], true);
+    assert!(
+        output["data"]["output"]["stdout"]["text"]
+            .as_str()
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("cmd.exe"),
+        "{output}"
+    );
+
+    let finished = client
+        .call_tool(request(
+            "work_update",
+            json!({
+                "action":"finish",
+                "workRunId":work_run_id,
+                "outcome":"completed",
+                "acceptance":{
+                    "summary":"Host verified Command Receipt",
+                    "executionIds":[],
+                    "commandRunIds":[command_run_id]
+                }
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(finished.is_error, Some(false));
+    let finished = finished.structured_content.unwrap();
+    assert_eq!(finished["data"]["workRun"]["status"], "completed");
+    assert_eq!(
+        finished["data"]["workRun"]["acceptance"]["commandRunIds"][0],
+        command_run_id
+    );
+
+    let long = client
+        .call_tool(request(
+            "command_execute",
+            json!({
+                "action":"start",
+                "workspaceId":"W",
+                "requestKey":"mcp-cancel-shell",
+                "spec":{
+                    "mode":"shell",
+                    "command":"Write-Output 'mcp-command-started'; Start-Sleep -Seconds 30"
+                },
+                "executionMode":"async",
+                "timeoutMs":60000
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(long.is_error, Some(false));
+    let long = long.structured_content.unwrap();
+    let long_run = &long["data"]["commandRun"];
+    assert_eq!(long_run["status"], "running", "{long}");
+    let long_id = long_run["commandRunId"].as_str().unwrap().to_owned();
+    let revision = long_run["revision"].as_str().unwrap().to_owned();
+
+    let observed = client
+        .call_tool(request(
+            "command_query",
+            json!({
+                "action":"observe",
+                "commandRunId":long_id,
+                "knownRevision":revision,
+                "waitMs":0
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(observed.is_error, Some(false));
+    let observed = observed.structured_content.unwrap();
+    assert_eq!(
+        observed["data"]["observation"]["commandRun"]["commandRunId"],
+        long_id
+    );
+
+    let cancelled = client
+        .call_tool(request(
+            "command_execute",
+            json!({"action":"cancel","commandRunId":long_id}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(cancelled.is_error, Some(false));
+    let cancelled = cancelled.structured_content.unwrap();
+    assert_eq!(cancelled["data"]["commandRun"]["status"], "cancelled");
+    assert_eq!(
+        cancelled["data"]["commandRun"]["terminationReason"],
+        "user_cancelled"
+    );
+
+    client.cancel().await.unwrap();
+    command.shutdown().await.unwrap();
+    broker.stop().await.unwrap();
+}
+
 #[test]
 fn typed_registry_validation_rejects_cross_action_fields_and_preserves_context_authority() {
     for (name, args) in [
