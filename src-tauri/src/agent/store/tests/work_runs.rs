@@ -59,7 +59,7 @@ fn v4_upgrade_preserves_complete_execution_claim_and_existing_schema() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
                 .unwrap(),
-            10
+            11
         );
         for (index, (sql, expected)) in queries[..3].iter().zip(&before[..3]).enumerate() {
             let mut expected = expected.clone();
