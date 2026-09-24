@@ -1380,6 +1380,39 @@ mod tests {
     }
 
     #[test]
+    fn command_toggle_only_adds_query_and_execute_descriptors() {
+        let disabled = list_with_capabilities(true, false, false);
+        let enabled = list_with_capabilities(true, false, true);
+        let disabled_names = disabled
+            .iter()
+            .map(|tool| tool.name.as_ref())
+            .collect::<std::collections::HashSet<_>>();
+        let added = enabled
+            .iter()
+            .filter(|tool| !disabled_names.contains(tool.name.as_ref()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(added.len(), 2);
+        assert_eq!(
+            added
+                .iter()
+                .map(|tool| tool.name.as_ref())
+                .collect::<std::collections::HashSet<_>>(),
+            super::super::command::NAMES.into_iter().collect()
+        );
+        for tool in added {
+            let annotations = tool.annotations.as_ref().unwrap();
+            if tool.name == "command_query" {
+                assert_eq!(annotations.read_only_hint, Some(true));
+                assert_eq!(annotations.destructive_hint, Some(false));
+            } else {
+                assert_eq!(annotations.read_only_hint, Some(false));
+                assert_eq!(annotations.destructive_hint, Some(true));
+            }
+        }
+    }
+
+    #[test]
     fn source_write_toggle_only_adds_the_six_existing_write_descriptors() {
         let disabled = list_with_source_write(true, false);
         let enabled = list_with_source_write(true, true);
