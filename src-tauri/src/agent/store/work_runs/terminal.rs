@@ -107,7 +107,6 @@ impl StateStore {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,7 +118,9 @@ mod tests {
     #[tokio::test]
     async fn command_run_blocks_work_finish_until_durable_terminal_receipt_exists() {
         let directory = tempfile::tempdir().unwrap();
-        let store = StateStore::open(directory.path().join("state")).await.unwrap();
+        let store = StateStore::open(directory.path().join("state"))
+            .await
+            .unwrap();
         store
             .create_work_run(
                 "work-command".into(),
@@ -209,7 +210,10 @@ mod tests {
         assert_eq!(finished.status, "completed");
         let acceptance: serde_json::Value =
             serde_json::from_str(finished.acceptance_json.as_deref().unwrap()).unwrap();
-        assert_eq!(acceptance["commandRunIds"], serde_json::json!(["command-1"]));
+        assert_eq!(
+            acceptance["commandRunIds"],
+            serde_json::json!(["command-1"])
+        );
         assert_eq!(acceptance["executionIds"], serde_json::json!([]));
     }
 }
