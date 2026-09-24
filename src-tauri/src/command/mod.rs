@@ -57,18 +57,13 @@ pub enum CommandSpec {
     },
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionMode {
+    #[default]
     Auto,
     Sync,
     Async,
-}
-
-impl Default for ExecutionMode {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 impl ExecutionMode {
@@ -215,8 +210,14 @@ pub struct CommandError {
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum CommandEnvelope {
-    Success { ok: bool, data: CommandData },
-    Failure { ok: bool, error: CommandError },
+    Success {
+        ok: bool,
+        data: Box<CommandData>,
+    },
+    Failure {
+        ok: bool,
+        error: CommandError,
+    },
 }
 
 #[cfg(windows)]
@@ -343,7 +344,10 @@ impl CommandService {
 
     pub async fn execute(&self, request: ExecuteRequest) -> CommandEnvelope {
         match self.execute_inner(request).await {
-            Ok(data) => CommandEnvelope::Success { ok: true, data },
+            Ok(data) => CommandEnvelope::Success {
+                ok: true,
+                data: Box::new(data),
+            },
             Err(error) => CommandEnvelope::Failure {
                 ok: false,
                 error: command_error(&error),
@@ -353,7 +357,10 @@ impl CommandService {
 
     pub async fn query(&self, request: QueryRequest) -> CommandEnvelope {
         match self.query_inner(request).await {
-            Ok(data) => CommandEnvelope::Success { ok: true, data },
+            Ok(data) => CommandEnvelope::Success {
+                ok: true,
+                data: Box::new(data),
+            },
             Err(error) => CommandEnvelope::Failure {
                 ok: false,
                 error: command_error(&error),
@@ -559,7 +566,7 @@ impl CommandService {
                 execution_mode,
                 yield_ms,
             );
-            return Err("COMMAND_RUNTIME_UNAVAILABLE_ON_PLATFORM".into());
+            Err("COMMAND_RUNTIME_UNAVAILABLE_ON_PLATFORM".into())
         }
 
         #[cfg(windows)]
@@ -942,7 +949,7 @@ impl CommandService {
 
         #[cfg(not(windows))]
         {
-            return Err("COMMAND_RUNTIME_UNAVAILABLE_ON_PLATFORM".into());
+            Err("COMMAND_RUNTIME_UNAVAILABLE_ON_PLATFORM".into())
         }
 
         #[cfg(windows)]
@@ -1456,10 +1463,10 @@ mod tests {
             })
             .await;
         let run = match started {
-            CommandEnvelope::Success {
-                data: CommandData::Run { command_run },
-                ..
-            } => command_run,
+            CommandEnvelope::Success { data, .. } => match *data {
+                CommandData::Run { command_run } => command_run,
+                other => panic!("unexpected command data: {other:?}"),
+            },
             other => panic!("unexpected command result: {other:?}"),
         };
         assert_eq!(run.status, "completed");
@@ -1475,10 +1482,10 @@ mod tests {
             })
             .await;
         let output = match output {
-            CommandEnvelope::Success {
-                data: CommandData::Output { output },
-                ..
-            } => output,
+            CommandEnvelope::Success { data, .. } => match *data {
+                CommandData::Output { output } => output,
+                other => panic!("unexpected command data: {other:?}"),
+            },
             other => panic!("unexpected output result: {other:?}"),
         };
         assert!(output.retained);
@@ -1507,10 +1514,10 @@ mod tests {
             })
             .await;
         let run = match started {
-            CommandEnvelope::Success {
-                data: CommandData::Run { command_run },
-                ..
-            } => command_run,
+            CommandEnvelope::Success { data, .. } => match *data {
+                CommandData::Run { command_run } => command_run,
+                other => panic!("unexpected command data: {other:?}"),
+            },
             other => panic!("unexpected command result: {other:?}"),
         };
         assert_eq!(run.status, "running");
@@ -1521,10 +1528,10 @@ mod tests {
             })
             .await;
         let mut cancelled = match cancelled {
-            CommandEnvelope::Success {
-                data: CommandData::Run { command_run },
-                ..
-            } => command_run,
+            CommandEnvelope::Success { data, .. } => match *data {
+                CommandData::Run { command_run } => command_run,
+                other => panic!("unexpected command data: {other:?}"),
+            },
             other => panic!("unexpected cancel result: {other:?}"),
         };
         if !is_terminal(&cancelled.status) {
@@ -1536,10 +1543,10 @@ mod tests {
                 })
                 .await;
             cancelled = match observed {
-                CommandEnvelope::Success {
-                    data: CommandData::Observation { observation },
-                    ..
-                } => observation.command_run,
+                CommandEnvelope::Success { data, .. } => match *data {
+                    CommandData::Observation { observation } => observation.command_run,
+                    other => panic!("unexpected command data: {other:?}"),
+                },
                 other => panic!("unexpected observe result: {other:?}"),
             };
         }
