@@ -210,14 +210,8 @@ pub struct CommandError {
 #[derive(Debug, Clone, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum CommandEnvelope {
-    Success {
-        ok: bool,
-        data: Box<CommandData>,
-    },
-    Failure {
-        ok: bool,
-        error: CommandError,
-    },
+    Success { ok: bool, data: Box<CommandData> },
+    Failure { ok: bool, error: CommandError },
 }
 
 #[cfg(windows)]
