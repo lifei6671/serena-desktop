@@ -567,8 +567,9 @@ impl CommandService {
             // CommandRun is a real Workspace owner for its whole live lifetime.
             // Reuse the existing Supervisor guard so Remove and Command start share
             // one admission/linearization boundary.
-            let (lease, workspace_guard) =
-                self.supervisor.resolve_workspace_write_guard(&workspace_id)?;
+            let (lease, workspace_guard) = self
+                .supervisor
+                .resolve_workspace_write_guard(&workspace_id)?;
             let path_resolver = WorkspacePathResolver::new(&lease);
             let (relative_cwd, cwd) = match relative_cwd {
                 None => (".".to_string(), path_resolver.root()?),
