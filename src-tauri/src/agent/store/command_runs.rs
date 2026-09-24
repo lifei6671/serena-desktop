@@ -162,6 +162,17 @@ impl StateStore {
             .await
     }
 
+    pub async fn command_run_by_request_key(
+        &self,
+        workspace_id: String,
+        request_key: String,
+    ) -> Result<Option<CommandRunRecord>, String> {
+        self.read(move |connection| {
+            command_run_by_request_key(connection, &workspace_id, &request_key)
+        })
+        .await
+    }
+
     pub async fn list_command_runs(
         &self,
         workspace_id: Option<String>,
