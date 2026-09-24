@@ -547,12 +547,6 @@ impl CommandService {
                 }
             };
 
-            let permit = self
-                .permits
-                .clone()
-                .try_acquire_owned()
-                .map_err(|_| "COMMAND_SESSION_LIMIT_REACHED".to_string())?;
-
             let normalized = serde_json::json!({
                 "workspaceId": &workspace_id,
                 "workRunId": &work_run_id,
@@ -564,7 +558,27 @@ impl CommandService {
                 "executionMode": execution_mode,
                 "yieldTimeMs": yield_ms,
             });
-            let request_hash = hex_digest(&serde_json::to_vec(&normalized).map_err(|_| "COMMAND_INVALID_ARGUMENT")?);
+            let request_hash = hex_digest(
+                &serde_json::to_vec(&normalized).map_err(|_| "COMMAND_INVALID_ARGUMENT")?,
+            );
+            if let Some(existing) = self
+                .store
+                .command_run_by_request_key(workspace_id.clone(), request_key.clone())
+                .await?
+            {
+                if existing.request_hash != request_hash {
+                    return Err("COMMAND_REQUEST_KEY_CONFLICT".into());
+                }
+                return Ok(CommandData::Run {
+                    command_run: self.view_from_record(existing),
+                });
+            }
+
+            let permit = self
+                .permits
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| "COMMAND_SESSION_LIMIT_REACHED".to_string())?;
             let command_run_id = crate::agent::task_manager::AgentTaskManager::id("command");
             let now = now_millis();
             let mode = match &spec {
@@ -644,16 +658,50 @@ impl CommandService {
                 intent: Mutex::new(None),
                 terminal_at: AtomicI64::new(0),
             });
-            self.store
+            if let Err(error) = self
+                .store
                 .command_mark_running(command_run_id.clone(), pid, now_millis())
                 .await
-                .map_err(|error| {
-                    let control = launched.control.clone();
-                    let _ = std::thread::spawn(move || {
-                        let _ = control.terminate(Duration::from_secs(3));
-                    });
-                    error
-                })?;
+            {
+                let control = launched.control.clone();
+                let termination = tokio::task::spawn_blocking(move || {
+                    control.terminate(Duration::from_secs(3))
+                })
+                .await;
+                let (status, error_code, error_message) = match termination {
+                    Ok(Ok(())) => (
+                        "failed",
+                        "COMMAND_STATE_PERSIST_FAILED".to_string(),
+                        error.clone(),
+                    ),
+                    Ok(Err(termination_error)) => (
+                        "unknown",
+                        termination_error.code.to_string(),
+                        format!("{error}; {}", termination_error),
+                    ),
+                    Err(join_error) => (
+                        "unknown",
+                        "COMMAND_PROCESS_TERMINATE_FAILED".to_string(),
+                        format!("{error}; {join_error}"),
+                    ),
+                };
+                let _ = self
+                    .store
+                    .command_mark_terminal(
+                        command_run_id.clone(),
+                        status.into(),
+                        CommandRunReceipt {
+                            termination_reason: Some("state_persist_failed".into()),
+                            error_code: Some(error_code),
+                            error_message: Some(error_message),
+                            ..CommandRunReceipt::default()
+                        },
+                        now_millis(),
+                    )
+                    .await;
+                drop(permit);
+                return Err(error);
+            }
             self.live
                 .lock()
                 .unwrap()
