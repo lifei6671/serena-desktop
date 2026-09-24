@@ -106,3 +106,110 @@ impl StateStore {
         }).await
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::{
+        store::{CommandRunReceipt, CreateCommandRunInput},
+        work::HostAcceptance,
+    };
+
+    #[tokio::test]
+    async fn command_run_blocks_work_finish_until_durable_terminal_receipt_exists() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = StateStore::open(directory.path().join("state")).await.unwrap();
+        store
+            .create_work_run(
+                "work-command".into(),
+                "workspace".into(),
+                "root".into(),
+                7,
+                "verify command".into(),
+                None,
+                1,
+            )
+            .await
+            .unwrap();
+        store
+            .create_command_run(
+                "command-1".into(),
+                CreateCommandRunInput {
+                    request_key: "request-1".into(),
+                    request_hash: "hash-1".into(),
+                    workspace_id: "workspace".into(),
+                    canonical_workspace_root: "root".into(),
+                    workspace_generation: 7,
+                    work_run_id: Some("work-command".into()),
+                    mode: "process".into(),
+                    relative_cwd: ".".into(),
+                    execution_mode: "auto".into(),
+                    timeout_ms: 30_000,
+                    runtime_platform: "windows".into(),
+                    containment_type: "job_at_creation".into(),
+                },
+                2,
+            )
+            .await
+            .unwrap();
+
+        let acceptance = || HostAcceptance {
+            summary: "host verified".into(),
+            execution_ids: Vec::new(),
+            command_run_ids: vec!["command-1".into()],
+        };
+        assert_eq!(
+            store
+                .work_terminal(
+                    "work-command".into(),
+                    TerminalAction::Finish {
+                        outcome: FinishOutcome::Completed,
+                        acceptance: Some(acceptance()),
+                    },
+                    3,
+                )
+                .await,
+            Err("WORK_HAS_ACTIVE_EXECUTIONS".into())
+        );
+
+        store
+            .command_mark_running("command-1".into(), 123, 4)
+            .await
+            .unwrap();
+        store
+            .command_mark_terminal(
+                "command-1".into(),
+                "completed".into(),
+                CommandRunReceipt {
+                    exit_code: Some(0),
+                    termination_reason: Some("exited".into()),
+                    stdout_total_bytes: 12,
+                    stderr_total_bytes: 0,
+                    stdout_sha256: Some("stdout-digest".into()),
+                    stderr_sha256: Some("stderr-digest".into()),
+                    ..CommandRunReceipt::default()
+                },
+                5,
+            )
+            .await
+            .unwrap();
+
+        let finished = store
+            .work_terminal(
+                "work-command".into(),
+                TerminalAction::Finish {
+                    outcome: FinishOutcome::Completed,
+                    acceptance: Some(acceptance()),
+                },
+                6,
+            )
+            .await
+            .unwrap();
+        assert_eq!(finished.status, "completed");
+        let acceptance: serde_json::Value =
+            serde_json::from_str(finished.acceptance_json.as_deref().unwrap()).unwrap();
+        assert_eq!(acceptance["commandRunIds"], serde_json::json!(["command-1"]));
+        assert_eq!(acceptance["executionIds"], serde_json::json!([]));
+    }
+}
