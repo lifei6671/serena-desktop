@@ -4,7 +4,6 @@ use crate::{
     agent::store::{CommandRunReceipt, CommandRunRecord, CreateCommandRunInput, StateStore},
     serena::SupervisorState,
     workspace_path::WorkspacePathResolver,
-    workspace_resolver::WorkspaceResolver,
 };
 use rmcp::schemars::{self, JsonSchema};
 use serde::{Deserialize, Serialize};
@@ -565,7 +564,11 @@ impl CommandService {
 
         #[cfg(windows)]
         {
-            let lease = WorkspaceResolver::new(&self.supervisor).resolve(&workspace_id)?;
+            // CommandRun is a real Workspace owner for its whole live lifetime.
+            // Reuse the existing Supervisor guard so Remove and Command start share
+            // one admission/linearization boundary.
+            let (lease, workspace_guard) =
+                self.supervisor.resolve_workspace_write_guard(&workspace_id)?;
             let path_resolver = WorkspacePathResolver::new(&lease);
             let (relative_cwd, cwd) = match relative_cwd {
                 None => (".".to_string(), path_resolver.root()?),
@@ -771,6 +774,7 @@ impl CommandService {
                 stderr_task,
                 Duration::from_millis(timeout_ms),
                 permit,
+                workspace_guard,
             );
 
             let wait_ms = match execution_mode {
@@ -805,6 +809,7 @@ impl CommandService {
         stderr_task: tokio::task::JoinHandle<()>,
         timeout: Duration,
         permit: OwnedSemaphorePermit,
+        _workspace_guard: crate::serena::WorkspaceWriteGuard,
     ) {
         let store = self.store.clone();
         tokio::spawn(async move {
