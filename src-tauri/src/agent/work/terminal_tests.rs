@@ -1,6 +1,7 @@
 use super::*;
 use crate::agent::store::transactions::product::WorkExecutionContext;
 use rusqlite::{Connection, types::Value};
+use serde_json::json;
 
 fn snapshot(root: &std::path::Path, include_work: bool) -> Vec<Vec<Vec<Value>>> {
     let db = Connection::open(root.join("agent-state.db")).unwrap();
