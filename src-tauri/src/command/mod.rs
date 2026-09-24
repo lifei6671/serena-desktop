@@ -6,7 +6,7 @@ use crate::{
     workspace_path::WorkspacePathResolver,
     workspace_resolver::WorkspaceResolver,
 };
-use rmcp::schemars::JsonSchema;
+use rmcp::schemars::{self, JsonSchema};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
