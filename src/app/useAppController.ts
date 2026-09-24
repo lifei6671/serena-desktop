@@ -11,6 +11,7 @@ const initialConfig: ManagerConfig = {
   broker: { enabled: false, port: 19120, allowLan: false },
   workspaces: [],
   remoteSourceWriteEnabled: false,
+  remoteCommandExecutionEnabled: false,
   agentSuccessNotificationEnabled: true,
   agentFailureNotificationEnabled: true,
   agentSystemNotificationEnabled: true,
