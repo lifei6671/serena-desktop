@@ -656,7 +656,8 @@ impl CommandService {
                 command_run_id: command_run_id.clone(),
             };
             let launch_result =
-                tokio::task::spawn_blocking(move || windows_launcher::launch(&launch_request)).await;
+                tokio::task::spawn_blocking(move || windows_launcher::launch(&launch_request))
+                    .await;
             let launched = match launch_result {
                 Ok(Ok(value)) => value,
                 Ok(Err(error)) => {
