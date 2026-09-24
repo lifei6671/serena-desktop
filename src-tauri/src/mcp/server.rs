@@ -31,6 +31,11 @@ fn detail_field_is_sensitive(name: &str) -> bool {
             | "oldcontent"
             | "substring_pattern"
             | "message"
+            | "command"
+            | "args"
+            | "env"
+            | "spec"
+            | "stdin"
     )
 }
 
@@ -314,9 +319,10 @@ impl ServerHandler for Handler {
     ) -> Result<ListToolsResult, ErrorData> {
         self.0.log("tools/list · 生成本地公开工具描述");
         let config = self.0.config();
-        let tools = registry::list_with_source_write(
+        let tools = registry::list_with_capabilities(
             config.agent_enabled,
             config.remote_source_write_enabled,
+            config.remote_command_execution_enabled && cfg!(windows),
         );
         self.0.log(&registry::orchestration_contract_diagnostic(
             config.agent_enabled,
@@ -399,6 +405,7 @@ impl ServerHandler for Handler {
                     let mut result = if (request.name == "codegraph_explore"
                         && v.get("error").is_some())
                         || (super::orchestration::contains(&request.name) && v["ok"] == false)
+                        || (super::command::contains(&request.name) && v["ok"] == false)
                     {
                         reported_error = v.get("error").cloned();
                         CallToolResult::error(content)
@@ -420,6 +427,8 @@ impl ServerHandler for Handler {
         let transport_error = result.as_ref().err().map(|error| {
             if matches!(request.name.as_ref(), "agent_query" | "agent_execute") {
                 "Agent tool transport failed.".into()
+            } else if super::command::contains(&request.name) {
+                "Command tool transport failed.".into()
             } else {
                 error.to_string()
             }
