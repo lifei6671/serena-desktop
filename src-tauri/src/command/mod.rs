@@ -604,6 +604,8 @@ impl CommandService {
                 });
             }
 
+            let (executable, args) = windows_invocation(&spec)?;
+            let environment = command_environment(&env, &lease.workspace_id);
             let permit = self
                 .permits
                 .clone()
@@ -646,8 +648,6 @@ impl CommandService {
                 });
             }
 
-            let (executable, args) = windows_invocation(&spec)?;
-            let environment = command_environment(&env, &lease.workspace_id);
             let launch_request = windows_launcher::LaunchRequest {
                 executable,
                 args,
