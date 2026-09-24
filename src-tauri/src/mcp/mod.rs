@@ -1,5 +1,6 @@
 pub(crate) mod capability_adapters;
 mod codegraph;
+mod command;
 pub mod git;
 mod media;
 mod orchestration;
@@ -67,6 +68,7 @@ pub struct Listener {
 pub struct Broker {
     pub remote: Arc<crate::remote::Remote>,
     pub product: std::sync::OnceLock<Arc<crate::agent::product::AgentProductService>>,
+    pub command: std::sync::OnceLock<Arc<crate::command::CommandService>>,
     pub supervisor: Arc<SupervisorState>,
     pub workspace: RwLock<Option<Active>>,
     pub management: tokio::sync::Mutex<()>,
@@ -127,6 +129,7 @@ impl Broker {
             )),
             supervisor,
             product: std::sync::OnceLock::new(),
+            command: std::sync::OnceLock::new(),
             workspace: RwLock::new(None),
             management: tokio::sync::Mutex::new(()),
             listener: tokio::sync::Mutex::new(None),
@@ -351,6 +354,34 @@ impl Broker {
         }
         product.operation(args, None).await
     }
+    pub async fn command_operation(&self, name: &str, args: Value) -> Value {
+        let Some(service) = self.command.get() else {
+            return json!({"ok":false,"error":{
+                "code":"COMMAND_RUNTIME_UNAVAILABLE",
+                "message":"Command Runtime is not initialized."
+            }});
+        };
+        match name {
+            "command_query" => match command::parse_query(args) {
+                Ok(request) => serde_json::to_value(service.query(request).await)
+                    .expect("command query envelope serialization"),
+                Err(error) => json!({"ok":false,"error":{
+                    "code":"COMMAND_INVALID_ARGUMENT","message":error
+                }}),
+            },
+            "command_execute" => match command::parse_execute(args) {
+                Ok(request) => serde_json::to_value(service.execute(request).await)
+                    .expect("command execute envelope serialization"),
+                Err(error) => json!({"ok":false,"error":{
+                    "code":"COMMAND_INVALID_ARGUMENT","message":error
+                }}),
+            },
+            _ => json!({"ok":false,"error":{
+                "code":"UNKNOWN_TOOL","message":"UNKNOWN_TOOL"
+            }}),
+        }
+    }
+
     pub async fn call_tool(
         &self,
         name: &str,
@@ -381,6 +412,12 @@ impl Broker {
         args: Value,
         cancel: CancellationToken,
     ) -> Result<Value, String> {
+        if command::contains(name) {
+            if !cfg!(windows) || !self.config().remote_command_execution_enabled {
+                return Err("UNKNOWN_TOOL".into());
+            }
+            return Ok(self.command_operation(name, args).await);
+        }
         if orchestration::contains(name) {
             return Ok(self.orchestration_operation(name, args).await);
         }
