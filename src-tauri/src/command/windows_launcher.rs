@@ -219,7 +219,10 @@ pub(crate) fn launch(request: &LaunchRequest) -> Result<LaunchedProcess, LaunchE
         || request.command_run_id.is_empty()
         || request.command_run_id.contains(['\\', '/', '\0'])
     {
-        return Err(failure("COMMAND_LAUNCH_INPUT_INVALID", ERROR_INVALID_PARAMETER));
+        return Err(failure(
+            "COMMAND_LAUNCH_INPUT_INVALID",
+            ERROR_INVALID_PARAMETER,
+        ));
     }
 
     let executable = wide(request.executable.as_os_str())?;
