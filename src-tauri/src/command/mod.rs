@@ -34,10 +34,10 @@ const DEFAULT_OBSERVE_MS: u64 = 15_000;
 const MAX_OBSERVE_MS: u64 = 20_000;
 const DEFAULT_OUTPUT_BYTES: usize = 64 * 1024;
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
-const LIVE_OUTPUT_TAIL_BYTES: usize = 4 * 1024 * 1024;
+const LIVE_OUTPUT_TAIL_BYTES: usize = 1024 * 1024;
 const MAX_CONCURRENT_RUNS: usize = 32;
 const COMPLETED_LIVE_RETENTION_MS: i64 = 60 * 60 * 1000;
-const MAX_RETAINED_COMPLETED_LIVE: usize = 128;
+const MAX_RETAINED_COMPLETED_LIVE: usize = 32;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(
@@ -362,6 +362,7 @@ impl CommandService {
     }
 
     async fn execute_inner(&self, request: ExecuteRequest) -> Result<CommandData, String> {
+        self.prune_live();
         match request {
             ExecuteRequest::Start {
                 workspace_id,
@@ -876,10 +877,11 @@ impl CommandService {
             let mut receipt = CommandRunReceipt {
                 exit_code: exit_result.as_ref().ok().copied(),
                 timed_out: intent == Some(TerminationIntent::Timeout),
-                termination_reason: intent.map(|intent| match intent {
-                    TerminationIntent::Cancel => "user_cancelled".into(),
-                    TerminationIntent::Timeout => "timeout".into(),
-                    TerminationIntent::Shutdown => "host_shutdown".into(),
+                termination_reason: Some(match intent {
+                    Some(TerminationIntent::Cancel) => "user_cancelled".into(),
+                    Some(TerminationIntent::Timeout) => "timeout".into(),
+                    Some(TerminationIntent::Shutdown) => "host_shutdown".into(),
+                    None => "exited".into(),
                 }),
                 stdout_total_bytes: stdout.total_bytes,
                 stderr_total_bytes: stderr.total_bytes,
@@ -1062,7 +1064,11 @@ impl CommandService {
             started_at: record.started_at,
             completed_at: record.completed_at,
             exit_code: record.exit_code,
-            command_ok: record.exit_code.map(|code| code == 0 && !record.timed_out),
+            command_ok: match record.status.as_str() {
+                "completed" => Some(record.exit_code == Some(0) && !record.timed_out),
+                "failed" => Some(false),
+                _ => None,
+            },
             timed_out: record.timed_out,
             termination_reason: record.termination_reason,
             stdout_total_bytes: stdout_total,
@@ -1093,10 +1099,8 @@ impl CommandService {
             .collect::<Vec<_>>();
         if completed.len() > MAX_RETAINED_COMPLETED_LIVE {
             completed.sort_by_key(|(_, at)| *at);
-            for (id, _) in completed
-                .into_iter()
-                .take(live.len().saturating_sub(MAX_RETAINED_COMPLETED_LIVE))
-            {
+            let excess = completed.len() - MAX_RETAINED_COMPLETED_LIVE;
+            for (id, _) in completed.into_iter().take(excess) {
                 live.remove(&id);
             }
         }
