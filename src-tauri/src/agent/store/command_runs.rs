@@ -311,20 +311,22 @@ impl StateStore {
         now: i64,
     ) -> Result<usize, String> {
         self.write(move |tx| {
-            let (status, reason, code) = if windows_job_at_creation {
-                ("interrupted", "host_restart", "COMMAND_HOST_RESTARTED")
-            } else {
-                (
-                    "unknown",
-                    "host_restart_unverified",
-                    "COMMAND_RECOVERY_EVIDENCE_INCOMPLETE",
-                )
-            };
+            // 只有当前 Windows Host 的 Windows Job-at-Creation 记录有重启收口证据。
             tx.execute(
-                "UPDATE command_runs SET status=?1,revision=revision+1,
-                 completed_at=?2,updated_at=?2,termination_reason=?3,error_code=?4
+                "UPDATE command_runs SET
+                 status=CASE WHEN ?1=1 AND runtime_platform='windows'
+                                  AND containment_type='job_at_creation'
+                             THEN 'interrupted' ELSE 'unknown' END,
+                 revision=revision+1,completed_at=?2,updated_at=?2,
+                 termination_reason=CASE WHEN ?1=1 AND runtime_platform='windows'
+                                              AND containment_type='job_at_creation'
+                                         THEN 'host_restart' ELSE 'host_restart_unverified' END,
+                 error_code=CASE WHEN ?1=1 AND runtime_platform='windows'
+                                      AND containment_type='job_at_creation'
+                                 THEN 'COMMAND_HOST_RESTARTED'
+                                 ELSE 'COMMAND_RECOVERY_EVIDENCE_INCOMPLETE' END
                  WHERE status IN ('starting','running','cancelling')",
-                params![status, now, reason, code],
+                params![windows_job_at_creation, now],
             )
             .map_err(|error| error.to_string())
         })

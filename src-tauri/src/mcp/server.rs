@@ -322,7 +322,7 @@ impl ServerHandler for Handler {
         let tools = registry::list_with_capabilities(
             config.agent_enabled,
             config.remote_source_write_enabled,
-            config.remote_command_execution_enabled && cfg!(windows),
+            config.remote_command_execution_enabled && cfg!(any(windows, target_os = "macos")),
         );
         self.0.log(&registry::orchestration_contract_diagnostic(
             config.agent_enabled,

@@ -1,5 +1,12 @@
 #![cfg(windows)]
 
+/// Windows CommandRun 的持久化平台标记。
+pub(crate) const RUNTIME_PLATFORM: &str = "windows";
+/// Windows 进程从创建时即进入 Job 的所有权模型。
+pub(crate) const CONTAINMENT_TYPE: &str = "job_at_creation";
+/// 保持 Windows 原有失败 Receipt 的终止原因。
+pub(crate) const CLEANUP_FAILURE_REASON: &str = "job_cleanup_failed";
+
 use std::{
     ffi::{OsStr, OsString},
     fs::File,

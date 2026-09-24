@@ -413,7 +413,9 @@ impl Broker {
         cancel: CancellationToken,
     ) -> Result<Value, String> {
         if command::contains(name) {
-            if !cfg!(windows) || !self.config().remote_command_execution_enabled {
+            if !cfg!(any(windows, target_os = "macos"))
+                || !self.config().remote_command_execution_enabled
+            {
                 return Err("UNKNOWN_TOOL".into());
             }
             return Ok(self.command_operation(name, args).await);

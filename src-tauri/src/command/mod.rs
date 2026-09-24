@@ -1,5 +1,3 @@
-#![cfg_attr(not(windows), allow(dead_code, unused_imports))]
-
 use crate::{
     agent::store::{CommandRunReceipt, CommandRunRecord, CreateCommandRunInput, StateStore},
     serena::SupervisorState,
@@ -13,7 +11,7 @@ use std::{
     ffi::OsString,
     fs::File,
     io::Read,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicI64, Ordering},
@@ -22,8 +20,14 @@ use std::{
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+#[cfg(target_os = "macos")]
+mod macos_launcher;
 #[cfg(windows)]
 mod windows_launcher;
+#[cfg(target_os = "macos")]
+use macos_launcher as platform_launcher;
+#[cfg(windows)]
+use windows_launcher as platform_launcher;
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const MAX_TIMEOUT_MS: u64 = 86_400_000;
@@ -213,7 +217,7 @@ pub enum CommandEnvelope {
     Failure { ok: bool, error: CommandError },
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TerminationIntent {
     Cancel,
@@ -282,10 +286,14 @@ impl OutputBuffer {
 struct LiveCommand {
     stdout: Arc<Mutex<OutputBuffer>>,
     stderr: Arc<Mutex<OutputBuffer>>,
-    #[cfg(windows)]
-    control: Arc<windows_launcher::ProcessControl>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
+    control: Arc<platform_launcher::ProcessControl>,
+    #[cfg(any(windows, target_os = "macos"))]
     intent: Mutex<Option<TerminationIntent>>,
+    #[cfg(target_os = "macos")]
+    reader_stop: Arc<AtomicBool>,
+    #[cfg(target_os = "macos")]
+    termination_failure: Mutex<Option<(String, String)>>,
     terminal_at: AtomicI64,
 }
 
@@ -296,7 +304,7 @@ impl LiveCommand {
         observation_revision(record, stdout, stderr)
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     fn set_intent(&self, intent: TerminationIntent) -> bool {
         let mut current = self.intent.lock().unwrap();
         if current.is_some() {
@@ -307,9 +315,18 @@ impl LiveCommand {
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     fn intent(&self) -> Option<TerminationIntent> {
         *self.intent.lock().unwrap()
+    }
+
+    /// 记录 macOS 未能安全终止进程组的事实，待组空后写入 Receipt。
+    #[cfg(target_os = "macos")]
+    fn remember_termination_failure(&self, code: String, message: String) {
+        let mut failure = self.termination_failure.lock().unwrap();
+        if failure.is_none() {
+            *failure = Some((code, message));
+        }
     }
 }
 
@@ -545,8 +562,10 @@ impl CommandService {
         }
         validate_spec(&spec)?;
         validate_env(&env)?;
+        #[cfg(target_os = "macos")]
+        let command_path = macos_launcher::command_path(&env)?;
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             let _ = (
                 workspace_id,
@@ -562,7 +581,7 @@ impl CommandService {
             Err("COMMAND_RUNTIME_UNAVAILABLE_ON_PLATFORM".into())
         }
 
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             // CommandRun is a real Workspace owner for its whole live lifetime.
             // Reuse the existing Supervisor guard so Remove and Command start share
@@ -610,7 +629,13 @@ impl CommandService {
                 });
             }
 
-            let (executable, args) = windows_invocation(&spec)?;
+            #[cfg(target_os = "macos")]
+            let (executable, args) = platform_invocation(&spec, &command_path)?;
+            #[cfg(windows)]
+            let (executable, args) = platform_invocation(&spec)?;
+            #[cfg(target_os = "macos")]
+            let environment = command_environment(&env, &lease.workspace_id, &command_path);
+            #[cfg(windows)]
             let environment = command_environment(&env, &lease.workspace_id);
             let permit = self
                 .permits
@@ -641,8 +666,8 @@ impl CommandService {
                         relative_cwd: relative_cwd.clone(),
                         execution_mode: execution_mode.as_str().into(),
                         timeout_ms,
-                        runtime_platform: "windows".into(),
-                        containment_type: "job_at_creation".into(),
+                        runtime_platform: platform_launcher::RUNTIME_PLATFORM.into(),
+                        containment_type: platform_launcher::CONTAINMENT_TYPE.into(),
                     },
                     now,
                 )
@@ -654,7 +679,7 @@ impl CommandService {
                 });
             }
 
-            let launch_request = windows_launcher::LaunchRequest {
+            let launch_request = platform_launcher::LaunchRequest {
                 executable,
                 args,
                 current_dir: cwd,
@@ -662,7 +687,7 @@ impl CommandService {
                 command_run_id: command_run_id.clone(),
             };
             let launch_result =
-                tokio::task::spawn_blocking(move || windows_launcher::launch(&launch_request))
+                tokio::task::spawn_blocking(move || platform_launcher::launch(&launch_request))
                     .await;
             let launched = match launch_result {
                 Ok(Ok(value)) => value,
@@ -714,50 +739,72 @@ impl CommandService {
                 stderr: stderr.clone(),
                 control: launched.control.clone(),
                 intent: Mutex::new(None),
+                #[cfg(target_os = "macos")]
+                reader_stop: Arc::new(AtomicBool::new(false)),
+                #[cfg(target_os = "macos")]
+                termination_failure: Mutex::new(None),
                 terminal_at: AtomicI64::new(0),
             });
-            if let Err(error) = self
+            let marked_running = self
                 .store
                 .command_mark_running(command_run_id.clone(), pid, now_millis())
-                .await
-            {
+                .await;
+            if let Err(error) = &marked_running {
                 let control = launched.control.clone();
                 let termination =
                     tokio::task::spawn_blocking(move || control.terminate(Duration::from_secs(3)))
                         .await;
-                let (status, error_code, error_message) = match termination {
-                    Ok(Ok(())) => (
-                        "failed",
-                        "COMMAND_STATE_PERSIST_FAILED".to_string(),
-                        error.clone(),
-                    ),
-                    Ok(Err(termination_error)) => (
-                        "unknown",
-                        termination_error.code.to_string(),
-                        format!("{error}; {}", termination_error),
-                    ),
-                    Err(join_error) => (
-                        "unknown",
-                        "COMMAND_PROCESS_TERMINATE_FAILED".to_string(),
-                        format!("{error}; {join_error}"),
-                    ),
-                };
-                let _ = self
-                    .store
-                    .command_mark_terminal(
-                        command_run_id.clone(),
-                        status.into(),
-                        CommandRunReceipt {
-                            termination_reason: Some("state_persist_failed".into()),
-                            error_code: Some(error_code),
-                            error_message: Some(error_message),
-                            ..CommandRunReceipt::default()
-                        },
-                        now_millis(),
-                    )
-                    .await;
-                drop(permit);
-                return Err(error);
+                #[cfg(target_os = "macos")]
+                {
+                    let (code, message) = match termination {
+                        Ok(Ok(())) => ("COMMAND_STATE_PERSIST_FAILED".to_string(), error.clone()),
+                        Ok(Err(termination_error)) => (
+                            termination_error.code.to_string(),
+                            format!("{error}; {termination_error}"),
+                        ),
+                        Err(join_error) => (
+                            "COMMAND_PROCESS_TERMINATE_FAILED".to_string(),
+                            format!("{error}; {join_error}"),
+                        ),
+                    };
+                    live.remember_termination_failure(code, message);
+                }
+                #[cfg(windows)]
+                {
+                    let (status, error_code, error_message) = match termination {
+                        Ok(Ok(())) => (
+                            "failed",
+                            "COMMAND_STATE_PERSIST_FAILED".to_string(),
+                            error.clone(),
+                        ),
+                        Ok(Err(termination_error)) => (
+                            "unknown",
+                            termination_error.code.to_string(),
+                            format!("{error}; {}", termination_error),
+                        ),
+                        Err(join_error) => (
+                            "unknown",
+                            "COMMAND_PROCESS_TERMINATE_FAILED".to_string(),
+                            format!("{error}; {join_error}"),
+                        ),
+                    };
+                    let _ = self
+                        .store
+                        .command_mark_terminal(
+                            command_run_id.clone(),
+                            status.into(),
+                            CommandRunReceipt {
+                                termination_reason: Some("state_persist_failed".into()),
+                                error_code: Some(error_code),
+                                error_message: Some(error_message),
+                                ..CommandRunReceipt::default()
+                            },
+                            now_millis(),
+                        )
+                        .await;
+                    drop(permit);
+                    return Err(error.clone());
+                }
             }
             self.live
                 .lock()
@@ -765,8 +812,8 @@ impl CommandService {
                 .insert(command_run_id.clone(), live.clone());
 
             drop(launched.stdin);
-            let stdout_task = spawn_reader(launched.stdout, stdout);
-            let stderr_task = spawn_reader(launched.stderr, stderr);
+            let stdout_task = spawn_reader(launched.stdout, stdout, live.clone());
+            let stderr_task = spawn_reader(launched.stderr, stderr, live.clone());
             self.spawn_waiter(
                 command_run_id.clone(),
                 launched.control,
@@ -777,6 +824,9 @@ impl CommandService {
                 permit,
                 workspace_guard,
             );
+
+            #[cfg(target_os = "macos")]
+            marked_running?;
 
             let wait_ms = match execution_mode {
                 ExecutionMode::Async => 0,
@@ -800,7 +850,7 @@ impl CommandService {
         }
     }
 
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[allow(
         clippy::too_many_arguments,
         reason = "waiter owns one CommandRun's explicit process, output, timeout, admission and workspace lifetimes"
@@ -808,7 +858,7 @@ impl CommandService {
     fn spawn_waiter(
         &self,
         command_run_id: String,
-        control: Arc<windows_launcher::ProcessControl>,
+        control: Arc<platform_launcher::ProcessControl>,
         live: Arc<LiveCommand>,
         stdout_task: tokio::task::JoinHandle<()>,
         stderr_task: tokio::task::JoinHandle<()>,
@@ -817,7 +867,11 @@ impl CommandService {
         _workspace_guard: crate::serena::WorkspaceWriteGuard,
     ) {
         let store = self.store.clone();
+        #[cfg(target_os = "macos")]
+        let workspace_guard = _workspace_guard;
         tokio::spawn(async move {
+            #[cfg(target_os = "macos")]
+            let timeout_deadline = Instant::now() + timeout;
             let wait_control = control.clone();
             let mut wait_parent = tokio::task::spawn_blocking(move || wait_control.wait_parent());
             let exit_result = tokio::select! {
@@ -835,6 +889,13 @@ impl CommandService {
                     match terminate {
                         Ok(Ok(())) => {}
                         Ok(Err(error)) => {
+                            #[cfg(target_os = "macos")]
+                            live.remember_termination_failure(
+                                error.code.into(),
+                                error.to_string(),
+                            );
+                            #[cfg(windows)]
+                            {
                             let _ = store.command_mark_terminal(
                                 command_run_id.clone(),
                                 "unknown".into(),
@@ -850,8 +911,16 @@ impl CommandService {
                             live.terminal_at.store(now_millis(), Ordering::Release);
                             drop(permit);
                             return;
+                            }
                         }
                         Err(_) => {
+                            #[cfg(target_os = "macos")]
+                            live.remember_termination_failure(
+                                "COMMAND_PROCESS_TERMINATE_FAILED".into(),
+                                "termination task failed".into(),
+                            );
+                            #[cfg(windows)]
+                            {
                             let _ = store.command_mark_terminal(
                                 command_run_id.clone(),
                                 "unknown".into(),
@@ -866,6 +935,7 @@ impl CommandService {
                             live.terminal_at.store(now_millis(), Ordering::Release);
                             drop(permit);
                             return;
+                            }
                         }
                     }
                     wait_parent.await
@@ -874,13 +944,74 @@ impl CommandService {
                 }
             };
 
-            let seal_control = control.clone();
-            let seal = tokio::task::spawn_blocking(move || {
-                seal_control.seal_after_parent_exit(Duration::from_secs(3))
-            })
-            .await;
-            let _ = stdout_task.await;
-            let _ = stderr_task.await;
+            #[cfg(windows)]
+            let seal = {
+                let seal_control = control.clone();
+                tokio::task::spawn_blocking(move || {
+                    seal_control.seal_after_parent_exit(Duration::from_secs(3))
+                })
+                .await
+            };
+            #[cfg(target_os = "macos")]
+            let seal: Result<
+                Result<(), platform_launcher::LaunchError>,
+                tokio::task::JoinError,
+            > = loop {
+                let seal_control = control.clone();
+                if let Ok(Ok(true)) =
+                    tokio::task::spawn_blocking(move || seal_control.complete_evidence()).await
+                {
+                    break Ok(Ok(()));
+                }
+                // Parent 已退出也不能停止计时；后代超时但身份不可验证时只记录意图。
+                if Instant::now() >= timeout_deadline && live.set_intent(TerminationIntent::Timeout)
+                {
+                    let _ = store
+                        .command_mark_cancelling(command_run_id.clone(), now_millis())
+                        .await;
+                    let timeout_control = control.clone();
+                    match tokio::task::spawn_blocking(move || {
+                        timeout_control.terminate(Duration::from_secs(3))
+                    })
+                    .await
+                    {
+                        Ok(Ok(())) => {}
+                        Ok(Err(error)) => {
+                            live.remember_termination_failure(error.code.into(), error.to_string())
+                        }
+                        Err(error) => live.remember_termination_failure(
+                            "COMMAND_PROCESS_TERMINATE_FAILED".into(),
+                            error.to_string(),
+                        ),
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            };
+            #[cfg(windows)]
+            {
+                let _ = stdout_task.await;
+                let _ = stderr_task.await;
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let mut stdout_task = stdout_task;
+                let mut stderr_task = stderr_task;
+                // 组已空后给管道有限时间排空；逃逸组外的 FD 持有者不能无限阻塞 Receipt。
+                if tokio::time::timeout(Duration::from_secs(1), &mut stdout_task)
+                    .await
+                    .is_err()
+                {
+                    live.reader_stop.store(true, Ordering::Release);
+                    let _ = stdout_task.await;
+                }
+                if tokio::time::timeout(Duration::from_secs(1), &mut stderr_task)
+                    .await
+                    .is_err()
+                {
+                    live.reader_stop.store(true, Ordering::Release);
+                    let _ = stderr_task.await;
+                }
+            }
 
             let intent = live.intent();
             // Keep non-Send std::sync guards inside a synchronous scope. The waiter
@@ -909,12 +1040,14 @@ impl CommandService {
                 (_, Ok(Err(error)), _) => {
                     receipt.error_code = Some(error.code.into());
                     receipt.error_message = Some(error.to_string());
-                    receipt.termination_reason = Some("job_cleanup_failed".into());
+                    receipt.termination_reason =
+                        Some(platform_launcher::CLEANUP_FAILURE_REASON.into());
                     "unknown"
                 }
                 (_, Err(_), _) => {
                     receipt.error_code = Some("COMMAND_PROCESS_TERMINATION_FAILED".into());
-                    receipt.termination_reason = Some("job_cleanup_failed".into());
+                    receipt.termination_reason =
+                        Some(platform_launcher::CLEANUP_FAILURE_REASON.into());
                     "unknown"
                 }
                 (Err(code), _, _) => {
@@ -932,11 +1065,24 @@ impl CommandService {
                 (Ok(_), _, None) => "failed",
             };
 
+            #[cfg(target_os = "macos")]
+            let status =
+                if let Some((code, message)) = live.termination_failure.lock().unwrap().clone() {
+                    receipt.error_code = Some(code);
+                    receipt.error_message = Some(message);
+                    receipt.termination_reason = Some("process_group_termination_failed".into());
+                    "unknown"
+                } else {
+                    status
+                };
+
             let _ = store
                 .command_mark_terminal(command_run_id, status.into(), receipt, now_millis())
                 .await;
             live.terminal_at.store(now_millis(), Ordering::Release);
             drop(permit);
+            #[cfg(target_os = "macos")]
+            drop(workspace_guard);
         });
     }
 
@@ -953,12 +1099,12 @@ impl CommandService {
             });
         }
 
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             Err("COMMAND_RUNTIME_UNAVAILABLE_ON_PLATFORM".into())
         }
 
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             let live = self
                 .live
@@ -972,10 +1118,23 @@ impl CommandService {
                 .command_mark_cancelling(command_run_id.clone(), now_millis())
                 .await?;
             let control = live.control.clone();
-            tokio::task::spawn_blocking(move || control.terminate(Duration::from_secs(3)))
-                .await
-                .map_err(|_| "COMMAND_PROCESS_TERMINATE_FAILED".to_string())?
-                .map_err(|error| error.code.to_string())?;
+            let termination =
+                tokio::task::spawn_blocking(move || control.terminate(Duration::from_secs(3)))
+                    .await
+                    .map_err(|error| {
+                        #[cfg(target_os = "macos")]
+                        live.remember_termination_failure(
+                            "COMMAND_PROCESS_TERMINATE_FAILED".into(),
+                            error.to_string(),
+                        );
+                        "COMMAND_PROCESS_TERMINATE_FAILED".to_string()
+                    })?
+                    .map_err(|error| {
+                        #[cfg(target_os = "macos")]
+                        live.remember_termination_failure(error.code.into(), error.to_string());
+                        error.code.to_string()
+                    });
+            termination?;
             let deadline = Instant::now() + Duration::from_secs(3);
             loop {
                 let view = self.view(&command_run_id).await?;
@@ -989,7 +1148,7 @@ impl CommandService {
 
     pub async fn shutdown(&self) -> Result<(), String> {
         self.closing.store(true, Ordering::Release);
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             let running = self
                 .live
@@ -1007,8 +1166,19 @@ impl CommandService {
                     .await
                 {
                     Ok(Ok(())) => {}
-                    Ok(Err(error)) => errors.push(error.code.to_string()),
-                    Err(_) => errors.push("COMMAND_PROCESS_TERMINATE_FAILED".into()),
+                    Ok(Err(error)) => {
+                        #[cfg(target_os = "macos")]
+                        live.remember_termination_failure(error.code.into(), error.to_string());
+                        errors.push(error.code.to_string());
+                    }
+                    Err(error) => {
+                        #[cfg(target_os = "macos")]
+                        live.remember_termination_failure(
+                            "COMMAND_PROCESS_TERMINATE_FAILED".into(),
+                            error.to_string(),
+                        );
+                        errors.push("COMMAND_PROCESS_TERMINATE_FAILED".into());
+                    }
                 }
             }
             let deadline = Instant::now() + Duration::from_secs(5);
@@ -1121,15 +1291,32 @@ impl CommandService {
     }
 }
 
-#[cfg(windows)]
-fn spawn_reader(file: File, output: Arc<Mutex<OutputBuffer>>) -> tokio::task::JoinHandle<()> {
+#[cfg(any(windows, target_os = "macos"))]
+fn spawn_reader(
+    file: File,
+    output: Arc<Mutex<OutputBuffer>>,
+    live: Arc<LiveCommand>,
+) -> tokio::task::JoinHandle<()> {
+    #[cfg(windows)]
+    let _ = live;
     tokio::task::spawn_blocking(move || {
         let mut file = file;
         let mut buffer = [0_u8; 8192];
         loop {
+            #[cfg(target_os = "macos")]
+            if live.reader_stop.load(Ordering::Acquire) {
+                return;
+            }
             match file.read(&mut buffer) {
                 Ok(0) => return,
                 Ok(read) => output.lock().unwrap().append(&buffer[..read]),
+                #[cfg(target_os = "macos")]
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if live.reader_stop.load(Ordering::Acquire) {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
                 Err(_) => return,
             }
         }
@@ -1201,7 +1388,7 @@ fn validate_env(env: &BTreeMap<String, String>) -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn windows_invocation(spec: &CommandSpec) -> Result<(PathBuf, Vec<OsString>), String> {
+fn platform_invocation(spec: &CommandSpec) -> Result<(PathBuf, Vec<OsString>), String> {
     match spec {
         CommandSpec::Process { executable, args } => {
             let path = resolve_native_executable(executable)
@@ -1234,9 +1421,18 @@ fn windows_invocation(spec: &CommandSpec) -> Result<(PathBuf, Vec<OsString>), St
     }
 }
 
+/// macOS 的 argv 或账户 Shell 选择由唯一平台适配层完成。
+#[cfg(target_os = "macos")]
+fn platform_invocation(
+    spec: &CommandSpec,
+    command_path: &macos_launcher::CommandPath,
+) -> Result<(PathBuf, Vec<OsString>), String> {
+    macos_launcher::invocation(spec, command_path)
+}
+
 #[cfg(windows)]
 fn resolve_native_executable(name: &str) -> Option<PathBuf> {
-    let name_path = Path::new(name);
+    let name_path = std::path::Path::new(name);
     if name_path.is_absolute() || name.contains(['/', '\\', ':']) {
         return None;
     }
@@ -1311,6 +1507,16 @@ fn command_environment(
         .into_iter()
         .map(|(key, value)| (OsString::from(key), OsString::from(value)))
         .collect()
+}
+
+/// macOS 子进程只接收受控 Host 环境与当前请求的显式覆盖。
+#[cfg(target_os = "macos")]
+fn command_environment(
+    explicit: &BTreeMap<String, String>,
+    workspace_id: &str,
+    command_path: &macos_launcher::CommandPath,
+) -> Vec<(OsString, OsString)> {
+    macos_launcher::environment(explicit, workspace_id, command_path)
 }
 
 fn unavailable_segment(cursor: u64, total_bytes: u64) -> OutputSegment {
@@ -1391,6 +1597,13 @@ mod tests {
         let mut env = BTreeMap::new();
         env.insert("SERENA_DESKTOP_WORKSPACE_ID".into(), "spoofed".into());
         assert_eq!(validate_env(&env), Err("COMMAND_ENV_INVALID".into()));
+        #[cfg(target_os = "macos")]
+        {
+            env.clear();
+            env.insert("PATH".into(), "/custom/bin:/usr/bin".into());
+            assert_eq!(validate_env(&env), Ok(()));
+            assert!(macos_launcher::command_path(&env).is_ok());
+        }
     }
 
     #[test]
@@ -1558,3 +1771,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_tests;
