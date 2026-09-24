@@ -77,6 +77,7 @@ fn acceptance(ids: &[&str]) -> HostAcceptance {
     HostAcceptance {
         summary: "  Host reviewed\n ".into(),
         execution_ids: ids.iter().map(|s| (*s).into()).collect(),
+        command_run_ids: vec![],
     }
 }
 
@@ -164,7 +165,7 @@ async fn completed_acceptance_is_canonical_server_timed_and_reopens_exactly() {
     assert_eq!(
         result.acceptance_json,
         Some(format!(
-            r#"{{"decision":"accepted","summary":"Host reviewed","executionIds":["E4","E2"],"acceptedAt":{}}}"#,
+            r#"{{"decision":"accepted","summary":"Host reviewed","executionIds":["E4","E2"],"commandRunIds":[],"acceptedAt":{}}}"#,
             result.updated_at
         ))
     );
@@ -213,6 +214,7 @@ async fn acceptance_validation_and_terminal_work_errors_have_zero_side_effects()
             Some(HostAcceptance {
                 summary: " \n\t".into(),
                 execution_ids: vec![],
+                command_run_ids: vec![],
             }),
             "WORK_INVALID_ARGUMENT",
         ),
