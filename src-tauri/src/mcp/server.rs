@@ -827,6 +827,9 @@ mod quick_tunnel_transport_tests {
                             for tool in super::super::source_write_domain::SourceWriteTool::ALL {
                                 assert!(!names.contains(tool.code()), "{}: {value}", tool.code());
                             }
+                            for name in super::super::command::NAMES {
+                                assert!(!names.contains(name), "{name}: {value}");
+                            }
                         }
                         "workspace_list" => {
                             assert_ne!(value["result"]["isError"], true, "{value}");
