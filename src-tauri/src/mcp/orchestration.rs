@@ -29,6 +29,7 @@ fn work_failure(error: &str) -> Value {
         "WORK_HAS_ACTIVE_EXECUTIONS",
         "WORK_ACCEPTANCE_REQUIRED",
         "EXECUTION_NOT_IN_WORK",
+        "COMMAND_RUN_NOT_IN_WORK",
         "WORK_INVALID_ARGUMENT",
         "WORKSPACE_CONTEXT_MISMATCH",
         "WORKSPACE_NOT_FOUND",
