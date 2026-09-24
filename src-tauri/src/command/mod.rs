@@ -191,7 +191,7 @@ pub struct CommandObservation {
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
-#[serde(untagged)]
+#[serde(untagged, rename_all_fields = "camelCase")]
 pub enum CommandData {
     Run { command_run: CommandRunView },
     List { command_runs: Vec<CommandRunView> },
