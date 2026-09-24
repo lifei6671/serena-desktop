@@ -20,19 +20,19 @@ const SCHEMA_V9: &str = include_str!("schema_v9.sql");
 const SCHEMA_V10: &str = include_str!("schema_v10.sql");
 const SCHEMA_V11: &str = include_str!("schema_v11.sql");
 
+mod command_runs;
 mod usage;
 #[cfg(test)]
 mod usage_tests;
-mod command_runs;
 mod work_runs;
-#[cfg(any(windows, target_os = "macos", test))]
-pub(crate) use usage::CodexUsageBaselineIntent;
-#[cfg(any(windows, target_os = "macos"))]
-pub(crate) use usage::USAGE_TERMINAL_GRACE_MS;
 pub use command_runs::{
     CommandRunReceipt, CommandRunRecord, CreateCommandRunInput, CreateCommandRunOutcome,
     WorkCommandLinkRecord,
 };
+#[cfg(any(windows, target_os = "macos", test))]
+pub(crate) use usage::CodexUsageBaselineIntent;
+#[cfg(any(windows, target_os = "macos"))]
+pub(crate) use usage::USAGE_TERMINAL_GRACE_MS;
 pub use work_runs::{WorkExecutionLinkRecord, WorkRunRecord};
 
 #[derive(Clone)]
