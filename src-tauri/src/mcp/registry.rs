@@ -730,11 +730,20 @@ pub fn orchestration_contract_diagnostic(enabled: bool, descriptors: &[Tool]) ->
 /// 返回完全由 Broker 本地定义的公开 Tool surface；Discovery 不连接 Serena。
 #[cfg(test)]
 pub fn list(agent_enabled: bool) -> Vec<Tool> {
-    list_with_source_write(agent_enabled, false)
+    list_with_capabilities(agent_enabled, false, false)
 }
 
-/// 返回当前 Broker 配置允许公开的 Tool surface；写工具仅受本地持久化开关控制。
+/// 兼容现有测试与内部调用；Command 工具默认不加入旧 helper 的 surface。
 pub fn list_with_source_write(agent_enabled: bool, remote_source_write_enabled: bool) -> Vec<Tool> {
+    list_with_capabilities(agent_enabled, remote_source_write_enabled, false)
+}
+
+/// 返回当前 Broker 配置允许公开的完整 Tool surface。
+pub fn list_with_capabilities(
+    agent_enabled: bool,
+    remote_source_write_enabled: bool,
+    remote_command_execution_enabled: bool,
+) -> Vec<Tool> {
     let mut list = vec![
         tool(
             "workspace_list",
@@ -813,9 +822,15 @@ pub fn list_with_source_write(agent_enabled: bool, remote_source_write_enabled: 
     if agent_enabled {
         list.extend(super::orchestration::descriptors());
     }
+    if remote_command_execution_enabled {
+        list.extend(super::command::descriptors());
+    }
     list
 }
 pub fn validate(name: &str, args: &Value) -> Result<(), String> {
+    if super::command::contains(name) {
+        return super::command::validate(name, args);
+    }
     if super::orchestration::contains(name) {
         return super::orchestration::validate(name, args);
     }
