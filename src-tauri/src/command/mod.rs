@@ -1,9 +1,7 @@
 #![cfg_attr(not(windows), allow(dead_code, unused_imports))]
 
 use crate::{
-    agent::store::{
-        CommandRunReceipt, CommandRunRecord, CreateCommandRunInput, StateStore,
-    },
+    agent::store::{CommandRunReceipt, CommandRunRecord, CreateCommandRunInput, StateStore},
     serena::SupervisorState,
     workspace_path::WorkspacePathResolver,
     workspace_resolver::WorkspaceResolver,
@@ -42,10 +40,21 @@ const COMPLETED_LIVE_RETENTION_MS: i64 = 60 * 60 * 1000;
 const MAX_RETAINED_COMPLETED_LIVE: usize = 128;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "mode", rename_all = "snake_case", rename_all_fields = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "mode",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum CommandSpec {
-    Process { executable: String, #[serde(default)] args: Vec<String> },
-    Shell { command: String },
+    Process {
+        executable: String,
+        #[serde(default)]
+        args: Vec<String>,
+    },
+    Shell {
+        command: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
@@ -73,7 +82,12 @@ impl ExecutionMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "action", rename_all = "snake_case", rename_all_fields = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "action",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum ExecuteRequest {
     Start {
         workspace_id: String,
@@ -87,13 +101,22 @@ pub enum ExecuteRequest {
         execution_mode: Option<ExecutionMode>,
         yield_time_ms: Option<u64>,
     },
-    Cancel { command_run_id: String },
+    Cancel {
+        command_run_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "action", rename_all = "snake_case", rename_all_fields = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "action",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum QueryRequest {
-    Get { command_run_id: String },
+    Get {
+        command_run_id: String,
+    },
     List {
         workspace_id: Option<String>,
         work_run_id: Option<String>,
@@ -406,7 +429,10 @@ impl CommandService {
                 wait_ms,
             } => {
                 validate_id(&command_run_id)?;
-                if known_revision.as_ref().is_some_and(|value| value.trim().is_empty()) {
+                if known_revision
+                    .as_ref()
+                    .is_some_and(|value| value.trim().is_empty())
+                {
                     return Err("COMMAND_INVALID_ARGUMENT".into());
                 }
                 let wait_ms = wait_ms.unwrap_or(DEFAULT_OBSERVE_MS);
@@ -420,7 +446,11 @@ impl CommandService {
                     let unchanged = known_revision
                         .as_ref()
                         .is_some_and(|known| known == &view.revision);
-                    if known_revision.is_none() || !unchanged || terminal || Instant::now() >= deadline {
+                    if known_revision.is_none()
+                        || !unchanged
+                        || terminal
+                        || Instant::now() >= deadline
+                    {
                         return Ok(CommandData::Observation {
                             observation: CommandObservation {
                                 command_run: view,
@@ -593,7 +623,10 @@ impl CommandService {
                         request_key,
                         request_hash,
                         workspace_id: lease.workspace_id.clone(),
-                        canonical_workspace_root: lease.canonical_root.to_string_lossy().into_owned(),
+                        canonical_workspace_root: lease
+                            .canonical_root
+                            .to_string_lossy()
+                            .into_owned(),
                         workspace_generation: lease.generation,
                         work_run_id,
                         mode: mode.into(),
@@ -622,9 +655,11 @@ impl CommandService {
                 environment,
                 command_run_id: command_run_id.clone(),
             };
-            let launched = match tokio::task::spawn_blocking(move || windows_launcher::launch(&launch_request))
-                .await
-                .map_err(|_| "COMMAND_PROCESS_CREATE_FAILED".to_string())?
+            let launched = match tokio::task::spawn_blocking(move || {
+                windows_launcher::launch(&launch_request)
+            })
+            .await
+            .map_err(|_| "COMMAND_PROCESS_CREATE_FAILED".to_string())?
             {
                 Ok(value) => value,
                 Err(error) => {
@@ -664,10 +699,9 @@ impl CommandService {
                 .await
             {
                 let control = launched.control.clone();
-                let termination = tokio::task::spawn_blocking(move || {
-                    control.terminate(Duration::from_secs(3))
-                })
-                .await;
+                let termination =
+                    tokio::task::spawn_blocking(move || control.terminate(Duration::from_secs(3)))
+                        .await;
                 let (status, error_code, error_message) = match termination {
                     Ok(Ok(())) => (
                         "failed",
@@ -756,8 +790,7 @@ impl CommandService {
         let store = self.store.clone();
         tokio::spawn(async move {
             let wait_control = control.clone();
-            let mut wait_parent =
-                tokio::task::spawn_blocking(move || wait_control.wait_parent());
+            let mut wait_parent = tokio::task::spawn_blocking(move || wait_control.wait_parent());
             let exit_result = tokio::select! {
                 result = &mut wait_parent => result
                     .map_err(|_| "COMMAND_PROCESS_WAIT_FAILED".to_string())
@@ -868,12 +901,7 @@ impl CommandService {
             };
 
             let _ = store
-                .command_mark_terminal(
-                    command_run_id,
-                    status.into(),
-                    receipt,
-                    now_millis(),
-                )
+                .command_mark_terminal(command_run_id, status.into(), receipt, now_millis())
                 .await;
             live.terminal_at.store(now_millis(), Ordering::Release);
             drop(permit);
@@ -943,10 +971,8 @@ impl CommandService {
             for live in running {
                 live.set_intent(TerminationIntent::Shutdown);
                 let control = live.control.clone();
-                match tokio::task::spawn_blocking(move || {
-                    control.terminate(Duration::from_secs(3))
-                })
-                .await
+                match tokio::task::spawn_blocking(move || control.terminate(Duration::from_secs(3)))
+                    .await
                 {
                     Ok(Ok(())) => {}
                     Ok(Err(error)) => errors.push(error.code.to_string()),
@@ -1019,9 +1045,7 @@ impl CommandService {
             started_at: record.started_at,
             completed_at: record.completed_at,
             exit_code: record.exit_code,
-            command_ok: record
-                .exit_code
-                .map(|code| code == 0 && !record.timed_out),
+            command_ok: record.exit_code.map(|code| code == 0 && !record.timed_out),
             timed_out: record.timed_out,
             termination_reason: record.termination_reason,
             stdout_total_bytes: stdout_total,
@@ -1237,7 +1261,10 @@ fn command_environment(
         }
     }
     for (key, value) in explicit {
-        let existing = values.keys().find(|candidate| candidate.eq_ignore_ascii_case(key)).cloned();
+        let existing = values
+            .keys()
+            .find(|candidate| candidate.eq_ignore_ascii_case(key))
+            .cloned();
         if let Some(existing) = existing {
             values.remove(&existing);
         }
@@ -1329,15 +1356,19 @@ mod tests {
 
     #[test]
     fn process_spec_accepts_only_native_path_search_names() {
-        assert!(validate_spec(&CommandSpec::Process {
-            executable: "cargo".into(),
-            args: vec!["test".into()],
-        })
-        .is_ok());
-        assert!(validate_spec(&CommandSpec::Process {
-            executable: r"C:\\Tools\\cargo.exe".into(),
-            args: vec![],
-        })
-        .is_err());
+        assert!(
+            validate_spec(&CommandSpec::Process {
+                executable: "cargo".into(),
+                args: vec!["test".into()],
+            })
+            .is_ok()
+        );
+        assert!(
+            validate_spec(&CommandSpec::Process {
+                executable: r"C:\\Tools\\cargo.exe".into(),
+                args: vec![],
+            })
+            .is_err()
+        );
     }
 }
