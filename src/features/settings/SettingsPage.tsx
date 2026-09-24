@@ -113,7 +113,7 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                   disabled={busy !== null}
                   label="允许远程执行命令"
                   hint={draft.remoteCommandExecutionEnabled
-                    ? "允许远程 MCP 客户端在已登记工作区内启动受管命令。命令以当前桌面用户权限运行；重新连接客户端后生效。"
+                    ? "允许远程 MCP 客户端在已登记工作区内启动受管命令。命令以当前桌面用户权限运行，可修改文件和访问网络；重新连接客户端后生效。"
                     : "远程 MCP 不公开命令执行工具；桌面本地能力不受影响。"}
                 />
                 <SettingSwitch
