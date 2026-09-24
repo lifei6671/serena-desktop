@@ -111,8 +111,8 @@ impl StateStore {
                     return Err("WORKSPACE_CONTEXT_MISMATCH".into());
                 }
             }
-            let generation =
-                i64::try_from(input.workspace_generation).map_err(|_| "COMMAND_INVALID_ARGUMENT")?;
+            let generation = i64::try_from(input.workspace_generation)
+                .map_err(|_| "COMMAND_INVALID_ARGUMENT")?;
             let timeout_ms =
                 i64::try_from(input.timeout_ms).map_err(|_| "COMMAND_INVALID_ARGUMENT")?;
             tx.execute(
