@@ -258,7 +258,7 @@ impl OutputBuffer {
     }
 
     fn digest(&self) -> String {
-        format!("{:x}", self.hasher.clone().finalize())
+        hex_bytes(self.hasher.clone().finalize().as_slice())
     }
 
     fn segment(&self, cursor: u64, max_bytes: usize) -> OutputSegment {
@@ -1050,6 +1050,11 @@ impl CommandService {
                 ),
             )
         };
+        let command_ok = match record.status.as_str() {
+            "completed" => Some(record.exit_code == Some(0) && !record.timed_out),
+            "failed" => Some(false),
+            _ => None,
+        };
         CommandRunView {
             command_run_id: record.id,
             request_key: record.request_key,
@@ -1064,11 +1069,7 @@ impl CommandService {
             started_at: record.started_at,
             completed_at: record.completed_at,
             exit_code: record.exit_code,
-            command_ok: match record.status.as_str() {
-                "completed" => Some(record.exit_code == Some(0) && !record.timed_out),
-                "failed" => Some(false),
-                _ => None,
-            },
+            command_ok,
             timed_out: record.timed_out,
             termination_reason: record.termination_reason,
             stdout_total_bytes: stdout_total,
@@ -1321,13 +1322,17 @@ fn observation_revision(record: &CommandRunRecord, stdout: u64, stderr: u64) -> 
     hasher.update(record.revision.to_le_bytes());
     hasher.update(stdout.to_le_bytes());
     hasher.update(stderr.to_le_bytes());
-    format!("{:x}", hasher.finalize())
+    hex_bytes(hasher.finalize().as_slice())
 }
 
 fn hex_digest(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+    hex_bytes(hasher.finalize().as_slice())
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn is_terminal(status: &str) -> bool {
