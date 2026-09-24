@@ -171,11 +171,7 @@ async fn active_command_run_blocks_work_until_receipt_is_terminal_and_accepted()
     assert_eq!(
         service
             .update(
-                finish(
-                    "work",
-                    FinishOutcome::Completed,
-                    Some(acceptance()),
-                ),
+                finish("work", FinishOutcome::Completed, Some(acceptance()),),
                 None,
             )
             .await
@@ -202,11 +198,7 @@ async fn active_command_run_blocks_work_until_receipt_is_terminal_and_accepted()
 
     let work = service
         .update(
-            finish(
-                "work",
-                FinishOutcome::Completed,
-                Some(acceptance()),
-            ),
+            finish("work", FinishOutcome::Completed, Some(acceptance())),
             None,
         )
         .await
