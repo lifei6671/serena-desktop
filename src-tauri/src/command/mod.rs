@@ -1,3 +1,5 @@
+#![cfg_attr(not(windows), allow(dead_code, unused_imports))]
+
 use crate::{
     agent::store::{
         CommandRunReceipt, CommandRunRecord, CreateCommandRunInput, StateStore,
@@ -194,6 +196,7 @@ pub enum CommandEnvelope {
     Failure { ok: bool, error: CommandError },
 }
 
+#[cfg(windows)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TerminationIntent {
     Cancel,
@@ -246,7 +249,7 @@ impl OutputBuffer {
         let take = available.len().min(max_bytes);
         let bytes = &available[..take];
         let text = String::from_utf8_lossy(bytes);
-        let lossy_utf8 = matches!(text, std::borrow::Cow::Owned(_));
+        let lossy_utf8 = matches!(&text, std::borrow::Cow::Owned(_));
         OutputSegment {
             text: text.into_owned(),
             cursor: requested,
@@ -264,6 +267,7 @@ struct LiveCommand {
     stderr: Arc<Mutex<OutputBuffer>>,
     #[cfg(windows)]
     control: Arc<windows_launcher::ProcessControl>,
+    #[cfg(windows)]
     intent: Mutex<Option<TerminationIntent>>,
     terminal_at: AtomicI64,
 }
@@ -275,6 +279,7 @@ impl LiveCommand {
         observation_revision(record, stdout, stderr)
     }
 
+    #[cfg(windows)]
     fn set_intent(&self, intent: TerminationIntent) -> bool {
         let mut current = self.intent.lock().unwrap();
         if current.is_some() {
@@ -285,6 +290,7 @@ impl LiveCommand {
         }
     }
 
+    #[cfg(windows)]
     fn intent(&self) -> Option<TerminationIntent> {
         *self.intent.lock().unwrap()
     }
@@ -548,11 +554,11 @@ impl CommandService {
                 .map_err(|_| "COMMAND_SESSION_LIMIT_REACHED".to_string())?;
 
             let normalized = serde_json::json!({
-                "workspaceId": workspace_id,
-                "workRunId": work_run_id,
-                "requestKey": request_key,
+                "workspaceId": &workspace_id,
+                "workRunId": &work_run_id,
+                "requestKey": &request_key,
                 "spec": &spec,
-                "relativeCwd": relative_cwd,
+                "relativeCwd": &relative_cwd,
                 "env": &env,
                 "timeoutMs": timeout_ms,
                 "executionMode": execution_mode,
@@ -594,7 +600,7 @@ impl CommandService {
             }
 
             let (executable, args) = windows_invocation(&spec)?;
-            let environment = command_environment(&env, &lease.workspace_id)?;
+            let environment = command_environment(&env, &lease.workspace_id);
             let launch_request = windows_launcher::LaunchRequest {
                 executable,
                 args,
@@ -1152,7 +1158,7 @@ fn resolve_native_executable(name: &str) -> Option<PathBuf> {
 fn command_environment(
     explicit: &BTreeMap<String, String>,
     workspace_id: &str,
-) -> Result<Vec<(OsString, OsString)>, String> {
+) -> Vec<(OsString, OsString)> {
     let mut values = BTreeMap::<String, String>::new();
     for key in [
         "PATH",
@@ -1191,10 +1197,10 @@ fn command_environment(
     }
     values.insert("SERENA_DESKTOP_COMMAND".into(), "1".into());
     values.insert("SERENA_DESKTOP_WORKSPACE_ID".into(), workspace_id.into());
-    Ok(values
+    values
         .into_iter()
         .map(|(key, value)| (OsString::from(key), OsString::from(value)))
-        .collect())
+        .collect()
 }
 
 fn unavailable_segment(cursor: u64, total_bytes: u64) -> OutputSegment {
