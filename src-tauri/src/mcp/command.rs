@@ -43,7 +43,7 @@ pub fn descriptors() -> Vec<Tool> {
         ),
         (
             "command_execute",
-            "【做什么】\n在显式 workspaceId 对应的已登记 Workspace 中启动或取消受管命令。\n\n【什么时候使用】\n需要由 Serena Desktop Host 真实执行构建、测试、脚本或其他开发命令，并获取 exit code 与可持久化 Command Receipt 时使用。\n\n【关键约束】\nstart 必须显式携带 workspaceId 与 requestKey；cwd 只允许 Workspace-relative。process 模式使用原生 executable + argv，shell 模式使用当前平台的受管 Shell 组合语义。命令以当前桌面用户权限运行，Workspace 边界不等于 OS Sandbox。Remote 工具仅在本机显式授权后公开。",
+            "【做什么】\n在显式 workspaceId 对应的已登记 Workspace 中启动或取消受管命令。\n\n【什么时候使用】\n执行已知的 Git 写操作、构建、测试、包管理、脚本、本地诊断等命令；具体 executable/args 或 shell command 已确定时优先使用，可获取 exit code 和 Command Receipt。\n\n【关键约束】\nstart 必须显式携带 workspaceId 与 requestKey；cwd 只允许 Workspace-relative。process 模式使用原生 executable + argv，shell 模式使用当前平台的受管 Shell 组合语义。命令以当前桌面用户权限运行，Workspace 边界不等于 OS Sandbox。Remote 工具仅在本机显式授权后公开。如果任务还需要自主读代码、修改实现并根据结果迭代，应使用 agent_execute。",
             schema::<ExecuteRequest>(),
             false,
             true,
