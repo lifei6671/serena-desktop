@@ -1121,11 +1121,11 @@ impl CommandService {
             let termination =
                 tokio::task::spawn_blocking(move || control.terminate(Duration::from_secs(3)))
                     .await
-                    .map_err(|error| {
+                    .map_err(|_error| {
                         #[cfg(target_os = "macos")]
                         live.remember_termination_failure(
                             "COMMAND_PROCESS_TERMINATE_FAILED".into(),
-                            error.to_string(),
+                            _error.to_string(),
                         );
                         "COMMAND_PROCESS_TERMINATE_FAILED".to_string()
                     })?
@@ -1171,11 +1171,11 @@ impl CommandService {
                         live.remember_termination_failure(error.code.into(), error.to_string());
                         errors.push(error.code.to_string());
                     }
-                    Err(error) => {
+                    Err(_error) => {
                         #[cfg(target_os = "macos")]
                         live.remember_termination_failure(
                             "COMMAND_PROCESS_TERMINATE_FAILED".into(),
-                            error.to_string(),
+                            _error.to_string(),
                         );
                         errors.push("COMMAND_PROCESS_TERMINATE_FAILED".into());
                     }

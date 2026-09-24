@@ -124,134 +124,6 @@ fn select_shell(account_shell: Option<PathBuf>) -> Result<PathBuf, String> {
         .ok_or_else(|| "COMMAND_SHELL_NOT_FOUND".into())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// 不存在或非绝对的账户 Shell 必须回退到可执行的 /bin/sh。
-    #[test]
-    fn unavailable_account_shell_falls_back_to_sh() {
-        assert_eq!(select_shell(None).unwrap(), PathBuf::from("/bin/sh"));
-        assert_eq!(
-            select_shell(Some(PathBuf::from("relative-shell"))).unwrap(),
-            PathBuf::from("/bin/sh")
-        );
-    }
-
-    /// Finder 风格路径不足时，固定系统、Homebrew 和账户开发目录仍在候选表。
-    #[test]
-    fn executable_search_includes_finder_fallback_directories() {
-        let directories = macos_user_path::directories();
-        assert!(directories.contains(&PathBuf::from("/usr/bin")));
-        assert!(directories.contains(&PathBuf::from("/opt/homebrew/bin")));
-        assert!(directories.contains(&PathBuf::from("/usr/local/bin")));
-        if let Some((_, home)) = account() {
-            assert!(directories.contains(&home.join(".local/bin")));
-            assert!(directories.contains(&home.join(".cargo/bin")));
-        }
-    }
-
-    /// Process 可执行文件发现与 child 的 PATH 来自同一缓存结果。
-    #[test]
-    fn discovery_and_child_use_shared_path() {
-        let command_path = command_path(&BTreeMap::new()).unwrap();
-        let env = environment(&BTreeMap::new(), "workspace", &command_path);
-        let path = env.iter().find(|(key, _)| key == "PATH").unwrap().1.clone();
-        let child_directories = std::env::split_paths(&path).collect::<Vec<_>>();
-        assert_eq!(child_directories, macos_user_path::directories());
-        let shell = resolve_executable("sh", &command_path.directories).unwrap();
-        assert!(
-            child_directories
-                .iter()
-                .any(|directory| directory.join("sh").is_file())
-        );
-        assert!(shell.is_absolute());
-    }
-
-    /// 显式 PATH 保留顺序，且 Process 发现与 Shell child 均使用同一覆盖值。
-    #[test]
-    fn explicit_path_controls_discovery_and_child() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut explicit = BTreeMap::new();
-        explicit.insert("PATH".into(), "/custom/bin:/usr/bin".into());
-        let accepted = command_path(&explicit).unwrap();
-        assert_eq!(
-            accepted.directories,
-            [PathBuf::from("/custom/bin"), PathBuf::from("/usr/bin")]
-        );
-        assert_eq!(accepted.value, OsString::from("/custom/bin:/usr/bin"));
-
-        let directory = tempfile::tempdir().unwrap();
-        let allowed = directory.path().join("allowed");
-        let excluded = directory.path().join("excluded");
-        std::fs::create_dir_all(&allowed).unwrap();
-        std::fs::create_dir_all(&excluded).unwrap();
-        let name = "serena-explicit-path-probe";
-        std::fs::write(excluded.join(name), "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::set_permissions(excluded.join(name), std::fs::Permissions::from_mode(0o700))
-            .unwrap();
-        explicit.insert("PATH".into(), format!("{}:/usr/bin", allowed.display()));
-        let command_path = command_path(&explicit).unwrap();
-        let process = CommandSpec::Process {
-            executable: name.into(),
-            args: vec![],
-        };
-        assert_eq!(
-            invocation(&process, &command_path).unwrap_err(),
-            "COMMAND_EXECUTABLE_NOT_FOUND"
-        );
-        std::fs::write(allowed.join(name), "#!/bin/sh\nexit 0\n").unwrap();
-        std::fs::set_permissions(allowed.join(name), std::fs::Permissions::from_mode(0o700))
-            .unwrap();
-        assert_eq!(
-            invocation(&process, &command_path).unwrap().0,
-            allowed.join(name).canonicalize().unwrap()
-        );
-
-        let child_env = environment(&explicit, "workspace", &command_path);
-        let path = child_env
-            .iter()
-            .find(|(key, _)| key == "PATH")
-            .unwrap()
-            .1
-            .clone();
-        assert_eq!(path, command_path.value);
-        assert_eq!(
-            std::env::split_paths(&path).collect::<Vec<_>>(),
-            command_path.directories
-        );
-        let (shell, args) = invocation(
-            &CommandSpec::Shell {
-                command: "printf '%s' \"$PATH\"".into(),
-            },
-            &command_path,
-        )
-        .unwrap();
-        let mut shell_child = Command::new(shell);
-        shell_child.args(args).env_clear().envs(child_env);
-        let child_path = shell_child
-            .get_envs()
-            .find(|(key, _)| *key == "PATH")
-            .unwrap()
-            .1
-            .unwrap();
-        assert_eq!(child_path, path);
-    }
-
-    /// 相对、空白项和 NUL 均不能进入显式 PATH authority。
-    #[test]
-    fn explicit_path_rejects_relative_and_invalid_entries() {
-        for invalid in ["relative:/usr/bin", "/usr/bin:", "", "/usr/bin\0/else"] {
-            let explicit = BTreeMap::from([("PATH".into(), invalid.into())]);
-            assert_eq!(
-                command_path(&explicit).err(),
-                Some("COMMAND_ENV_INVALID".into())
-            );
-        }
-    }
-}
-
 /// 按本次 CommandRun 的 PATH 顺序发现第一个当前用户可执行的真实文件。
 fn resolve_executable(name: &str, directories: &[PathBuf]) -> Option<PathBuf> {
     for directory in directories {
@@ -431,5 +303,133 @@ impl ProcessControl {
             timeout.saturating_sub(Duration::from_millis(500)),
         )
         .map_err(|error| failure("COMMAND_PROCESS_TERMINATE_FAILED", error))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 不存在或非绝对的账户 Shell 必须回退到可执行的 /bin/sh。
+    #[test]
+    fn unavailable_account_shell_falls_back_to_sh() {
+        assert_eq!(select_shell(None).unwrap(), PathBuf::from("/bin/sh"));
+        assert_eq!(
+            select_shell(Some(PathBuf::from("relative-shell"))).unwrap(),
+            PathBuf::from("/bin/sh")
+        );
+    }
+
+    /// Finder 风格路径不足时，固定系统、Homebrew 和账户开发目录仍在候选表。
+    #[test]
+    fn executable_search_includes_finder_fallback_directories() {
+        let directories = macos_user_path::directories();
+        assert!(directories.contains(&PathBuf::from("/usr/bin")));
+        assert!(directories.contains(&PathBuf::from("/opt/homebrew/bin")));
+        assert!(directories.contains(&PathBuf::from("/usr/local/bin")));
+        if let Some((_, home)) = account() {
+            assert!(directories.contains(&home.join(".local/bin")));
+            assert!(directories.contains(&home.join(".cargo/bin")));
+        }
+    }
+
+    /// Process 可执行文件发现与 child 的 PATH 来自同一缓存结果。
+    #[test]
+    fn discovery_and_child_use_shared_path() {
+        let command_path = command_path(&BTreeMap::new()).unwrap();
+        let env = environment(&BTreeMap::new(), "workspace", &command_path);
+        let path = env.iter().find(|(key, _)| key == "PATH").unwrap().1.clone();
+        let child_directories = std::env::split_paths(&path).collect::<Vec<_>>();
+        assert_eq!(child_directories, macos_user_path::directories());
+        let shell = resolve_executable("sh", &command_path.directories).unwrap();
+        assert!(
+            child_directories
+                .iter()
+                .any(|directory| directory.join("sh").is_file())
+        );
+        assert!(shell.is_absolute());
+    }
+
+    /// 显式 PATH 保留顺序，且 Process 发现与 Shell child 均使用同一覆盖值。
+    #[test]
+    fn explicit_path_controls_discovery_and_child() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut explicit = BTreeMap::new();
+        explicit.insert("PATH".into(), "/custom/bin:/usr/bin".into());
+        let accepted = command_path(&explicit).unwrap();
+        assert_eq!(
+            accepted.directories,
+            [PathBuf::from("/custom/bin"), PathBuf::from("/usr/bin")]
+        );
+        assert_eq!(accepted.value, OsString::from("/custom/bin:/usr/bin"));
+
+        let directory = tempfile::tempdir().unwrap();
+        let allowed = directory.path().join("allowed");
+        let excluded = directory.path().join("excluded");
+        std::fs::create_dir_all(&allowed).unwrap();
+        std::fs::create_dir_all(&excluded).unwrap();
+        let name = "serena-explicit-path-probe";
+        std::fs::write(excluded.join(name), "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(excluded.join(name), std::fs::Permissions::from_mode(0o700))
+            .unwrap();
+        explicit.insert("PATH".into(), format!("{}:/usr/bin", allowed.display()));
+        let command_path = command_path(&explicit).unwrap();
+        let process = CommandSpec::Process {
+            executable: name.into(),
+            args: vec![],
+        };
+        assert_eq!(
+            invocation(&process, &command_path).unwrap_err(),
+            "COMMAND_EXECUTABLE_NOT_FOUND"
+        );
+        std::fs::write(allowed.join(name), "#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(allowed.join(name), std::fs::Permissions::from_mode(0o700))
+            .unwrap();
+        assert_eq!(
+            invocation(&process, &command_path).unwrap().0,
+            allowed.join(name).canonicalize().unwrap()
+        );
+
+        let child_env = environment(&explicit, "workspace", &command_path);
+        let path = child_env
+            .iter()
+            .find(|(key, _)| key == "PATH")
+            .unwrap()
+            .1
+            .clone();
+        assert_eq!(path, command_path.value);
+        assert_eq!(
+            std::env::split_paths(&path).collect::<Vec<_>>(),
+            command_path.directories
+        );
+        let (shell, args) = invocation(
+            &CommandSpec::Shell {
+                command: "printf '%s' \"$PATH\"".into(),
+            },
+            &command_path,
+        )
+        .unwrap();
+        let mut shell_child = Command::new(shell);
+        shell_child.args(args).env_clear().envs(child_env);
+        let child_path = shell_child
+            .get_envs()
+            .find(|(key, _)| *key == "PATH")
+            .unwrap()
+            .1
+            .unwrap();
+        assert_eq!(child_path, path);
+    }
+
+    /// 相对、空白项和 NUL 均不能进入显式 PATH authority。
+    #[test]
+    fn explicit_path_rejects_relative_and_invalid_entries() {
+        for invalid in ["relative:/usr/bin", "/usr/bin:", "", "/usr/bin\0/else"] {
+            let explicit = BTreeMap::from([("PATH".into(), invalid.into())]);
+            assert_eq!(
+                command_path(&explicit).err(),
+                Some("COMMAND_ENV_INVALID".into())
+            );
+        }
     }
 }
