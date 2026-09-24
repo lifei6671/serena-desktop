@@ -579,14 +579,14 @@ impl CommandService {
 
             let normalized = serde_json::json!({
                 "workspaceId": &workspace_id,
+                "workspaceGeneration": lease.generation,
+                "canonicalWorkspaceRoot": lease.canonical_root.to_string_lossy(),
                 "workRunId": &work_run_id,
                 "requestKey": &request_key,
                 "spec": &spec,
                 "relativeCwd": &relative_cwd,
                 "env": &env,
                 "timeoutMs": timeout_ms,
-                "executionMode": execution_mode,
-                "yieldTimeMs": yield_ms,
             });
             let request_hash = hex_digest(
                 &serde_json::to_vec(&normalized).map_err(|_| "COMMAND_INVALID_ARGUMENT")?,
