@@ -105,6 +105,18 @@ export default function SettingsPage({ state, draft, setDraft, busy, brokerPort,
                     : "远程 MCP 客户端只能读取项目文件。"}
                 />
                 <SettingSwitch
+                  checked={draft.remoteCommandExecutionEnabled}
+                  onChange={value => saveToggle(
+                    { remoteCommandExecutionEnabled: value },
+                    value ? "已允许远程执行工作区命令；重新连接 MCP 客户端后生效。" : "已关闭远程命令执行。",
+                  )}
+                  disabled={busy !== null}
+                  label="允许远程执行命令"
+                  hint={draft.remoteCommandExecutionEnabled
+                    ? "允许远程 MCP 客户端在已登记工作区内启动受管命令。命令以当前桌面用户权限运行；重新连接客户端后生效。"
+                    : "远程 MCP 不公开命令执行工具；桌面本地能力不受影响。"}
+                />
+                <SettingSwitch
                   checked={state.autostartEnabled ?? false}
                   onChange={setAutostart}
                   disabled={busy !== null || state.autostartEnabled === null}
