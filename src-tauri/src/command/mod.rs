@@ -879,25 +879,27 @@ impl CommandService {
             let _ = stderr_task.await;
 
             let intent = live.intent();
-            let stdout = live.stdout.lock().unwrap();
-            let stderr = live.stderr.lock().unwrap();
-            let mut receipt = CommandRunReceipt {
-                exit_code: exit_result.as_ref().ok().copied(),
-                timed_out: intent == Some(TerminationIntent::Timeout),
-                termination_reason: Some(match intent {
-                    Some(TerminationIntent::Cancel) => "user_cancelled".into(),
-                    Some(TerminationIntent::Timeout) => "timeout".into(),
-                    Some(TerminationIntent::Shutdown) => "host_shutdown".into(),
-                    None => "exited".into(),
-                }),
-                stdout_total_bytes: stdout.total_bytes,
-                stderr_total_bytes: stderr.total_bytes,
-                stdout_sha256: Some(stdout.digest()),
-                stderr_sha256: Some(stderr.digest()),
-                ..CommandRunReceipt::default()
+            // Keep non-Send std::sync guards inside a synchronous scope. The waiter
+            // future must be Send before it reaches the durable terminal write below.
+            let mut receipt = {
+                let stdout = live.stdout.lock().unwrap();
+                let stderr = live.stderr.lock().unwrap();
+                CommandRunReceipt {
+                    exit_code: exit_result.as_ref().ok().copied(),
+                    timed_out: intent == Some(TerminationIntent::Timeout),
+                    termination_reason: Some(match intent {
+                        Some(TerminationIntent::Cancel) => "user_cancelled".into(),
+                        Some(TerminationIntent::Timeout) => "timeout".into(),
+                        Some(TerminationIntent::Shutdown) => "host_shutdown".into(),
+                        None => "exited".into(),
+                    }),
+                    stdout_total_bytes: stdout.total_bytes,
+                    stderr_total_bytes: stderr.total_bytes,
+                    stdout_sha256: Some(stdout.digest()),
+                    stderr_sha256: Some(stderr.digest()),
+                    ..CommandRunReceipt::default()
+                }
             };
-            drop(stdout);
-            drop(stderr);
 
             let status = match (&exit_result, seal, intent) {
                 (_, Ok(Err(error)), _) => {
