@@ -14,8 +14,8 @@ pub fn contains(name: &str) -> bool {
 }
 
 fn schema<T: JsonSchema>() -> Value {
-    let mut value = serde_json::to_value(schemars::schema_for!(T))
-        .expect("command schema serialization");
+    let mut value =
+        serde_json::to_value(schemars::schema_for!(T)).expect("command schema serialization");
     value["type"] = serde_json::json!("object");
     value
 }
@@ -100,16 +100,19 @@ mod tests {
 
     #[test]
     fn execute_rejects_absolute_cwd_and_unknown_fields_at_dto_boundary() {
-        assert!(validate(
-            "command_execute",
-            &json!({
-                "action":"start",
-                "workspaceId":"w",
-                "requestKey":"r",
-                "spec":{"mode":"process","executable":"cargo","args":["test"]},
-                "relativeCwd":"src",
-                "unexpected":true
-            })
-        ).is_err());
+        assert!(
+            validate(
+                "command_execute",
+                &json!({
+                    "action":"start",
+                    "workspaceId":"w",
+                    "requestKey":"r",
+                    "spec":{"mode":"process","executable":"cargo","args":["test"]},
+                    "relativeCwd":"src",
+                    "unexpected":true
+                })
+            )
+            .is_err()
+        );
     }
 }
