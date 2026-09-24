@@ -801,6 +801,10 @@ impl CommandService {
     }
 
     #[cfg(windows)]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "waiter owns one CommandRun's explicit process, output, timeout, admission and workspace lifetimes"
+    )]
     fn spawn_waiter(
         &self,
         command_run_id: String,
