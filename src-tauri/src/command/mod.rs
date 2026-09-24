@@ -655,14 +655,11 @@ impl CommandService {
                 environment,
                 command_run_id: command_run_id.clone(),
             };
-            let launched = match tokio::task::spawn_blocking(move || {
-                windows_launcher::launch(&launch_request)
-            })
-            .await
-            .map_err(|_| "COMMAND_PROCESS_CREATE_FAILED".to_string())?
-            {
-                Ok(value) => value,
-                Err(error) => {
+            let launch_result =
+                tokio::task::spawn_blocking(move || windows_launcher::launch(&launch_request)).await;
+            let launched = match launch_result {
+                Ok(Ok(value)) => value,
+                Ok(Err(error)) => {
                     let code = error.code.to_string();
                     let _ = self
                         .store
@@ -673,6 +670,25 @@ impl CommandService {
                                 error_code: Some(code.clone()),
                                 error_message: Some(error.to_string()),
                                 termination_reason: Some("launch_failed".into()),
+                                ..CommandRunReceipt::default()
+                            },
+                            now_millis(),
+                        )
+                        .await;
+                    drop(permit);
+                    return Err(code);
+                }
+                Err(error) => {
+                    let code = "COMMAND_PROCESS_CREATE_FAILED".to_string();
+                    let _ = self
+                        .store
+                        .command_mark_terminal(
+                            command_run_id.clone(),
+                            "failed".into(),
+                            CommandRunReceipt {
+                                error_code: Some(code.clone()),
+                                error_message: Some(error.to_string()),
+                                termination_reason: Some("launch_task_failed".into()),
                                 ..CommandRunReceipt::default()
                             },
                             now_millis(),
