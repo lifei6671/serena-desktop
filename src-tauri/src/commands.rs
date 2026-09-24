@@ -921,6 +921,7 @@ pub fn shutdown_impl(app: &AppHandle) -> Result<(), String> {
         .state::<std::sync::Arc<crate::agent::product::AgentProductService>>()
         .inner()
         .clone();
+    let command = broker.command.get().cloned();
     let shutdown_broker = broker.clone();
     tauri::async_runtime::block_on(async {
         let _m = broker.management.lock().await;
@@ -928,6 +929,16 @@ pub fn shutdown_impl(app: &AppHandle) -> Result<(), String> {
             (
                 "workspace capability",
                 Box::pin(async move { capability_supervisor.shutdown_capability_runtimes().await }),
+            ),
+            (
+                "command",
+                Box::pin(async move {
+                    if let Some(command) = command {
+                        command.shutdown().await
+                    } else {
+                        Ok(())
+                    }
+                }),
             ),
             ("agent", Box::pin(async move { product.shutdown().await })),
             (
@@ -1073,6 +1084,20 @@ pub async fn download_mcp_logs(app: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub async fn agent_operation(app: AppHandle, request: serde_json::Value) -> serde_json::Value {
     crate::mcp::get(&app).agent_operation(request).await
+}
+
+#[tauri::command]
+pub async fn command_query(app: AppHandle, request: serde_json::Value) -> serde_json::Value {
+    crate::mcp::get(&app)
+        .command_operation("command_query", request)
+        .await
+}
+
+#[tauri::command]
+pub async fn command_execute(app: AppHandle, request: serde_json::Value) -> serde_json::Value {
+    crate::mcp::get(&app)
+        .command_operation("command_execute", request)
+        .await
 }
 
 /// 仅本机 Tauri IPC 可达的人工收口；Remote MCP 不注册此 mutation。
