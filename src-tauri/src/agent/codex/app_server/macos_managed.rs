@@ -396,8 +396,25 @@ async fn cli(
         std::process::id(),
         NEXT_PROBE.fetch_add(1, Ordering::Relaxed)
     );
+    #[cfg(test)]
+    let resume_stopped_fixture = executable
+        .file_name()
+        .is_some_and(|name| name.to_string_lossy().starts_with("probe-ownership-child"))
+        && matches!(
+            args.as_slice(),
+            ["--version", ..] | ["probe-output", ..] | ["app-server", "generate-json-schema", ..]
+        );
     let mut runtime =
         create_probe_runtime(context, executable, cwd, args, runtime_id.clone()).await?;
+    #[cfg(test)]
+    if resume_stopped_fixture
+        && let Err(error) = runtime
+            .runtime_mut()
+            .resume_stopped_probe_for_test(Duration::from_secs(2))
+    {
+        terminate_probe(runtime_id, runtime).await?;
+        return Err(io_error(format!("Probe fixture resume failed: {error}")).into());
+    }
     let (stdin, stdout, stderr) = match runtime.runtime().clone_stdio() {
         Ok(pipes) => pipes,
         Err(error) => {
@@ -1137,7 +1154,7 @@ mod tests {
             LaunchRequest {
                 executable: probe_fixture(directory.path()),
                 current_dir: directory.path().to_owned(),
-                args: vec!["probe-output".into(), "done".into()],
+                args: vec!["report".into(), "done".into()],
                 runtime_instance_id: runtime_id.clone(),
             },
             INIT_TIMEOUT,
@@ -1321,7 +1338,7 @@ mod tests {
             LaunchRequest {
                 executable,
                 current_dir: directory.path().to_owned(),
-                args: vec!["probe-output".into(), "done".into()],
+                args: vec!["report".into(), "done".into()],
                 runtime_instance_id: runtime_id.clone(),
             },
             INIT_TIMEOUT,
