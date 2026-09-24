@@ -83,7 +83,7 @@ Create Job
 
 stdout/stderr 实时读取但有界保存：
 
-- live tail：每流最大 4 MiB；
+- live tail：每流最大 1 MiB，完成态最多保留 32 个会话；
 - 单次 MCP 输出默认 64 KiB；
 - 使用客户端 cursor 读取增量输出，多客户端互不消费；
 - 记录 total bytes、dropped bytes、truncated；
