@@ -1453,13 +1453,8 @@ mod tests {
                 request_key: "short-process".into(),
                 work_run_id: None,
                 spec: CommandSpec::Process {
-                    executable: "cmd.exe".into(),
-                    args: vec![
-                        "/D".into(),
-                        "/S".into(),
-                        "/C".into(),
-                        "echo command-runtime-ok".into(),
-                    ],
+                    executable: "where.exe".into(),
+                    args: vec!["cmd.exe".into()],
                 },
                 relative_cwd: None,
                 env: BTreeMap::new(),
@@ -1495,7 +1490,7 @@ mod tests {
             other => panic!("unexpected output result: {other:?}"),
         };
         assert!(output.retained);
-        assert!(output.stdout.text.contains("command-runtime-ok"));
+        assert!(output.stdout.text.to_ascii_lowercase().contains("cmd.exe"));
         assert_eq!(output.stdout.dropped_bytes, 0);
         assert_eq!(output.stdout.next_cursor, output.stdout.total_bytes);
     }
