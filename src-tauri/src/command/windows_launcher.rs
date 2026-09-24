@@ -63,7 +63,10 @@ fn failure(code: &'static str, win32_error: u32) -> LaunchError {
 fn wide(value: &OsStr) -> Result<Vec<u16>, LaunchError> {
     let mut result = value.encode_wide().collect::<Vec<_>>();
     if result.contains(&0) {
-        return Err(failure("COMMAND_LAUNCH_INPUT_INVALID", ERROR_INVALID_PARAMETER));
+        return Err(failure(
+            "COMMAND_LAUNCH_INPUT_INVALID",
+            ERROR_INVALID_PARAMETER,
+        ));
     }
     result.push(0);
     Ok(result)
@@ -84,7 +87,10 @@ fn command_line(executable: &OsStr, args: &[OsString]) -> Result<Vec<u16>, Launc
         let mut slashes = 0;
         for unit in arg.encode_wide() {
             if unit == 0 {
-                return Err(failure("COMMAND_LAUNCH_INPUT_INVALID", ERROR_INVALID_PARAMETER));
+                return Err(failure(
+                    "COMMAND_LAUNCH_INPUT_INVALID",
+                    ERROR_INVALID_PARAMETER,
+                ));
             }
             if unit == b'\\' as u16 {
                 slashes += 1;
@@ -106,7 +112,10 @@ fn command_line(executable: &OsStr, args: &[OsString]) -> Result<Vec<u16>, Launc
     }
     result.push(0);
     if result.len() > 32767 {
-        return Err(failure("COMMAND_LAUNCH_INPUT_INVALID", ERROR_INVALID_PARAMETER));
+        return Err(failure(
+            "COMMAND_LAUNCH_INPUT_INVALID",
+            ERROR_INVALID_PARAMETER,
+        ));
     }
     Ok(result)
 }
@@ -377,16 +386,15 @@ impl ProcessControl {
                 )
             };
             if ok == 0 {
-                return Err(failure("COMMAND_JOB_QUERY_FAILED", unsafe { GetLastError() }));
+                return Err(failure("COMMAND_JOB_QUERY_FAILED", unsafe {
+                    GetLastError()
+                }));
             }
             if accounting.ActiveProcesses == 0 {
                 return Ok(());
             }
             if Instant::now() >= deadline {
-                return Err(failure(
-                    "COMMAND_PROCESS_TERMINATION_TIMEOUT",
-                    WAIT_TIMEOUT,
-                ));
+                return Err(failure("COMMAND_PROCESS_TERMINATION_TIMEOUT", WAIT_TIMEOUT));
             }
             std::thread::sleep(Duration::from_millis(25));
         }
