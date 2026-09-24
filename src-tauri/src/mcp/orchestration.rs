@@ -233,6 +233,7 @@ impl Broker {
                         acceptance: acceptance.map(|a| work::HostAcceptance {
                             summary: a.summary,
                             execution_ids: a.execution_ids,
+                            command_run_ids: a.command_run_ids,
                         }),
                     },
                     WorkUpdate::Cancel { work_run_id } => {
