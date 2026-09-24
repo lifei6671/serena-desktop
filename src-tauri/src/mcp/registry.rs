@@ -2234,8 +2234,7 @@ mod agent_contract_tests {
         }
         let description = agent.description.as_deref().unwrap();
         for contract in [
-            "ChatGPT",
-            "Review",
+            "复合编码任务",
             "continue",
             "新 Execution",
             "Thread",
