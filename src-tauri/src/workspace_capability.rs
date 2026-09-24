@@ -230,6 +230,7 @@ pub(crate) enum CapabilityProviderErrorCode {
     ContractError,
     Unavailable,
     OperationFailed,
+    ToolFailed,
 }
 
 /// Provider Port 的安全错误 envelope。
@@ -279,6 +280,8 @@ pub(crate) enum WorkspaceCapabilityErrorCode {
     StartFailed,
     #[serde(rename = "WORKSPACE_CAPABILITY_RUNTIME_LOST")]
     RuntimeLost,
+    #[serde(rename = "WORKSPACE_CAPABILITY_OPERATION_FAILED")]
+    OperationFailed,
     #[serde(rename = "WORKSPACE_CAPABILITY_STOP_FAILED")]
     StopFailed,
     #[serde(rename = "WORKSPACE_CAPABILITY_CONTRACT_ERROR")]
@@ -1821,6 +1824,9 @@ impl WorkspaceCapabilityManager {
             | CapabilityProviderErrorCode::OperationFailed => WorkspaceCapabilityError {
                 code: WorkspaceCapabilityErrorCode::RuntimeLost,
             },
+            CapabilityProviderErrorCode::ToolFailed => WorkspaceCapabilityError {
+                code: WorkspaceCapabilityErrorCode::OperationFailed,
+            },
             CapabilityProviderErrorCode::NotPrepared => WorkspaceCapabilityError {
                 code: WorkspaceCapabilityErrorCode::NotPrepared,
             },
@@ -2791,6 +2797,37 @@ mod tests {
 
         assert_eq!(error.code, WorkspaceCapabilityErrorCode::RuntimeLost);
         assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    /// Serena 工具失败、连接丢失和契约错误在 Manager 层保持独立代码。
+    fn provider_call_error_categories_remain_distinct() {
+        for (provider, manager) in [
+            (
+                CapabilityProviderErrorCode::ToolFailed,
+                WorkspaceCapabilityErrorCode::OperationFailed,
+            ),
+            (
+                CapabilityProviderErrorCode::Unavailable,
+                WorkspaceCapabilityErrorCode::RuntimeLost,
+            ),
+            (
+                CapabilityProviderErrorCode::ContractError,
+                WorkspaceCapabilityErrorCode::ContractError,
+            ),
+            (
+                CapabilityProviderErrorCode::RuntimeIdentityMismatch,
+                WorkspaceCapabilityErrorCode::ContractError,
+            ),
+        ] {
+            assert_eq!(
+                WorkspaceCapabilityManager::map_provider_call_error(CapabilityProviderError {
+                    code: provider
+                })
+                .code,
+                manager
+            );
+        }
     }
 
     #[tokio::test]

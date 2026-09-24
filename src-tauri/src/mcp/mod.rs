@@ -587,6 +587,7 @@ fn map_semantic_capability_error(error: WorkspaceCapabilityError) -> String {
         WorkspaceCapabilityErrorCode::Busy => "SEMANTIC_PROVIDER_BUSY".into(),
         WorkspaceCapabilityErrorCode::StartFailed => "SEMANTIC_RUNTIME_START_FAILED".into(),
         WorkspaceCapabilityErrorCode::RuntimeLost => "SEMANTIC_RUNTIME_LOST".into(),
+        WorkspaceCapabilityErrorCode::OperationFailed => "SEMANTIC_OPERATION_FAILED".into(),
         WorkspaceCapabilityErrorCode::NotFound => "SEMANTIC_PROVIDER_UNAVAILABLE".into(),
         // Runtime/Lease identity mismatch 是契约 fail-closed，不可伪装成 Provider 不可用。
         WorkspaceCapabilityErrorCode::ContractError => "WORKSPACE_CAPABILITY_CONTRACT_ERROR".into(),
@@ -1836,6 +1837,30 @@ mod integration_tests {
         );
         assert_eq!(calls[0].1.arguments["workspaceId"], workspace_a.id);
         assert_eq!(calls[1].1.arguments["workspaceId"], workspace_b.id);
+    }
+
+    #[test]
+    /// Semantic 公共错误码区分工具失败、连接丢失与契约错误。
+    fn semantic_error_mapper_keeps_failure_categories_distinct() {
+        for (input, expected) in [
+            (
+                WorkspaceCapabilityErrorCode::OperationFailed,
+                "SEMANTIC_OPERATION_FAILED",
+            ),
+            (
+                WorkspaceCapabilityErrorCode::RuntimeLost,
+                "SEMANTIC_RUNTIME_LOST",
+            ),
+            (
+                WorkspaceCapabilityErrorCode::ContractError,
+                "WORKSPACE_CAPABILITY_CONTRACT_ERROR",
+            ),
+        ] {
+            assert_eq!(
+                map_semantic_capability_error(WorkspaceCapabilityError { code: input }),
+                expected
+            );
+        }
     }
 
     #[test]

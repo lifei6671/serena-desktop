@@ -19,6 +19,8 @@ mod logs;
 mod macos_process;
 #[cfg(target_os = "macos")]
 mod macos_termination;
+#[cfg(target_os = "macos")]
+mod macos_user_path;
 mod mcp;
 mod oauth;
 mod remote;
