@@ -38,7 +38,7 @@ impl StateStore {
                         "SELECT EXISTS(SELECT 1 FROM work_command_links l
                          JOIN command_runs c ON c.id=l.command_run_id
                          WHERE l.work_run_id=?1 AND c.status NOT IN
-                         ('completed','failed','cancelled','interrupted','unknown'))",
+                         ('completed','failed','cancelled','interrupted'))",
                         [&id], |row| row.get(0),
                     ).map_err(|e| e.to_string())?;
                     if unresolved || unresolved_commands {
