@@ -9,6 +9,7 @@ struct AcceptedWork<'a> {
     decision: &'static str,
     summary: &'a str,
     execution_ids: &'a [String],
+    command_run_ids: &'a [String],
     accepted_at: i64,
 }
 
@@ -33,7 +34,14 @@ impl StateStore {
                          WHERE l.work_run_id=?1 AND e.status NOT IN ('completed','failed','cancelled','interrupted'))",
                         [&id], |row| row.get(0),
                     ).map_err(|e| e.to_string())?;
-                    if unresolved {
+                    let unresolved_commands: bool = tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM work_command_links l
+                         JOIN command_runs c ON c.id=l.command_run_id
+                         WHERE l.work_run_id=?1 AND c.status NOT IN
+                         ('completed','failed','cancelled','interrupted','unknown'))",
+                        [&id], |row| row.get(0),
+                    ).map_err(|e| e.to_string())?;
+                    if unresolved || unresolved_commands {
                         return Err("WORK_HAS_ACTIVE_EXECUTIONS".into());
                     }
                     match outcome {
@@ -62,8 +70,24 @@ impl StateStore {
                                     return Err("EXECUTION_NOT_IN_WORK".into());
                                 }
                             }
+                            let mut seen_commands = std::collections::HashSet::new();
+                            for command_run_id in &acceptance.command_run_ids {
+                                validate_id(command_run_id)?;
+                                if !seen_commands.insert(command_run_id) {
+                                    return Err("WORK_INVALID_ARGUMENT".into());
+                                }
+                                let link = super::super::command_runs::work_command_link_record(tx, command_run_id)
+                                    .map_err(|e| e.to_string())?;
+                                if link.as_ref().is_none_or(|link| link.work_run_id != id) {
+                                    return Err("COMMAND_RUN_NOT_IN_WORK".into());
+                                }
+                            }
                             let json = serde_json::to_string(&AcceptedWork {
-                                decision: "accepted", summary, execution_ids: &acceptance.execution_ids, accepted_at: now,
+                                decision: "accepted",
+                                summary,
+                                execution_ids: &acceptance.execution_ids,
+                                command_run_ids: &acceptance.command_run_ids,
+                                accepted_at: now,
                             }).map_err(|e| e.to_string())?;
                             ("completed", Some(json))
                         }
