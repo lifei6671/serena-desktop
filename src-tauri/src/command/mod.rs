@@ -1371,4 +1371,154 @@ mod tests {
             .is_err()
         );
     }
+
+    #[cfg(windows)]
+    async fn windows_fixture() -> (tempfile::TempDir, CommandService) {
+        use crate::config::{self, AppPaths, ManagerConfig, Workspace};
+
+        let directory = tempfile::tempdir().unwrap();
+        let workspace_root = directory.path().join("workspace");
+        std::fs::create_dir(&workspace_root).unwrap();
+        let paths = AppPaths {
+            runtime_directory: directory.path().join("runtime"),
+            config_file: directory.path().join("config.json"),
+            log_directory: directory.path().join("logs"),
+            app_log: directory.path().join("logs/app.log"),
+            serena_log: directory.path().join("logs/serena.log"),
+        };
+        let config = ManagerConfig {
+            workspaces: vec![Workspace {
+                id: "command-test".into(),
+                name: "Command Test".into(),
+                root: workspace_root,
+                generation: 1,
+            }],
+            ..ManagerConfig::default()
+        };
+        config::save(&paths.config_file, &config).unwrap();
+        let supervisor = Arc::new(SupervisorState::new(paths).unwrap());
+        let store = StateStore::open(directory.path().join("state")).await.unwrap();
+        let service = CommandService::new(store, supervisor).await.unwrap();
+        (directory, service)
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_process_command_completes_and_preserves_output_until_retention() {
+        let (_directory, service) = windows_fixture().await;
+        let started = service
+            .execute(ExecuteRequest::Start {
+                workspace_id: "command-test".into(),
+                request_key: "short-process".into(),
+                work_run_id: None,
+                spec: CommandSpec::Process {
+                    executable: "cmd.exe".into(),
+                    args: vec![
+                        "/D".into(),
+                        "/S".into(),
+                        "/C".into(),
+                        "echo command-runtime-ok".into(),
+                    ],
+                },
+                relative_cwd: None,
+                env: BTreeMap::new(),
+                timeout_ms: Some(10_000),
+                execution_mode: Some(ExecutionMode::Auto),
+                yield_time_ms: Some(5_000),
+            })
+            .await;
+        let run = match started {
+            CommandEnvelope::Success {
+                data: CommandData::Run { command_run },
+                ..
+            } => command_run,
+            other => panic!("unexpected command result: {other:?}"),
+        };
+        assert_eq!(run.status, "completed");
+        assert_eq!(run.exit_code, Some(0));
+        assert_eq!(run.command_ok, Some(true));
+
+        let output = service
+            .query(QueryRequest::Output {
+                command_run_id: run.command_run_id,
+                stdout_cursor: Some(0),
+                stderr_cursor: Some(0),
+                max_output_bytes: None,
+            })
+            .await;
+        let output = match output {
+            CommandEnvelope::Success {
+                data: CommandData::Output { output },
+                ..
+            } => output,
+            other => panic!("unexpected output result: {other:?}"),
+        };
+        assert!(output.retained);
+        assert!(output.stdout.text.contains("command-runtime-ok"));
+        assert_eq!(output.stdout.dropped_bytes, 0);
+        assert_eq!(output.stdout.next_cursor, output.stdout.total_bytes);
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_shell_command_can_be_cancelled_with_job_empty_evidence() {
+        let (_directory, service) = windows_fixture().await;
+        let started = service
+            .execute(ExecuteRequest::Start {
+                workspace_id: "command-test".into(),
+                request_key: "cancel-shell".into(),
+                work_run_id: None,
+                spec: CommandSpec::Shell {
+                    command: "Write-Output 'started'; Start-Sleep -Seconds 30".into(),
+                },
+                relative_cwd: None,
+                env: BTreeMap::new(),
+                timeout_ms: Some(60_000),
+                execution_mode: Some(ExecutionMode::Async),
+                yield_time_ms: None,
+            })
+            .await;
+        let run = match started {
+            CommandEnvelope::Success {
+                data: CommandData::Run { command_run },
+                ..
+            } => command_run,
+            other => panic!("unexpected command result: {other:?}"),
+        };
+        assert_eq!(run.status, "running");
+
+        let cancelled = service
+            .execute(ExecuteRequest::Cancel {
+                command_run_id: run.command_run_id.clone(),
+            })
+            .await;
+        let mut cancelled = match cancelled {
+            CommandEnvelope::Success {
+                data: CommandData::Run { command_run },
+                ..
+            } => command_run,
+            other => panic!("unexpected cancel result: {other:?}"),
+        };
+        if !is_terminal(&cancelled.status) {
+            let observed = service
+                .query(QueryRequest::Observe {
+                    command_run_id: run.command_run_id,
+                    known_revision: Some(cancelled.revision.clone()),
+                    wait_ms: Some(5_000),
+                })
+                .await;
+            cancelled = match observed {
+                CommandEnvelope::Success {
+                    data: CommandData::Observation { observation },
+                    ..
+                } => observation.command_run,
+                other => panic!("unexpected observe result: {other:?}"),
+            };
+        }
+        assert_eq!(cancelled.status, "cancelled");
+        assert_eq!(
+            cancelled.termination_reason.as_deref(),
+            Some("user_cancelled")
+        );
+    }
 }
