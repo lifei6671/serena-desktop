@@ -1397,7 +1397,9 @@ mod tests {
         };
         config::save(&paths.config_file, &config).unwrap();
         let supervisor = Arc::new(SupervisorState::new(paths).unwrap());
-        let store = StateStore::open(directory.path().join("state")).await.unwrap();
+        let store = StateStore::open(directory.path().join("state"))
+            .await
+            .unwrap();
         let service = CommandService::new(store, supervisor).await.unwrap();
         (directory, service)
     }
