@@ -10,22 +10,153 @@ fn input() -> CreateExecutionInput {
 }
 
 #[test]
-fn fixed_bytes_and_sha256_vector() {
+fn v3_general_and_testing_fixed_bytes_and_sha256_vectors() {
     let request = canonicalize_request(input()).unwrap();
+    assert_eq!(request.input().task_role, AgentTaskRole::General);
+    assert_eq!(request.input().provider.as_str(), "codex");
     assert_eq!(
         std::str::from_utf8(request.bytes()).unwrap(),
-        r#"["execution-request-v2","a","k","hello","{}","w","C:/workspace",1,"codex","read_only",null]"#
+        r#"["execution-request-v3","a","k","hello","{}","w","C:/workspace",1,"codex","read_only",null,"general"]"#
     );
     assert_eq!(
         request.request_hash(),
-        "9aa4fddbd7a43e9dc13919e7259518536eb24109b7c268a73a28770e058cc860"
+        "4ba6e8207d43b5c7ff9257a8023060febf2f81ee165f6852654d03ef5111ef9c"
     );
     for _ in 0..20 {
-        assert_eq!(
-            canonicalize_request(input()).unwrap().request_hash(),
-            request.request_hash()
+        let repeated = canonicalize_request(input()).unwrap();
+        assert_eq!(repeated.bytes(), request.bytes());
+        assert_eq!(repeated.request_hash(), request.request_hash());
+    }
+    let mut testing = input();
+    testing.task_role = AgentTaskRole::Testing;
+    let testing = canonicalize_request(testing).unwrap();
+    assert_eq!(
+        std::str::from_utf8(testing.bytes()).unwrap(),
+        r#"["execution-request-v3","a","k","hello","{}","w","C:/workspace",1,"codex","read_only",null,"testing"]"#
+    );
+    assert_eq!(
+        testing.request_hash(),
+        "2ce8501c178bae31be423833bf891247dc74a7528746f61af3781728f2f83b4b"
+    );
+    assert_ne!(testing.request_hash(), request.request_hash());
+}
+
+/// v2 历史向量固定，新增角色不能改变旧行的重试身份。
+#[test]
+fn legacy_v2_general_hash_keeps_frozen_vector() {
+    assert_eq!(
+        legacy_v2_request_hash(&input()).unwrap(),
+        "9aa4fddbd7a43e9dc13919e7259518536eb24109b7c268a73a28770e058cc860"
+    );
+}
+
+/// Fake ProviderId 经创建 DTO 往返后保持原文，v3 tuple 仍使用 v2 位置与 wire string。
+#[test]
+fn fake_provider_id_round_trips_through_creation_and_v3_bytes() {
+    let mut value = json!({
+        "agent_id":"a", "request_key":"k", "prompt":"hello", "execution_profile":{},
+        "workspace_id":"w", "canonical_workspace_root":"C:/workspace", "mode":"read_only"
+    });
+    value["provider"] = json!("fake.provider-v1");
+    let fake_input: CreateExecutionInput = serde_json::from_value(value).unwrap();
+    assert_eq!(fake_input.provider.as_str(), "fake.provider-v1");
+    let wire = serde_json::to_value(&fake_input.provider).unwrap();
+    assert_eq!(wire, json!("fake.provider-v1"));
+    assert_eq!(
+        serde_json::from_value::<ProviderId>(wire).unwrap(),
+        fake_input.provider
+    );
+    let request = canonicalize_request(fake_input).unwrap();
+    assert_eq!(
+        std::str::from_utf8(request.bytes()).unwrap(),
+        r#"["execution-request-v3","a","k","hello","{}","w","C:/workspace",1,"fake.provider-v1","read_only",null,"general"]"#
+    );
+    assert_eq!(
+        request.request_hash(),
+        "d90c7ce3c895c7358323d8ce817b98b7af4f4124374e19423f3b35373bc5bcdf"
+    );
+    assert_ne!(
+        request.request_hash(),
+        canonicalize_request(input()).unwrap().request_hash()
+    );
+}
+
+/// 创建 DTO 与 ProviderId 构造器一致拒绝非法 identity，不回退为 Codex。
+#[test]
+fn creation_rejects_invalid_provider_id_without_fallback() {
+    for invalid in [
+        "",
+        " codex",
+        "codex ",
+        "co dex",
+        "co\t-dex",
+        "co\n-dex",
+        "co\u{0007}dex",
+        "co\u{00a0}dex",
+    ] {
+        assert!(ProviderId::new(invalid.into()).is_err(), "{invalid:?}");
+        let mut value = json!({
+            "agent_id":"a", "request_key":"k", "prompt":"hello", "execution_profile":{},
+            "workspace_id":"w", "canonical_workspace_root":"C:/workspace", "mode":"read_only"
+        });
+        value["provider"] = json!(invalid);
+        assert!(
+            serde_json::from_value::<CreateExecutionInput>(value).is_err(),
+            "{invalid:?}"
         );
     }
+}
+
+/// 固定角色的 wire 值必须完整往返，不接受别名或大小写归一。
+#[test]
+fn task_role_serde_round_trip_and_invalid_values() {
+    for (role, wire) in [
+        (AgentTaskRole::Development, "development"),
+        (AgentTaskRole::Testing, "testing"),
+        (AgentTaskRole::Review, "review"),
+        (AgentTaskRole::Analysis, "analysis"),
+        (AgentTaskRole::General, "general"),
+    ] {
+        assert_eq!(role.as_str(), wire);
+        assert_eq!(serde_json::to_value(role).unwrap(), json!(wire));
+        assert_eq!(
+            serde_json::from_value::<AgentTaskRole>(json!(wire)).unwrap(),
+            role
+        );
+    }
+    for invalid in [
+        json!("Development"),
+        json!("unknown"),
+        json!(""),
+        json!(null),
+        json!(1),
+    ] {
+        assert!(serde_json::from_value::<AgentTaskRole>(invalid.clone()).is_err());
+        let mut legacy = json!({
+            "agent_id":"a", "request_key":"k", "prompt":"hello", "execution_profile":{},
+            "workspace_id":"w", "canonical_workspace_root":"C:/workspace", "mode":"read_only"
+        });
+        legacy["task_role"] = invalid;
+        assert!(serde_json::from_value::<CreateExecutionInput>(legacy).is_err());
+    }
+}
+
+/// 未携带角色与显式 General 得到相同 v3 identity。
+#[test]
+fn legacy_input_defaults_to_general_v3_identity() {
+    let legacy = input();
+    assert_eq!(legacy.task_role, AgentTaskRole::General);
+    assert_eq!(AgentTaskRole::default(), AgentTaskRole::General);
+    let mut explicit = json!({
+        "agent_id":"a", "request_key":"k", "prompt":"hello", "execution_profile":{},
+        "workspace_id":"w", "canonical_workspace_root":"C:/workspace", "mode":"read_only"
+    });
+    explicit["task_role"] = json!("general");
+    let explicit: CreateExecutionInput = serde_json::from_value(explicit).unwrap();
+    assert_eq!(
+        canonicalize_request(legacy).unwrap().bytes(),
+        canonicalize_request(explicit).unwrap().bytes()
+    );
 }
 
 #[test]
@@ -45,7 +176,7 @@ fn field_order_and_explicit_defaults_are_equivalent() {
 }
 
 #[test]
-fn legacy_v1_hash_excludes_generation_while_current_v2_hash_includes_it() {
+fn legacy_v1_hash_excludes_generation_while_current_v3_hash_includes_it() {
     let generation_one = input();
     let mut generation_two = generation_one.clone();
     generation_two.workspace_generation = 2;
@@ -128,6 +259,12 @@ fn every_variable_input_participates_and_framing_is_unambiguous() {
     variants.push(a);
     let mut a = input();
     a.workspace_generation = 2;
+    variants.push(a);
+    let mut a = input();
+    a.provider = ProviderId::new("fake.provider-v1".into()).unwrap();
+    variants.push(a);
+    let mut a = input();
+    a.task_role = AgentTaskRole::Testing;
     variants.push(a);
     let mut a = input();
     a.mode = ExecutionMode::WorkspaceWrite;
@@ -220,6 +357,6 @@ fn opaque_profile_retains_null_types_numbers_and_empty_values() {
     let mut value = json!({"agent_id":"a","request_key":"k","prompt":"p","execution_profile":{},"workspace_id":"w","canonical_workspace_root":"r","mode":"read_only","new_ignored_field":1});
     assert!(serde_json::from_value::<CreateExecutionInput>(value.clone()).is_err());
     value.as_object_mut().unwrap().remove("new_ignored_field");
-    value["provider"] = json!("other");
+    value["provider"] = json!(" other");
     assert!(serde_json::from_value::<CreateExecutionInput>(value).is_err());
 }

@@ -409,7 +409,8 @@ impl AgentTaskManager {
         )?;
         Ok(registry)
     }
-    fn registry(&self) -> Result<Arc<ProviderRegistry>, ProviderError> {
+    /// Product 只读复用唯一 Registry；Registry 初始化与派发语义保持原样。
+    pub(crate) fn registry(&self) -> Result<Arc<ProviderRegistry>, ProviderError> {
         let mut current = self.registry.lock().unwrap();
         if let Some(registry) = current.as_ref() {
             return Ok(registry.clone());
@@ -465,7 +466,8 @@ impl AgentTaskManager {
         Ok(report)
     }
     #[cfg(test)]
-    fn use_registry(&mut self, registry: ProviderRegistry) {
+    /// 测试注入已注册 Provider，验证 Product 与路由读取同一 Registry。
+    pub(crate) fn use_registry(&mut self, registry: ProviderRegistry) {
         *self.registry.lock().unwrap() = Some(Arc::new(registry));
     }
     pub(crate) fn id(prefix: &str) -> String {

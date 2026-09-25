@@ -19,6 +19,7 @@ const SCHEMA_V8: &str = include_str!("schema_v8.sql");
 const SCHEMA_V9: &str = include_str!("schema_v9.sql");
 const SCHEMA_V10: &str = include_str!("schema_v10.sql");
 const SCHEMA_V11: &str = include_str!("schema_v11.sql");
+const SCHEMA_V12: &str = include_str!("schema_v12.sql");
 
 mod command_runs;
 mod usage;
@@ -98,6 +99,7 @@ pub struct ExecutionRecord {
 #[derive(Debug, PartialEq, Eq)]
 pub struct RuntimeRecord {
     pub id: String,
+    pub provider: String,
     pub owner_host_instance_id: String,
     pub state: String,
     pub job_name: Option<String>,
@@ -212,14 +214,16 @@ impl StateStore {
                 "SELECT id, owner_host_instance_id, state, job_session_id, job_creation_mode,
              job_handle_inheritable, job_kill_on_close, job_breakaway_allowed,
              job_policy_verified_at, termination_evidence_state, termination_evidence_type,
-             termination_evidence_at, job_name, codex_pid, codex_process_start_token,
+             termination_evidence_at, job_name, process_id, process_start_token,
              runtime_platform, containment_type, process_identity_scheme,
-             containment_process_group_id, containment_session_id, containment_verified_at
+             containment_process_group_id, containment_session_id, containment_verified_at,
+             provider
              FROM runtime_instances WHERE id = ?1",
                 [&id],
                 |r| {
                     Ok(RuntimeRecord {
                         id: r.get(0)?,
+                        provider: r.get(21)?,
                         owner_host_instance_id: r.get(1)?,
                         state: r.get(2)?,
                         job_name: r.get(12)?,
@@ -318,7 +322,38 @@ fn configure(connection: &Connection) -> Result<(), String> {
     Ok(())
 }
 
+/// 升级 StateStore，并在父表重建前后恢复连接的外键策略与检查结果。
 fn migrate(connection: &mut Connection) -> Result<(), String> {
+    let version: i64 = connection
+        .pragma_query_value(None, "user_version", |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if version > 12 || version < 0 {
+        return Err(format!("unsupported agent state schema version: {version}"));
+    }
+    if version == 12 {
+        return check_foreign_keys(connection);
+    }
+    // SQLite 不能在事务内切换 foreign_keys；父表重建前关闭，提交前后均检查外键。
+    let foreign_keys: i64 = connection
+        .pragma_query_value(None, "foreign_keys", |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    if foreign_keys != 0 {
+        connection
+            .pragma_update(None, "foreign_keys", "OFF")
+            .map_err(|e| e.to_string())?;
+    }
+    let result = migrate_in_transaction(connection);
+    if foreign_keys != 0 {
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| e.to_string())?;
+    }
+    result?;
+    check_foreign_keys(connection)
+}
+
+/// 所有历史 migration 与 v12 共用一个 IMMEDIATE 事务，失败时整体回滚。
+fn migrate_in_transaction(connection: &mut Connection) -> Result<(), String> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|e| e.to_string())?;
@@ -344,7 +379,7 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
             }
             apply_migration(&transaction, 1, SCHEMA_V1).map_err(|e| e.to_string())?;
         }
-        1..=11 => {}
+        1..=12 => {}
         _ => return Err(format!("unsupported agent state schema version: {version}")),
     }
     if version < 2 {
@@ -377,7 +412,33 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     if version < 11 {
         apply_migration(&transaction, 11, SCHEMA_V11).map_err(|e| e.to_string())?;
     }
+    if version < 12 {
+        transaction
+            .execute_batch(SCHEMA_V12)
+            .map_err(|e| e.to_string())?;
+        check_foreign_keys(&transaction)?;
+        transaction
+            .pragma_update(None, "user_version", 12)
+            .map_err(|e| e.to_string())?;
+    }
     transaction.commit().map_err(|e| e.to_string())
+}
+
+/// 在提交迁移事务前核对全部子表引用；任何问题使整个升级回滚。
+fn check_foreign_keys(connection: &Connection) -> Result<(), String> {
+    let mut statement = connection
+        .prepare("PRAGMA foreign_key_check")
+        .map_err(|e| e.to_string())?;
+    if statement
+        .query([])
+        .map_err(|e| e.to_string())?
+        .next()
+        .map_err(|e| e.to_string())?
+        .is_some()
+    {
+        return Err("agent state foreign_key_check failed".into());
+    }
+    Ok(())
 }
 
 fn apply_migration(transaction: &Transaction<'_>, version: i64, sql: &str) -> rusqlite::Result<()> {
@@ -392,15 +453,22 @@ fn insert_execution(
     created_at: i64,
     request: &CanonicalRequest,
 ) -> rusqlite::Result<()> {
-    use super::execution::ExecutionMode;
+    use super::execution::{AgentTaskRole, ExecutionMode};
     let input = request.input();
+    let task_role = match input.task_role {
+        AgentTaskRole::Development => "development",
+        AgentTaskRole::Testing => "testing",
+        AgentTaskRole::Review => "review",
+        AgentTaskRole::Analysis => "analysis",
+        AgentTaskRole::General => "general",
+    };
     let workspace_generation = i64::try_from(input.workspace_generation)
         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     transaction.execute(
         "INSERT INTO executions (id, agent_id, request_key, request_hash, prompt,
-         execution_profile_json, workspace_id, canonical_workspace_root, workspace_generation, provider, mode,
+         execution_profile_json, workspace_id, canonical_workspace_root, workspace_generation, provider, task_role, mode,
          parent_execution_id, thread_id, status, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'codex', ?10, ?11, ?12, 'dispatch_pending', ?13, ?13)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 'dispatch_pending', ?15, ?15)",
         params![
             id,
             input.agent_id,
@@ -411,6 +479,8 @@ fn insert_execution(
             input.workspace_id,
             input.canonical_workspace_root,
             workspace_generation,
+            input.provider.as_str(),
+            task_role,
             match input.mode {
                 ExecutionMode::ReadOnly => "read_only",
                 ExecutionMode::WorkspaceWrite => "workspace_write",

@@ -327,7 +327,7 @@ fn startup_releases_claim_from_complete_macos_evidence() {
                     "INSERT INTO runtime_instances(
                         id,owner_host_instance_id,state,created_at,updated_at,
                         runtime_platform,containment_type,process_identity_scheme,
-                        codex_pid,codex_process_start_token,containment_process_group_id,
+                        process_id,process_start_token,containment_process_group_id,
                         containment_session_id,containment_verified_at,stopped_at,
                         termination_evidence_type,termination_evidence_at,
                         termination_evidence_state)
@@ -530,7 +530,7 @@ fn startup_release_failure_retains_claim_and_retries_idempotently() {
                     "INSERT INTO runtime_instances(
                         id,owner_host_instance_id,state,created_at,updated_at,
                         runtime_platform,containment_type,process_identity_scheme,
-                        codex_pid,codex_process_start_token,containment_process_group_id,
+                        process_id,process_start_token,containment_process_group_id,
                         containment_session_id,containment_verified_at,stopped_at,
                         termination_evidence_type,termination_evidence_at,
                         termination_evidence_state)

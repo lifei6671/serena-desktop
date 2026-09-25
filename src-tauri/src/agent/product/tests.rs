@@ -15,9 +15,13 @@ mod orchestration_tests;
 #[path = "persistence_tests.rs"]
 #[cfg(windows)]
 mod persistence_tests;
+#[path = "provider_projection_tests.rs"]
+mod provider_projection_tests;
 #[path = "restart_tests.rs"]
 #[cfg(windows)]
 mod restart_tests;
+#[path = "role_projection_tests.rs"]
+mod role_projection_tests;
 #[path = "usage_projection_tests.rs"]
 mod usage_projection_tests;
 #[path = "work_adapter_tests.rs"]
@@ -434,7 +438,18 @@ async fn provider_opaque_compatibility_projects_legacy_fields_and_safe_session_l
                 .as_str()
                 .is_some_and(|v| !v.is_empty())
         );
-        assert!(view["provider"].get("version").is_none());
+        let expected_version = service
+            .manager
+            .registry()
+            .unwrap()
+            .get_registered(&ProviderId::new("codex".into()).unwrap())
+            .unwrap()
+            .descriptor()
+            .version;
+        assert_eq!(
+            view["provider"]["version"],
+            serde_json::to_value(expected_version).unwrap()
+        );
     };
     assert_codex_provider(&without_title);
     assert_eq!(without_title["threadId"], "THREAD");

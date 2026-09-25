@@ -1,5 +1,7 @@
+use crate::agent::{execution::AgentTaskRole, provider::ProviderId};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -112,12 +114,78 @@ impl AppPaths {
         })
     }
 }
+pub(crate) const AGENT_PROVIDER_CONFIG_INVALID: &str = "AGENT_PROVIDER_CONFIG_INVALID";
+
+const AGENT_TASK_ROLES: [AgentTaskRole; 5] = [
+    AgentTaskRole::Development,
+    AgentTaskRole::Testing,
+    AgentTaskRole::Review,
+    AgentTaskRole::Analysis,
+    AgentTaskRole::General,
+];
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentProviderPolicy {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentProviderSettings {
+    pub providers: BTreeMap<String, AgentProviderPolicy>,
+    pub role_routing: BTreeMap<String, Option<ProviderId>>,
+}
+
+impl Default for AgentProviderSettings {
+    fn default() -> Self {
+        let codex = ProviderId::new("codex".into()).expect("codex provider id is fixed and valid");
+        let providers = BTreeMap::from([
+            ("codebuddy".into(), AgentProviderPolicy { enabled: false }),
+            ("codex".into(), AgentProviderPolicy { enabled: true }),
+        ]);
+        let role_routing = AGENT_TASK_ROLES
+            .into_iter()
+            .map(|role| (role.as_str().into(), Some(codex.clone())))
+            .collect();
+        Self {
+            providers,
+            role_routing,
+        }
+    }
+}
+
+impl AgentProviderSettings {
+    fn validate(&self) -> Result<(), String> {
+        for provider_id in self.providers.keys() {
+            ProviderId::new(provider_id.clone()).map_err(|error| {
+                format!("{AGENT_PROVIDER_CONFIG_INVALID}: provider id: {error}")
+            })?;
+        }
+
+        if self.role_routing.len() != AGENT_TASK_ROLES.len()
+            || AGENT_TASK_ROLES
+                .iter()
+                .any(|role| !self.role_routing.contains_key(role.as_str()))
+            || self
+                .role_routing
+                .keys()
+                .any(|role| !AGENT_TASK_ROLES.iter().any(|known| known.as_str() == role))
+        {
+            return Err(format!(
+                "{AGENT_PROVIDER_CONFIG_INVALID}: roleRouting must contain exactly development, testing, review, analysis, general"
+            ));
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ManagerConfig {
     pub remote_access: crate::remote::RemoteAccessConfig,
     pub agent_enabled: bool,
+    pub agent_providers: AgentProviderSettings,
     pub remote_source_write_enabled: bool,
     pub remote_command_execution_enabled: bool,
     pub agent_success_notification_enabled: bool,
@@ -142,6 +210,7 @@ impl Default for ManagerConfig {
             broker: BrokerConfig::default(),
             remote_access: crate::remote::RemoteAccessConfig::default(),
             agent_enabled: false,
+            agent_providers: AgentProviderSettings::default(),
             remote_source_write_enabled: false,
             remote_command_execution_enabled: false,
             agent_success_notification_enabled: true,
@@ -163,6 +232,7 @@ impl Default for ManagerConfig {
 
 impl ManagerConfig {
     pub fn validate(&self) -> Result<(), String> {
+        self.agent_providers.validate()?;
         if self.remote_access.self_hosted.provider == crate::remote::SelfHostedProvider::CustomHttps
             && let Some(origin) = &self.remote_access.self_hosted.public_origin
         {
@@ -693,6 +763,112 @@ mod tests {
 
             assert!(config.validate().is_ok(), "{provider:?}");
         }
+    }
+
+    #[test]
+    fn old_config_uses_agent_provider_defaults_without_rewriting_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let legacy = r#"{"agentEnabled":true}"#;
+        fs::write(&path, legacy).unwrap();
+
+        let config = load(&path).unwrap();
+
+        assert!(config.agent_enabled);
+        assert_eq!(config.agent_providers.providers.len(), 2);
+        assert!(config.agent_providers.providers["codex"].enabled);
+        assert!(!config.agent_providers.providers["codebuddy"].enabled);
+        for role in AGENT_TASK_ROLES {
+            assert_eq!(
+                config
+                    .agent_providers
+                    .role_routing
+                    .get(role.as_str())
+                    .and_then(Option::as_ref)
+                    .map(ProviderId::as_str),
+                Some("codex"),
+                "{}",
+                role.as_str()
+            );
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), legacy);
+    }
+
+    #[test]
+    fn agent_provider_settings_round_trip_future_provider_and_optional_route() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let mut config = ManagerConfig::default();
+        config
+            .agent_providers
+            .providers
+            .insert("future-acp".into(), AgentProviderPolicy { enabled: true });
+        config.agent_providers.role_routing.insert(
+            AgentTaskRole::Testing.as_str().into(),
+            Some(ProviderId::new("future-acp".into()).unwrap()),
+        );
+        config
+            .agent_providers
+            .role_routing
+            .insert(AgentTaskRole::Review.as_str().into(), None);
+
+        assert!(config.validate().is_ok());
+        save(&path, &config).unwrap();
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded, config);
+
+        let saved: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            saved["agentProviders"]["providers"]["future-acp"]["enabled"],
+            true
+        );
+        assert_eq!(
+            saved["agentProviders"]["roleRouting"]["testing"],
+            "future-acp"
+        );
+        assert!(saved["agentProviders"]["roleRouting"]["review"].is_null());
+    }
+
+    #[test]
+    fn agent_provider_settings_reject_invalid_role_or_provider_id() {
+        let mut invalid_role = ManagerConfig::default();
+        invalid_role
+            .agent_providers
+            .role_routing
+            .remove(AgentTaskRole::Testing.as_str());
+        invalid_role.agent_providers.role_routing.insert(
+            "deploy".into(),
+            Some(ProviderId::new("codex".into()).unwrap()),
+        );
+        assert_eq!(
+            invalid_role.validate().unwrap_err(),
+            format!(
+                "{AGENT_PROVIDER_CONFIG_INVALID}: roleRouting must contain exactly development, testing, review, analysis, general"
+            )
+        );
+
+        let mut invalid_provider = ManagerConfig::default();
+        invalid_provider
+            .agent_providers
+            .providers
+            .insert("bad provider".into(), AgentProviderPolicy { enabled: true });
+        assert_eq!(
+            invalid_provider.validate().unwrap_err(),
+            format!(
+                "{AGENT_PROVIDER_CONFIG_INVALID}: provider id: provider id must not contain whitespace or control characters"
+            )
+        );
+
+        let mut invalid_route_value = serde_json::to_value(ManagerConfig::default()).unwrap();
+        invalid_route_value["agentProviders"]["roleRouting"]["testing"] =
+            serde_json::json!("bad provider");
+        assert!(
+            serde_json::from_value::<ManagerConfig>(invalid_route_value)
+                .unwrap_err()
+                .to_string()
+                .contains("provider id must not contain whitespace or control characters")
+        );
     }
 
     #[test]

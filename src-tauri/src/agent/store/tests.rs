@@ -5,6 +5,8 @@ use super::work_runs::work_run_record;
 use super::*;
 use serde_json::json;
 
+mod v11_fixture;
+mod v12_migration;
 mod work_runs;
 
 fn open(directory: &std::path::Path) -> StateStore {
@@ -64,7 +66,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
         let store = open(dir.path());
         let c = store.connection.lock().unwrap();
         for (pragma, expected) in [
-            ("user_version", 11),
+            ("user_version", 12),
             ("foreign_keys", 1),
             ("synchronous", 2),
             ("busy_timeout", 5000),
@@ -122,7 +124,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
 
 /// 验证冻结的 Windows v9 Runtime/Execution/Claim 完整升级且不改写历史证据。
 #[test]
-fn migrates_frozen_v9_fixture_through_v11() {
+fn migrates_frozen_v9_fixture_through_v12() {
     let mut connection = frozen_v9_connection();
     assert_eq!(
         connection
@@ -137,7 +139,7 @@ fn migrates_frozen_v9_fixture_through_v11() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        12
     );
     let projected = connection
         .query_row(
@@ -262,7 +264,7 @@ fn v10_runtime_platform_constraints_reject_mismatched_evidence() {
             "INSERT INTO runtime_instances(
                 id,owner_host_instance_id,state,created_at,updated_at,
                 runtime_platform,containment_type,process_identity_scheme,
-                codex_pid,codex_process_start_token,containment_process_group_id,
+                process_id,process_start_token,containment_process_group_id,
                 containment_session_id,containment_verified_at)
              VALUES(?1,'host',?2,1,1,'macos','macos_process_group',
                     'darwin_proc_bsd_start_v1',?3,?4,?5,?6,?7)",
@@ -356,7 +358,7 @@ fn runtime_record_projects_v10_platform_evidence() {
                 "INSERT INTO runtime_instances(
                     id,owner_host_instance_id,state,created_at,updated_at,
                     runtime_platform,containment_type,process_identity_scheme,
-                    codex_pid,codex_process_start_token,containment_process_group_id,
+                    process_id,process_start_token,containment_process_group_id,
                     containment_session_id,containment_verified_at)
                  VALUES('mac-runtime','host','running',1,1,'macos','macos_process_group',
                         'darwin_proc_bsd_start_v1',77,'darwin_proc_bsd_start_v1:1:2',77,77,9)",
@@ -414,7 +416,7 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        11
+        12
     );
     assert_eq!(
         c.query_row(
@@ -503,7 +505,7 @@ fn v9_migration_failure_rolls_back_usage_schema_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        12
     );
 }
 
@@ -568,7 +570,7 @@ fn v2_migration_preserves_history_and_adds_nullable_activity() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        12
     );
     let old = execution_record(&c, "old").unwrap().unwrap();
     assert_eq!(old.last_activity_at, None);
@@ -600,7 +602,7 @@ fn every_pre_v6_schema_preserves_history_and_reopens_with_null_parent() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            11
+            12
         );
         let after = execution_record(&c, "old").unwrap().unwrap();
         assert_eq!((after.request_hash, after.prompt, after.thread_id), before);
@@ -631,12 +633,12 @@ fn unsupported_or_unversioned_history_is_not_guessed_or_rewritten() {
             .unwrap(),
         0
     );
-    c.pragma_update(None, "user_version", 12).unwrap();
+    c.pragma_update(None, "user_version", 13).unwrap();
     assert!(migrate(&mut c).unwrap_err().contains("unsupported"));
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        12
+        13
     );
 }
 
@@ -684,12 +686,13 @@ fn v6_upgrade_preserves_rows_and_defines_generation_one_baseline() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        12
     );
     let mut expected_executions = executions;
     expected_executions[0].push(rusqlite::types::Value::Integer(1));
     expected_executions[0].push(rusqlite::types::Value::Null);
     expected_executions[0].push(rusqlite::types::Value::Integer(0));
+    expected_executions[0].push(rusqlite::types::Value::Text("general".into()));
     let mut expected_work_runs = work_runs;
     expected_work_runs[0].push(rusqlite::types::Value::Integer(1));
     let actual_executions = c
@@ -977,7 +980,7 @@ fn v8_backfills_current_summary_without_inventing_history() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        12
     );
     assert_eq!(
         c.query_row(
@@ -1057,9 +1060,9 @@ fn v8_invalid_legacy_activity_fails_closed_without_partial_schema() {
 fn v9_migrates_real_v8_fixture_without_backfilling_usage() {
     let dir = tempfile::tempdir().unwrap();
     let database = dir.path().join("agent-state.db");
-    let mut c = Connection::open(&database).unwrap();
+    let c = Connection::open(&database).unwrap();
     create_v8(&c);
-    insert(&mut c, "legacy", "agent", "root");
+    insert_pre_v6(&c, "legacy", "agent", "root", None);
     drop(c);
 
     let store = open(dir.path());
@@ -1068,7 +1071,7 @@ fn v9_migrates_real_v8_fixture_without_backfilling_usage() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            11
+            12
         );
         assert_eq!(
             c.query_row(
@@ -1284,7 +1287,7 @@ fn v9_usage_records_survive_restart_and_read_through_store_scaffolding() {
     );
 
     let c = reopened.connection.lock().unwrap();
-    let epoch = usage::codex_thread_usage_epoch_record(&c, "runtime", "thread")
+    let epoch = usage::codex_thread_usage_epoch_record(&c, "persisted", "runtime", "thread")
         .unwrap()
         .unwrap();
     assert_eq!(epoch.latest_turn_id.as_deref(), Some("turn"));

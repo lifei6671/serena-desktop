@@ -179,6 +179,7 @@ export interface ExecutionView {
   prompt: string; canonicalWorkspaceRoot: string;
   executionId: string; agentId: string; workspaceId: string; status: string;
   provider: { id: string; displayName: string; version: string | null };
+  taskRole: "development" | "testing" | "review" | "analysis" | "general";
   usage: {
     inputTokens: number | null; cachedInputTokens: number | null; cacheWriteInputTokens: number | null;
     outputTokens: number | null; reasoningTokens: number | null; totalTokens: number | null;

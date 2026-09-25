@@ -72,6 +72,113 @@ async fn product_usage(service: &AgentProductService, id: &str) -> Value {
     serde_json::to_value(service.observe(id.into(), false).await.unwrap()).unwrap()["usage"].clone()
 }
 
+/// 非 Codex Execution 只读取 public Usage；无行返回 unknown/null，错配仍拒绝整条快照。
+#[tokio::test]
+async fn fake_provider_public_usage_is_optional_and_never_reads_codex_private_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    for (at, id) in [(1, "fake-none"), (2, "fake-public"), (3, "fake-mismatch")] {
+        execution(&store, dir.path(), id, at).await;
+    }
+    let database = Connection::open(dir.path().join("agent-state.db")).unwrap();
+    database
+        .execute("UPDATE executions SET provider='fake-acp'", [])
+        .unwrap();
+    usage(
+        &database,
+        "fake-public",
+        "fake-acp",
+        Some(11),
+        None,
+        None,
+        Some(4),
+        None,
+        Some(42),
+        Some(128_000),
+        "partial",
+        7,
+        20,
+    );
+    let service = AgentProductService::new(store);
+    let unknown = json!({
+        "inputTokens":null,"cachedInputTokens":null,"cacheWriteInputTokens":null,
+        "outputTokens":null,"reasoningTokens":null,"totalTokens":null,
+        "modelContextWindow":null,"completeness":"unknown","usageRevision":0,"updatedAt":null
+    });
+    let public = json!({
+        "inputTokens":11,"cachedInputTokens":null,"cacheWriteInputTokens":null,
+        "outputTokens":4,"reasoningTokens":null,"totalTokens":42,
+        "modelContextWindow":128000,"completeness":"partial","usageRevision":7,"updatedAt":20
+    });
+    for (id, expected) in [("fake-none", unknown), ("fake-public", public)] {
+        let detail = service
+            .agent_query(AgentQueryAction::Get {
+                execution_id: id.into(),
+                include_result: Some(false),
+            })
+            .await
+            .unwrap();
+        let detail = success(detail);
+        let observed = service
+            .operation(
+                json!({"action":"observe","executionId":id,"waitMs":0}),
+                None,
+            )
+            .await;
+        let listed = service.operation(json!({"action":"list"}), None).await;
+        let listed = listed["data"]["executions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["executionId"] == id)
+            .unwrap();
+        for view in [&detail["data"], &observed["data"], listed] {
+            assert_eq!(view["provider"]["id"], "fake-acp");
+            assert_eq!(view["taskRole"], "general");
+            assert_eq!(view["usage"], expected);
+        }
+    }
+    for (table, expected) in [
+        ("execution_usage", 1),
+        ("codex_execution_usage_state", 0),
+        ("codex_thread_usage_epochs", 0),
+    ] {
+        let count: i64 = database
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, expected, "{table}");
+    }
+
+    // public provider_id 与持久化 Execution.provider 错配必须保留原有 fail-closed 语义。
+    usage(
+        &database,
+        "fake-mismatch",
+        "codex",
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(1),
+        None,
+        "partial",
+        1,
+        21,
+    );
+    assert!(
+        service
+            .observe("fake-mismatch".into(), false)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        service.operation(json!({"action":"list"}), None).await["ok"],
+        false
+    );
+}
+
 #[tokio::test]
 async fn usage_product_defaults_and_persisted_values_preserve_null_zero_and_completeness() {
     let dir = tempfile::tempdir().unwrap();

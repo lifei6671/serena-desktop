@@ -244,6 +244,16 @@ async fn freeze_and_runtime_termination_preserve_public_usage_and_isolate_runtim
     grace_fixture(&store, directory.path(), "terminal-grace", "runtime-a").await;
     grace_fixture(&store, directory.path(), "accepting", "runtime-a").await;
     grace_fixture(&store, directory.path(), "other-runtime", "runtime-b").await;
+    grace_fixture(&store, directory.path(), "polluted-non-codex", "runtime-a").await;
+    {
+        let connection = store.connection.lock().unwrap();
+        connection
+            .execute(
+                "UPDATE executions SET provider='fake-acp' WHERE id='polluted-non-codex'",
+                [],
+            )
+            .unwrap();
+    }
     store
         .enter_codex_usage_terminal_grace(
             "terminal-grace".into(),
@@ -287,6 +297,30 @@ async fn freeze_and_runtime_termination_preserve_public_usage_and_isolate_runtim
     assert_eq!(state(&store, "accepting").freeze_at, Some(2_000));
     assert_eq!(state(&store, "terminal-grace").freeze_at, Some(1_500));
     assert_eq!(state(&store, "other-runtime").telemetry_state, "accepting");
+    {
+        let connection = store.connection.lock().unwrap();
+        let polluted: (String, Option<i64>) = connection
+            .query_row(
+                "SELECT telemetry_state,freeze_at
+                 FROM codex_execution_usage_state
+                 WHERE execution_id='polluted-non-codex'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(polluted, ("accepting".into(), None));
+
+        let runtime: (String, String) = connection
+            .query_row(
+                "SELECT state,termination_evidence_state
+                 FROM runtime_instances
+                 WHERE id='runtime-a'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(runtime, ("terminated".into(), "complete".into()));
+    }
     assert_eq!(
         store
             .execution_usage("accepting".into())
@@ -705,7 +739,7 @@ async fn unknown_cross_runtime_and_regression_are_fail_safe_and_atomic() {
     );
     let connection = store.connection.lock().unwrap();
     assert_eq!(
-        usage::codex_thread_usage_epoch_record(&connection, "runtime-new", "thread")
+        usage::codex_thread_usage_epoch_record(&connection, "restart", "runtime-new", "thread")
             .unwrap()
             .unwrap()
             .latest_cumulative_json,
@@ -869,5 +903,117 @@ async fn missing_private_state_projects_unknown_without_lifecycle_mutation() {
             .unwrap()
             .revision,
         before.revision
+    );
+}
+
+/// Fake Provider 不能借 Codex private helper 创建 baseline、epoch、grace 或公共 Codex Usage。
+#[tokio::test]
+async fn non_codex_execution_rejects_every_codex_private_usage_entry_without_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let input: CreateExecutionInput = serde_json::from_value(json!({
+        "agent_id":"fake-usage-agent","request_key":"fake-usage-key","prompt":"usage",
+        "execution_profile":{},"workspace_id":"fake-usage-workspace",
+        "canonical_workspace_root":"C:/fake-usage","workspace_generation":1,
+        "provider":"fake-acp","task_role":"general","mode":"read_only"
+    }))
+    .unwrap();
+    store
+        .create_execution("fake-usage".into(), canonicalize_request(input).unwrap(), 1)
+        .await
+        .unwrap();
+    let before_execution = store.execution("fake-usage".into()).await.unwrap().unwrap();
+    let before_claim = store.workspace_claim("C:/fake-usage".into()).await.unwrap();
+    let unsupported = usage::USAGE_PROVIDER_UNSUPPORTED;
+
+    assert_eq!(
+        store
+            .prepare_codex_usage_baseline(
+                "fake-usage".into(),
+                "runtime".into(),
+                "thread".into(),
+                CodexUsageBaselineIntent::FreshZero,
+                2,
+            )
+            .await,
+        Err(unsupported.into())
+    );
+    assert_eq!(
+        store
+            .enter_codex_usage_terminal_grace(
+                "fake-usage".into(),
+                "runtime".into(),
+                "thread".into(),
+                "turn".into(),
+                3,
+            )
+            .await,
+        Err(unsupported.into())
+    );
+    assert_eq!(
+        store.freeze_codex_usage("fake-usage".into(), 4).await,
+        Err(unsupported.into())
+    );
+    assert_eq!(
+        store
+            .invalidate_codex_usage_baseline(
+                "fake-usage".into(),
+                "runtime".into(),
+                "thread".into(),
+                5,
+            )
+            .await,
+        Err(unsupported.into())
+    );
+    for provider in ["fake-acp", "codex"] {
+        let event = UsageEvent::cumulative(
+            "fake-usage".into(),
+            ProviderId::new(provider.into()).unwrap(),
+            10,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            6,
+        );
+        assert_eq!(
+            store.project_execution_usage(event).await,
+            Err(unsupported.into())
+        );
+    }
+
+    let connection = store.connection.lock().unwrap();
+    for table in [
+        "execution_usage",
+        "codex_execution_usage_state",
+        "codex_thread_usage_epochs",
+    ] {
+        let count: i64 = connection
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "{table}");
+    }
+    assert!(
+        usage::codex_execution_usage_state_record(&connection, "fake-usage")
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        usage::codex_thread_usage_epoch_record(&connection, "fake-usage", "runtime", "thread")
+            .unwrap()
+            .is_none()
+    );
+    drop(connection);
+    assert_eq!(
+        store.execution("fake-usage".into()).await.unwrap().unwrap(),
+        before_execution
+    );
+    assert_eq!(
+        store.workspace_claim("C:/fake-usage".into()).await.unwrap(),
+        before_claim
     );
 }

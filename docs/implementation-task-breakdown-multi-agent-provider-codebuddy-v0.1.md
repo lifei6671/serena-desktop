@@ -1,6 +1,6 @@
 # SerenaDesktop Multi-Agent Provider / CodeBuddy ACP Implementation Task Breakdown V0.1
 
-依据冻结候选方案 technical-design-multi-agent-provider-codebuddy-v0.1.md（SHA-256: 1fbcfe0214a60d766ccf8717f514c082e9e19576b94a7e54129d7d07f5dde524）以及当前仓库代码基线拆分。
+依据冻结候选方案 technical-design-multi-agent-provider-codebuddy-v0.1.md（LF 规范化 SHA-256: 7795e6dbc893fe451e19c6915245d664481832d60d2040713a32d02f57006fa0）以及当前仓库代码基线拆分。
 
 设计状态：
 
@@ -109,22 +109,22 @@ Risk: low
 Estimated blast radius: small  
 Can run in parallel with: CB0-001、CB0-003
 
-## CB0-003 — Agent State v9 Migration Fixture Baseline
+## CB0-003 — Agent State v11 Migration Fixture Baseline
 
 Phase: Phase 0  
 Type: contract-test  
-Goal: 固定 schema v9 真实结构、历史 Execution / Runtime / Claim / Usage fixture，作为 v10 迁移输入。  
-Why now: schema_v10 是本轮最高风险持久化变更。  
+Goal: 固定当前 schema v11 真实结构及 Execution / Runtime / Claim / Usage / CommandRun fixture，作为 v12 直接迁移输入；可额外保留 frozen v9 fixture 用于历史兼容链路。\
+Why now: schema_v12 是本轮最高风险持久化变更；既有 v10 Runtime containment 和 v11 CommandRun migration 不重用、不改写。\
 Dependencies: None  
 Blocked by: None  
 Allowed scope: StateStore tests、临时 SQLite fixture；不修改生产 schema。  
-Forbidden scope: 提前创建 schema_v10。  
+Forbidden scope: 提前创建 schema_v12；修改既有 schema_v9/v10/v11。\
 Contract references: 设计 §12.5～§12.7。  
-Implementation requirements: fixture 至少包含 completed、pending、unknown、Runtime evidence、Workspace Claim、Work link、Codex Usage state。  
-Non-goals: 执行 v10 migration。  
-Tests required: 当前 v9 能打开、读取、restart；记录 PRAGMA foreign_key_check。  
-Evidence required: fixture shape + user_version=9 + 核心字段 snapshot。  
-Acceptance criteria: v10 后可逐字段验证“原值保留 / general 默认 / hash 不重写”。  
+Implementation requirements: v11 fixture 至少包含 completed、pending、unknown、Runtime evidence、Workspace Claim、Work link、Codex Usage state、v10 platform/containment 字段及触发器、v11 command_runs/work_command_links；可额外保留 frozen v9 fixture。\
+Non-goals: 执行 v12 migration。\
+Tests required: 当前 v11 能打开、读取、restart；记录 PRAGMA foreign_key_check；如保留 v9 fixture，仅验证历史 v9→v10→v11 链路。\
+Evidence required: fixture shape + user_version=11 + 核心字段 snapshot；可选 v9 历史 fixture shape。\
+Acceptance criteria: v12 后可逐字段验证“原值保留 / general 默认 / hash 不重写”，并保留 v10/v11 既有契约。\
 Rollback / failure behavior: fixture 不完整则补 fixture，不能进入 CB1A-003。  
 Risk: medium  
 Estimated blast radius: small  
@@ -139,7 +139,7 @@ Can run in parallel with: CB0-001、CB0-002
 Phase: Phase 1A  
 Type: implementation  
 Goal: 建立固定 Role domain，并让所有现有 Execution 创建调用显式具有 General 默认。  
-Why now: schema_v10 增加 task_role 前先闭合 Rust domain。  
+Why now: schema_v12 增加 task_role 前先闭合 Rust domain。\
 Dependencies: CB0-001 (H)  
 Blocked by: None  
 Allowed scope: src-tauri/src/agent/execution.rs、直接构造 CreateExecutionInput 的调用与 focused tests。  
@@ -169,7 +169,7 @@ Why now: schema 放开 provider 前，Rust 域必须能表达第二 Provider。
 Dependencies: CB1A-001 (H)  
 Blocked by: None  
 Allowed scope: agent/execution.rs、agent/provider domain、直接构造 CreateExecutionInput 的调用与 tests。  
-Forbidden scope: ProviderRegistry admission、CodeBuddy Provider、schema_v10。  
+Forbidden scope: ProviderRegistry admission、CodeBuddy Provider、schema_v12。\
 Contract references: 设计 §2.1、§12.1。  
 Implementation requirements:
 - 不新增第二套 provider identifier；
@@ -185,42 +185,45 @@ Risk: high
 Estimated blast radius: medium  
 Can run in parallel with: None
 
-## CB1A-003 — schema_v10 与 Store 写入切换
+## CB1A-003 — schema_v12 与 Store 写入切换
 
 Phase: Phase 1A  
 Type: implementation  
-Goal: 完成 v9→v10 的单事务持久化迁移并让 Store 显式写 provider + task_role。  
+Goal: 完成 v11→v12 的单事务持久化迁移并让 Store 显式写 provider + task_role。\
 Why now: 第二 Provider 真正进入 StateStore 的核心 Gate。  
 Dependencies: CB0-003、CB1A-002 (H)  
-Blocked by: v9 fixture 未冻结  
+Blocked by: v11 fixture 未冻结\
 Allowed scope:
 - src-tauri/src/agent/store.rs；
-- 新 schema_v10.sql 或专用 v10 migration helper；
+- 新 schema_v12.sql 或专用 v12 migration helper；
 - schema/runtime store 查询的必要同步；
 - migration focused tests。
-Forbidden scope: request hash v3、Product 投影、CodeBuddy ACP。  
+Forbidden scope: request hash v3、Product 投影、CodeBuddy ACP；修改既有 schema_v9/v10/v11 migration。\
 Contract references: 设计 §12.1～§12.7。  
 Implementation requirements:
 - migrate() 复用已有 TransactionBehavior::Immediate transaction，不嵌套 BEGIN；
-- user_version 支持到 10；
+- user_version 从当前 11 支持到 12，`version < 12` 时在既有 migration 后追加 v12；
 - executions.provider 移除 CHECK(provider='codex')；
 - task_role TEXT NOT NULL DEFAULT 'general'；
 - insert_execution 显式写 provider 和 task_role，不依赖 SQL 默认；
 - runtime_instances 增加 provider 并按冻结列映射泛化 process identity；
+- 保留 v10 Runtime platform/containment 字段及验证触发器、v11 command_runs/work_command_links 与其索引和外键；
 - historical runtime provider 只允许 codex；
 - thread_id/turn_id 保持兼容字段；
 - historical request_hash 原值复制，不重算。
 Non-goals: Provider routing。  
 Tests required:
-- v9→v10 fixture；
+- real v11→v12 primary fixture；
+- frozen v9→v10→v11→v12 transitive compatibility fixture（CB0-003 未保留时在本任务测试中构造 v9 fixture）；
 - empty→latest；
 - rollback on injected failure；
+- future-version rejection 继续拒绝高于 v12 的版本（现有测试将 12 用作未支持版本）；
 - foreign_key_check；
 - indexes/triggers/FKs presence；
 - 新 Execution 在 CB1B 前仍能以 v2 + general 创建。
 Evidence required: migration before/after matrix。  
 Acceptance criteria:
-- pre-v10 task_role 全为 general；
+- pre-v12 task_role 全为 general；
 - request_hash byte-identical；
 - Runtime/Execution evidence 不增强；
 - codebuddy provider string 可合法持久化；
@@ -256,16 +259,16 @@ Can run in parallel with: None
 Phase: Phase 1A  
 Type: contract-test  
 Goal: 对 CB-001A 做完整持久化 Gate，确认可独立合入。  
-Why now: 后续 hash/product 改造必须建立在稳定 v10 上。  
+Why now: 后续 hash/product 改造必须建立在稳定 v12 上。\
 Dependencies: CB1A-004 (H)  
 Blocked by: None  
 Allowed scope: tests / evidence only；只修本阶段缺陷。  
 Forbidden scope: 进入 v3 hash 或 Product neutralization。  
 Contract references: 设计 CB-001A Gate。  
-Implementation requirements: 使用真实 v9 fixture + fresh DB。  
+Implementation requirements: 使用真实 v11 fixture + fresh DB，并验证 frozen v9→v10→v11→v12 历史兼容链路。\
 Tests required: migration、Store、Runtime、Recovery、Claim、request v2 fixed regression、git diff --check。  
 Evidence required: PASS matrix。  
-Acceptance criteria: v10 Gate 全 PASS；可在没有 CodeBuddy Runtime 的情况下正常使用 Codex。  
+Acceptance criteria: v12 Gate 全 PASS；可在没有 CodeBuddy Runtime 的情况下正常使用 Codex。\
 Rollback / failure behavior: Gate FAIL 时只修 1A 范围。  
 Risk: high  
 Estimated blast radius: small  
@@ -644,7 +647,7 @@ Goal: 在 Execution 创建前根据 Local Human Policy 解析并验证 taskRole 
 Why now: Remote task routing 的真正 Authority cutover。  
 Dependencies: CB3-003 (H)  
 Blocked by: None  
-Allowed scope: Product work_adapter / TaskManager admission / creation transaction tests。  
+Allowed scope: Product work_adapter / TaskManager admission / src-tauri/src/agent/store/transactions/product.rs 及 focused creation transaction tests。\
 Forbidden scope: 自动换 Role、自动 fallback、修改配置。  
 Contract references: 设计 §8～§9。  
 Implementation requirements:
@@ -709,7 +712,7 @@ Goal: 左侧“Agent”升级为“Agent 管理”，展示动态 Provider 状�
 Why now: 后端管理契约已稳定，可开始 UI。  
 Dependencies: CB3-005 (H)  
 Blocked by: None  
-Allowed scope: AgentPanel / navigation / types / styles / focused tests。  
+Allowed scope: AgentPanel / src/agentPresentation.ts / navigation / types / styles / focused tests。\
 Forbidden scope: 修改 Runtime 或 Routing。  
 Contract references: 设计 §25～§25.2。  
 Implementation requirements: 卡片展示 enabled、health、version、protocol、runtime state、active executions；Idle available/stopped 是正常状态；disable running provider 显示 draining。  
@@ -975,7 +978,7 @@ Blocked by: Provider-private schema DCR 如有
 Allowed scope: agent/codebuddy/store.rs + 对应新 schema migration / tests。  
 Forbidden scope: 将 session_id 写入 thread_id/turn_id、把 private identity放入 public Provider Port。  
 Contract references: 设计 §15.2、§16、§23。  
-Implementation requirements: exact execution/runtime/session/prompt identity；OCC/transaction；历史 Codex 行不受影响；若需 schema_v11，版本与迁移必须由 CB5-005 DCR 明确。  
+Implementation requirements: exact execution/runtime/session/prompt identity；OCC/transaction；历史 Codex 行不受影响；若需 v12 之后的独立 schema migration，版本与迁移必须由 CB5-005 DCR 明确，不复用 v12。\
 Non-goals: Result recovery。  
 Tests required: persist/read/restart/corruption/provider mismatch。  
 Evidence required: schema + store matrix。  
@@ -1479,8 +1482,8 @@ tokenUsage = false
 
 | Gate | 必须证明 | 通过后允许 |
 |---|---|---|
-| Phase 0 | 当前 baseline 与 v9 fixture 明确 | 修改数据契约 |
-| Phase 1A | v10 / provider / runtime ownership 安全 | 第二 Provider 可持久化 |
+| Phase 0 | 当前 v11 baseline 与直接迁移 fixture 明确，可选 v9 历史 fixture | 修改数据契约 |
+| Phase 1A | v12 / provider / runtime ownership 安全 | 第二 Provider 可持久化 |
 | Phase 1B | v3 + legacy retry 正确 | role/provider 进入公开 Start |
 | Phase 1C | Product/Usage Provider-neutral | Remote Provider Catalog |
 | Phase 2 | Local Human Policy 有唯一 Authority | Remote routing |

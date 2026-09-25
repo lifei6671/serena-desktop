@@ -1,9 +1,10 @@
 //! Product guards layered on the unchanged Foundation creation transaction.
 use super::*;
 use crate::agent::execution::{
-    CreateExecutionInput, ExecutionMode, Provider, canonicalize_request,
-    legacy_pre_c2_continuation_hash, matches_current_or_legacy_workspace_generation_hash,
+    AgentTaskRole, CreateExecutionInput, ExecutionMode, canonicalize_request,
+    legacy_pre_c2_continuation_hash,
 };
+use crate::agent::provider::ProviderId;
 use crate::agent::usage::UsageSnapshot;
 
 mod work;
@@ -46,6 +47,7 @@ fn create_fresh_with_work(
             return Err("EXECUTION_REQUEST_KEY_CONFLICT".into());
         }
         let mut retry = input(
+            tx,
             &row,
             creation.request_key.clone(),
             creation.prompt.clone(),
@@ -65,7 +67,7 @@ fn create_fresh_with_work(
         if let Some(work) = &creation.work {
             require_retry_context(tx, &row.id, work)?;
         }
-        return prior_outcome(row, &request);
+        return prior_outcome(tx, row, &request);
     }
     if let Some(work) = &creation.work {
         let root = creation
@@ -105,7 +107,8 @@ fn create_fresh_with_work(
         workspace_id: workspace.id.clone(),
         canonical_workspace_root: workspace.root.clone(),
         workspace_generation: workspace.generation,
-        provider: Provider::Codex,
+        provider: ProviderId::new("codex".into()).expect("static Codex provider id is valid"),
+        task_role: AgentTaskRole::General,
         mode: ExecutionMode::WorkspaceWrite,
         parent_execution_id: None,
         thread_id: None,
@@ -121,6 +124,8 @@ fn create_fresh_with_work(
 #[derive(Debug)]
 pub struct ProductSnapshot {
     pub execution: ExecutionRecord,
+    /// 与 Execution 同一读取事务取得的冻结角色，不从当前路由策略推断。
+    pub task_role: String,
     /// 已在 product_read 的 LEFT JOIN 中验证的公共 Usage；None 表示历史无行。
     pub usage: Option<UsageSnapshot>,
     pub thread_name: Option<String>,
@@ -186,7 +191,9 @@ fn key(c: &Connection, agent: &str, request: &str) -> Result<Option<ExecutionRec
     })
     .transpose()
 }
+/// Product Start 固定 General；Continue 从父 Execution 的持久化角色构造请求身份。
 fn input(
+    tx: &Connection,
     row: &ExecutionRecord,
     key: String,
     prompt: String,
@@ -204,20 +211,24 @@ fn input(
         workspace_generation: row.workspace_generation,
         provider: serde_json::from_value(serde_json::json!(row.provider))
             .map_err(|e| e.to_string())?,
+        // Start 仍为 General；Continue 从同一事务中的父行继承冻结角色。
+        task_role: if parent_execution_id.is_some() {
+            serde_json::from_value(serde_json::json!(persisted_task_role(tx, &row.id)?))
+                .map_err(|_| "EXECUTION_REQUEST_KEY_CONFLICT".to_string())?
+        } else {
+            AgentTaskRole::General
+        },
         mode: serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?,
         parent_execution_id,
         thread_id: thread,
     })
 }
 fn prior_outcome(
+    tx: &Connection,
     row: ExecutionRecord,
     request: &CanonicalRequest,
 ) -> Result<CreateOutcome, String> {
-    if !matches_current_or_legacy_workspace_generation_hash(
-        &row.request_hash,
-        row.workspace_generation,
-        request,
-    )? {
+    if !request_matches_prior(tx, &row, request)? {
         return Err("EXECUTION_REQUEST_KEY_CONFLICT".into());
     }
     Ok(CreateOutcome {
@@ -231,15 +242,18 @@ fn prior_outcome(
 /// always compared through current canonicalization; only a NULL parent plus an
 /// exact persisted old hash may retry through the old source-thread tuple.
 fn continuation_prior_outcome(
+    tx: &Connection,
     prior: ExecutionRecord,
     source: &ExecutionRecord,
     request: &CanonicalRequest,
 ) -> Result<CreateOutcome, String> {
-    match prior_outcome(prior.clone(), request) {
+    match prior_outcome(tx, prior.clone(), request) {
         Ok(outcome) => Ok(outcome),
         Err(error)
             if prior.parent_execution_id.is_none()
-                && prior.workspace_generation == request.input().workspace_generation =>
+                && request.input().task_role == AgentTaskRole::General
+                && persisted_task_role(tx, &prior.id)? == "general"
+                && row_identity_matches_request(&prior, request, false) =>
         {
             if prior.request_hash
                 == legacy_pre_c2_continuation_hash(request.input(), &source.thread_id)?
@@ -276,6 +290,7 @@ impl StateStore {
                     .map_err(|e| e.to_string())?
                     .ok_or("EXECUTION_NOT_FOUND")?;
                 let request = canonicalize_request(input(
+                    &tx,
                     &row,
                     request_key.clone(),
                     prompt,
@@ -287,7 +302,7 @@ impl StateStore {
                         require_retry_context(&tx, &prior.id, work)?;
                     }
                     return Ok(ContinuationPreflight::Existing(
-                        continuation_prior_outcome(prior, &row, &request)?.execution_id,
+                        continuation_prior_outcome(&tx, prior, &row, &request)?.execution_id,
                     ));
                 }
                 if let Some(work) = &work {
@@ -367,8 +382,8 @@ impl StateStore {
                 let (agent, root) = match action {
                     Action::Start { agent_id, request_key, prompt, workspace_id } => {
                         if let Some(row) = key(&tx, &agent_id, &request_key)? {
-                            let request = canonicalize_request(input(&row, request_key, prompt, None, None)?)?;
-                            if row.workspace_id == workspace_id && row.request_hash == request.request_hash() { context.accepted_id = Some(row.id); }
+                            let request = canonicalize_request(input(&tx, &row, request_key, prompt, None, None)?)?;
+                            if row.workspace_id == workspace_id && request_matches_prior(&tx, &row, &request)? { context.accepted_id = Some(row.id); }
                         }
                         if let Some((id, status)) = tx.query_row("SELECT id,status FROM executions WHERE agent_id=?1 ORDER BY created_at DESC,id DESC LIMIT 1", [&agent_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).optional().map_err(|e| e.to_string())? {
                             context.related_id = Some(id);
@@ -378,9 +393,9 @@ impl StateStore {
                     }
                     Action::Continue { execution_id, request_key, prompt } => {
                         if let Some(row) = execution_record(&tx, &execution_id).map_err(|e| e.to_string())? {
-                            let request = canonicalize_request(input(&row, request_key.clone(), prompt, Some(row.id.clone()), None)?)?;
+                            let request = canonicalize_request(input(&tx, &row, request_key.clone(), prompt, Some(row.id.clone()), None)?)?;
                             if let Some(prior) = key(&tx, &row.agent_id, &request_key)?
-                                && let Ok(outcome) = continuation_prior_outcome(prior, &row, &request) { context.accepted_id = Some(outcome.execution_id); }
+                                && let Ok(outcome) = continuation_prior_outcome(&tx, prior, &row, &request) { context.accepted_id = Some(outcome.execution_id); }
                             context.related_unknown = row.status == "unknown";
                             context.related_id = Some(row.id);
                             (Some(row.agent_id), Some(row.canonical_workspace_root))
@@ -523,6 +538,7 @@ impl StateStore {
                 .map_err(|e| e.to_string())?
                 .ok_or("EXECUTION_NOT_FOUND")?;
             let request = canonicalize_request(input(
+                tx,
                 &row,
                 request_key.clone(),
                 prompt,
@@ -533,7 +549,7 @@ impl StateStore {
                 if let Some(work) = &work {
                     require_retry_context(tx, &prior.id, work)?;
                 }
-                return continuation_prior_outcome(prior, &row, &request);
+                return continuation_prior_outcome(tx, prior, &row, &request);
             }
             if expected_source_revision.is_some_and(|revision| row.revision != revision) {
                 return Err("AGENT_CONTINUE_NOT_ALLOWED".into());
@@ -580,21 +596,21 @@ impl StateStore {
                 "SELECT e.id,e.created_at,e.updated_at,e.completed_at,
                         u.execution_id,u.provider_id,u.input_tokens,u.cached_input_tokens,
                         u.cache_write_input_tokens,u.output_tokens,u.reasoning_tokens,u.total_tokens,
-                        u.model_context_window,u.completeness,u.usage_revision,u.updated_at
+                        u.model_context_window,u.completeness,u.usage_revision,u.updated_at,e.task_role
                  FROM executions e LEFT JOIN execution_usage u ON u.execution_id=e.id
                  WHERE e.id=?1 AND (?2 IS NULL OR e.agent_id=?2) AND (?3 IS NULL OR e.workspace_id=?3) LIMIT ?4"
             } else {
                 "SELECT e.id,e.created_at,e.updated_at,e.completed_at,
                         u.execution_id,u.provider_id,u.input_tokens,u.cached_input_tokens,
                         u.cache_write_input_tokens,u.output_tokens,u.reasoning_tokens,u.total_tokens,
-                        u.model_context_window,u.completeness,u.usage_revision,u.updated_at
+                        u.model_context_window,u.completeness,u.usage_revision,u.updated_at,e.task_role
                  FROM executions e LEFT JOIN execution_usage u ON u.execution_id=e.id
                  WHERE (?1 IS NULL OR e.id=?1) AND (?2 IS NULL OR e.agent_id=?2) AND (?3 IS NULL OR e.workspace_id=?3)
                  ORDER BY e.created_at DESC,e.id DESC LIMIT ?4"
             };
             let mut q=tx.prepare(query)?;
-            let rows=q.query_map(params![id,agent,workspace,limit],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,Option<i64>>(3)?,super::super::usage::execution_usage_snapshot_from_left_join(r,4)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
-            rows.into_iter().map(|(id,created_at,updated_at,completed_at,usage)|{
+            let rows=q.query_map(params![id,agent,workspace,limit],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,i64>(2)?,r.get::<_,Option<i64>>(3)?,super::super::usage::execution_usage_snapshot_from_left_join(r,4)?,r.get::<_,String>(16)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            rows.into_iter().map(|(id,created_at,updated_at,completed_at,usage,task_role)|{
                 let row=execution_record(&tx,&id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
                 if usage.as_ref().is_some_and(|usage| usage.execution_id != row.id || usage.provider_id.as_str() != row.provider) {
                     // 持久化 public Usage 不得与 Execution identity 拼接为一个伪造事实。
@@ -605,7 +621,7 @@ impl StateStore {
                 let claimed:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM workspace_claims WHERE execution_id=?1 OR canonical_workspace_root=?2)",params![id,row.canonical_workspace_root],|r|r.get(0))?;
                 let busy:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM executions WHERE agent_id=?1 AND status NOT IN ('completed','failed','cancelled','interrupted'))",[&row.agent_id],|r|r.get(0))?;
                 let runtime_attempt_exists:bool=crate::agent::store::runtime_attempts::runtime_attempt_exists(&tx,&id)?;
-                Ok(ProductSnapshot{execution:row,usage,thread_name,owns_claim:owns,runtime_attempt_exists,claim_free:!claimed,agent_free:!busy,created_at,updated_at,completed_at})
+                Ok(ProductSnapshot{execution:row,task_role,usage,thread_name,owns_claim:owns,runtime_attempt_exists,claim_free:!claimed,agent_free:!busy,created_at,updated_at,completed_at})
             }).collect()
         }).await
     }

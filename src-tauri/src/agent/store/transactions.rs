@@ -322,6 +322,7 @@ impl StateStore {
                 || !matches!(row.status.as_str(), "dispatch_pending" | "running" | "cancel_requested" | "cancelling" | "finalizing" | "reconciling") {
                 return Err("EXECUTION_PROTOCOL_IDENTITY_MISMATCH".into());
             }
+            require_runtime_provider(tx, &row.provider, &runtime)?;
             if row.thread_id.as_ref() == Some(&thread) && row.turn_id == turn { return Ok(()); }
             tx.execute("UPDATE executions SET thread_id=?2,turn_id=COALESCE(turn_id,?3),revision=revision+1,updated_at=?4 WHERE id=?1", params![id,thread,turn,now]).map_err(|e| e.to_string())?;
             // Usage 私有状态只在同一已验证 runtime/thread 且尚未绑定 turn 时同步；冲突仅降级 Usage，绝不反向污染 Execution 生命周期。
@@ -464,6 +465,36 @@ impl StateStore {
                     )?;
                     row = load(tx, &id)?;
                 }
+                // 启动扫描先拒绝跨 Provider Runtime，避免随后恢复进程或释放旧 Claim。
+                if let Some(runtime) = row.runtime.as_deref()
+                    && runtime_provider(tx, runtime)?
+                        .is_some_and(|provider| provider != row.provider)
+                {
+                    if !row.status.terminal() && row.status != Status::Unknown {
+                        if row.status != Status::Reconciling {
+                            transition_execution(
+                                tx,
+                                &id,
+                                row.revision,
+                                Mutation::Event(Transition::Reconcile),
+                                now,
+                            )?;
+                            row = load(tx, &id)?;
+                        }
+                        transition_execution(
+                            tx,
+                            &id,
+                            row.revision,
+                            Mutation::Event(Transition::MarkUnknown),
+                            now,
+                        )?;
+                    }
+                    recovered.push(ClaimRecovery::Inconsistent {
+                        execution_id: id,
+                        code: "RUNTIME_PROVIDER_MISMATCH",
+                    });
+                    continue;
+                }
                 if row.status.terminal() {
                     if row.release_state == "complete"
                         && row.release_kind.is_some()
@@ -524,20 +555,21 @@ fn create(
     now: i64,
 ) -> Result<CreateOutcome, String> {
     let input = request.input();
-    let prior: Option<(String, String)> = tx
+    let prior: Option<String> = tx
         .query_row(
-            "SELECT id, request_hash FROM executions WHERE agent_id=?1 AND request_key=?2",
+            "SELECT id FROM executions WHERE agent_id=?1 AND request_key=?2",
             params![input.agent_id, input.request_key],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| r.get(0),
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    if let Some((execution_id, hash)) = prior {
-        return if hash == request.request_hash() {
+    if let Some(execution_id) = prior {
+        let row = execution_record(tx, &execution_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("EXECUTION_NOT_FOUND")?;
+        return if request_matches_prior(tx, &row, request)? {
             Ok(CreateOutcome {
-                execution: execution_record(tx, &execution_id)
-                    .map_err(|e| e.to_string())?
-                    .ok_or("EXECUTION_NOT_FOUND")?,
+                execution: row,
                 execution_id,
                 created: false,
             })
@@ -594,7 +626,64 @@ fn create(
     })
 }
 
+/// 在持久化行上核对 hash 对应的身份字段，漂移时拒绝复用。
+fn row_identity_matches_request(
+    row: &ExecutionRecord,
+    request: &CanonicalRequest,
+    compare_parent: bool,
+) -> bool {
+    let input = request.input();
+    row.agent_id == input.agent_id
+        && row.request_key == input.request_key
+        && row.prompt == input.prompt
+        && row.execution_profile_json == request.execution_profile_json()
+        && row.workspace_id == input.workspace_id
+        && row.canonical_workspace_root == input.canonical_workspace_root
+        && row.workspace_generation == input.workspace_generation
+        && row.provider == input.provider.as_str()
+        && row.mode
+            == match input.mode {
+                crate::agent::execution::ExecutionMode::ReadOnly => "read_only",
+                crate::agent::execution::ExecutionMode::WorkspaceWrite => "workspace_write",
+            }
+        && (!compare_parent || row.parent_execution_id == input.parent_execution_id)
+}
+
+/// 仅 General 历史行可使用无 role 的旧 hash；v3 exact 始终先判断。
+fn request_matches_prior(
+    tx: &Connection,
+    row: &ExecutionRecord,
+    request: &CanonicalRequest,
+) -> Result<bool, String> {
+    if row.request_hash == request.request_hash() {
+        return Ok(row_identity_matches_request(row, request, true)
+            && persisted_task_role(tx, &row.id)? == request.input().task_role.as_str());
+    }
+    if request.input().task_role != crate::agent::execution::AgentTaskRole::General
+        || persisted_task_role(tx, &row.id)? != "general"
+        || !row_identity_matches_request(row, request, true)
+    {
+        return Ok(false);
+    }
+    crate::agent::execution::matches_current_or_legacy_workspace_generation_hash(
+        &row.request_hash,
+        row.workspace_generation,
+        request,
+    )
+}
+
+/// 角色只从当前事务中的持久化列读取，不能信任重建的请求默认值。
+fn persisted_task_role(tx: &Connection, id: &str) -> Result<String, String> {
+    let role: String = tx
+        .query_row("SELECT task_role FROM executions WHERE id=?1", [id], |r| {
+            r.get(0)
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(role)
+}
+
 struct Row {
+    provider: String,
     status: Status,
     dispatch: DispatchState,
     revision: i64,
@@ -772,13 +861,37 @@ fn load(tx: &Transaction<'_>, id: &str) -> Result<Row, String> {
     tx.query_row("SELECT status,dispatch_state,revision,runtime_instance_id,thread_id,turn_id,runtime_termination_evidence_at,
         provider_terminal_status,provider_terminal_evidence_runtime_instance_id,provider_terminal_evidence_at,
         background_cleanup_state,background_cleanup_runtime_instance_id,background_cleanup_evidence_at,
-        release_evidence_state,release_evidence_kind,release_evidence_json FROM executions WHERE id=?1", [id], |r| {
+        release_evidence_state,release_evidence_kind,release_evidence_json,provider FROM executions WHERE id=?1", [id], |r| {
         let parse = |index| -> rusqlite::Result<serde_json::Value> { Ok(serde_json::Value::String(r.get(index)?)) };
-        Ok(Row { status: serde_json::from_value(parse(0)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0,rusqlite::types::Type::Text,Box::new(e)))?,
+        Ok(Row { provider:r.get(16)?,status: serde_json::from_value(parse(0)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0,rusqlite::types::Type::Text,Box::new(e)))?,
             dispatch: serde_json::from_value(parse(1)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(1,rusqlite::types::Type::Text,Box::new(e)))?,
             revision:r.get(2)?,runtime:r.get(3)?,thread:r.get(4)?,turn:r.get(5)?,runtime_evidence_at:r.get(6)?,terminal:r.get(7)?,terminal_runtime:r.get(8)?,terminal_at:r.get(9)?,
             cleanup:r.get(10)?,cleanup_runtime:r.get(11)?,cleanup_at:r.get(12)?,release_state:r.get(13)?,release_kind:r.get(14)?,release_json:r.get(15)? })
     }).map_err(|e| e.to_string())
+}
+
+/// 从本事务中的 Runtime 行读取 Provider；缺行继续由现有 Runtime 证据门禁处理。
+fn runtime_provider(tx: &Transaction<'_>, runtime: &str) -> Result<Option<String>, String> {
+    tx.query_row(
+        "SELECT provider FROM runtime_instances WHERE id=?1",
+        [runtime],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|error| error.to_string())
+}
+
+/// Provider 仅验证 ownership，不构成 Runtime termination 或 Claim release 依据。
+fn require_runtime_provider(
+    tx: &Transaction<'_>,
+    execution_provider: &str,
+    runtime: &str,
+) -> Result<(), String> {
+    match runtime_provider(tx, runtime)? {
+        Some(provider) if provider == execution_provider => Ok(()),
+        Some(_) => Err("RUNTIME_PROVIDER_MISMATCH".into()),
+        None => Err("RUNTIME_NOT_FOUND".into()),
+    }
 }
 
 enum Mutation {
@@ -811,7 +924,12 @@ fn delete_claim(tx: &Transaction<'_>, id: &str) -> Result<(), String> {
 }
 
 /// 只验证与平台元数据一致的持久化终止证据，不读取实时 OS 状态。
-fn terminated_runtime(tx: &Transaction<'_>, runtime: &str) -> Result<i64, String> {
+fn terminated_runtime(
+    tx: &Transaction<'_>,
+    runtime: &str,
+    execution_provider: &str,
+) -> Result<i64, String> {
+    require_runtime_provider(tx, execution_provider, runtime)?;
     let at: Option<i64> = tx.query_row("SELECT termination_evidence_at FROM runtime_instances WHERE id=?1 AND state='terminated'
         AND termination_evidence_state='complete' AND termination_evidence_at IS NOT NULL AND (
           (runtime_platform='windows' AND containment_type='windows_job'
@@ -825,8 +943,8 @@ fn terminated_runtime(tx: &Transaction<'_>, runtime: &str) -> Result<i64, String
           OR
           (runtime_platform='macos' AND containment_type='macos_process_group'
            AND process_identity_scheme='darwin_proc_bsd_start_v1'
-           AND codex_pid IS NOT NULL AND codex_process_start_token IS NOT NULL
-           AND containment_process_group_id=codex_pid AND containment_session_id=codex_pid
+           AND process_id IS NOT NULL AND process_start_token IS NOT NULL
+           AND containment_process_group_id=process_id AND containment_session_id=process_id
            AND containment_verified_at IS NOT NULL
            AND termination_evidence_type IN ('macos_live_process_group_empty','macos_recovered_process_group_empty'))
         )",
@@ -881,6 +999,7 @@ fn transition_execution(
             }
             owns_claim(tx, id)?;
             let original = row.runtime.as_deref().ok_or("RUNTIME_EVIDENCE_REQUIRED")?;
+            require_runtime_provider(tx, &row.provider, original)?;
             let (kind, at) = match finalization.basis {
                 ReleaseBasis::SameRuntimeCleanup => {
                     if row.terminal.is_none()
@@ -895,7 +1014,7 @@ fn transition_execution(
                     ("same_runtime_cleanup", row.cleanup_at.unwrap())
                 }
                 ReleaseBasis::RuntimeTerminated => {
-                    let at = terminated_runtime(tx, original)?;
+                    let at = terminated_runtime(tx, original, &row.provider)?;
                     tx.execute("UPDATE executions SET runtime_termination_evidence_runtime_instance_id=?2,runtime_termination_evidence_at=?3 WHERE id=?1",params![id,original,at]).map_err(|e|e.to_string())?;
                     ("runtime_terminated", at)
                 }
@@ -1025,6 +1144,7 @@ fn transition_execution(
                     if !status.terminal() || row.runtime.as_deref() != Some(&runtime_id) {
                         return Err("PROVIDER_EVIDENCE_RUNTIME_MISMATCH".into());
                     }
+                    require_runtime_provider(tx, &row.provider, &runtime_id)?;
                     if row
                         .terminal
                         .as_deref()
@@ -1054,6 +1174,7 @@ fn transition_execution(
                     {
                         return Err("CLEANUP_EVIDENCE_RUNTIME_MISMATCH".into());
                     }
+                    require_runtime_provider(tx, &row.provider, &runtime_id)?;
                     tx.execute("UPDATE executions SET background_cleanup_state='empty',background_cleanup_runtime_instance_id=?2,background_cleanup_evidence_at=?3 WHERE id=?1",params![id,runtime_id,now]).map_err(|e|e.to_string())?;
                 }
                 Transition::Reconcile => {
@@ -1073,7 +1194,8 @@ fn transition_execution(
                             evidence_at,
                         } => {
                             if row.runtime.as_deref() != Some(&runtime_id)
-                                || terminated_runtime(tx, &runtime_id)? != evidence_at
+                                || terminated_runtime(tx, &runtime_id, &row.provider)?
+                                    != evidence_at
                                 || row
                                     .runtime_evidence_at
                                     .is_some_and(|previous| evidence_at <= previous)
@@ -1109,6 +1231,7 @@ fn transition_execution(
                         if !running {
                             return Err("RUNTIME_NOT_RUNNING".into());
                         }
+                        require_runtime_provider(tx, &row.provider, &selected)?;
                         runtime = Some(selected);
                     } else if runtime_id.is_some() {
                         return Err("EXECUTION_RUNTIME_IMMUTABLE".into());

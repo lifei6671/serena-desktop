@@ -6,7 +6,8 @@ use super::{
         derive_activity_revision, derive_summary_code,
     },
     coordinator::now,
-    provider::port::ProviderReconcileItem,
+    execution::AgentTaskRole,
+    provider::{ProviderDescriptor, ProviderId, port::ProviderReconcileItem},
     store::{
         StateStore,
         transactions::product::{ProductSnapshot, WorkspaceSnapshot, continuation_core_eligible},
@@ -96,22 +97,18 @@ pub struct AvailableActions {
 pub struct ProviderProduct {
     pub id: String,
     pub display_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
 }
 impl ProviderProduct {
-    fn codex() -> Self {
+    /// 持久化 ID 是唯一身份；descriptor 只补充展示信息，缺失或不一致时安全回退。
+    fn from_execution_provider(provider_id: &str, descriptor: Option<ProviderDescriptor>) -> Self {
+        let descriptor = descriptor.filter(|value| value.id.as_str() == provider_id);
         Self {
-            id: "codex".into(),
-            display_name: "Codex".into(),
-            version: None,
-        }
-    }
-    /// 仅从 Execution 持久化 Provider 投影顶层身份，Usage 不重复 Provider identity。
-    fn from_execution_provider(provider_id: &str) -> Result<Self, String> {
-        match provider_id {
-            "codex" => Ok(Self::codex()),
-            _ => Err(format!("Invalid persisted provider: {provider_id}")),
+            id: provider_id.into(),
+            display_name: descriptor
+                .as_ref()
+                .map_or_else(|| provider_id.into(), |value| value.display_name.clone()),
+            version: descriptor.and_then(|value| value.version),
         }
     }
 }
@@ -258,6 +255,8 @@ pub struct ExecutionView {
     pub agent_id: String,
     pub workspace_id: String,
     pub provider: ProviderProduct,
+    /// 创建时持久化的冻结角色；不读取当前 Provider 路由策略。
+    pub task_role: String,
     /// 始终存在的公共 Usage 投影；无持久化行时保持 unknown/null。
     pub usage: UsageProduct,
     pub status: String,
@@ -432,6 +431,7 @@ impl ProductError {
             "AGENT_MANUAL_RESOLUTION_REQUIRED",
             "AGENT_RUNTIME_QUARANTINED",
             AGENT_ACTIVITY_CONTRACT_ERROR,
+            "AGENT_TASK_ROLE_CONTRACT_ERROR",
             "AGENT_OBSERVE_INVALID_ARGUMENT",
             "BACKEND_UNAVAILABLE",
             "CODEX_APP_SERVER_INCOMPATIBLE",
@@ -896,10 +896,15 @@ impl AgentProductService {
         include_result: bool,
     ) -> Result<Vec<ExecutionView>, String> {
         let snapshots = self.store.product_read(id, agent, workspace, limit).await?;
+        // Registry 仅供可选展示元数据读取；失败不能阻断持久化 Execution 的查询。
+        let registry = self.manager.registry().ok();
         let mut views = Vec::with_capacity(snapshots.len());
         for s in snapshots {
             let compatibility = ProviderOpaqueCompatibility::project(&s);
             let r = &s.execution;
+            let task_role: AgentTaskRole =
+                serde_json::from_value(Value::String(s.task_role.clone()))
+                    .map_err(|_| "AGENT_TASK_ROLE_CONTRACT_ERROR".to_string())?;
             let pending = r.status == "dispatch_pending"
                 && r.dispatch_state == "not_dispatched"
                 && r.runtime_instance_id.is_none()
@@ -1012,7 +1017,16 @@ impl AgentProductService {
                 execution_id: r.id.clone(),
                 agent_id: r.agent_id.clone(),
                 workspace_id: r.workspace_id.clone(),
-                provider: ProviderProduct::from_execution_provider(&r.provider)?,
+                provider: ProviderProduct::from_execution_provider(
+                    &r.provider,
+                    registry.as_ref().and_then(|registry| {
+                        ProviderId::new(r.provider.clone())
+                            .ok()
+                            .and_then(|id| registry.get_registered(&id).ok())
+                            .map(|provider| provider.descriptor())
+                    }),
+                ),
+                task_role: task_role.as_str().into(),
                 usage: UsageProduct::project(s.usage.as_ref()),
                 status: r.status.clone(),
                 dispatch_state: r.dispatch_state.clone(),

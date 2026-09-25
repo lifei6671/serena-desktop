@@ -12,7 +12,7 @@ function execution(overrides: Partial<ExecutionView>): ExecutionView {
   const base: ExecutionView = {
     executionId: "p5-complete", agentId: "p5-agent", workspaceId: workspace.id, canonicalWorkspaceRoot: workspace.root,
     prompt: "验证 Provider、Activity 与 Token 展示", status: "running", attention: "none", revision: "P5-R1", controlRevision: "P5-C1", activityRevision: "P5-A1",
-    resultAvailable: false, provider: { id: "acme-worker", displayName: "Acme Worker", version: "2.4.1" }, providerSessionLabel: "续接会话 · S-42",
+    resultAvailable: false, provider: { id: "acme-worker", displayName: "Acme Worker", version: "2.4.1" }, taskRole: "general", providerSessionLabel: "续接会话 · S-42",
     usage: { inputTokens: 91, cachedInputTokens: 12, cacheWriteInputTokens: 7, outputTokens: 3, reasoningTokens: 5, totalTokens: 0, modelContextWindow: 128000, completeness: "complete", usageRevision: 3, updatedAt: 1_726_000_000_000 },
     progress: { phase: "finalizing", summaryCode: "execution.finalizing", activityPhase: "tool", toolCategory: "command", lastActivityAt: null, activityAgeMs: null, silenceLevel: "prolonged" },
     nextAction: { action: "observe", waitMs: 1000 }, dispatchState: "dispatched", threadId: "thread-p5", threadName: "P5 UI Gate", turnId: "turn-p5",

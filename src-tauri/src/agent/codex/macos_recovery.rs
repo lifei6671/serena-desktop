@@ -344,6 +344,14 @@ async fn release_recovered_execution(
     execution_id: &str,
     runtime: &RuntimeRecord,
 ) -> Result<(), String> {
+    let execution = store
+        .execution(execution_id.to_owned())
+        .await?
+        .ok_or("EXECUTION_NOT_FOUND")?;
+    if execution.provider != runtime.provider {
+        mark_execution_unknown(store, execution_id).await?;
+        return Err("RUNTIME_PROVIDER_MISMATCH".into());
+    }
     if !complete_macos_evidence(runtime) {
         mark_execution_unknown(store, execution_id).await?;
         return Err("RUNTIME_TERMINATION_EVIDENCE_REQUIRED".into());

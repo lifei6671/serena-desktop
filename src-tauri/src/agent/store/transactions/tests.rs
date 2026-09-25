@@ -74,6 +74,281 @@ fn finish(s: &StateStore) -> Result<(), String> {
     block(s.finalize_and_release_execution("e".into(), status(s).revision, finalization(), 4))
 }
 
+/// 首次绑定必须在同一写事务读取双方 Provider；拒绝后不消耗 Claim 或 Runtime。
+#[test]
+fn first_bind_rejects_runtime_provider_mismatch_without_side_effects() {
+    for (execution_provider, runtime_provider) in [("codex", "codebuddy"), ("codebuddy", "codex")] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(dir.path());
+        let input: CreateExecutionInput = serde_json::from_value(json!({
+            "agent_id":"a","request_key":"k","prompt":"payload","execution_profile":{},
+            "workspace_id":"w","canonical_workspace_root":"root","mode":"workspace_write",
+            "provider":execution_provider
+        }))
+        .unwrap();
+        block(store.create_execution("e".into(), canonicalize_request(input).unwrap(), 1)).unwrap();
+        store.connection.lock().unwrap().execute(
+            "INSERT INTO runtime_instances (id,owner_host_instance_id,provider,state,created_at,updated_at)
+             VALUES ('r','host',?1,'running',1,1)",
+            [runtime_provider],
+        ).unwrap();
+        let before = execution_snapshot(&store);
+        assert_eq!(
+            event(
+                &store,
+                Transition::Dispatch {
+                    to: DispatchState::Dispatching,
+                    runtime_id: Some("r".into()),
+                },
+                2
+            )
+            .unwrap_err(),
+            "RUNTIME_PROVIDER_MISMATCH"
+        );
+        assert_eq!(execution_snapshot(&store), before);
+        assert!(
+            block(store.workspace_claim("root".into()))
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            store
+                .connection
+                .lock()
+                .unwrap()
+                .query_row(
+                    "SELECT state FROM runtime_instances WHERE id='r'",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "running"
+        );
+    }
+}
+
+/// Provider terminal 与 cleanup 都只能引用同 Provider Runtime，拒绝时不写新证据。
+#[test]
+fn provider_terminal_and_cleanup_reject_provider_mismatch() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Running, DispatchState::Dispatched);
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE runtime_instances SET provider='codebuddy' WHERE id='r'",
+            [],
+        )
+        .unwrap();
+    let before = execution_snapshot(&store);
+    assert_eq!(
+        event(
+            &store,
+            Transition::ProviderTerminal {
+                runtime_id: "r".into(),
+                status: Status::Completed,
+            },
+            2
+        )
+        .unwrap_err(),
+        "RUNTIME_PROVIDER_MISMATCH"
+    );
+    assert_eq!(execution_snapshot(&store), before);
+    assert_eq!(
+        status(&store).provider_terminal_evidence_runtime_instance_id,
+        None
+    );
+    assert!(
+        block(store.workspace_claim("root".into()))
+            .unwrap()
+            .is_some()
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Running, DispatchState::Dispatched);
+    event(
+        &store,
+        Transition::ProviderTerminal {
+            runtime_id: "r".into(),
+            status: Status::Completed,
+        },
+        2,
+    )
+    .unwrap();
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE runtime_instances SET provider='codebuddy' WHERE id='r'",
+            [],
+        )
+        .unwrap();
+    let before = execution_snapshot(&store);
+    assert_eq!(
+        event(
+            &store,
+            Transition::CleanupEmpty {
+                runtime_id: "r".into(),
+            },
+            3
+        )
+        .unwrap_err(),
+        "RUNTIME_PROVIDER_MISMATCH"
+    );
+    assert_eq!(execution_snapshot(&store), before);
+    assert!(
+        block(store.workspace_claim("root".into()))
+            .unwrap()
+            .is_some()
+    );
+}
+
+/// 恢复证据与两种 ReleaseBasis 均重新读取 Runtime provider，失配不能释放 Claim。
+#[test]
+fn recovery_and_finalization_reject_provider_mismatch_and_retain_claim() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Unknown, DispatchState::Uncertain);
+    store.connection.lock().unwrap().execute(
+        "UPDATE runtime_instances SET provider='codebuddy',state='terminated',
+         termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',
+         termination_evidence_at=2 WHERE id='r'", []
+    ).unwrap();
+    let before = execution_snapshot(&store);
+    assert_eq!(
+        event(
+            &store,
+            Transition::ResumeRecovery(RecoveryBasis::RuntimeTermination {
+                runtime_id: "r".into(),
+                evidence_at: 2
+            }),
+            3
+        )
+        .unwrap_err(),
+        "RUNTIME_PROVIDER_MISMATCH"
+    );
+    assert_eq!(execution_snapshot(&store), before);
+    assert!(
+        block(store.workspace_claim("root".into()))
+            .unwrap()
+            .is_some()
+    );
+
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET status='reconciling' WHERE id='e'",
+            [],
+        )
+        .unwrap();
+    let before = execution_snapshot(&store);
+    let release = Finalization {
+        terminal: Status::Interrupted,
+        basis: ReleaseBasis::RuntimeTerminated,
+        result: None,
+        completeness: ResultCompleteness::Unknown,
+    };
+    assert_eq!(
+        block(store.finalize_and_release_execution(
+            "e".into(),
+            status(&store).revision,
+            release,
+            4
+        ))
+        .unwrap_err(),
+        "RUNTIME_PROVIDER_MISMATCH"
+    );
+    assert_eq!(execution_snapshot(&store), before);
+    assert!(
+        block(store.workspace_claim("root".into()))
+            .unwrap()
+            .is_some()
+    );
+}
+
+/// 已存在同 Runtime cleanup 证据也不绕过 finalize 时的持久化 Provider 复核。
+#[test]
+fn same_runtime_cleanup_mismatch_cannot_release_claim() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Running, DispatchState::Dispatched);
+    safe_cleanup(&store);
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE runtime_instances SET provider='codebuddy' WHERE id='r'",
+            [],
+        )
+        .unwrap();
+    let before = execution_snapshot(&store);
+    assert_eq!(finish(&store).unwrap_err(), "RUNTIME_PROVIDER_MISMATCH");
+    assert_eq!(execution_snapshot(&store), before);
+    assert!(
+        block(store.workspace_claim("root".into()))
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(status(&store).release_evidence_state, "incomplete");
+}
+
+/// 启动扫描先把跨 Provider 绑定降为 unknown；旧的 complete release 字段也不能删 Claim。
+#[test]
+fn startup_claim_scan_keeps_mismatched_runtime_and_claim_fail_closed() {
+    for terminal in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(dir.path());
+        fixture(
+            &store,
+            if terminal {
+                Status::Completed
+            } else {
+                Status::Running
+            },
+            DispatchState::Dispatched,
+        );
+        store
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE runtime_instances SET provider='codebuddy' WHERE id='r'",
+                [],
+            )
+            .unwrap();
+        if terminal {
+            store.connection.lock().unwrap().execute(
+                "UPDATE executions SET release_evidence_state='complete',
+                 release_evidence_kind='same_runtime_cleanup',release_evidence_json='{}' WHERE id='e'", []
+            ).unwrap();
+        }
+        let outcome = block(store.recover_claims(3)).unwrap();
+        assert!(matches!(
+            outcome.as_slice(),
+            [ClaimRecovery::Inconsistent {
+                code: "RUNTIME_PROVIDER_MISMATCH",
+                ..
+            }]
+        ));
+        assert_eq!(
+            status(&store).status,
+            if terminal { "completed" } else { "unknown" }
+        );
+        assert!(
+            block(store.workspace_claim("root".into()))
+                .unwrap()
+                .is_some()
+        );
+    }
+}
+
 const STATUSES: [Status; 11] = [
     Status::DispatchPending,
     Status::Running,
@@ -390,7 +665,7 @@ fn runtime_termination_evidence_gate_is_platform_conditional() {
             "INSERT INTO runtime_instances(
                 id,owner_host_instance_id,state,created_at,updated_at,
                 runtime_platform,containment_type,process_identity_scheme,
-                codex_pid,codex_process_start_token,containment_process_group_id,
+                process_id,process_start_token,containment_process_group_id,
                 containment_session_id,containment_verified_at,
                 stopped_at,termination_evidence_type,termination_evidence_at,
                 termination_evidence_state)
@@ -401,7 +676,7 @@ fn runtime_termination_evidence_gate_is_platform_conditional() {
         )
         .unwrap();
     let transaction = connection.transaction().unwrap();
-    assert_eq!(terminated_runtime(&transaction, "mac").unwrap(), 8);
+    assert_eq!(terminated_runtime(&transaction, "mac", "codex").unwrap(), 8);
     transaction.rollback().unwrap();
 
     // 模拟损坏数据库，确认 release gate 不依赖 schema trigger 作为唯一防线。
@@ -414,7 +689,7 @@ fn runtime_termination_evidence_gate_is_platform_conditional() {
         .unwrap();
     let transaction = connection.transaction().unwrap();
     assert_eq!(
-        terminated_runtime(&transaction, "mac").unwrap_err(),
+        terminated_runtime(&transaction, "mac", "codex").unwrap_err(),
         "RUNTIME_TERMINATION_EVIDENCE_REQUIRED"
     );
 }
@@ -453,6 +728,191 @@ fn idempotency_precedes_busy_and_different_payload_conflicts() {
         !block(s.create_execution("new".into(), request("a", "k", "root"), 2))
             .unwrap()
             .created
+    );
+}
+
+/// v2 历史行仅接受完整身份相同的 General 重试，且绝不改写持久化 hash。
+#[test]
+fn historical_v2_general_retry_is_bounded_and_preserves_hash() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    create_one(&store);
+    let current = request("a", "k", "root");
+    let historical = crate::agent::execution::legacy_v2_request_hash(current.input()).unwrap();
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET request_hash=?1 WHERE id='e'",
+            [&historical],
+        )
+        .unwrap();
+
+    let retry = block(store.create_execution("unused".into(), current, 2)).unwrap();
+    assert!(!retry.created);
+    assert_eq!(retry.execution_id, "e");
+    assert_eq!(retry.execution.request_hash, historical);
+
+    let original = request("a", "k", "root").input().clone();
+    let mut variants = Vec::new();
+    let mut role = original.clone();
+    role.task_role = crate::agent::execution::AgentTaskRole::Testing;
+    variants.push(role);
+    let mut provider = original.clone();
+    provider.provider = crate::agent::provider::ProviderId::new("codebuddy".into()).unwrap();
+    variants.push(provider);
+    let mut generation = original.clone();
+    generation.workspace_generation = 2;
+    variants.push(generation);
+    let mut mode = original.clone();
+    mode.mode = crate::agent::execution::ExecutionMode::ReadOnly;
+    variants.push(mode);
+    let mut parent = original;
+    parent.parent_execution_id = Some("different-parent".into());
+    variants.push(parent);
+    for input in variants {
+        assert_eq!(
+            block(store.create_execution("unused".into(), canonicalize_request(input).unwrap(), 3))
+                .unwrap_err(),
+            "EXECUTION_REQUEST_KEY_CONFLICT"
+        );
+    }
+    let connection = store.connection.lock().unwrap();
+    let (hash, count, status): (String, i64, String) = connection.query_row(
+        "SELECT request_hash, (SELECT COUNT(*) FROM executions WHERE agent_id='a' AND request_key='k'), status FROM executions WHERE id='e'",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    ).unwrap();
+    assert_eq!(hash, historical);
+    assert_eq!(count, 1);
+    assert_eq!(status, "dispatch_pending");
+
+    connection
+        .execute("UPDATE executions SET task_role='testing' WHERE id='e'", [])
+        .unwrap();
+    drop(connection);
+    assert_eq!(
+        block(store.create_execution("unused".into(), request("a", "k", "root"), 4)).unwrap_err(),
+        "EXECUTION_REQUEST_KEY_CONFLICT"
+    );
+}
+
+/// v3 exact hash 命中也不能掩盖持久化 Provider 或角色字段漂移。
+#[test]
+fn v3_retry_rejects_persisted_identity_drift() {
+    for column in ["provider='codebuddy'", "task_role='testing'"] {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(dir.path());
+        create_one(&store);
+        store
+            .connection
+            .lock()
+            .unwrap()
+            .execute(&format!("UPDATE executions SET {column} WHERE id='e'"), [])
+            .unwrap();
+        assert_eq!(
+            block(store.create_execution("unused".into(), request("a", "k", "root"), 2))
+                .unwrap_err(),
+            "EXECUTION_REQUEST_KEY_CONFLICT"
+        );
+        assert_eq!(status(&store).status, "dispatch_pending");
+    }
+}
+
+/// v3 的每个冻结身份维度变化都必须让同一 requestKey 稳定冲突。
+#[test]
+fn v3_request_key_conflicts_on_every_frozen_identity_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    create_one(&store);
+    let original = request("a", "k", "root");
+    assert!(
+        std::str::from_utf8(original.bytes())
+            .unwrap()
+            .starts_with("[\"execution-request-v3\"")
+    );
+    let retry = block(store.create_execution("unused".into(), original.clone(), 2)).unwrap();
+    assert!(!retry.created);
+    assert_eq!(retry.execution_id, "e");
+    let mut variants = Vec::new();
+    let mut input = original.input().clone();
+    input.provider = crate::agent::provider::ProviderId::new("codebuddy".into()).unwrap();
+    variants.push(input);
+    let mut input = original.input().clone();
+    input.task_role = crate::agent::execution::AgentTaskRole::Testing;
+    variants.push(input);
+    let mut input = original.input().clone();
+    input.prompt = "changed".into();
+    variants.push(input);
+    let mut input = original.input().clone();
+    input.mode = crate::agent::execution::ExecutionMode::ReadOnly;
+    variants.push(input);
+    let mut input = original.input().clone();
+    input.workspace_id = "other-workspace".into();
+    variants.push(input);
+    let mut input = original.input().clone();
+    input.canonical_workspace_root = "other-root".into();
+    variants.push(input);
+    let mut input = original.input().clone();
+    input.workspace_generation = 2;
+    variants.push(input);
+    let mut input = original.input().clone();
+    input.parent_execution_id = Some("other-parent".into());
+    variants.push(input);
+    let mut input = original.input().clone();
+    input.execution_profile = json!({"different":true});
+    variants.push(input);
+    for input in variants {
+        assert_eq!(
+            block(store.create_execution("unused".into(), canonicalize_request(input).unwrap(), 3))
+                .unwrap_err(),
+            "EXECUTION_REQUEST_KEY_CONFLICT"
+        );
+    }
+    assert_eq!(status(&store).request_hash, original.request_hash());
+    assert_eq!(
+        store
+            .connection
+            .lock()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM executions", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}
+
+/// unknown Agent 的序列化门槛不能被历史 v2 兼容路径绕过。
+#[test]
+fn historical_v2_retry_does_not_bypass_unknown_agent_serialization() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    create_one(&store);
+    let original = request("a", "k", "root");
+    let historical = crate::agent::execution::legacy_v2_request_hash(original.input()).unwrap();
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET request_hash=?1,status='unknown' WHERE id='e'",
+            [&historical],
+        )
+        .unwrap();
+    let retry = block(store.create_execution("unused".into(), original, 2)).unwrap();
+    assert!(!retry.created);
+    assert_eq!(retry.execution_id, "e");
+    assert_eq!(retry.execution.request_hash, historical);
+    assert_eq!(
+        block(store.create_execution("new".into(), request("a", "other-key", "root"), 3))
+            .unwrap_err(),
+        "AGENT_BUSY"
+    );
+    assert!(
+        block(store.workspace_claim("root".into()))
+            .unwrap()
+            .is_some()
     );
 }
 

@@ -1651,7 +1651,7 @@ fn complete_fixture_runtime(database: &rusqlite::Connection, runtime_id: &str) {
         .execute(
             "UPDATE runtime_instances SET state='terminated',runtime_platform='macos',
              containment_type='macos_process_group',process_identity_scheme='darwin_proc_bsd_start_v1',
-             codex_pid=91,codex_process_start_token='darwin_proc_bsd_start_v1:2:3',
+             process_id=91,process_start_token='darwin_proc_bsd_start_v1:2:3',
              containment_process_group_id=91,containment_session_id=91,containment_verified_at=9,
              termination_evidence_state='complete',termination_evidence_type='macos_live_process_group_empty',
              termination_evidence_at=10 WHERE id=?1",

@@ -1019,6 +1019,29 @@ async fn persisted_provider_routes_through_registry_trait_object() {
     assert_eq!(fake.cancel_calls.load(Ordering::SeqCst), 0);
 }
 
+/// 相同 v3 requestKey 重试只读取既有 Execution，不再次调用 Provider。
+#[tokio::test]
+async fn v3_retry_does_not_dispatch_provider_twice() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let fake = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
+    let manager = manager_with_provider(store, fake.clone(), ProviderHealth::Available);
+    let first = manager
+        .execute(input(directory.path(), "v3-duplicate"))
+        .await
+        .unwrap();
+    assert!(first.created);
+    assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 1);
+    let retry = manager
+        .execute(input(directory.path(), "v3-duplicate"))
+        .await
+        .unwrap();
+    assert!(!retry.created);
+    assert_eq!(retry.execution_id, first.execution_id);
+    assert_eq!(retry.execution.request_hash, first.execution.request_hash);
+    assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 1);
+}
+
 #[tokio::test]
 async fn dispatch_notifies_each_persisted_completed_and_interrupted_terminal_once() {
     for (status, expected) in [

@@ -865,7 +865,7 @@ insert_execution()
     显式写入 input.task_role
 ~~~
 
-schema_v10 可以使用：
+schema_v12 可以使用：
 
 ~~~sql
 task_role TEXT NOT NULL DEFAULT 'general'
@@ -1122,10 +1122,10 @@ Work Finish
 
 目标不是把所有 Provider Runtime 统一成一个复杂框架，而是让当前 Execution / Runtime ownership 契约可以合法表达第二个 Provider，同时保持已有 Codex Evidence 原值和安全语义。
 
-当前 Agent StateStore 的 `user_version` 为 9。本次多 Provider persistence 迁移固定为：
+2026-09-24 baseline rebase：当前 Agent StateStore 的 `user_version` 为 11。既有 `schema_v10.sql` 已用于 Windows/macOS Runtime containment/platform evidence，`schema_v11.sql` 已用于 durable CommandRun（`command_runs`、`work_command_links`）。本轮不重用或改写这两项历史 migration；多 Provider persistence 的直接迁移输入为 v11，新增迁移固定为：
 
 ~~~text
-schema_v10
+schema_v12
 ~~~
 
 由 CB-001A 单独实施和 Review。后续 Request Hash 与 Product/Usage 中立化不再混入该 Schema Migration。
@@ -1212,7 +1212,7 @@ termination_evidence_state
 
 进程身份字段从 Codex 命名收敛为 Provider-neutral 名称：
 
-| 旧列 | v10 目标列 | 历史值策略 | CodeBuddy |
+| 旧列 | v12 目标列 | 历史值策略 | CodeBuddy |
 |---|---|---|---|
 | `codex_executable_path` | `executable_path` | 原值逐字复制 | CodeBuddy absolute path |
 | `codex_version` | `executable_version` | 原值逐字复制 | CodeBuddy version |
@@ -1222,6 +1222,8 @@ termination_evidence_state
 | `protocol_schema_sha256` | `protocol_contract_sha256` | 原 Codex schema hash 原值复制 | ACP v1 schema/contract hash 可用时保存，否则 NULL |
 
 `protocol_contract_sha256` 是可选的 Runtime Contract provenance，不是 Runtime termination evidence。CodeBuddy 不因为缺少该 hash 而伪造默认值；其 negotiated protocolVersion、Session identity 等继续保存在 Provider-private state。
+
+v12 必须原值保留 v10 已建立的 `runtime_platform`、`containment_type`、`process_identity_scheme`、`containment_process_group_id`、`containment_session_id`、`containment_verified_at`，并保留 `runtime_instances_v10_validate_insert` / `runtime_instances_v10_validate_update` 的跨平台 containment 验证语义。字段重命名或表重建不得降低 Windows Job、macOS process group 或 termination evidence 的现有约束。
 
 ## 12.4 Provider-private Identity 归属
 
@@ -1245,18 +1247,18 @@ CodeBuddy
 
 公共 Control Plane 只把现有 thread/turn 字段作为 backward-compatible provider-opaque display/diagnostic surface，不用于新 Provider routing 或 Claim release。
 
-## 12.5 schema_v10 迁移方式
+## 12.5 schema_v12 迁移方式
 
-由于 `executions.provider` 现有 CHECK 无法通过简单 ADD COLUMN 移除，v10 必须执行受测试的表重建，而不是留一个第二 provider 列绕过旧约束。
+由于 `executions.provider` 现有 CHECK 无法通过简单 ADD COLUMN 移除，v12 必须执行受测试的表重建，而不是留一个第二 provider 列绕过旧约束。
 
-v10 采用专用 migration contract，并复用 `migrate()` 已经创建的 `TransactionBehavior::Immediate` transaction：
+v11→v12 采用专用 migration contract，并复用 `migrate()` 已经创建的 `TransactionBehavior::Immediate` transaction：
 
 ~~~text
 migrate()
     ↓
 existing IMMEDIATE transaction
     ↓
-v10 migration body
+v12 migration body
     ↓
 rebuild runtime_instances
     ↓
@@ -1274,18 +1276,18 @@ verify dependent FK references
     ↓
 PRAGMA foreign_key_check
     ↓
-user_version = 10
+user_version = 12
     ↓
 outer transaction COMMIT
 ~~~
 
-v10 migration function **不得再次执行 BEGIN / BEGIN IMMEDIATE**，避免嵌套事务。
+v12 migration function **不得再次执行 BEGIN / BEGIN IMMEDIATE**，避免嵌套事务。
 
 如果表重建需要调整 FK enforcement，必须在真实 migration test 中先验证 SQLite 行为：事务内不得切换 `PRAGMA foreign_keys=OFF`。若最终证明必须关闭 foreign_keys，只允许在创建 migration transaction 之前于 connection level 设置，并在迁移结束后恢复 `ON`；无论采用哪条路径，提交前/后都必须以 `PRAGMA foreign_key_check` 作为验收 Gate。
 
-如果现有 `apply_migration(sql)` 无法安全完成父表 rebuild，允许在 `migrate()` 中为 v10 增加一个专用 Rust migration function；该函数仍必须使用同一个外层 SQLite transaction，不建立第二套 Store。
+如果现有 `apply_migration(sql)` 无法安全完成父表 rebuild，允许在 `migrate()` 中为 v12 增加一个专用 Rust migration function；该函数仍必须使用同一个外层 SQLite transaction，不建立第二套 Store。
 
-`migrate()` 的版本门禁同步升级为接受 `1..=10`，并在 `version < 10` 时应用 v10；大于当前支持版本仍保持 fail-closed。
+`migrate()` 的版本门禁从当前 `1..=11` 升级为接受 `1..=12`，并在 `version < 12` 时按既有顺序应用历史 migration 后追加 v12；大于当前支持版本仍保持 fail-closed。`schema_v9.sql`、`schema_v10.sql`、`schema_v11.sql` 不改写。
 
 必须保留并重新验证至少：
 
@@ -1294,6 +1296,8 @@ v10 migration function **不得再次执行 BEGIN / BEGIN IMMEDIATE**，避免�
 - `executions_one_unresolved_per_agent`；
 - `workspace_claims` FK；
 - Work execution links；
+- v10 Runtime platform/containment 字段与 `runtime_instances_v10_validate_insert` / `runtime_instances_v10_validate_update` 触发器；
+- v11 `command_runs`、`work_command_links` 及其索引、外键；
 - Activity tables；
 - public Usage；
 - Codex private Usage；
@@ -1323,14 +1327,17 @@ v10 migration function **不得再次执行 BEGIN / BEGIN IMMEDIATE**，避免�
 
 ## 12.7 Migration Gate
 
-schema_v10 单独通过：
+schema_v12 单独通过：
 
 ~~~text
-v9 → v10 real fixture migration
+v11 → v12 real fixture migration (primary)
+v9 → v10 → v11 → v12 historical fixture migration (transitive compatibility)
 empty DB → latest schema
 historical Codex rows byte/semantic preserved
-all pre-v10 executions task_role = general
+all pre-v12 executions task_role = general
 historical request_hash values remain byte-identical
+v10 platform/containment fields and validation triggers preserved
+v11 command_runs/work_command_links rows, indexes and FKs preserved
 new execution can be created immediately after CB-001A
 provider=codebuddy can persist
 runtime provider mismatch rejected
@@ -2590,7 +2597,7 @@ CodeBuddy Provider 上线后必须继续满足：
 
 内容：
 
-- schema_v10；
+- schema_v12；
 - Execution provider CHECK removal；
 - execution Provider identity 与 ProviderId 收敛；
 - Store insert 写真实 provider；
@@ -2604,10 +2611,12 @@ CodeBuddy Provider 上线后必须继续满足：
 Gate：
 
 ~~~text
-v9 → v10 fixture PASS
+v11 → v12 fixture PASS
+v9 → v10 → v11 → v12 transitive fixture PASS
 historical Codex rows preserved
 historical Runtime evidence preserved
-all pre-v10 executions task_role=general
+all pre-v12 executions task_role=general
+v10 containment triggers and v11 CommandRun/WorkCommandLinks preserved
 historical request_hash byte-identical after migration
 new execution creation works before CB-001B
 CodeBuddy provider value can persist

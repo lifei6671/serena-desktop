@@ -21,6 +21,9 @@ pub(crate) const USAGE_COUNTER_REGRESSION: &str = "USAGE_COUNTER_REGRESSION";
 /// Usage 已跨过可接收边界；调用者只能丢弃该 telemetry，不能修改 Execution lifecycle。
 pub(crate) const USAGE_TELEMETRY_FROZEN: &str = "USAGE_TELEMETRY_FROZEN";
 
+/// 非 Codex Execution 不得进入 Codex 私有 Usage 读写路径。
+pub(crate) const USAGE_PROVIDER_UNSUPPORTED: &str = "USAGE_PROVIDER_UNSUPPORTED";
+
 /// Codex terminal 后仍可接收 exact Usage 的唯一有界窗口。
 pub(crate) const USAGE_TERMINAL_GRACE_MS: i64 = 2_000;
 
@@ -78,12 +81,16 @@ fn same_public_usage(
 /// 写入或按语义 no-op 公共 Usage；所有 breakdown 保持 NULL。
 fn write_public_usage(
     tx: &Transaction<'_>,
-    execution_id: &str,
+    row: &ExecutionRecord,
     total_tokens: Option<i64>,
     model_context_window: Option<i64>,
     completeness: &str,
     observed_at: i64,
 ) -> Result<(), String> {
+    if row.provider != "codex" {
+        return Err(USAGE_PROVIDER_UNSUPPORTED.into());
+    }
+    let execution_id = row.id.as_str();
     let existing = execution_usage_record(tx, execution_id).map_err(|error| error.to_string())?;
     match existing {
         Some(existing) if same_public_usage(&existing, total_tokens, model_context_window, completeness) => Ok(()),
@@ -112,6 +119,9 @@ fn write_public_usage(
 
 /// 用当前 Execution identity 建立 fail-safe unknown 私有状态，绝不推测 baseline。
 fn insert_unknown_state(tx: &Transaction<'_>, row: &ExecutionRecord) -> Result<(), String> {
+    if row.provider != "codex" {
+        return Err(USAGE_PROVIDER_UNSUPPORTED.into());
+    }
     let runtime = row
         .runtime_instance_id
         .as_deref()
@@ -149,11 +159,13 @@ impl StateStore {
             let row = execution_record(tx, &execution_id)
                 .map_err(|error| error.to_string())?
                 .ok_or("EXECUTION_NOT_FOUND")?;
+            if row.provider != "codex" {
+                return Err(USAGE_PROVIDER_UNSUPPORTED.into());
+            }
             let state = codex_execution_usage_state_record(tx, &execution_id)
                 .map_err(|error| error.to_string())?
                 .ok_or("USAGE_GRACE_STATE_UNAVAILABLE")?;
-            if row.provider != "codex"
-                || row.runtime_instance_id.as_deref() != Some(runtime_instance_id.as_str())
+            if row.runtime_instance_id.as_deref() != Some(runtime_instance_id.as_str())
                 || row.thread_id.as_deref() != Some(thread_id.as_str())
                 || row.turn_id.as_deref() != Some(turn_id.as_str())
                 || state.runtime_instance_id != runtime_instance_id
@@ -193,12 +205,12 @@ impl StateStore {
             let row = execution_record(tx, &execution_id)
                 .map_err(|error| error.to_string())?
                 .ok_or("EXECUTION_NOT_FOUND")?;
+            if row.provider != "codex" {
+                return Err(USAGE_PROVIDER_UNSUPPORTED.into());
+            }
             let state = codex_execution_usage_state_record(tx, &execution_id)
                 .map_err(|error| error.to_string())?
                 .ok_or("USAGE_FREEZE_STATE_UNAVAILABLE")?;
-            if row.provider != "codex" {
-                return Err("USAGE_FREEZE_PROVIDER_MISMATCH".into());
-            }
             match state.telemetry_state.as_str() {
                 "accepting" | "terminal_grace" => tx
                     .execute(
@@ -233,8 +245,10 @@ impl StateStore {
             let row = execution_record(tx, &execution_id)
                 .map_err(|error| error.to_string())?
                 .ok_or("EXECUTION_NOT_FOUND")?;
-            if row.provider != "codex"
-                || row.runtime_instance_id.as_deref() != Some(runtime_instance_id.as_str())
+            if row.provider != "codex" {
+                return Err(USAGE_PROVIDER_UNSUPPORTED.into());
+            }
+            if row.runtime_instance_id.as_deref() != Some(runtime_instance_id.as_str())
                 || row.thread_id.as_deref() != Some(thread_id.as_str())
                 || row.turn_id.is_some()
             {
@@ -250,7 +264,7 @@ impl StateStore {
             }
             let (baseline_kind, baseline_json) = match intent {
                 CodexUsageBaselineIntent::FreshZero => {
-                    let epoch = codex_thread_usage_epoch_record(tx, &runtime_instance_id, &thread_id)
+                    let epoch = codex_thread_usage_epoch_record(tx, &execution_id, &runtime_instance_id, &thread_id)
                         .map_err(|error| error.to_string())?;
                     if epoch.is_none() {
                         ("fresh_zero", Some(json!({"totalTokens": 0}).to_string()))
@@ -259,7 +273,7 @@ impl StateStore {
                     }
                 }
                 CodexUsageBaselineIntent::WarmObservedSameEpoch => {
-                    let total = codex_thread_usage_epoch_record(tx, &runtime_instance_id, &thread_id)
+                    let total = codex_thread_usage_epoch_record(tx, &execution_id, &runtime_instance_id, &thread_id)
                         .map_err(|error| error.to_string())?
                         .and_then(|epoch| cumulative_total(&epoch.latest_cumulative_json));
                     match total {
@@ -297,7 +311,10 @@ impl StateStore {
             let row = execution_record(tx, &execution_id)
                 .map_err(|error| error.to_string())?
                 .ok_or("EXECUTION_NOT_FOUND")?;
-            if provider_id != "codex" || row.provider != "codex" {
+            if row.provider != "codex" {
+                return Err(USAGE_PROVIDER_UNSUPPORTED.into());
+            }
+            if provider_id != "codex" {
                 return Err("USAGE_PROVIDER_MISMATCH".into());
             }
             if row.runtime_instance_id.is_none() || row.thread_id.is_none() || row.turn_id.is_none() {
@@ -348,7 +365,7 @@ impl StateStore {
             if !identity_matches {
                 return Ok(write_public_usage(
                     tx,
-                    &execution_id,
+                    &row,
                     None,
                     model_context_window,
                     "unknown",
@@ -357,6 +374,7 @@ impl StateStore {
             }
             let previous_epoch = codex_thread_usage_epoch_record(
                 tx,
+                &execution_id,
                 row.runtime_instance_id.as_deref().unwrap_or_default(),
                 row.thread_id.as_deref().unwrap_or_default(),
             )
@@ -387,13 +405,13 @@ impl StateStore {
             Ok(match baseline_total(&state) {
                 Some(total) => write_public_usage(
                     tx,
-                    &execution_id,
+                    &row,
                     Some(incoming_total - total),
                     model_context_window,
                     "partial",
                     observed_at,
                 ),
-                None => write_public_usage(tx, &execution_id, None, model_context_window, "unknown", observed_at),
+                None => write_public_usage(tx, &row, None, model_context_window, "unknown", observed_at),
             })
         })
         .await?
@@ -415,8 +433,10 @@ impl StateStore {
             let row = execution_record(tx, &execution_id)
                 .map_err(|error| error.to_string())?
                 .ok_or("EXECUTION_NOT_FOUND")?;
-            if row.provider != "codex"
-                || row.runtime_instance_id.as_deref() != Some(runtime_instance_id.as_str())
+            if row.provider != "codex" {
+                return Err(USAGE_PROVIDER_UNSUPPORTED.into());
+            }
+            if row.runtime_instance_id.as_deref() != Some(runtime_instance_id.as_str())
                 || row.thread_id.as_deref() != Some(thread_id.as_str())
             {
                 return Err("USAGE_INVALIDATION_IDENTITY_MISMATCH".into());
@@ -439,7 +459,7 @@ impl StateStore {
             {
                 write_public_usage(
                     tx,
-                    &execution_id,
+                    &row,
                     None,
                     public.model_context_window,
                     "unknown",
@@ -539,9 +559,20 @@ pub(super) fn execution_usage_record(
 /// 读取 Codex thread epoch 行；仅供 store 内部后续持久化逻辑使用。
 pub(super) fn codex_thread_usage_epoch_record(
     connection: &Connection,
+    execution_id: &str,
     runtime_instance_id: &str,
     thread_id: &str,
 ) -> rusqlite::Result<Option<CodexThreadUsageEpochRecord>> {
+    let provider: Option<String> = connection
+        .query_row(
+            "SELECT provider FROM executions WHERE id=?1",
+            [execution_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if provider.as_deref() != Some("codex") {
+        return Ok(None);
+    }
     connection
         .query_row(
             "SELECT runtime_instance_id, thread_id, latest_cumulative_json, latest_turn_id, captured_at
@@ -566,6 +597,16 @@ pub(super) fn codex_execution_usage_state_record(
     connection: &Connection,
     execution_id: &str,
 ) -> rusqlite::Result<Option<CodexExecutionUsageStateRecord>> {
+    let provider: Option<String> = connection
+        .query_row(
+            "SELECT provider FROM executions WHERE id=?1",
+            [execution_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if provider.as_deref() != Some("codex") {
+        return Ok(None);
+    }
     connection
         .query_row(
             "SELECT execution_id, runtime_instance_id, thread_id, turn_id, baseline_kind,

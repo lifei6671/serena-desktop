@@ -291,6 +291,16 @@ pub(crate) async fn reconcile_execution_after_runtime_end(
         });
     };
     let evidence = store.runtime(original.clone()).await?;
+    if evidence
+        .as_ref()
+        .is_some_and(|runtime| runtime.provider != row.provider)
+    {
+        mark_unknown(store, &id).await?;
+        return Ok(RecoveryOutcome::Unknown {
+            execution_id: id,
+            failure: None,
+        });
+    }
     if !evidence
         .as_ref()
         .is_some_and(runtime::is_complete_termination)
