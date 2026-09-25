@@ -720,7 +720,94 @@ fn sandbox_policy_rejection_is_returned_without_retry_or_downgrade() {
             )
             .await
             .unwrap_err();
+        fake.await.unwrap();
         assert_eq!(error.code, "CODEX_RPC_FAILED");
+    });
+}
+
+#[test]
+/// writer conflict 必须同时满足 method、code 与受限 Thread ID 句式，且不得回显 ID。
+fn thread_writer_conflict_classification_is_exact_and_safe() {
+    let raw = json!({
+        "code": -32600,
+        "message": "thread 01a0d2f0-f66f-7601-a137-e12482ca6fb3 already has an active writer"
+    });
+    let conflict = rpc_response_error("thread/resume", raw.clone());
+    assert_eq!(conflict.code, "CODEX_THREAD_WRITER_CONFLICT");
+    assert_eq!(
+        conflict.message,
+        "Codex thread is currently being written by another client"
+    );
+    assert!(!conflict.message.contains("01a0d2f0"));
+
+    for (method, error) in [
+        ("thread/start", raw),
+        (
+            "thread/resume",
+            json!({"code":-32600,"message":"thread bad id already has an active writer"}),
+        ),
+        (
+            "thread/resume",
+            json!({"code":-32600,"message":"some other invalid request"}),
+        ),
+        (
+            "thread/resume",
+            json!({"code":-32602,"message":"thread 01a0d2f0-f66f-7601-a137-e12482ca6fb3 already has an active writer"}),
+        ),
+    ] {
+        assert_eq!(rpc_response_error(method, error).code, "CODEX_RPC_FAILED");
+    }
+}
+#[test]
+/// duplex 路径返回稳定错误，并保持既有的 application error fail/cancel 契约。
+fn thread_resume_active_writer_returns_stable_conflict() {
+    run(async {
+        let (client, server) = pair();
+        let (release, hold) = tokio::sync::oneshot::channel();
+        let fake = tokio::spawn(async move {
+            let mut io = BufReader::new(server);
+            handshake(&mut io).await;
+            let request = recv(&mut io).await;
+            assert_eq!(request["method"], "thread/resume");
+            assert_eq!(
+                request["params"],
+                json!({"threadId":"01a0d2f0-f66f-7601-a137-e12482ca6fb3","excludeTurns":true})
+            );
+            io.write_all(
+                &encode(&json!({
+                    "id":request["id"],
+                    "error":{
+                        "code":-32600,
+                        "message":"thread 01a0d2f0-f66f-7601-a137-e12482ca6fb3 already has an active writer"
+                    }
+                }))
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+            // 保持 transport 打开，避免 EOF 与 application error 的 failure 观察发生竞态。
+            let _ = hold.await;
+        });
+
+        client.initialize().await.unwrap();
+        let error = client
+            .thread_resume("01a0d2f0-f66f-7601-a137-e12482ca6fb3")
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "CODEX_THREAD_WRITER_CONFLICT");
+        assert_eq!(
+            error.message,
+            "Codex thread is currently being written by another client"
+        );
+        assert!(!client.is_ready());
+        assert_eq!(
+            client.failure().borrow().as_ref().unwrap(),
+            &ProtocolError::new(
+                "CODEX_THREAD_WRITER_CONFLICT",
+                "Codex thread is currently being written by another client",
+            )
+        );
+        release.send(()).unwrap();
         fake.await.unwrap();
     });
 }

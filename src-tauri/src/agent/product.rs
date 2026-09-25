@@ -436,6 +436,7 @@ impl ProductError {
             "AGENT_OBSERVE_INVALID_ARGUMENT",
             "BACKEND_UNAVAILABLE",
             "CODEX_APP_SERVER_INCOMPATIBLE",
+            "CODEX_THREAD_WRITER_CONFLICT",
             "CODEX_HOST_ARCH_UNSUPPORTED",
             "CODEX_ARCH_UNSUPPORTED",
             "CODEX_EXECUTABLE_FORMAT_UNSUPPORTED",
@@ -1095,6 +1096,8 @@ fn execution_diagnostic_message(row: &super::store::ExecutionRecord) -> Option<S
             "CODEX_APP_SERVER_INCOMPATIBLE" => "CODEX_APP_SERVER_INCOMPATIBLE: App Server protocol mismatch.".into(),
             "CODEX_TURN_ERROR_TERMINAL_TIMEOUT" => "CODEX_TURN_ERROR_TERMINAL_TIMEOUT: No authoritative terminal after non-retry error.".into(),
             "PROVIDER_THREAD_MISMATCH" => "PROVIDER_THREAD_MISMATCH: Notification does not belong to the Execution thread.".into(),
+            // 持久化原文可能含 Provider 上下文；仅按稳定子码投影固定安全诊断。
+            "CODEX_THREAD_WRITER_CONFLICT" => "CODEX_THREAD_WRITER_CONFLICT: Codex thread is currently being written by another client; release it and retry the continuation.".into(),
             "CODEX_RPC_TIMEOUT" => "CODEX_RPC_TIMEOUT: App Server request timed out.".into(),
             _ => "Codex Provider failed; raw details withheld.".into(),
         },

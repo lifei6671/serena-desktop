@@ -2458,15 +2458,59 @@ mod integration_tests {
             .lines()
             .find(|line| line.contains("HTTP GET · 404 Not Found"))
             .unwrap();
+        assert!(request_log.starts_with("WARN  "), "{request_log}");
         let (_, raw_details) = request_log.rsplit_once("\t@serena-details=").unwrap();
         let details: Value = serde_json::from_str(raw_details).unwrap();
+        assert_eq!(details["method"], "GET");
         assert_eq!(details["path"], "/missing/resource");
+        assert_eq!(details["status"], 404);
+        assert_eq!(details["expectedTransportProbe"], false);
         assert_eq!(details["peer"], peer.to_string());
         assert_eq!(details["host"], format!("127.0.0.1:{port}"));
         assert_eq!(details["cfConnectingIp"], "203.0.113.8");
         assert_eq!(details["forwardedFor"], "203.0.113.8, 192.0.2.1");
         assert_eq!(details["forwardedHost"], "serena.example.com");
         assert!(!logs.contains("do-not-log"));
+        broker.stop().await.unwrap();
+    }
+    /// standalone SSE 能力探测仍返回 405，但按预期 transport 探测记录为 INFO。
+    #[tokio::test]
+    async fn expected_get_mcp_probe_logs_info_with_safe_transport_details() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let dir = tempfile::tempdir().unwrap();
+        let broker = fixture(dir.path(), None);
+        broker.start().await.unwrap();
+        let port = broker.config().broker.port;
+        let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        let request = format!(
+            "GET /mcp HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAccept: text/event-stream\r\nMCP-Protocol-Version: 2025-06-18\r\nConnection: close\r\n\r\n"
+        );
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 405"));
+        let logs = broker.log_snapshot().join("\n");
+        let request_log = logs
+            .lines()
+            .find(|line| line.contains("HTTP GET · 405 Method Not Allowed"))
+            .unwrap();
+        assert!(request_log.starts_with("INFO  "), "{request_log}");
+        assert!(!request_log.starts_with("WARN  "), "{request_log}");
+        let (_, raw_details) = request_log.rsplit_once("\t@serena-details=").unwrap();
+        let details: Value = serde_json::from_str(raw_details).unwrap();
+        assert_eq!(details["method"], "GET");
+        assert_eq!(details["path"], "/mcp");
+        assert_eq!(details["status"], 405);
+        assert_eq!(details["accept"], "text/event-stream");
+        assert_eq!(details["mcpProtocolVersion"], "2025-06-18");
+        assert_eq!(details["expectedTransportProbe"], true);
         broker.stop().await.unwrap();
     }
     #[tokio::test]
