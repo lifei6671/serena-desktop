@@ -1601,6 +1601,33 @@ finalize_and_release_execution
 - Provider 正常路径和 Crash Recovery 使用同一强证据；
 - 便于保持与现有 Claim safety 对齐。
 
+CB5-003 对 Fresh Execute 已取得一手证据：
+
+~~~text
+initialize(protocolVersion = 1)
+    ↓
+session/new(cwd = canonical temp workspace)
+    ↓
+exact sessionId
+    ↓
+session/prompt
+    ↓
+session/update...
+    ↓
+PromptResponse(stopReason = end_turn)
+~~~
+
+read-only 场景完整 Workspace delta 为 0；isolated-write 场景只产生预期的 output.txt。由此证明 Fresh Execute wire、exact Session identity、Prompt terminal convergence 与 Workspace isolation 均可成立。
+
+`session/new` 曾观察到过瞬时 HTTP 500，但同一 CLI / 登录态随后由 Host 与完整 Probe 均成功创建 Session。该 500 **不得升级为稳定 Provider incompatibility**。同时因为 `session/new` 是可能产生 Session 的有副作用请求，收到 5xx / EOF / timeout 后无法证明服务端没有创建 Session，生产实现必须遵守：
+
+~~~text
+unknown session/new side effect
+    → do not replay automatically
+    → fail current Execution / cleanup owned Runtime
+    → keep Provider global health unless deterministic incompatibility evidence exists
+~~~
+
 ## 15.2 Session Identity
 
 CodeBuddy provider-private State 至少持久化：
@@ -1610,7 +1637,7 @@ execution_id
 runtime_instance_id
 acp_protocol_version
 session_id
-conversation_request_id?
+conversation_request_id
 prompt_rpc_id?
 prompt_state
 terminal_stop_reason?
@@ -1631,17 +1658,19 @@ CodeBuddy 当前支持在 session/prompt._meta 中携带：
 codebuddy.ai/conversationRequestId
 ~~~
 
-该字段可帮助把一个 SerenaDesktop Execution 与一个 CodeBuddy Prompt 精确关联。
+该字段用于把一个 SerenaDesktop Execution / Prompt 与 CodeBuddy 本轮精确关联。
 
-是否采用由 Contract Probe 决定。
+CB5-003 已冻结首版规则：
 
-如果采用：
-
-- SerenaDesktop 生成；
+- ACP 协议允许省略该字段；真实 read-only fresh prompt 在完全不发送该字段时仍成功，因此它**不是 CodeBuddy Fresh Execute 的协议必需字段**；
+- SerenaDesktop 首版仍**采用**该字段，因为真实 CodeBuddy 会在 PromptResponse._meta 与 SessionUpdate.update._meta 回显同一值，可形成稳定的 Provider-private prompt correlation；
+- SerenaDesktop 生成 UUIDv7；
+- wire 格式固定为 **32 位、小写、无连字符的十六进制 UUIDv7**；
 - Provider-private 持久化；
-- 必须在 prompt send 前 durable；
-- 不由 ChatGPT 提供；
-- 不作为跨 Provider 公共身份。
+- 必须在 session/prompt send 前 durable；
+- 不由 ChatGPT / Prompt 文本提供；
+- 不作为跨 Provider 公共身份；
+- 若调用方省略，CodeBuddy 会生成自己的 request identity；SerenaDesktop 不依赖该 fallback 作为 durable authority。
 
 ---
 
@@ -1847,6 +1876,21 @@ TelemetryProjector
 
 它可以用于 Provider private result assembly 和 terminal Final Result，但 Activity 公共投影继续保持安全分类。
 
+CB5-003 真实 Fresh Prompt 已观察到的 session/update 类型包括：
+
+~~~text
+config_option_update
+available_commands_update
+session_info_update
+usage_update
+tool_call
+tool_call_update
+agent_message_chunk
+agent_thought_chunk     # write 场景观察到
+~~~
+
+这些名字只作为 CodeBuddy Adapter 的已观察输入集合，不等于所有类型都应公开投影。未知 update 继续 fail-safe 忽略或归入 Provider-private telemetry，不通过文本内容猜测工具安全分类。
+
 ---
 
 # 20. Usage Contract
@@ -1956,6 +2000,14 @@ if provider == "codebuddy" { release }
 Provider ID 只用于验证 Evidence ownership 与 Runtime identity，永远不是 ReleaseBasis 本身。
 
 ## 21.1 Normal Success
+
+CB5-003 的真实 read-only 与 isolated-write Prompt 均以：
+
+~~~text
+PromptResponse.stopReason = "end_turn"
+~~~
+
+正常收敛。`end_turn` 可以作为 CodeBuddy Provider 的已验证正常 Prompt terminal 信号，但它本身**不能授权 Claim release**；仍必须完成 SerenaDesktop Runtime termination evidence。
 
 首版正常终态建议：
 
