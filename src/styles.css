@@ -1117,6 +1117,29 @@ h3 {
 /* Agent workbench: scoped presentation, existing desktop surfaces and signals. */
 :root { --agent-blue: #2563eb; }
 .agent-page { max-width: 1080px; }
+/* Provider 接入沿用任务页的紧凑中性色表面，各状态维度独立着色。 */
+.agent-providers { margin-bottom: 24px; }
+/* 角色策略沿用紧凑表单与中性色，窄窗口按行自然换列。 */
+.agent-role-routing { margin-bottom: 24px; }
+.agent-role-routing h2 { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
+.agent-role-routing > p { margin: 0 0 12px; }
+.agent-role-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px 24px; }
+.agent-role-row { display: flex; align-items: center; gap: 12px; min-width: 0; font-size: 13px; }
+.agent-role-row > label { flex-shrink: 0; }
+.agent-role-row > button { min-width: 0; max-width: 100%; flex: 1; background: white; }
+.agent-role-row > [role="status"] { flex-shrink: 0; font-size: 12px; }
+.agent-providers h2 { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
+.agent-providers > p { margin: 0 0 12px; }
+.agent-provider-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; }
+.agent-provider-card { min-width: 0; padding: 16px; border: 1px solid var(--console-line); border-radius: 8px; background: white; }
+.agent-provider-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.agent-provider-card h3 { margin: 0; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
+.agent-provider-card code { font-size: 12px; overflow-wrap: anywhere; }
+.agent-provider-card header > code { color: var(--console-muted); }
+.agent-provider-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin: 16px 0 0; font-size: 12px; }
+.agent-provider-card dt { margin-bottom: 4px; color: var(--console-muted); }
+.agent-provider-card dd { margin: 0; overflow-wrap: anywhere; }
+.agent-provider-card .tone-slate { color: var(--console-muted); }
 .agent-page .page-heading { margin-bottom: 24px; }
 .agent-local-label, .agent-eyebrow, .agent-muted, .agent-meta, .agent-history-note { color: var(--console-muted); font-size: 12px; }
 .agent-local-label { white-space: nowrap; }

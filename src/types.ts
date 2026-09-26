@@ -32,7 +32,25 @@ export interface RemoteState {
   ngrokAuthConfigured: boolean;
 }
 
+/** 单个 Provider 的本地策略，与 Rust camelCase 配置一致。 */
+export interface AgentProviderPolicy {
+  enabled: boolean;
+}
+
+/** Provider ID 保持开放；角色固定，路由允许未知 ID 或显式清空。 */
+export interface AgentProviderSettings {
+  providers: Record<string, AgentProviderPolicy>;
+  roleRouting: {
+    development: string | null;
+    testing: string | null;
+    review: string | null;
+    analysis: string | null;
+    general: string | null;
+  };
+}
+
 export interface ManagerConfig {
+  agentProviders: AgentProviderSettings;
   remoteAccess: RemoteAccessConfig;
   agentEnabled: boolean;
   remoteSourceWriteEnabled: boolean;
@@ -175,6 +193,26 @@ export type AgentAction =
   | { action: "observe"; executionId: string; knownRevision?: string; knownControlRevision?: string; waitMs?: number; includeResult?: boolean; wakeOn?: "control" | "activity" }
   | { action: "cancel" | "resume_pending"; executionId: string }
   | { action: "list"; agentId?: string; workspaceId?: string; limit?: number };
+/** 直接镜像 Product Catalog；缺失 descriptor 元数据只在展示层降级。 */
+export interface ProviderCatalogEntry {
+  id: string;
+  /** 预留稳定诊断消费契约；当前后端未提供时保持缺失，不推测版本兼容性。 */
+  diagnosticCode?: string | null;
+  displayName?: string | null;
+  version?: string | null;
+  enabled: boolean;
+  health: "available" | "unavailable";
+  availableForNewExecution: boolean;
+  capabilities: {
+    canExecute: boolean; canContinue: boolean; canCancel: boolean; canRecover: boolean;
+    activity: boolean; tokenUsage: boolean;
+  };
+}
+/** 本地读取现有 Catalog，不引入独立配置或 Runtime Authority。 */
+export interface ProviderCatalogSnapshot {
+  providers: ProviderCatalogEntry[];
+  roleRouting: Record<string, string | null>;
+}
 export interface ExecutionView {
   prompt: string; canonicalWorkspaceRoot: string;
   executionId: string; agentId: string; workspaceId: string; status: string;

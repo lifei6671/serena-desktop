@@ -160,6 +160,7 @@ impl Drop for WorkspaceWriteGuard {
 
 /// 已通过普通异步 preflight 的 Start 持久化输入；Workspace 快照仅在 operation mutex 内解析。
 pub(crate) struct WorkspaceStartCreation {
+    pub(crate) routing: crate::agent::store::transactions::product::FrozenStartRouting,
     pub(crate) execution_id: String,
     pub(crate) agent_id: String,
     pub(crate) request_key: String,
@@ -172,6 +173,7 @@ pub(crate) struct WorkspaceStartCreation {
 pub struct SupervisorState {
     runtime: Arc<Mutex<Runtime>>,
     operation: Mutex<()>,
+    provider_policy: crate::agent::provider::control::ProviderAdmissionPolicy,
     capability_manager: Arc<WorkspaceCapabilityManager>,
     workspace_write_guards: Arc<Mutex<WorkspaceWriteGuardState>>,
     target_commit_coordinator: crate::mcp::source_write_commit::TargetCommitCoordinator,
@@ -214,6 +216,9 @@ impl SupervisorState {
     pub fn new(paths: AppPaths) -> Result<Self, String> {
         logs::ensure_directory(&paths.log_directory)?;
         let config = config::load(&paths.config_file)?;
+        let provider_policy = crate::agent::provider::control::ProviderAdmissionPolicy::new(
+            config.agent_providers.clone(),
+        );
         // Provider 只读取最新配置快照；Registry 构造本身不执行 Serena CLI 或 Runtime 生命周期。
         let runtime = Arc::new(Mutex::new(Runtime {
             config,
@@ -246,6 +251,7 @@ impl SupervisorState {
         Ok(Self {
             runtime,
             operation: Mutex::new(()),
+            provider_policy,
             capability_manager: Arc::new(WorkspaceCapabilityManager::new(Arc::new(
                 WorkspaceCapabilityRegistry::new([
                     serena_provider,
@@ -719,6 +725,7 @@ impl SupervisorState {
             hook();
         }
         store.product_create_fresh_with_work_blocking(
+            creation.routing,
             creation.execution_id,
             creation.agent_id,
             creation.request_key,
@@ -749,8 +756,41 @@ impl SupervisorState {
         Ok(())
     }
 
-    pub fn replace_config(&self, next: ManagerConfig) -> Result<(), String> {
+    /// Desktop 与 Manager 共享已提交的 admission Authority。
+    pub(crate) fn provider_policy(
+        &self,
+    ) -> crate::agent::provider::control::ProviderAdmissionPolicy {
+        self.provider_policy.clone()
+    }
+
+    /// 在 operation 锁内读取最新配置、原子落盘，然后发布策略。
+    pub(crate) fn mutate_provider_settings(
+        &self,
+        mutate: impl FnOnce(&mut config::AgentProviderSettings),
+    ) -> Result<config::AgentProviderSettings, String> {
         let _operation = self.operation.lock().expect("operation mutex poisoned");
+        let mut runtime = self.runtime.lock().expect("supervisor mutex poisoned");
+        let mut next = runtime.config.clone();
+        mutate(&mut next.agent_providers);
+        self.provider_policy
+            .commit(next.agent_providers.clone(), || {
+                config::save(&self.paths.config_file, &next)?;
+                runtime.config = next.clone();
+                Ok(())
+            })?;
+        Ok(next.agent_providers)
+    }
+
+    pub fn replace_config(&self, mut next: ManagerConfig) -> Result<(), String> {
+        let _operation = self.operation.lock().expect("operation mutex poisoned");
+        // 整配置入口保留专用入口的最新 Provider 策略。
+        next.agent_providers = self
+            .runtime
+            .lock()
+            .expect("supervisor mutex poisoned")
+            .config
+            .agent_providers
+            .clone();
         next.validate()?;
         let installation = discovery::detect(&next, &self.paths);
         if next.serena_path.is_some() && installation.state != InstallationState::Standard {
@@ -1394,6 +1434,38 @@ mod tests {
             first,
             second,
         )
+    }
+
+    /// Provider mutation 必须等待 Supervisor 的既有 operation mutex。
+    #[test]
+    fn provider_policy_waits_for_supervisor_operation_lock() {
+        let (_directory, supervisor, _, _) = workspace_write_guard_fixture();
+        let supervisor = Arc::new(supervisor);
+        let guard = supervisor.operation.lock().unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+        let worker_supervisor = supervisor.clone();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            worker_supervisor
+                .mutate_provider_settings(|settings| {
+                    entered_tx.send(()).unwrap();
+                    settings.providers.get_mut("codex").unwrap().enabled = false;
+                })
+                .unwrap();
+        });
+        started_rx.recv().unwrap();
+        assert!(
+            entered_rx
+                .recv_timeout(std::time::Duration::from_millis(50))
+                .is_err()
+        );
+        drop(guard);
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        worker.join().unwrap();
+        assert!(!supervisor.snapshot().config.agent_providers.providers["codex"].enabled);
     }
 
     /// leader 已退出但忽略 SIGTERM 的 leaf 仍在 group 时，stop 必须保留原 owner 与身份。

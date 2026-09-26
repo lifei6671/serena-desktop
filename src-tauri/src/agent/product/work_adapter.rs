@@ -4,10 +4,26 @@ use super::*;
 use crate::agent::store::transactions::product::WorkExecutionContext;
 use crate::serena::SupervisorState;
 
+/// 保留 DTO 的显式选择或有界兼容意图，不缓存任何本地策略。
+pub(crate) enum StartRoutingIntent {
+    LegacyGeneral,
+    Explicit {
+        task_role: AgentTaskRole,
+        provider_id: ProviderId,
+    },
+}
+
+/// 仅借用 Broker 已有的配置管理锁；所有事实都在最终创建边界重新读取。
+pub(crate) struct StartCreationAuthority<'a> {
+    pub(crate) supervisor: &'a SupervisorState,
+    pub(crate) management: &'a tokio::sync::Mutex<()>,
+    pub(crate) routing: StartRoutingIntent,
+}
+
 // Start 仅可从显式快照或 Registry Resolver 获得 Workspace 输入。
 pub(crate) enum WorkspaceAuthority<'a> {
     Snapshot(Option<WorkspaceSnapshot>),
-    Resolver(&'a SupervisorState),
+    Resolver(StartCreationAuthority<'a>),
 }
 
 impl From<Option<WorkspaceSnapshot>> for WorkspaceAuthority<'_> {
@@ -16,9 +32,9 @@ impl From<Option<WorkspaceSnapshot>> for WorkspaceAuthority<'_> {
     }
 }
 
-impl<'a> From<&'a SupervisorState> for WorkspaceAuthority<'a> {
-    fn from(supervisor: &'a SupervisorState) -> Self {
-        Self::Resolver(supervisor)
+impl<'a> From<StartCreationAuthority<'a>> for WorkspaceAuthority<'a> {
+    fn from(authority: StartCreationAuthority<'a>) -> Self {
+        Self::Resolver(authority)
     }
 }
 
@@ -260,26 +276,31 @@ impl AgentProductService {
                 };
                 *prompt = context.prompt(prompt);
             }
-            if let Some(id) = self
+            let retry = self
                 .store
                 .product_work_preflight(action.clone(), work.clone())
                 .await
-                .map_err(|e| submission_error(e.into()))?
+                .map_err(|e| submission_error(e.into()))?;
+            // Start 的 exact retry 也必须经过最终 Authority；Continue 保持既有路径。
+            if !matches!(&workspace, WorkspaceAuthority::Resolver(_))
+                && let Some(id) = &retry
             {
                 return self
                     .observe(id.clone(), false)
                     .await
-                    .map_err(|e| ProductError::accepted(e, id));
+                    .map_err(|e| ProductError::accepted(e, id.clone()));
             }
-            let current = self.active_work(&work.work_run_id).await?;
-            if let Some(context) = context {
-                context.verify(current.canonical_workspace_root).await?;
+            if retry.is_none() {
+                let current = self.active_work(&work.work_run_id).await?;
+                if let Some(context) = context {
+                    context.verify(current.canonical_workspace_root).await?;
+                }
             }
-            if let WorkspaceAuthority::Resolver(supervisor) = workspace {
+            if let WorkspaceAuthority::Resolver(authority) = workspace {
                 // Lease 解析与 Execution+Claim 创建必须在同一 Supervisor operation mutex 内线性化。
                 let id = self
                     .manager
-                    .product_submit_resolved_workspace_start(supervisor, action, Some(work.clone()))
+                    .product_submit_resolved_workspace_start(authority, action, Some(work.clone()))
                     .await
                     .map_err(submission_error)?;
                 return self

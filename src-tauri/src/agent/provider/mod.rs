@@ -1,10 +1,12 @@
+use rmcp::schemars;
 use serde::{Deserialize, Deserializer, Serialize, de};
 
+pub(crate) mod control;
 pub mod port;
 pub mod registry;
 pub mod telemetry;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, rmcp::schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct ProviderId(String);
 
@@ -78,10 +80,11 @@ pub struct ProviderStartupContext {}
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[expect(
     clippy::enum_variant_names,
-    reason = "五个变体名称与冻结的 AGENT_PROVIDER_* wire 错误码一一对应。"
+    reason = "六个变体名称与冻结的 AGENT_PROVIDER_* wire 错误码一一对应。"
 )]
 pub enum ProviderErrorCode {
     AgentProviderNotFound,
+    AgentProviderDisabled,
     AgentProviderUnavailable,
     AgentProviderCapabilityUnsupported,
     AgentProviderContractError,

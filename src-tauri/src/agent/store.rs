@@ -327,7 +327,7 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .map_err(|e| e.to_string())?;
-    if version > 12 || version < 0 {
+    if !(0..=12).contains(&version) {
         return Err(format!("unsupported agent state schema version: {version}"));
     }
     if version == 12 {

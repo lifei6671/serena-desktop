@@ -341,6 +341,18 @@ fn manager_with_provider(
     manager
 }
 
+/// 构造 Provider 后切换本地 enabled policy，测试不创建生产 mutation surface。
+fn manager_with_provider_enabled(
+    store: StateStore,
+    provider: Arc<dyn AgentProvider>,
+    health: ProviderHealth,
+    enabled: bool,
+) -> AgentTaskManager {
+    let manager = manager_with_provider(store, provider, health);
+    manager.set_provider_enabled_for_test("codex", enabled);
+    manager
+}
+
 /// 以记录型 notifier 构造 Manager，验证 core 不依赖任何桌面实现。
 fn manager_with_provider_and_notifier(
     store: StateStore,
@@ -881,6 +893,7 @@ async fn automatic_recovery_schedule_failure_preserves_parent_facts() {
     manager.wait_for_auto_recovery_worker_for_test().await;
 }
 
+/// Startup reconcile 只依赖 registration/recovery capability，忽略 disabled 与当前 health。
 #[tokio::test]
 async fn startup_reconcile_uses_registered_providers_and_isolates_failures() {
     let directory = tempfile::tempdir().unwrap();
@@ -924,6 +937,8 @@ async fn startup_reconcile_uses_registered_providers_and_isolates_failures() {
         notifier.clone(),
     );
     manager.use_registry(registry);
+    manager.set_provider_enabled_for_test("alpha", false);
+    manager.set_provider_enabled_for_test("zeta", false);
 
     assert_eq!(
         manager.reconcile_startup().await.unwrap(),
@@ -990,7 +1005,7 @@ async fn host_acceptance_is_one_shot_and_receiver_drop_does_not_close_the_sink()
 fn production_task_manager_has_only_registry_provider_routes() {
     let source = include_str!("../task_manager.rs");
 
-    assert!(source.contains(".get(&provider_id)"));
+    assert!(source.contains(".admit_provider(&provider_id"));
     assert!(source.contains(".get_registered(&provider_id)"));
     assert!(source.contains("ProviderExecutionContext"));
     assert!(source.contains("ProviderCancelContext"));
@@ -1017,6 +1032,285 @@ async fn persisted_provider_routes_through_registry_trait_object() {
     assert_eq!(outcome.execution.status, "cancelled");
     assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 1);
     assert_eq!(fake.cancel_calls.load(Ordering::SeqCst), 0);
+}
+
+/// Disabled Start 在任何持久化或 Provider 调用前稳定拒绝。
+#[tokio::test]
+async fn disabled_start_rejects_before_execution_claim_or_provider_call() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let fake = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
+    let manager = manager_with_provider_enabled(
+        store.clone(),
+        fake.clone(),
+        ProviderHealth::Available,
+        false,
+    );
+
+    assert_eq!(
+        manager
+            .execute(input(directory.path(), "disabled-start"))
+            .await
+            .unwrap_err(),
+        ProviderExecutionFailure::State("AGENT_PROVIDER_DISABLED".into())
+    );
+    assert!(
+        store
+            .product_history_ids(None, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        store
+            .workspace_claim(directory.path().to_string_lossy().into())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 0);
+}
+
+/// Disabled Continue 不验证 Provider session，也不创建 child Execution。
+#[tokio::test]
+async fn disabled_continue_rejects_before_child_creation_or_provider_validation() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    store
+        .product_create_fresh(
+            "source".into(),
+            "routing-agent".into(),
+            "source-key".into(),
+            "source prompt".into(),
+            "routing-workspace".into(),
+            Some(WorkspaceSnapshot {
+                id: "routing-workspace".into(),
+                root: directory.path().to_string_lossy().into(),
+                generation: 1,
+            }),
+            1,
+        )
+        .await
+        .unwrap();
+    let database = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+    mark_safe_terminal(&database, "source", "completed");
+    let fake = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
+    let manager = manager_with_provider_enabled(
+        store.clone(),
+        fake.clone(),
+        ProviderHealth::Available,
+        false,
+    );
+
+    let error = manager
+        .product_submit(
+            super::super::product::Action::Continue {
+                execution_id: "source".into(),
+                request_key: "disabled-continue".into(),
+                prompt: "continue".into(),
+            },
+            None,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, "AGENT_PROVIDER_DISABLED");
+    assert_eq!(
+        store.product_history_ids(None, None).await.unwrap().len(),
+        1
+    );
+    assert_eq!(fake.continuation_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 0);
+}
+
+/// Disabled Resume 不得改变原 Execution 或 Workspace Claim 的任一字段。
+#[tokio::test]
+async fn disabled_resume_preserves_execution_and_claim_byte_for_byte() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let fake = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
+    let manager = manager_with_provider_enabled(
+        store.clone(),
+        fake.clone(),
+        ProviderHealth::Available,
+        false,
+    );
+    let created = manager
+        .create(input(directory.path(), "disabled-resume"))
+        .await
+        .unwrap();
+    let before = store
+        .execution(created.execution_id.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    let claim_before = store
+        .workspace_claim(before.canonical_workspace_root.clone())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        manager
+            .resume_pending_execution(&created.execution_id)
+            .await
+            .unwrap_err(),
+        ProviderExecutionFailure::State("AGENT_PROVIDER_DISABLED".into())
+    );
+    assert_eq!(
+        store
+            .execution(created.execution_id)
+            .await
+            .unwrap()
+            .unwrap(),
+        before
+    );
+    assert_eq!(
+        store
+            .workspace_claim(before.canonical_workspace_root)
+            .await
+            .unwrap(),
+        claim_before
+    );
+    assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 0);
+}
+
+/// 同时存在 disabled 与 unavailable 时必须先返回 disabled，且两码稳定可区分。
+#[tokio::test]
+async fn disabled_and_unavailable_are_distinct_and_disabled_wins_ordering() {
+    let directory = tempfile::tempdir().unwrap();
+    let disabled_store = StateStore::open(directory.path().join("disabled"))
+        .await
+        .unwrap();
+    let disabled_provider = Arc::new(FakeProvider::new(
+        disabled_store.clone(),
+        "codex",
+        true,
+        true,
+    ));
+    let disabled = manager_with_provider_enabled(
+        disabled_store.clone(),
+        disabled_provider,
+        ProviderHealth::Unavailable,
+        false,
+    );
+    let disabled_execution = disabled
+        .create(input(directory.path(), "disabled-before-unavailable"))
+        .await
+        .unwrap();
+    assert_eq!(
+        disabled
+            .resume_pending_execution(&disabled_execution.execution_id)
+            .await
+            .unwrap_err(),
+        ProviderExecutionFailure::State("AGENT_PROVIDER_DISABLED".into())
+    );
+
+    let unavailable_store = StateStore::open(directory.path().join("unavailable"))
+        .await
+        .unwrap();
+    let unavailable_provider = Arc::new(FakeProvider::new(
+        unavailable_store.clone(),
+        "codex",
+        true,
+        true,
+    ));
+    let unavailable = manager_with_provider_enabled(
+        unavailable_store,
+        unavailable_provider,
+        ProviderHealth::Unavailable,
+        true,
+    );
+    let unavailable_execution = unavailable
+        .create(input(directory.path(), "enabled-unavailable"))
+        .await
+        .unwrap();
+    assert_eq!(
+        unavailable
+            .resume_pending_execution(&unavailable_execution.execution_id)
+            .await
+            .unwrap_err(),
+        ProviderExecutionFailure::State("AGENT_PROVIDER_UNAVAILABLE".into())
+    );
+}
+
+/// Provider 接受后的在途 Execution 持有既有 handle，后续 disable 只阻止新 Start。
+#[tokio::test]
+async fn running_execution_survives_disable_until_provider_converges() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let release = Arc::new(tokio::sync::Notify::new());
+    let mut provider = FakeProvider::new(store.clone(), "codex", true, true);
+    provider.release = Some(release.clone());
+    let provider = Arc::new(provider);
+    let manager = manager_with_provider_enabled(
+        store.clone(),
+        provider.clone(),
+        ProviderHealth::Available,
+        true,
+    );
+    let execution_id = manager
+        .product_submit(
+            super::super::product::Action::Start {
+                workspace_id: "routing-workspace".into(),
+                agent_id: "routing-agent".into(),
+                request_key: "running-before-disable".into(),
+                prompt: "wait".into(),
+            },
+            Some(WorkspaceSnapshot {
+                id: "routing-workspace".into(),
+                root: directory.path().to_string_lossy().into(),
+                generation: 1,
+            }),
+        )
+        .await
+        .unwrap();
+    let running = store
+        .execution(execution_id.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    let claim_before = store
+        .workspace_claim(running.canonical_workspace_root.clone())
+        .await
+        .unwrap();
+
+    manager.set_provider_enabled_for_test("codex", false);
+    assert_eq!(
+        store
+            .execution(execution_id.clone())
+            .await
+            .unwrap()
+            .unwrap(),
+        running
+    );
+    assert_eq!(
+        store
+            .workspace_claim(running.canonical_workspace_root.clone())
+            .await
+            .unwrap(),
+        claim_before
+    );
+    assert_eq!(provider.execute_calls.load(Ordering::SeqCst), 1);
+    assert!(!provider.terminal.load(Ordering::SeqCst));
+
+    assert_eq!(
+        manager
+            .execute(input(directory.path(), "start-after-disable"))
+            .await
+            .unwrap_err(),
+        ProviderExecutionFailure::State("AGENT_PROVIDER_DISABLED".into())
+    );
+    release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while !provider.terminal.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        store.execution(execution_id).await.unwrap().unwrap().status,
+        "cancelled"
+    );
 }
 
 /// 相同 v3 requestKey 重试只读取既有 Execution，不再次调用 Provider。
@@ -1246,7 +1540,7 @@ async fn fresh_create_rejects_generic_parent_before_persistence_or_dispatch() {
 }
 
 #[tokio::test]
-async fn continuation_validation_uses_registration_not_execute_health() {
+async fn continuation_validation_obeys_health_and_capability_admission() {
     let directory = tempfile::tempdir().unwrap();
     let store = StateStore::open(directory.path().into()).await.unwrap();
     let available_for_read = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
@@ -1255,10 +1549,10 @@ async fn continuation_validation_uses_registration_not_execute_health() {
         available_for_read.clone(),
         ProviderHealth::Unavailable,
     );
-    assert!(manager.can_continue("source".into(), "codex".into()).await);
+    assert!(!manager.can_continue("source".into(), "codex".into()).await);
     assert_eq!(
         available_for_read.continuation_calls.load(Ordering::SeqCst),
-        1
+        0
     );
     assert_eq!(available_for_read.execute_calls.load(Ordering::SeqCst), 0);
 
@@ -1386,14 +1680,28 @@ async fn runtime_failure_keeps_classification_and_safe_receipt_diagnostic() {
         rx.await.unwrap(),
         Err("CODEX_RUNTIME_TEST_FAILED: safe diagnostic".into())
     );
+    assert_eq!(
+        manager
+            .registry()
+            .unwrap()
+            .health(&ProviderId::new("codex".into()).unwrap())
+            .unwrap(),
+        ProviderHealth::Available
+    );
 }
 
+/// Disabled 且 unavailable 的 Provider 仍可按 persisted identity 执行 Cancel。
 #[tokio::test]
-async fn unavailable_provider_cancel_uses_registration_and_preserves_manual_resolution() {
+async fn disabled_unavailable_provider_cancel_uses_registration_and_preserves_manual_resolution() {
     let directory = tempfile::tempdir().unwrap();
     let store = StateStore::open(directory.path().into()).await.unwrap();
     let fake = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
-    let manager = manager_with_provider(store.clone(), fake.clone(), ProviderHealth::Unavailable);
+    let manager = manager_with_provider_enabled(
+        store.clone(),
+        fake.clone(),
+        ProviderHealth::Unavailable,
+        false,
+    );
     let created = manager
         .create(input(directory.path(), "unavailable-cancel"))
         .await
@@ -1405,7 +1713,7 @@ async fn unavailable_provider_cancel_uses_registration_and_preserves_manual_reso
         .unwrap_err()
     {
         ProviderExecutionFailure::State(error) => {
-            assert_eq!(error, "AGENT_PROVIDER_UNAVAILABLE")
+            assert_eq!(error, "AGENT_PROVIDER_DISABLED")
         }
         error => panic!("unexpected failure: {error:?}"),
     }
@@ -1479,4 +1787,50 @@ async fn cancel_capability_and_unknown_registration_fail_closed() {
             .unwrap_err(),
         "AGENT_PROVIDER_NOT_FOUND"
     );
+}
+
+/// 启动时不可用的诊断不能覆盖刷新后的健康事实；Resume 使用当前 adapter。
+#[tokio::test]
+async fn provider_policy_refresh_recovers_initially_unavailable_resume() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let mut manager = AgentTaskManager::new(store.clone(), PathBuf::new());
+    manager.install_backend_resolution(Err("BACKEND_UNAVAILABLE: initial discovery".into()));
+    let codex = ProviderId::new("codex".into()).unwrap();
+    assert_eq!(
+        manager.registry().unwrap().health(&codex).unwrap(),
+        ProviderHealth::Unavailable
+    );
+    let created = manager
+        .create(input(directory.path(), "refresh-resume"))
+        .await
+        .unwrap();
+    assert_eq!(
+        crate::agent::codex::TEST_BACKEND_DISCOVERY
+            .scope(
+                Ok("refreshed-codex.exe".into()),
+                manager.refresh_provider_health(codex.clone())
+            )
+            .await
+            .unwrap(),
+        ProviderHealth::Available
+    );
+    // 仅在 Runtime 执行边界替换 FakeProvider，保持真实 refresh 与 Resume 入口。
+    let fake = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
+    let mut registry = manager.registry().unwrap().as_ref().clone();
+    registry
+        .replace_registered(fake.clone(), ProviderHealth::Available)
+        .unwrap();
+    *manager.registry.lock().unwrap() = Some(Arc::new(registry));
+    let id = manager
+        .product_submit(
+            super::super::product::Action::ResumePending {
+                execution_id: created.execution_id.clone(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(id, created.execution_id);
+    assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 1);
 }

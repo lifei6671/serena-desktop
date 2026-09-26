@@ -1,4 +1,33 @@
-import type { ExecutionView, Workspace } from "./types";
+import type { ExecutionView, ProviderCatalogEntry, Workspace } from "./types";
+
+/** 复用任务列表的活动状态集合；不表示真实操作系统进程状态。 */
+export const activeExecutionStatuses = new Set(["dispatch_pending", "running", "cancel_requested", "cancelling", "finalizing", "reconciling"]);
+
+/** 按已加载任务冻结的 Provider 身份统计，与当前路由、显示名称和列表隐藏无关。 */
+export function providerCardPresentation(provider: ProviderCatalogEntry, rows: ExecutionView[]) {
+  const activeExecutions = rows.filter(row => row.provider.id === provider.id && activeExecutionStatuses.has(row.status)).length;
+  const draining = !provider.enabled && activeExecutions > 0;
+  const name = provider.displayName?.trim() || provider.id;
+  return {
+    name,
+    // 只消费 Product 的恢复投影，不重新推导 Claim Authority。
+    pendingBlockers: rows.filter(row => row.provider.id === provider.id && (row.attention === "pending_explicit_resume" || row.availableActions.canResumePending)),
+    // 稳定诊断码是唯一兼容性文案入口；产品版本仅作元数据展示。
+    unsupportedVersionNotice: provider.diagnosticCode === "CODEBUDDY_ACP_INCOMPATIBLE"
+      ? `${name} 的 ACP 协议或必需能力与当前 SerenaDesktop 不兼容。请升级 CodeBuddy 或 SerenaDesktop 后重新检测。`
+      : null,
+    version: provider.version?.trim() || "—",
+    // Catalog 尚未提供协议元数据，不根据 Provider 身份猜测。
+    protocol: "—",
+    enabledLabel: provider.enabled ? "已启用" : draining ? "正在停用" : "已停用",
+    enabledTone: draining ? "amber" : "slate",
+    healthLabel: provider.health === "available" ? "可用" : provider.health === "unavailable" ? "不可用" : "未提供",
+    healthTone: provider.health === "available" ? "green" : provider.health === "unavailable" ? "red" : "slate",
+    runtime: activeExecutions > 0 ? "running" : "stopped",
+    runtimeLabel: activeExecutions > 0 ? "运行中" : "已停止",
+    activeExecutions,
+  };
+}
 
 type ProviderDisplaySource = { provider?: { id?: string | null; displayName?: string | null; version?: string | null } | null };
 type ActivityDisplaySource = Pick<ExecutionView, "progress">;
@@ -6,7 +35,7 @@ type ActivityDisplaySource = Pick<ExecutionView, "progress">;
 // Presentation only. Never use these labels or tones to authorize an operation.
 const states: Record<string, { label: string; description: string; tone: string }> = {
   dispatch_pending: { label: "等待执行", description: "任务已保存，等待发送给 Agent。", tone: "amber" },
-  running: { label: "执行中", description: "Codex 正在处理任务。", tone: "blue" },
+  running: { label: "执行中", description: "Agent 正在处理任务。", tone: "blue" },
   cancel_requested: { label: "正在取消", description: "已提交取消请求，等待执行结束。", tone: "blue" },
   cancelling: { label: "正在取消", description: "正在停止任务并确认执行状态。", tone: "blue" },
   finalizing: { label: "正在整理结果", description: "正在整理结果并完成收尾。", tone: "blue" },

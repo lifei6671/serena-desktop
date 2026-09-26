@@ -1252,11 +1252,11 @@ mod tests {
         for (name, expected) in [
             (
                 "agent_query",
-                "e9d3bdabccec0ec8771cd551d2dc7d37d4ea61ef60a25721df42e8a761434027",
+                "96bf06b880b5ec4972a42dd83cb1dc7e8f1f8c797f760dbad24c333466d68ae0",
             ),
             (
                 "agent_execute",
-                "d889e222c362c1e898a5aabe1897d8e4abb3c8e95962b5d0daf1c352be5f02da",
+                "d9f562430843fcb9ae663cff5b895afef93ab45c23bd29b4af16cf85fd199fa1",
             ),
         ] {
             let tool = tools.iter().find(|tool| tool.name == name).unwrap();
@@ -1306,7 +1306,7 @@ mod tests {
                 branches.len(),
                 match tool.name.as_ref() {
                     "work_query" => 2,
-                    "agent_execute" => 4,
+                    "agent_execute" | "agent_query" => 4,
                     _ => 3,
                 }
             );
@@ -2172,7 +2172,51 @@ mod agent_contract_tests {
             );
         }
         let defs = &query["definitions"];
-        assert_eq!(defs["QueryData"]["anyOf"].as_array().unwrap().len(), 3);
+        let query_branches = defs["QueryData"]["anyOf"].as_array().unwrap();
+        assert_eq!(query_branches.len(), 4);
+        // 按引用和必填字段识别公开分支，避免依赖 schema 的分支排列顺序。
+        for reference in [
+            "#/definitions/ExecutionView",
+            "#/definitions/QueryObservation",
+        ] {
+            assert!(
+                query_branches
+                    .iter()
+                    .any(|branch| branch["$ref"] == reference)
+            );
+        }
+        let list = query_branches
+            .iter()
+            .find(|branch| {
+                branch["required"]
+                    .as_array()
+                    .is_some_and(|required| required.contains(&serde_json::json!("executions")))
+            })
+            .expect("QueryData must retain the List branch");
+        assert_eq!(list["type"], "object");
+        assert_eq!(list["properties"]["executions"]["type"], "array");
+        assert_eq!(
+            list["properties"]["executions"]["items"]["$ref"],
+            "#/definitions/QuerySummary"
+        );
+        assert!(query_branches.iter().any(|branch| {
+            branch["allOf"].as_array().is_some_and(|references| {
+                references
+                    .iter()
+                    .any(|reference| reference["$ref"] == "#/definitions/ProviderCatalogSnapshot")
+            })
+        }));
+        let catalog = &defs["ProviderCatalogSnapshot"];
+        for field in ["providers", "roleRouting"] {
+            assert!(
+                catalog["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!(field))
+            );
+            assert!(catalog["properties"].get(field).is_some());
+        }
+        assert_eq!(catalog["properties"]["providers"]["type"], "array");
         let observation = &defs["QueryObservation"];
         for field in [
             "executionId",

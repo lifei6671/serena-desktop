@@ -109,6 +109,10 @@ fn provider_error_code_wire_values_are_exact() {
             "AGENT_PROVIDER_NOT_FOUND",
         ),
         (
+            ProviderErrorCode::AgentProviderDisabled,
+            "AGENT_PROVIDER_DISABLED",
+        ),
+        (
             ProviderErrorCode::AgentProviderUnavailable,
             "AGENT_PROVIDER_UNAVAILABLE",
         ),

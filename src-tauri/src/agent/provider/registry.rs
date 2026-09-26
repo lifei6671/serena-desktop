@@ -1,3 +1,4 @@
+use rmcp::schemars;
 use std::{
     collections::{HashMap, hash_map::Entry},
     sync::Arc,
@@ -8,18 +9,20 @@ use super::{
     port::AgentProvider,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, rmcp::schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum ProviderHealth {
     Available,
     Unavailable,
 }
 
+#[derive(Clone)]
 struct RegistryEntry {
     provider: Arc<dyn AgentProvider>,
     health: ProviderHealth,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ProviderRegistry {
     entries: HashMap<ProviderId, RegistryEntry>,
 }
@@ -77,6 +80,18 @@ impl ProviderRegistry {
             code: ProviderErrorCode::AgentProviderNotFound,
         })?;
         entry.health = health;
+        Ok(())
+    }
+
+    /// 只替换已注册的 admission adapter，旧调用持有的 Arc 不受影响。
+    pub(crate) fn replace_registered(
+        &mut self,
+        provider: Arc<dyn AgentProvider>,
+        health: ProviderHealth,
+    ) -> Result<(), ProviderError> {
+        let id = provider.descriptor().id;
+        self.get_registered(&id)?;
+        self.entries.insert(id, RegistryEntry { provider, health });
         Ok(())
     }
 

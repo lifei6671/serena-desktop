@@ -349,7 +349,14 @@ impl Broker {
                 return crate::agent::product::failure(error, None);
             }
             return product
-                .operation_resolved_workspace_start(&self.supervisor, args)
+                .operation_resolved_workspace_start(
+                    crate::agent::product::StartCreationAuthority {
+                        supervisor: &self.supervisor,
+                        management: &self.management,
+                        routing: crate::agent::product::StartRoutingIntent::LegacyGeneral,
+                    },
+                    args,
+                )
                 .await;
         }
         product.operation(args, None).await

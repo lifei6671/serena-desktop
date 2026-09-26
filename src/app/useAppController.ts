@@ -6,6 +6,11 @@ import { useBroker } from "../useBroker";
 import type { AppState, ManagerConfig } from "../types";
 
 const initialConfig: ManagerConfig = {
+  // 仅用于首次快照前的占位；旧配置迁移和缺省补齐由 Rust 负责。
+  agentProviders: {
+    providers: { codex: { enabled: true }, codebuddy: { enabled: false } },
+    roleRouting: { development: "codex", testing: "codex", review: "codex", analysis: "codex", general: "codex" },
+  },
   agentEnabled: false,
   remoteAccess: { mode: "mcp_only", quickTunnelDesiredRunning: false, selfHosted: { provider: "custom_https", publicOrigin: null }, mcpOnly: { securityDeclaration: "external_auth", publicOrigin: null } },
   broker: { enabled: false, port: 19120, allowLan: false },
@@ -60,6 +65,9 @@ export function useAppController(statusVisible: boolean) {
       setDraft(next.config);
       setBrokerPort(next.config.broker.port);
       setBrokerAllowLan(next.config.broker.allowLan);
+    } else {
+      // 策略只接受后端快照，刷新时保留其他尚未保存的普通设置。
+      setDraft((current) => ({ ...current, agentProviders: next.config.agentProviders }));
     }
     setState(next);
   }, []);
@@ -125,7 +133,7 @@ export function useAppController(statusVisible: boolean) {
     setBusy(label);
     try {
       const next = await action();
-      setState(next);
+      applySnapshot(next);
       if (success) toast.success(success);
     } catch (reason) {
       toast.error(String(reason), { id: "app-feedback" });
@@ -136,7 +144,8 @@ export function useAppController(statusVisible: boolean) {
     }
   };
 
-  const saveFields = async (patch: Partial<ManagerConfig>, success: string) => {
+  // 普通局部保存不提供 Provider policy mutation；策略修改使用专用 Local IPC。
+  const saveFields = async (patch: Partial<Omit<ManagerConfig, "agentProviders">>, success: string) => {
     if (!state || busy !== null) return;
     const unchanged = Object.entries(patch).every(
       ([key, value]) => state.config[key as keyof ManagerConfig] === value,
@@ -149,7 +158,7 @@ export function useAppController(statusVisible: boolean) {
     try {
       const snapshot = await api.saveConfig({ ...state.config, ...patch });
       setState(snapshot);
-      setDraft((current) => ({ ...current, ...patch }));
+      setDraft((current) => ({ ...current, ...patch, agentProviders: snapshot.config.agentProviders }));
       toast.success(success);
     } catch (reason) {
       toast.error(String(reason), { id: "app-feedback" });
@@ -160,7 +169,7 @@ export function useAppController(statusVisible: boolean) {
     }
   };
 
-  const saveToggle = async (patch: Partial<ManagerConfig>, success: string) => {
+  const saveToggle = async (patch: Partial<Omit<ManagerConfig, "agentProviders">>, success: string) => {
     if (!state) return;
     const previous = draft;
     const optimistic = { ...draft, ...patch };
@@ -172,7 +181,7 @@ export function useAppController(statusVisible: boolean) {
     try {
       const snapshot = await api.saveConfig(persisted);
       setState(snapshot);
-      setDraft((current) => ({ ...current, ...patch }));
+      setDraft((current) => ({ ...current, ...patch, agentProviders: snapshot.config.agentProviders }));
       toast.success(success);
     } catch (reason) {
       setDraft(previous);
@@ -217,7 +226,7 @@ export function useAppController(statusVisible: boolean) {
     setBusy("autostart");
     try {
       const snapshot = await api.setAutostart(enabled);
-      setState(snapshot);
+      applySnapshot(snapshot);
       toast.success(
         enabled ? "已启用随系统登录启动。" : "已关闭随系统登录启动。",
       );

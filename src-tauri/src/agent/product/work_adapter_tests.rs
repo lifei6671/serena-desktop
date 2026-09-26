@@ -1164,6 +1164,7 @@ async fn resolver_start_and_remove_share_supervisor_operation_exclusion() {
     config::save(
         &paths.config_file,
         &ManagerConfig {
+            agent_enabled: true,
             workspace_registry_revision: 1,
             workspaces: vec![Workspace {
                 id: "W".into(),
@@ -1208,7 +1209,14 @@ async fn resolver_start_and_remove_share_supervisor_operation_exclusion() {
             .unwrap()
             .block_on(async move {
                 let result = start_service
-                    .agent_execute(start_work("work", "key"), start_supervisor.as_ref())
+                    .agent_execute(
+                        start_work("work", "key"),
+                        StartCreationAuthority {
+                            supervisor: start_supervisor.as_ref(),
+                            management: &tokio::sync::Mutex::new(()),
+                            routing: StartRoutingIntent::LegacyGeneral,
+                        },
+                    )
                     .await;
                 start_result_tx.send(result).unwrap();
                 // 保持发起方 runtime 存活，直到 fake 已证明后台 worker 收到 turn/start。
@@ -1283,6 +1291,7 @@ async fn resolver_start_after_remove_linearizes_to_workspace_not_found() {
     config::save(
         &paths.config_file,
         &ManagerConfig {
+            agent_enabled: true,
             workspace_registry_revision: 1,
             workspaces: vec![Workspace {
                 id: "W".into(),
@@ -1329,7 +1338,14 @@ async fn resolver_start_after_remove_linearizes_to_workspace_not_found() {
             .unwrap()
             .block_on(async move {
                 start_service
-                    .agent_execute(start_work("work", "key"), start_supervisor.as_ref())
+                    .agent_execute(
+                        start_work("work", "key"),
+                        StartCreationAuthority {
+                            supervisor: start_supervisor.as_ref(),
+                            management: &tokio::sync::Mutex::new(()),
+                            routing: StartRoutingIntent::LegacyGeneral,
+                        },
+                    )
                     .await
             })
     });

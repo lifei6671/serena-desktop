@@ -27,6 +27,7 @@ pub(crate) use control::adapter_rejection;
 mod work_adapter;
 mod work_context;
 pub use work_adapter::{AgentExecuteAction, AgentQueryAction};
+pub(crate) use work_adapter::{StartCreationAuthority, StartRoutingIntent};
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(
@@ -98,6 +99,39 @@ pub struct ProviderProduct {
     pub id: String,
     pub display_name: String,
     pub version: Option<String>,
+}
+/// 当前已注册 Provider 的只读目录；路由保留 Local Human 配置中的原始目标。
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCatalogSnapshot {
+    pub providers: Vec<ProviderCatalogEntry>,
+    pub role_routing: std::collections::BTreeMap<String, Option<ProviderId>>,
+}
+
+/// 注册、策略、健康与能力分别投影，不把不可执行等同于未注册。
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCatalogEntry {
+    pub id: ProviderId,
+    pub display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    pub enabled: bool,
+    pub health: super::provider::registry::ProviderHealth,
+    pub available_for_new_execution: bool,
+    pub capabilities: ProviderCapabilitiesProduct,
+}
+
+/// 只公开 Provider 已声明的能力，不根据 Provider 名称或路由补充能力。
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCapabilitiesProduct {
+    pub can_execute: bool,
+    pub can_continue: bool,
+    pub can_cancel: bool,
+    pub can_recover: bool,
+    pub activity: bool,
+    pub token_usage: bool,
 }
 impl ProviderProduct {
     /// 持久化 ID 是唯一身份；descriptor 只补充展示信息，缺失或不一致时安全回退。
@@ -421,6 +455,10 @@ impl ProductError {
             "WORKSPACE_ROOT_NOT_FOUND",
             "WORKSPACE_ROOT_NOT_DIRECTORY",
             "AGENT_DISABLED",
+            "AGENT_PROVIDER_DISABLED",
+            "AGENT_ROLE_NOT_CONFIGURED",
+            "AGENT_ROLE_PROVIDER_MISMATCH",
+            "AGENT_PROVIDER_UNAVAILABLE",
             "AGENT_INVALID_ARGUMENT",
             "AGENT_NO_ACTIVE_WORKSPACE",
             "AGENT_WORKSPACE_CHANGED",
@@ -442,9 +480,6 @@ impl ProductError {
             "CODEX_EXECUTABLE_FORMAT_UNSUPPORTED",
             "CODEX_EXECUTABLE_NOT_RUNNABLE",
             "CODEX_COMPATIBILITY_BLOCKED",
-            // Phase 1 的非 Windows Runtime 请求保留明确的 Provider 不可用诊断。
-            #[cfg(not(windows))]
-            "AGENT_PROVIDER_UNAVAILABLE",
         ];
         let code = codes
             .iter()
@@ -557,6 +592,57 @@ pub struct AgentProductService {
     manager: AgentTaskManager,
 }
 impl AgentProductService {
+    /// 读取当前 Local Human 配置和 Registry 快照，不进入 probe、Runtime 或执行路径。
+    pub fn provider_catalog(
+        &self,
+        supervisor: &crate::serena::SupervisorState,
+    ) -> Result<ProviderCatalogSnapshot, super::provider::ProviderError> {
+        let config = supervisor.workspace_registry_config();
+        let registry = self.manager.registry()?;
+        let mut providers = Vec::new();
+        // 只枚举注册项；配置中的未知 Provider 和路由目标不产生虚假的注册条目。
+        for descriptor in registry.list_descriptors() {
+            let health = registry.health(&descriptor.id)?;
+            let capabilities = registry.capabilities(&descriptor.id)?;
+            let enabled = config
+                .agent_providers
+                .providers
+                .get(descriptor.id.as_str())
+                .is_some_and(|policy| policy.enabled);
+            providers.push(ProviderCatalogEntry {
+                available_for_new_execution: config.agent_enabled
+                    && enabled
+                    && health == super::provider::registry::ProviderHealth::Available
+                    && capabilities.can_execute,
+                id: descriptor.id,
+                display_name: descriptor.display_name,
+                version: descriptor.version,
+                enabled,
+                health,
+                capabilities: ProviderCapabilitiesProduct {
+                    can_execute: capabilities.can_execute,
+                    can_continue: capabilities.can_continue,
+                    can_cancel: capabilities.can_cancel,
+                    can_recover: capabilities.can_recover,
+                    activity: capabilities.activity,
+                    token_usage: capabilities.token_usage,
+                },
+            });
+        }
+        Ok(ProviderCatalogSnapshot {
+            providers,
+            role_routing: config.agent_providers.role_routing,
+        })
+    }
+
+    /// 本地健康刷新只进入 Manager 的 admission probe。
+    pub(crate) async fn refresh_provider_health(
+        &self,
+        id: super::provider::ProviderId,
+    ) -> Result<super::provider::registry::ProviderHealth, String> {
+        self.manager.refresh_provider_health(id).await
+    }
+
     pub(crate) fn work_product(&self) -> super::work::WorkProductService {
         super::work::WorkProductService::new(self.store.clone())
     }
@@ -634,11 +720,26 @@ impl AgentProductService {
         store: StateStore,
         terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
     ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+        Self::initialize_with_terminal_notifier_and_provider_settings(
+            store,
+            terminal_notifier,
+            crate::config::AgentProviderSettings::default(),
+        )
+        .await
+    }
+
+    /// Desktop 启动消费已持久化 Provider 设置，不创建新的设置 authority 或 mutation surface。
+    pub(crate) async fn initialize_with_terminal_notifier_and_provider_settings(
+        store: StateStore,
+        terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
+        provider_settings: impl Into<super::provider::control::ProviderAdmissionPolicy>,
+    ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
         // 先创建唯一 Manager shell，discovery probe 才能共用其 Store/owner/Pool。
-        let mut manager = AgentTaskManager::new_with_terminal_notifier(
+        let mut manager = AgentTaskManager::new_with_terminal_notifier_and_provider_settings(
             store.clone(),
             std::path::PathBuf::new(),
             terminal_notifier,
+            provider_settings,
         );
         #[cfg(test)]
         let resolution = match TEST_DISCOVERY.try_with(Clone::clone) {
@@ -676,10 +777,26 @@ impl AgentProductService {
         store: StateStore,
         terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
     ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
-        let mut manager = AgentTaskManager::new_with_terminal_notifier(
+        Self::initialize_desktop_deferred_with_provider_settings(
+            store,
+            terminal_notifier,
+            crate::config::AgentProviderSettings::default(),
+        )
+        .await
+    }
+
+    /// macOS 延后 discovery 时同样消费启动快照中的 Provider 设置。
+    #[cfg(target_os = "macos")]
+    pub(crate) async fn initialize_desktop_deferred_with_provider_settings(
+        store: StateStore,
+        terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
+        provider_settings: impl Into<super::provider::control::ProviderAdmissionPolicy>,
+    ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+        let mut manager = AgentTaskManager::new_with_terminal_notifier_and_provider_settings(
             store.clone(),
             std::path::PathBuf::new(),
             terminal_notifier,
+            provider_settings,
         );
         manager.defer_backend_resolution();
         Self::recover_before_publish(store, manager).await
@@ -714,12 +831,24 @@ impl AgentProductService {
         };
         Self { manager, store }
     }
+    /// MCP 只读契约测试注入受控 Registry 与 Runtime 连接断言。
+    #[cfg(test)]
+    pub(crate) fn new_with_manager_for_test(store: StateStore, manager: AgentTaskManager) -> Self {
+        Self { store, manager }
+    }
     /// 构造在 Provider 接受前确定性拒绝派发的测试专用服务。
     #[cfg(test)]
     pub(crate) fn new_with_rejected_dispatch_for_test(store: StateStore) -> Self {
         let mut manager = AgentTaskManager::new(store.clone(), std::path::PathBuf::new());
-        // 固定 Registry 为不可用，避免测试发现或启动用户安装的 Codex。
-        manager.backend_error = Some("TEST_DISPATCH_REJECTED".into());
+        // 只注册无 Runtime 能力的 fake；绝不创建或提升真实 Codex adapter 的健康状态。
+        let mut registry = super::provider::registry::ProviderRegistry::new();
+        registry
+            .register(
+                std::sync::Arc::new(tests::RejectedDispatchProvider),
+                super::provider::registry::ProviderHealth::Available,
+            )
+            .unwrap();
+        manager.use_registry(registry);
         Self { store, manager }
     }
     pub async fn operation(&self, value: Value, workspace: Option<WorkspaceSnapshot>) -> Value {
@@ -748,7 +877,7 @@ impl AgentProductService {
     /// Local Start 复用 Remote 的 Supervisor 线性化创建路径，禁止在兼容入口预先冻结快照。
     pub(crate) async fn operation_resolved_workspace_start(
         &self,
-        supervisor: &crate::serena::SupervisorState,
+        authority: StartCreationAuthority<'_>,
         value: Value,
     ) -> Value {
         let action = match parse(value) {
@@ -758,7 +887,7 @@ impl AgentProductService {
         };
         match self
             .manager
-            .product_submit_resolved_workspace_start(supervisor, action.clone(), None)
+            .product_submit_resolved_workspace_start(authority, action.clone(), None)
             .await
         {
             Ok(id) => match self.observe(id.clone(), false).await {
@@ -1193,5 +1322,8 @@ fn safe_turn_error_category(raw: &str) -> Option<&'static str> {
         .find(|safe| *safe == category)
 }
 
+#[cfg(test)]
+#[path = "product/provider_catalog_tests.rs"]
+mod provider_catalog_tests;
 #[cfg(test)]
 mod tests;

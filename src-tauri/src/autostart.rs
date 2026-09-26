@@ -126,8 +126,8 @@ mod tests {
     #[cfg(windows)]
     struct RegistrationRestore {
         app_name: String,
-        run_value: Option<RegValue>,
-        startup_approved_value: Option<RegValue>,
+        run_value: Option<RegValue<'static>>,
+        startup_approved_value: Option<RegValue<'static>>,
         restored: bool,
     }
 
@@ -260,7 +260,10 @@ mod tests {
     }
 
     #[cfg(windows)]
-    fn read_raw_value(key_path: &str, app_name: &str) -> std::io::Result<Option<RegValue>> {
+    fn read_raw_value(
+        key_path: &str,
+        app_name: &str,
+    ) -> std::io::Result<Option<RegValue<'static>>> {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         let key = match hkcu.open_subkey_with_flags(key_path, KEY_READ) {
             Ok(key) => key,
@@ -434,7 +437,7 @@ mod tests {
     #[test]
     fn restore_retry_keeps_original_snapshots_after_partial_failure() {
         let original = RegValue {
-            bytes: vec![1, 2, 3],
+            bytes: vec![1, 2, 3].into(),
             vtype: RegType::REG_BINARY,
         };
         let mut restore = RegistrationRestore {
@@ -457,7 +460,7 @@ mod tests {
         let mut retry = Vec::new();
         restore
             .restore_with(|key, _, value| {
-                retry.push((key.to_owned(), value.map(|raw| raw.bytes.clone())));
+                retry.push((key.to_owned(), value.map(|raw| raw.bytes.to_vec())));
                 Ok(())
             })
             .expect("重试必须仍能取得完整原始快照");

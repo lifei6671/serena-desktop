@@ -755,20 +755,20 @@ Can run in parallel with: None
 
 Phase: Phase 4  
 Type: implementation + A  
-Goal: 补齐停用 Provider 和未知 CodeBuddy 版本的可行动反馈。  
-Why now: 防止用户看到“无法执行”却不知道恢复路径。  
+Goal: 补齐停用 Provider 和 ACP 不兼容场景的可行动反馈。
+Why now: 防止用户看到“无法执行”却不知道恢复路径，同时不把产品版本当成兼容性白名单。
 Dependencies: CB4-002 (H)  
 Blocked by: None  
 Allowed scope: AgentPanel、相关 product snapshot、tests。  
-Forbidden scope: Force Unlock、用户强制放行未知版本。  
+Forbidden scope: Force Unlock、绕过 ACP 协议兼容检查。
 Contract references: 设计 §10.3、§14.2.1、§25.3、CB-004 Gate。  
 Implementation requirements:
 - pending/resumable Claim → 查看任务 / 取消任务 / 重新启用；
 - 无 Force Unlock；
-- unsupported version → “尚未经过当前 SerenaDesktop 兼容性验证”；
-- supported-version table release-owned，UI 不提供 override。
+- ACP protocolVersion incompatibility → 明确协议不兼容提示；
+- UI 不提供绕过 ACP 协议检查的 override；产品版本本身不阻断。
 Non-goals: 安装/降级 CodeBuddy。  
-Tests required: pending claim fixture、unsupported version fixture、disabled role fixture、Agent UI regression。  
+Tests required: pending claim fixture、ACP protocolVersion incompatibility diagnostic fixture、disabled role fixture、Agent UI regression。
 Evidence required: npm test/build + Host screenshot acceptance。  
 Acceptance criteria: CB-004 Gate 全 PASS。  
 Rollback / failure behavior: 无安全动作时只显示信息，不绕过后台 Authority。  
@@ -791,11 +791,11 @@ Blocked by: 本机已安装且可运行 CodeBuddy
 Allowed scope: 临时目录、CodeBuddy CLI、docs/tasks/evidence/CB-005。  
 Forbidden scope: 修改产品 Runtime、自动安装/升级/登录。  
 Contract references: 设计 §14.2～§14.2.1、§28。  
-Implementation requirements: absolute path、--version 原始输出、parsed version、SHA-256；证据脱敏。  
+Implementation requirements: 区分 CodeBuddy CN IDE 与 CodeBuddy Code ACP CLI；对实际 Provider CLI 记录 absolute path、--version 原始输出、parsed metadata、SHA-256；证据脱敏。
 Non-goals: ACP Session。  
 Tests required: found / missing / malformed version；实际 binary probe。  
 Evidence required: verification.md + binary.sha256。  
-Acceptance criteria: supported-version 候选可以精确引用 binary。  
+Acceptance criteria: binary identity / metadata 可以精确引用实际被测对象；必须明确该对象是否为 ACP-capable CodeBuddy Code CLI；IDE-only binary 只能作为诊断证据；不得把产品版本或 hash 变成 admission whitelist。
 Rollback / failure behavior: binary 不可用则 Phase 5 BLOCKED，不改产品代码。  
 Risk: low  
 Estimated blast radius: small  
@@ -903,24 +903,26 @@ Can run in parallel with: None
 
 Phase: Phase 6  
 Type: implementation  
-Goal: 注册 CodeBuddyProvider skeleton，并实现无进程 binary/version Admission Health。  
+Goal: 注册 CodeBuddyProvider skeleton，并实现无进程 binary discovery Admission Health；产品版本不参与 admission whitelist。
 Why now: Runtime 之前先闭合 provider presence。  
 Dependencies: CB5-005 (H)  
-Blocked by: supported-version evidence  
+Blocked by: CB5-005 ACP contract evidence
 Allowed scope: agent/codebuddy/discovery.rs、provider registration bootstrap、Registry tests。  
-Forbidden scope: execute/session、自动安装、unknown version override。  
-Contract references: 设计 §6.1、§14.2.1。  
+Forbidden scope: execute/session、自动安装、绕过 ACP compatibility gate。
+Contract references: 设计 §6.1、§14.2.1（ACP-first compatibility）。
 Implementation requirements:
-- where.exe / absolute path；
-- version parse；
-- supported-version table；
-- deterministic incompatibility → Unavailable；
+- `codebuddy` / explicit canonical CodeBuddy Code ACP CLI discovery；
+- `buddycn` / CodeBuddy CN IDE 仅允许作为诊断提示，不得注册为 ACP Provider executable；
+- product/base version metadata best-effort 采集，仅用于诊断；
+- 不维护 product-version / binary-hash whitelist；
+- deterministic missing entry → Unavailable；
+- ACP protocol incompatibility 由受管 initialize Contract Gate 判定；
 - execution-local error不在此层。
 Non-goals: ACP initialize。  
-Tests required: missing、supported、unsupported、malformed version。  
+Tests required: missing ACP CLI、found `codebuddy` ACP CLI、IDE-only (`buddycn`) 不得误注册、metadata missing/malformed 不阻断 ACP CLI discovery、cached deterministic ACP incompatibility（若本卡接入该证据）。
 Evidence required: focused tests。  
 Acceptance criteria: Desktop 在 CodeBuddy 缺失时仍正常启动；Codex 不受影响。  
-Rollback / failure behavior: CodeBuddy unavailable only。  
+Rollback / failure behavior: CodeBuddy entry 缺失或已有确定性 ACP 不兼容证据时 unavailable；未知产品版本不作为失败条件。
 Risk: medium  
 Estimated blast radius: small  
 Can run in parallel with: None
@@ -1333,7 +1335,7 @@ Tests required:
 - Codex/CodeBuddy enable/disable；
 - Role set/clear；
 - disabled binding；
-- unsupported version文案；
+- ACP incompatibility 文案；
 - running drain；
 - pending claim warning；
 - no Force Unlock。

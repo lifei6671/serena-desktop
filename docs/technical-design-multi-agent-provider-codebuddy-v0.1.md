@@ -421,19 +421,19 @@ Admission Health refresh
 
 首版公开 `ProviderHealth` 继续只使用现有 `Available / Unavailable`，不新增第二套公开 Health 状态机。
 
-其中 Admission Health 定义为：
+其中 Admission Health 的无进程发现层只判断：
 
 ~~~text
-executable exists
+canonical CodeBuddy Code ACP CLI entry exists
 +
-version parseable
-+
-version belongs to SerenaDesktop supported-version table
+required local entry files are readable
 ~~~
+
+CodeBuddy 产品版本、FileVersion、commit 和 binary SHA-256 只作为诊断 / 复现证据，不参与版本白名单，也不能因为“新版本”或“新 hash”直接拒绝执行。
 
 Admission Health 不创建 Runtime、不连接 ACP、不创建 Session，因此 Provider toggle 和普通 `agent_query providers` 都不会 spawn CodeBuddy。
 
-真正的协议兼容性在执行边界重新验证：
+真正的连接兼容性只在受管 Runtime 的执行边界通过 ACP 握手验证：
 
 ~~~text
 agent_execute
@@ -442,21 +442,32 @@ Create managed Runtime
     ↓
 ACP initialize
     ↓
-protocolVersion / required capabilities
+negotiated protocolVersion
     ↓
-Contract Gate
+Protocol Compatibility Gate
+    ↓
+capabilities / methods separately project Provider capabilities
 ~~~
 
-Contract Gate 失败时，本次执行按 Provider failure 契约收敛，但只有**确定性 Provider 不兼容 / 不可用事实**才更新全局 Registry health。
+冻结规则：
+
+- CodeBuddy 产品版本不参与 compatibility admission；
+- binary hash 变化不直接导致拒绝，只用于定位实际被测对象和失效缓存；
+- negotiated `protocolVersion` 与 SerenaDesktop 支持的 ACP 协议版本一致，即通过“版本兼容”门；
+- `protocolVersion` 一致即允许建立 ACP 连接；
+- ACP capability / method 不参与“协议是否可连接”的判定，而是分别投影 `canExecute / canContinue / canCancel / canRecover / activity / tokenUsage`；
+- 任一能力缺失只使对应 Provider capability 保持 `false`，不能因为能力缺失而拒绝整个 Provider 连接；
+- 同一产品版本、不同 hash 或不同产品版本，只要 ACP 协议与必需基础面兼容，都允许连接。
+
+Contract Gate 失败时，本次执行按 Provider failure 契约收敛，但只有**确定性的 ACP 协议 / 基础能力不兼容或 Provider 不可用事实**才更新全局 Registry health。
 
 冻结分类：
 
 | 失败类型 | Registry health |
 |---|---|
-| executable 缺失 | `Unavailable` |
-| version 不在 supported-version table | `Unavailable` |
+| CodeBuddy Code ACP CLI executable 缺失 | `Unavailable` |
 | negotiated protocolVersion 确定不兼容 | `Unavailable` |
-| required ACP method / capability 确定缺失 | `Unavailable` |
+| 任一 ACP capability / method 缺失 | 保持 health；仅对应 capability=false |
 | 已验证的稳定认证前置缺失 | `Unavailable` |
 | 单次 Runtime create/start 失败 | 保持当前 health，仅本次 Execution 失败 |
 | stdio EOF / timeout / 临时 I/O | 保持当前 health |
@@ -1423,7 +1434,7 @@ Windows 使用绝对 executable path + argv quoting。
 
 首版 SerenaDesktop：
 
-- 检测 CodeBuddy；
+- 检测 **CodeBuddy Code CLI**（公开 ACP server）；
 - 读取版本；
 - 记录实际 executable path；
 - 可计算 binary SHA-256；
@@ -1435,43 +1446,51 @@ Windows 使用绝对 executable path + argv quoting。
 发现顺序建议：
 
 ~~~text
-1. 本地 Provider 配置的显式 executable path（若后续 UI 提供）
+1. 本地 Provider 配置的显式 CodeBuddy Code executable path（若后续 UI 提供）
 2. where.exe codebuddy
-3. unavailable
+3. 可选诊断：where.exe buddycn / CodeBuddy CN IDE 安装目录
+4. ACP CLI unavailable
 ~~~
+
+第一版 Provider Runtime 只接受公开 ACP server `codebuddy`（CodeBuddy Code CLI）。`buddycn` 是 CodeBuddy CN IDE 的桌面/编辑器 CLI，不等价于 CodeBuddy Code ACP server，不能作为 Provider executable。
+
+若检测到 CodeBuddy CN IDE 但没有 `codebuddy`，Product/UI 可以提示“CodeBuddy IDE 已安装，但 CodeBuddy Code ACP CLI 未安装或不在 PATH”；不得尝试接入 IDE 内部未公开的 window / Extension Host ACP bridge。
 
 第一版可以只实现 `where.exe codebuddy`，自定义 path 作为后续便利功能。
 
 ### 14.2.1 Version Contract
 
-CB-005 必须冻结首个受支持的 CodeBuddy 版本契约：
+CB-005 必须冻结 CodeBuddy 的 binary identity 与 ACP compatibility contract：
 
 ~~~text
-detected version
-binary SHA-256
-ACP negotiated protocolVersion
-required capability set
+detected product/base metadata      # 仅诊断
+binary SHA-256                      # 仅诊断 / 复现
+ACP negotiated protocolVersion      # 唯一协议兼容 authority
+capability / method set             # 能力逐项开放，不决定是否可连接
 Contract Probe evidence
 ~~~
 
-运行时 Admission Health 只把**已进入 SerenaDesktop supported-version table** 的版本视为 available。未知版本默认 unavailable，不因为它自称 ACP v1 就自动放行。
+**不维护 CodeBuddy 产品版本白名单。** 未见过的 CodeBuddy 产品版本、FileVersion、commit 或 binary hash 不会仅因此被标记 unavailable。
 
-binary SHA-256 作为 Probe / Release evidence 保存，用于识别实际测试对象；首版不把“相同 version 但 hash 不同”简单等价为可信。若版本命中但 binary hash 与已验证样本不同，execute 时必须重新通过真实 ACP initialize / capability Contract Gate；失败后标记 Provider unavailable。
+binary SHA-256 作为 Probe / Release evidence 保存，用于识别实际测试对象、关联问题和使旧的兼容性缓存失效；它不是 trust whitelist。
 
-首版不增加“忽略版本检查”或“强制放行未知版本”的用户设置。需要支持新版本时，通过新的 Contract Probe 更新 supported-version table。
+运行时真正的 compatibility authority 是受管 Runtime 的 `initialize`：
 
-supported-version table 属于 SerenaDesktop release-owned compatibility data，随应用发布物更新，用户不能在本地把未知版本强制标记为 supported。
+- negotiated `protocolVersion` 与 SerenaDesktop 支持的 ACP 协议版本一致 → 通过协议版本门；
+- protocolVersion 匹配即允许连接；
+- Execute / Continue / Cancel / Recover / Usage / Activity 等能力全部按真实 probe 单独开放；
+- 某项能力缺失不会把 Provider 标记为协议不兼容，只让对应 capability=false；
+- 产品版本变化或 hash 变化本身不需要“升级 SerenaDesktop 才放行”。
 
-Product/UI 对未知版本固定使用“未验证”语义，而不是泛化成“CodeBuddy 损坏”：
+Product/UI 不再使用“CodeBuddy 产品版本尚未验证”的阻断语义。确定性不兼容时使用 ACP 语义：
 
 ~~~text
-CodeBuddy 版本 <detectedVersion> 尚未经过当前 SerenaDesktop 的兼容性验证。
+当前 CodeBuddy 的 ACP 协议版本与 SerenaDesktop 不兼容。
 
-当前未启用该版本的 Agent 执行。
-请使用受支持版本，或升级 SerenaDesktop 后重新检测。
+请升级 CodeBuddy 或 SerenaDesktop 后重新检测。
 ~~~
 
-底层仍使用稳定诊断 `CODEBUDDY_VERSION_UNSUPPORTED` / `AGENT_PROVIDER_UNAVAILABLE`，UI 文案不得通过解析错误文本判断状态。
+底层使用稳定诊断 `CODEBUDDY_ACP_INCOMPATIBLE` / `AGENT_PROVIDER_UNAVAILABLE`；UI 不得通过解析错误文本判断状态，也不提供绕过 ACP 协议检查的 override。
 
 ## 14.3 ACP Rust SDK
 
@@ -2470,7 +2489,6 @@ Contract Probe 没证明的能力必须保持 unsupported 或 unknown，不能�
 
 ~~~text
 CODEBUDDY_BINARY_NOT_FOUND
-CODEBUDDY_VERSION_UNSUPPORTED
 CODEBUDDY_ACP_INIT_FAILED
 CODEBUDDY_ACP_INCOMPATIBLE
 CODEBUDDY_ACP_STDIO_EOF
@@ -2733,7 +2751,7 @@ unproven CodeBuddy continue/recover/usage capabilities remain false
 - health / version / protocol / runtime；
 - Role Routing；
 - draining；
-- unsupported-version user-facing message；
+- ACP incompatibility user-facing message；
 - ManagerConfig 前端类型 / controller / API / fixture 同步；
 - existing task composer / task list integration。
 
@@ -2748,7 +2766,7 @@ running task survives provider disable
 pending/resumable Claim shows blocked-workspace warning
 pending warning provides 查看任务 / 取消任务 / 重新启用 Provider
 no Force Unlock action exists
-unsupported CodeBuddy version is explained as “尚未验证” rather than generic failure
+ACP protocol/base-capability incompatibility is explained explicitly rather than as generic failure
 existing task UI has no regression
 ~~~
 
@@ -2756,9 +2774,9 @@ existing task UI has no regression
 
 内容：
 
-- 固定测试版本；
-- binary hash；
-- supported-version table entry；
+- 固定被测 binary identity 与诊断 metadata；
+- binary hash（诊断 / 复现，不做 whitelist）；
+- ACP protocolVersion compatibility contract；
 - ACP v1；
 - stdio NDJSON；
 - official Rust SDK external-managed-I/O compatibility；

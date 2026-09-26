@@ -18,8 +18,15 @@ pub struct WorkspaceSnapshot {
     pub generation: u64,
 }
 
+/// 创建边界已经解析的身份；Store 只冻结它，不读取或推断路由策略。
+pub(crate) struct FrozenStartRouting {
+    pub(crate) provider: ProviderId,
+    pub(crate) task_role: AgentTaskRole,
+}
+
 /// Start 的持久化输入；同步管理协调与普通异步提交共用同一事务逻辑。
 struct FreshProductCreate {
+    routing: FrozenStartRouting,
     id: String,
     agent: String,
     request_key: String,
@@ -54,6 +61,9 @@ fn create_fresh_with_work(
             None,
             None,
         )?;
+        // 重试身份必须来自本次最终解析结果，不能借用历史行的 Provider/Role。
+        retry.provider = creation.routing.provider.clone();
+        retry.task_role = creation.routing.task_role;
         if let Some(workspace) = creation
             .workspace
             .as_ref()
@@ -107,8 +117,8 @@ fn create_fresh_with_work(
         workspace_id: workspace.id.clone(),
         canonical_workspace_root: workspace.root.clone(),
         workspace_generation: workspace.generation,
-        provider: ProviderId::new("codex".into()).expect("static Codex provider id is valid"),
-        task_role: AgentTaskRole::General,
+        provider: creation.routing.provider.clone(),
+        task_role: creation.routing.task_role,
         mode: ExecutionMode::WorkspaceWrite,
         parent_execution_id: None,
         thread_id: None,
@@ -192,7 +202,7 @@ fn key(c: &Connection, agent: &str, request: &str) -> Result<Option<ExecutionRec
     })
     .transpose()
 }
-/// Product Start 固定 General；Continue 从父 Execution 的持久化角色构造请求身份。
+/// 构造持久化身份用于只读 preflight/Continue；Start 提交会用当前解析身份覆盖 Provider/Role。
 fn input(
     tx: &Connection,
     row: &ExecutionRecord,
@@ -212,13 +222,9 @@ fn input(
         workspace_generation: row.workspace_generation,
         provider: serde_json::from_value(serde_json::json!(row.provider))
             .map_err(|e| e.to_string())?,
-        // Start 仍为 General；Continue 从同一事务中的父行继承冻结角色。
-        task_role: if parent_execution_id.is_some() {
-            serde_json::from_value(serde_json::json!(persisted_task_role(tx, &row.id)?))
-                .map_err(|_| "EXECUTION_REQUEST_KEY_CONFLICT".to_string())?
-        } else {
-            AgentTaskRole::General
-        },
+        // preflight 只提示可能的 retry，不授权 Start；最终事务必须验证本次解析的角色。
+        task_role: serde_json::from_value(serde_json::json!(persisted_task_role(tx, &row.id)?))
+            .map_err(|_| "EXECUTION_REQUEST_KEY_CONFLICT".to_string())?,
         mode: serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?,
         parent_execution_id,
         thread_id: thread,
@@ -423,6 +429,7 @@ impl StateStore {
             })())
         }).await?
     }
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub async fn product_create_fresh(
         &self,
@@ -447,6 +454,7 @@ impl StateStore {
         .await
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(crate) async fn product_create_fresh_with_work(
         &self,
@@ -460,6 +468,11 @@ impl StateStore {
         now: i64,
     ) -> Result<CreateOutcome, String> {
         let creation = FreshProductCreate {
+            // 仅保留历史测试 fixture；生产 Start 必须提供最终 Authority 解析的身份。
+            routing: FrozenStartRouting {
+                provider: ProviderId::new("codex".into()).unwrap(),
+                task_role: AgentTaskRole::General,
+            },
             id,
             agent,
             request_key,
@@ -477,6 +490,7 @@ impl StateStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn product_create_fresh_with_work_blocking(
         &self,
+        routing: FrozenStartRouting,
         id: String,
         agent: String,
         request_key: String,
@@ -487,6 +501,7 @@ impl StateStore {
         now: i64,
     ) -> Result<CreateOutcome, String> {
         let creation = FreshProductCreate {
+            routing,
             id,
             agent,
             request_key,

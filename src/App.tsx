@@ -97,7 +97,7 @@ function App() {
             aria-current={tab === "agent" ? "page" : undefined}
             onClick={() => setTab("agent")}
           >
-            <Bot aria-hidden="true" />Agent
+            <Bot aria-hidden="true" />Agent 管理
           </Button>
           <Button
             variant={tab === "logs" ? "secondary" : "ghost"}

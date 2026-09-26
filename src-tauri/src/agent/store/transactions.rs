@@ -581,12 +581,13 @@ fn create(
     if busy {
         return Err("AGENT_BUSY".into());
     }
+    // 同一 lineage 必须保留请求已冻结的 Provider，不能把非 Codex continuation 误判为漂移。
     let snapshot_mismatch: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM executions WHERE agent_id=?1 AND
          (workspace_id IS NOT ?2 OR canonical_workspace_root IS NOT ?3
           OR (?7 IS NULL AND thread_id IS NOT ?4)
-          OR execution_profile_json IS NOT ?5 OR mode IS NOT ?6 OR provider != 'codex'))",
+          OR execution_profile_json IS NOT ?5 OR mode IS NOT ?6 OR provider IS NOT ?8))",
             params![
                 input.agent_id,
                 input.workspace_id,
@@ -598,6 +599,7 @@ fn create(
                     crate::agent::execution::ExecutionMode::WorkspaceWrite => "workspace_write",
                 },
                 input.parent_execution_id,
+                input.provider.as_str(),
             ],
             |r| r.get(0),
         )

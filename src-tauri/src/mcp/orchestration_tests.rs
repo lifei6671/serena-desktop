@@ -3,6 +3,12 @@ use crate::agent::{product::AgentProductService, store::StateStore};
 use crate::workspace_registry::WorkspaceRegistry;
 use rmcp::{ServiceExt, model::CallToolRequestParams, transport::StreamableHttpClientTransport};
 
+#[path = "provider_query_tests.rs"]
+mod provider_query_tests;
+
+#[path = "start_routing_tests.rs"]
+mod start_routing_tests;
+
 pub(crate) fn fixture(root: &std::path::Path) -> Arc<Broker> {
     let paths = crate::config::AppPaths {
         runtime_directory: root.join("runtime"),
@@ -954,6 +960,18 @@ process.stdin.on('end', () => {
       invalid.push({...response, data:{executions:[{...row, prompt:'must be absent'}]}});
       const missing = {...row}; delete missing.revision;
       invalid.push({...response, data:{executions:[missing]}});
+    } else if (response.ok && response.data.providers) {
+      for (const field of ['providers', 'roleRouting']) {
+        const missing = {...response.data}; delete missing[field];
+        invalid.push({...response, data:missing});
+      }
+      const provider = response.data.providers[0];
+      for (const field of ['id', 'displayName', 'enabled', 'health', 'availableForNewExecution', 'capabilities']) {
+        const missing = {...provider}; delete missing[field];
+        invalid.push({...response, data:{...response.data, providers:[missing]}});
+      }
+      invalid.push({...response, data:{...response.data, providers:[{...provider, health:'unknown'}]}});
+      invalid.push({...response, data:{...response.data, providers:[{...provider, enabled:null}]}});
     } else if (response.ok && !('prompt' in response.data)) {
       for (const field of ['unchanged', 'revision', 'resultAvailable', 'progress']) {
         const missing = {...response.data}; delete missing[field];
@@ -1112,7 +1130,7 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     assert_eq!(
         list,
         json!({"ok":true,"data":{"executions":[{
-            "executionId":"E","provider":{"id":"codex","displayName":"Codex"},
+            "executionId":"E","provider":detail["data"]["provider"],
             "usage":{"inputTokens":null,"cachedInputTokens":null,"cacheWriteInputTokens":null,
                 "outputTokens":null,"reasoningTokens":null,"totalTokens":null,"modelContextWindow":null,
                 "completeness":"unknown","usageRevision":0,"updatedAt":null},
@@ -1269,7 +1287,7 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     assert_eq!(
         terminal_list,
         json!({"ok":true,"data":{"executions":[{
-            "executionId":"E","provider":{"id":"codex","displayName":"Codex"},
+            "executionId":"E","provider":detail["data"]["provider"],
             "usage":{"inputTokens":null,"cachedInputTokens":null,"cacheWriteInputTokens":null,
                 "outputTokens":null,"reasoningTokens":null,"totalTokens":null,"modelContextWindow":null,
                 "completeness":"unknown","usageRevision":0,"updatedAt":null},
