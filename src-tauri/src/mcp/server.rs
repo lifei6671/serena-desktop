@@ -630,29 +630,39 @@ impl Broker {
                                 .collect::<String>()
                         };
                         let host = header("host");
+                        let accept = header("accept");
+                        let mcp_protocol_version = header("mcp-protocol-version");
                         let cf_ip = header("cf-connecting-ip");
                         let forwarded_for = header("x-forwarded-for");
                         let forwarded_host = header("x-forwarded-host");
                         let response = next.run(request).await;
+                        let status = response.status();
+                        // Stateless JSON transport 预期拒绝 standalone SSE 探测，不能把它记录成故障。
+                        let expected_transport_probe = method == axum::http::Method::GET
+                            && path == "/mcp"
+                            && status == axum::http::StatusCode::METHOD_NOT_ALLOWED;
                         broker.log_http_detail(
-                            if response.status().is_server_error() {
+                            if status.is_server_error() {
                                 "ERROR"
-                            } else if response.status().is_client_error() {
+                            } else if status.is_client_error() && !expected_transport_probe {
                                 "WARN"
                             } else {
                                 "INFO"
                             },
-                            &format!("HTTP {method} · {}", response.status()),
+                            &format!("HTTP {method} · {status}"),
                             &json!({
                                 "kind": "http_request",
                                 "method": method.to_string(),
                                 "path": path,
-                                "status": response.status().as_u16(),
+                                "status": status.as_u16(),
                                 "peer": peer.to_string(),
                                 "host": host,
+                                "accept": accept,
+                                "mcpProtocolVersion": mcp_protocol_version,
                                 "cfConnectingIp": cf_ip,
                                 "forwardedFor": forwarded_for,
                                 "forwardedHost": forwarded_host,
+                                "expectedTransportProbe": expected_transport_probe,
                             }),
                         );
                         response

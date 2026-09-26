@@ -141,6 +141,7 @@ pub struct ControlContext {
     pub accepted_id: Option<String>,
     pub related_id: Option<String>,
     pub related_unknown: bool,
+    pub related_can_continue: bool,
     pub blocker_id: Option<String>,
 }
 /// Product-owned lifecycle eligibility. Provider provenance remains behind the
@@ -378,16 +379,19 @@ impl StateStore {
             let tx = c.unchecked_transaction()?;
             Ok((|| -> Result<ControlContext, String> {
                 use crate::agent::product::Action;
-                let mut context = ControlContext { accepted_id: None, related_id: None, related_unknown: false, blocker_id: None };
+                let mut context = ControlContext { accepted_id: None, related_id: None, related_unknown: false, related_can_continue: false, blocker_id: None };
                 let (agent, root) = match action {
                     Action::Start { agent_id, request_key, prompt, workspace_id } => {
                         if let Some(row) = key(&tx, &agent_id, &request_key)? {
                             let request = canonicalize_request(input(&tx, &row, request_key, prompt, None, None)?)?;
                             if row.workspace_id == workspace_id && request_matches_prior(&tx, &row, &request)? { context.accepted_id = Some(row.id); }
                         }
-                        if let Some((id, status)) = tx.query_row("SELECT id,status FROM executions WHERE agent_id=?1 ORDER BY created_at DESC,id DESC LIMIT 1", [&agent_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))).optional().map_err(|e| e.to_string())? {
-                            context.related_id = Some(id);
-                            context.related_unknown = status == "unknown";
+                        if let Some(id) = tx.query_row("SELECT id FROM executions WHERE agent_id=?1 ORDER BY created_at DESC,id DESC LIMIT 1", [&agent_id], |r| r.get::<_, String>(0)).optional().map_err(|e| e.to_string())?
+                            && let Some(row) = execution_record(&tx, &id).map_err(|e| e.to_string())?
+                        {
+                            context.related_unknown = row.status == "unknown";
+                            context.related_can_continue = continuation_core_eligible(&row);
+                            context.related_id = Some(row.id);
                         }
                         (Some(agent_id), workspace.map(|w| w.root))
                     }

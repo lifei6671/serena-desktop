@@ -209,7 +209,7 @@ export interface ExecutionView {
     silenceLevel: "fresh" | "quiet" | "prolonged" | null;
   };
   nextAction: { action: "observe"; waitMs: number } | { action: "review_result"; includeResult: boolean }
-    | { action: "resume_pending" | "manual_resolution" } | null;
+    | { action: "continue" | "resume_pending" | "manual_resolution" } | null;
   interruptRequested: boolean; interruptAcknowledged: boolean; interruptTimedOut: boolean;
   attention: "none" | "pending_explicit_resume" | "manual_resolution_required";
   availableActions: { canCancel: boolean; canContinue: boolean; canResumePending: boolean };

@@ -287,6 +287,38 @@ async fn control_conflicts_direct_to_exact_owner_without_accepting_rejected_requ
 }
 
 #[tokio::test]
+async fn lineage_conflict_directs_terminal_owner_to_continue() {
+    let (dir, store, service) = fixture().await;
+    store
+        .product_create_fresh(
+            "owner".into(),
+            "a".into(),
+            "k".into(),
+            "hello".into(),
+            "W".into(),
+            w(dir.path(), "W"),
+            1,
+        )
+        .await
+        .unwrap();
+
+    let cancelled = service
+        .checked_operation(json!({"action":"cancel","executionId":"owner"}), None)
+        .await;
+    assert_eq!(cancelled["data"]["status"], "cancelled");
+
+    let response = service
+        .checked_operation(start("a", "next"), w(dir.path(), "W"))
+        .await;
+    assert_eq!(response["error"]["code"], "AGENT_LINEAGE_CONFLICT");
+    no_dispatch(&response["control"], false);
+    assert_eq!(
+        response["control"]["nextAction"],
+        json!({"action":"continue","executionId":"owner"})
+    );
+}
+
+#[tokio::test]
 async fn control_durable_backend_failure_and_same_hash_retry_preserve_original_identity() {
     let (dir, store, mut service) = fixture().await;
     service.manager.backend_error = Some("BACKEND_UNAVAILABLE: test backend".into());

@@ -906,6 +906,45 @@ async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>> {
         }
     }
 }
+/// 只按 App Server 的跨平台 RPC 契约分类 Thread writer 冲突，不探测平台锁或进程。
+fn rpc_response_error(method: &str, error: Value) -> ProtocolError {
+    let code = error.get("code").and_then(Value::as_i64);
+    let active_writer = method == "thread/resume"
+        && code == Some(-32600)
+        && error
+            .get("message")
+            .and_then(Value::as_str)
+            .and_then(|message| {
+                message
+                    .strip_prefix("thread ")
+                    .and_then(|thread| thread.strip_suffix(" already has an active writer"))
+            })
+            .is_some_and(|thread| {
+                !thread.is_empty()
+                    && thread.len() <= 128
+                    && thread
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+            });
+    if active_writer {
+        // 原始响应含 Thread ID；这里只返回固定安全文案。
+        return ProtocolError::new(
+            "CODEX_THREAD_WRITER_CONFLICT",
+            "Codex thread is currently being written by another client",
+        );
+    }
+
+    ProtocolError::new(
+        if code == Some(-32601) {
+            "CODEX_APP_SERVER_INCOMPATIBLE"
+        } else if method == "initialize" {
+            "CODEX_APP_SERVER_INIT_FAILED"
+        } else {
+            "CODEX_RPC_FAILED"
+        },
+        error.to_string(),
+    )
+}
 fn dispatch(
     s: &Arc<Shared>,
     events: &mpsc::Sender<Event>,
@@ -947,18 +986,7 @@ fn dispatch(
             {
                 empty_response(value.clone())?;
             }
-            let result = result.map_err(|e| {
-                ProtocolError::new(
-                    if e.get("code").and_then(Value::as_i64) == Some(-32601) {
-                        "CODEX_APP_SERVER_INCOMPATIBLE"
-                    } else if p.method == "initialize" {
-                        "CODEX_APP_SERVER_INIT_FAILED"
-                    } else {
-                        "CODEX_RPC_FAILED"
-                    },
-                    e.to_string(),
-                )
-            });
+            let result = result.map_err(|error| rpc_response_error(&p.method, error));
             let _ = p.response.send(result);
         }
         Message::Notification { method, params } => {

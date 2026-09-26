@@ -135,10 +135,17 @@ async fn source_find_file_skips_hidden_files_and_directories() {
     fs::write(root.join(".hidden/secret.rs"), "hidden").unwrap();
     fs::write(root.join("visible.rs"), "visible").unwrap();
 
-    let output = find_at(&lease(&root, "workspace-a", 12), arguments("*.rs"))
-        .await
-        .unwrap();
+    let lease = lease(&root, "workspace-a", 12);
+    let output = find_at(&lease, arguments("*.rs")).await.unwrap();
     assert_eq!(files(&output), json!(["visible.rs"]));
+
+    let mut explicit_hidden = arguments("*.rs");
+    explicit_hidden.relative_path = Some(".hidden".into());
+    let explicit_hidden = find_at(&lease, explicit_hidden).await.unwrap();
+    assert_eq!(
+        files(&explicit_hidden),
+        json!([path(&[".hidden", "secret.rs"])])
+    );
 }
 
 /// Windows 兼容性明确要求 file_mask case-insensitive，其他平台保留原有大小写语义。

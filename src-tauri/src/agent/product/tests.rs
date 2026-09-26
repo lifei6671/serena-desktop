@@ -219,6 +219,51 @@ async fn initialize_preserves_macos_discovery_diagnostic_codes() {
         service.shutdown().await.unwrap();
     }
 }
+#[tokio::test]
+/// writer conflict 必须保留公共子码，并把持久化 Provider 原文投影为固定安全文案。
+async fn thread_writer_conflict_is_a_stable_safe_public_diagnostic() {
+    let public = ProductError::new(
+        "CODEX_THREAD_WRITER_CONFLICT: Codex thread is currently being written by another client"
+            .into(),
+        Some("execution".into()),
+    );
+    assert_eq!(public.code, "CODEX_THREAD_WRITER_CONFLICT");
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    store
+        .product_create_fresh(
+            "execution".into(),
+            "agent".into(),
+            "key".into(),
+            "prompt".into(),
+            "workspace".into(),
+            w(directory.path(), "workspace"),
+            1,
+        )
+        .await
+        .unwrap();
+    let raw_thread_id = "01a0d2f0-f66f-7601-a137-e12482ca6fb3";
+    rusqlite::Connection::open(directory.path().join("agent-state.db"))
+        .unwrap()
+        .execute(
+            "UPDATE executions
+             SET error_code='CODEX_PROVIDER_FAILURE',
+                 error_message=?1
+             WHERE id='execution'",
+            [format!(
+                "CODEX_THREAD_WRITER_CONFLICT: thread {raw_thread_id} already has an active writer"
+            )],
+        )
+        .unwrap();
+    let row = store.execution("execution".into()).await.unwrap().unwrap();
+    let message = execution_diagnostic_message(&row).unwrap();
+    assert_eq!(
+        message,
+        "CODEX_THREAD_WRITER_CONFLICT: Codex thread is currently being written by another client; release it and retry the continuation."
+    );
+    assert!(!message.contains(raw_thread_id));
+}
 
 /// 未支持的平台必须暴露真实的四类 Runtime 失败，且不得伪造终止证据释放 Claim。
 #[cfg(not(any(windows, target_os = "macos")))]

@@ -143,6 +143,7 @@ impl AgentProductService {
         } else {
             let related = context.as_ref().ok().and_then(|c| c.related_id.clone());
             let related_unknown = context.as_ref().is_ok_and(|c| c.related_unknown);
+            let related_can_continue = context.as_ref().is_ok_and(|c| c.related_can_continue);
             let blocker = context.as_ref().ok().and_then(|c| c.blocker_id.clone());
             let (next, id) = match error.code.as_str() {
                 "AGENT_INVALID_ARGUMENT" | "AGENT_REQUEST_KEY_CONFLICT" => {
@@ -151,7 +152,19 @@ impl AgentProductService {
                 "AGENT_NO_ACTIVE_WORKSPACE" | "AGENT_WORKSPACE_CHANGED" => {
                     (Some(NextAction::ActivateWorkspace), None)
                 }
-                "AGENT_LINEAGE_CONFLICT" | "AGENT_CONTINUE_NOT_ALLOWED" => (
+                "AGENT_LINEAGE_CONFLICT" => (
+                    related.as_ref().map(|_| {
+                        if related_unknown {
+                            NextAction::ManualResolution
+                        } else if related_can_continue {
+                            NextAction::Continue
+                        } else {
+                            NextAction::Observe { wait_ms: 20_000 }
+                        }
+                    }),
+                    related,
+                ),
+                "AGENT_CONTINUE_NOT_ALLOWED" => (
                     related.as_ref().map(|_| {
                         if related_unknown {
                             NextAction::ManualResolution

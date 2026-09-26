@@ -68,7 +68,10 @@ pub(crate) struct LaunchedProcess {
 /// child 仅在短时状态查询或有限终止期间上锁，等待任务可与取消并行。
 pub(crate) struct ProcessControl {
     child: Mutex<Child>,
-    identity: macos_process::Identity,
+    /// 只有父进程存活到足以冻结 Darwin identity 时才可用于发送进程组信号。
+    identity: Option<macos_process::Identity>,
+    /// pre_exec setsid 冻结 pgid == child pid；即使超短命 leader 已退出，仍可只读观察组是否为空。
+    pgid: libc::pid_t,
 }
 
 /// 与 CommandService 的稳定失败码对齐。
@@ -124,14 +127,15 @@ fn select_shell(account_shell: Option<PathBuf>) -> Result<PathBuf, String> {
         .ok_or_else(|| "COMMAND_SHELL_NOT_FOUND".into())
 }
 
-/// 按本次 CommandRun 的 PATH 顺序发现第一个当前用户可执行的真实文件。
+/// 按本次 CommandRun 的 PATH 顺序发现第一个当前用户可执行入口。
+///
+/// 保留 PATH 命中的入口路径而不解析 symlink：rustup/corepack 等多调用代理依赖
+/// argv[0] 的入口名选择子命令，canonicalize 会把 cargo 等代理错误地变成 rustup 本体。
 fn resolve_executable(name: &str, directories: &[PathBuf]) -> Option<PathBuf> {
     for directory in directories {
         let candidate = directory.join(name);
-        if executable_file(&candidate)
-            && let Ok(path) = candidate.canonicalize()
-        {
-            return Some(path);
+        if executable_file(&candidate) {
+            return Some(candidate);
         }
     }
     None
@@ -188,6 +192,31 @@ pub(crate) fn environment(
     values.into_iter().collect()
 }
 
+/// 捕获可用于安全发信号的 Darwin identity；超短命 leader 已确认退出时允许降级为只读 PGID 观察。
+fn capture_identity_or_exited(
+    child: &mut Child,
+) -> Result<Option<macos_process::Identity>, LaunchError> {
+    capture_identity_or_exited_with(child, macos_process::Identity::capture)
+}
+
+fn capture_identity_or_exited_with<Capture>(
+    child: &mut Child,
+    capture: Capture,
+) -> Result<Option<macos_process::Identity>, LaunchError>
+where
+    Capture: FnOnce(u32) -> std::io::Result<macos_process::Identity>,
+{
+    match capture(child.id()) {
+        Ok(identity) => Ok(Some(identity)),
+        Err(identity_error) => match child.try_wait() {
+            // 进程已退出时不存在 live leader 可验证；后续只允许观察已冻结的 PGID 是否为空。
+            Ok(Some(_)) => Ok(None),
+            Ok(None) => Err(failure("COMMAND_PROCESS_IDENTITY_FAILED", identity_error)),
+            Err(wait_error) => Err(failure("COMMAND_PROCESS_WAIT_FAILED", wait_error)),
+        },
+    }
+}
+
 /// exec 前形成私有 Session，父进程随后冻结 Darwin leader identity。
 pub(crate) fn launch(request: &LaunchRequest) -> Result<LaunchedProcess, LaunchError> {
     if !executable_file(&request.executable)
@@ -214,26 +243,33 @@ pub(crate) fn launch(request: &LaunchRequest) -> Result<LaunchedProcess, LaunchE
     let mut child = command
         .spawn()
         .map_err(|error| failure("COMMAND_PROCESS_CREATE_FAILED", error))?;
-    let identity = match macos_process::Identity::capture(child.id()) {
+    let pid = child.id();
+    let pgid = libc::pid_t::try_from(pid)
+        .map_err(|_| failure("COMMAND_LAUNCH_INPUT_INVALID", "child pid overflow"))?;
+    let identity = match capture_identity_or_exited(&mut child) {
         Ok(identity) => identity,
         Err(error) => {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(failure("COMMAND_PROCESS_IDENTITY_FAILED", error));
+            return Err(error);
         }
     };
-    let pid = child.id();
     let stdin: File = OwnedFd::from(child.stdin.take().expect("piped stdin")).into();
     let stdout: File = OwnedFd::from(child.stdout.take().expect("piped stdout")).into();
     let stderr: File = OwnedFd::from(child.stderr.take().expect("piped stderr")).into();
     for output in [&stdout, &stderr] {
         if let Err(error) = nonblocking(output) {
-            let _ = macos_process::terminate_sync(
-                &mut child,
-                &identity,
-                Duration::from_millis(500),
-                Duration::from_secs(2),
-            );
+            if let Some(identity) = identity.as_ref() {
+                let _ = macos_process::terminate_sync(
+                    &mut child,
+                    identity,
+                    Duration::from_millis(500),
+                    Duration::from_secs(2),
+                );
+            } else {
+                // None 只会在直接 child 已经退出后出现；不得对未验证的 PGID 发送信号。
+                let _ = child.wait();
+            }
             return Err(failure("COMMAND_PIPE_CREATE_FAILED", error));
         }
     }
@@ -245,6 +281,7 @@ pub(crate) fn launch(request: &LaunchRequest) -> Result<LaunchedProcess, LaunchE
         control: Arc::new(ProcessControl {
             child: Mutex::new(child),
             identity,
+            pgid,
         }),
     })
 }
@@ -272,7 +309,7 @@ impl ProcessControl {
             .try_wait()
             .map_err(|error| failure("COMMAND_PROCESS_WAIT_FAILED", error))?
             .is_some();
-        let group_empty = macos_process::group_is_empty(self.identity.pgid())
+        let group_empty = macos_process::group_is_empty(self.pgid)
             .map_err(|error| failure("COMMAND_PROCESS_GROUP_QUERY_FAILED", error))?;
         Ok(child_reaped && group_empty)
     }
@@ -293,16 +330,33 @@ impl ProcessControl {
         }
     }
 
-    /// SIGTERM、有限等待、必要时 SIGKILL；只在 child reaped 且 group empty 后成功。
+    /// SIGTERM、有限等待、必要时 SIGKILL；只有已验证 identity 才允许向进程组发送信号。
     pub(crate) fn terminate(&self, timeout: Duration) -> Result<(), LaunchError> {
         let mut child = self.child.lock().unwrap();
-        macos_process::terminate_sync(
-            &mut child,
-            &self.identity,
-            timeout.min(Duration::from_millis(500)),
-            timeout.saturating_sub(Duration::from_millis(500)),
-        )
-        .map_err(|error| failure("COMMAND_PROCESS_TERMINATE_FAILED", error))
+        if let Some(identity) = self.identity.as_ref() {
+            return macos_process::terminate_sync(
+                &mut child,
+                identity,
+                timeout.min(Duration::from_millis(500)),
+                timeout.saturating_sub(Duration::from_millis(500)),
+            )
+            .map_err(|error| failure("COMMAND_PROCESS_TERMINATE_FAILED", error));
+        }
+
+        let child_reaped = child
+            .try_wait()
+            .map_err(|error| failure("COMMAND_PROCESS_WAIT_FAILED", error))?
+            .is_some();
+        let group_empty = macos_process::group_is_empty(self.pgid)
+            .map_err(|error| failure("COMMAND_PROCESS_GROUP_QUERY_FAILED", error))?;
+        if child_reaped && group_empty {
+            Ok(())
+        } else {
+            Err(failure(
+                "COMMAND_PROCESS_TERMINATE_FAILED",
+                "leader exited before identity capture; refusing signal to unverified process group",
+            ))
+        }
     }
 }
 
@@ -318,6 +372,45 @@ mod tests {
             select_shell(Some(PathBuf::from("relative-shell"))).unwrap(),
             PathBuf::from("/bin/sh")
         );
+    }
+
+    /// identity 捕获失败只在直接 child 已确认退出时允许降级；仍存活的 child 必须保持失败。
+    #[test]
+    fn identity_capture_failure_distinguishes_exited_and_live_children() {
+        let mut exited = Command::new("/usr/bin/true").spawn().unwrap();
+        assert!(exited.wait().unwrap().success());
+        let fallback = capture_identity_or_exited_with(&mut exited, |_| {
+            Err(std::io::Error::from_raw_os_error(libc::ESRCH))
+        })
+        .unwrap();
+        assert!(fallback.is_none());
+
+        let mut live = Command::new("/bin/sleep").arg("5").spawn().unwrap();
+        let error = capture_identity_or_exited_with(&mut live, |_| {
+            Err(std::io::Error::from_raw_os_error(libc::ESRCH))
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "COMMAND_PROCESS_IDENTITY_FAILED");
+        let _ = live.kill();
+        let _ = live.wait();
+    }
+
+    /// 极短命 process 即使先于 identity capture 退出，也必须形成可收敛的 Command control。
+    #[test]
+    fn short_lived_process_launch_is_race_safe() {
+        let directory = tempfile::tempdir().unwrap();
+        for index in 0..32 {
+            let launched = launch(&LaunchRequest {
+                executable: PathBuf::from("/usr/bin/true"),
+                args: vec![],
+                current_dir: directory.path().to_path_buf(),
+                environment: vec![],
+                command_run_id: format!("short-lived-{index}"),
+            })
+            .unwrap();
+            assert_eq!(launched.control.wait_parent().unwrap(), 0);
+            assert!(launched.control.complete_evidence().unwrap());
+        }
     }
 
     /// Finder 风格路径不足时，固定系统、Homebrew 和账户开发目录仍在候选表。
@@ -348,6 +441,30 @@ mod tests {
                 .any(|directory| directory.join("sh").is_file())
         );
         assert!(shell.is_absolute());
+    }
+
+    /// PATH 命中的 symlink 代理必须保留入口名，避免 rustup/corepack 等多调用程序丢失 argv[0] 语义。
+    #[test]
+    fn executable_resolution_preserves_symlink_proxy_name() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("multicall");
+        let proxy = directory.path().join("cargo");
+        std::fs::write(&target, "#!/bin/sh\nprintf '%s' \"$0\"\n").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700)).unwrap();
+        symlink(&target, &proxy).unwrap();
+
+        let resolved = resolve_executable("cargo", &[directory.path().to_path_buf()]).unwrap();
+        assert_eq!(resolved, proxy);
+        assert_ne!(resolved, target.canonicalize().unwrap());
+
+        let output = Command::new(&resolved).output().unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            resolved.to_string_lossy()
+        );
     }
 
     /// 显式 PATH 保留顺序，且 Process 发现与 Shell child 均使用同一覆盖值。
@@ -388,7 +505,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             invocation(&process, &command_path).unwrap().0,
-            allowed.join(name).canonicalize().unwrap()
+            allowed.join(name)
         );
 
         let child_env = environment(&explicit, "workspace", &command_path);

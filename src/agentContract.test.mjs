@@ -18,11 +18,13 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
   const source = `import type { ExecutionView, AgentAction, ControlReceipt } from './types';
     declare const control: ControlReceipt;
     const invoked: boolean | null = control.providerInvoked;
+    const continueControl: ControlReceipt['nextAction'] = { action: 'continue', executionId: 'E' };
+    const continueView: ExecutionView['nextAction'] = { action: 'continue' };
     // @ts-expect-error provider invocation can be uncertain
     const booleanOnly: boolean = control.providerInvoked;
     // @ts-expect-error dispatching is projected as uncertain, not public certainty
     const invalidCertainty: ControlReceipt['dispatchCertainty'] = 'dispatching';
-    void [invoked, booleanOnly, invalidCertainty];
+    void [invoked, continueControl, continueView, booleanOnly, invalidCertainty];
     declare const row: ExecutionView;
     declare const nullableString: string | null;
     declare const nullableNumber: number | null;
