@@ -548,6 +548,9 @@ impl StateStore {
                         row.dispatch,
                         DispatchState::Uncertain | DispatchState::Dispatched
                     ) && row.status != Status::Reconciling
+                        && !(row.status == Status::Finalizing && row.result.is_some()
+                            && row.terminal.is_some() && row.terminal_runtime == row.runtime
+                            && row.terminal_at.is_some())
                     {
                         transition_execution(
                             tx,
@@ -720,6 +723,8 @@ struct Row {
     release_state: String,
     release_kind: Option<String>,
     release_json: Option<String>,
+    result: Option<String>,
+    completeness: String,
 }
 
 /// 当前 Activity 只从 executions 读取，history 从不反向参与权威投影。
@@ -881,9 +886,9 @@ fn load(tx: &Transaction<'_>, id: &str) -> Result<Row, String> {
     tx.query_row("SELECT status,dispatch_state,revision,runtime_instance_id,thread_id,turn_id,runtime_termination_evidence_at,
         provider_terminal_status,provider_terminal_evidence_runtime_instance_id,provider_terminal_evidence_at,
         background_cleanup_state,background_cleanup_runtime_instance_id,background_cleanup_evidence_at,
-        release_evidence_state,release_evidence_kind,release_evidence_json,provider FROM executions WHERE id=?1", [id], |r| {
+        release_evidence_state,release_evidence_kind,release_evidence_json,provider,final_result_json,result_completeness FROM executions WHERE id=?1", [id], |r| {
         let parse = |index| -> rusqlite::Result<serde_json::Value> { Ok(serde_json::Value::String(r.get(index)?)) };
-        Ok(Row { provider:r.get(16)?,status: serde_json::from_value(parse(0)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0,rusqlite::types::Type::Text,Box::new(e)))?,
+        Ok(Row { result:r.get(17)?,completeness:r.get(18)?,provider:r.get(16)?,status: serde_json::from_value(parse(0)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0,rusqlite::types::Type::Text,Box::new(e)))?,
             dispatch: serde_json::from_value(parse(1)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(1,rusqlite::types::Type::Text,Box::new(e)))?,
             revision:r.get(2)?,runtime:r.get(3)?,thread:r.get(4)?,turn:r.get(5)?,runtime_evidence_at:r.get(6)?,terminal:r.get(7)?,terminal_runtime:r.get(8)?,terminal_at:r.get(9)?,
             cleanup:r.get(10)?,cleanup_runtime:r.get(11)?,cleanup_at:r.get(12)?,release_state:r.get(13)?,release_kind:r.get(14)?,release_json:r.get(15)? })
@@ -1007,8 +1012,13 @@ fn transition_execution(
         }
         Mutation::Finalize(finalization) => {
             if matches!(finalization.basis, ReleaseBasis::RuntimeTerminated)
-                && (row.status != Status::Reconciling
-                    || finalization.terminal != Status::Interrupted)
+                && !((row.status == Status::Reconciling
+                    && finalization.terminal == Status::Interrupted)
+                    || (row.status == Status::Finalizing
+                        && row.terminal.as_deref() == Some(finalization.terminal.as_str())
+                        && row.terminal_runtime == row.runtime
+                        && row.terminal_at.is_some()
+                        && row.result.is_some()))
             {
                 return Err("RUNTIME_TERMINATION_REQUIRES_RECONCILING_TO_INTERRUPTED".into());
             }
@@ -1034,6 +1044,18 @@ fn transition_execution(
                     ("same_runtime_cleanup", row.cleanup_at.unwrap())
                 }
                 ReleaseBasis::RuntimeTerminated => {
+                    // 正常终态只能消费此前同事务暂存的值，caller 不得替换结果。
+                    if row.status == Status::Finalizing {
+                        let result = serde_json::to_string(&finalization.result)
+                            .map_err(|e| e.to_string())?;
+                        let completeness = serde_json::to_value(finalization.completeness)
+                            .map_err(|e| e.to_string())?;
+                        if row.result.as_deref() != Some(result.as_str())
+                            || completeness.as_str() != Some(row.completeness.as_str())
+                        {
+                            return Err("STAGED_PROVIDER_RESULT_CONFLICT".into());
+                        }
+                    }
                     let at = terminated_runtime(tx, original, &row.provider)?;
                     tx.execute("UPDATE executions SET runtime_termination_evidence_runtime_instance_id=?2,runtime_termination_evidence_at=?3 WHERE id=?1",params![id,original,at]).map_err(|e|e.to_string())?;
                     ("runtime_terminated", at)
@@ -1064,7 +1086,13 @@ fn transition_execution(
                 "UPDATE executions SET final_result_json=?2,result_completeness=?3 WHERE id=?1",
                 params![
                     id,
-                    finalization.result.map(|v| v.to_string()),
+                    if matches!(finalization.basis, ReleaseBasis::RuntimeTerminated)
+                        && row.status == Status::Finalizing
+                    {
+                        row.result.clone()
+                    } else {
+                        finalization.result.map(|v| v.to_string())
+                    },
                     completeness.as_str().unwrap()
                 ],
             )
@@ -1187,6 +1215,45 @@ fn transition_execution(
                         next = Status::Finalizing;
                     }
                 }
+                Transition::ProviderTerminalResult {
+                    runtime_id,
+                    status,
+                    result,
+                    completeness,
+                } => {
+                    if !status.terminal()
+                        || row.runtime.as_deref() != Some(&runtime_id)
+                        || row.dispatch != DispatchState::Dispatched
+                        || !matches!(
+                            row.status,
+                            Status::Running
+                                | Status::CancelRequested
+                                | Status::Cancelling
+                                | Status::Finalizing
+                        )
+                    {
+                        return Err("PROVIDER_TERMINAL_RESULT_CONTEXT_INVALID".into());
+                    }
+                    require_runtime_provider(tx, &row.provider, &runtime_id)?;
+                    owns_claim(tx, id)?;
+                    // JSON null 表示已暂存的空公共结果；SQL NULL 表示尚未暂存。
+                    let result = serde_json::to_string(&result).map_err(|e| e.to_string())?;
+                    let completeness =
+                        serde_json::to_value(completeness).map_err(|e| e.to_string())?;
+                    let completeness =
+                        completeness.as_str().ok_or("INVALID_RESULT_COMPLETENESS")?;
+                    if row.terminal.is_some()
+                        && (row.terminal.as_deref() != Some(status.as_str())
+                            || row.terminal_runtime.as_deref() != Some(runtime_id.as_str())
+                            || row.result.as_deref() != Some(result.as_str())
+                            || row.completeness != completeness)
+                    {
+                        return Err("PROVIDER_TERMINAL_EVIDENCE_CONFLICT".into());
+                    }
+                    tx.execute("UPDATE executions SET provider_terminal_status=?2,provider_terminal_evidence_runtime_instance_id=?3,provider_terminal_evidence_at=COALESCE(provider_terminal_evidence_at,?4),final_result_json=?5,result_completeness=?6 WHERE id=?1",
+                        params![id,status.as_str(),runtime_id,now,result,completeness]).map_err(|e|e.to_string())?;
+                    next = Status::Finalizing;
+                }
                 Transition::CleanupEmpty { runtime_id } => {
                     if row.runtime.as_deref() != Some(&runtime_id)
                         || row.terminal.is_none()
@@ -1196,6 +1263,25 @@ fn transition_execution(
                     }
                     require_runtime_provider(tx, &row.provider, &runtime_id)?;
                     tx.execute("UPDATE executions SET background_cleanup_state='empty',background_cleanup_runtime_instance_id=?2,background_cleanup_evidence_at=?3 WHERE id=?1",params![id,runtime_id,now]).map_err(|e|e.to_string())?;
+                }
+                Transition::ResumeStagedTerminal => {
+                    if row.status != Status::Reconciling
+                        || row.result.is_none()
+                        || row.terminal_at.is_none()
+                        || row.terminal_runtime != row.runtime
+                        || !matches!(
+                            row.terminal.as_deref(),
+                            Some("completed" | "failed" | "cancelled" | "interrupted")
+                        )
+                    {
+                        return Err("STAGED_PROVIDER_TERMINAL_REQUIRED".into());
+                    }
+                    terminated_runtime(
+                        tx,
+                        row.runtime.as_deref().ok_or("RUNTIME_REQUIRED")?,
+                        &row.provider,
+                    )?;
+                    next = Status::Finalizing;
                 }
                 Transition::Reconcile => {
                     if row.status == Status::Unknown {
@@ -1242,7 +1328,12 @@ fn transition_execution(
                         return Err("INVALID_DISPATCH_TRANSITION".into());
                     }
                     if to == DispatchState::Dispatching {
-                        if row.status != Status::DispatchPending || row.runtime.is_some() {
+                        if row.status != Status::DispatchPending
+                            || row
+                                .runtime
+                                .as_ref()
+                                .is_some_and(|original| Some(original) != runtime_id.as_ref())
+                        {
                             return Err("DISPATCH_REJECTED".into());
                         }
                         owns_claim(tx, id)?;

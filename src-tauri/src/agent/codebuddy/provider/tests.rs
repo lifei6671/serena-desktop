@@ -47,19 +47,19 @@ async fn missing_cli_registers_unavailable_skeleton() {
     assert_eq!(
         provider.capabilities(),
         ProviderCapabilities {
-            can_execute: false,
+            can_execute: cfg!(windows),
             can_continue: false,
             can_cancel: false,
             can_recover: cfg!(windows),
-            activity: false,
+            activity: cfg!(windows),
             token_usage: false,
         }
     );
 }
 
-/// found CLI 只提升 Admission Health，不提前开放任何执行能力。
+/// found CLI 与 enabled 在已验证平台允许 Execute，能力不依赖 CLI presence。
 #[tokio::test]
-async fn found_cli_registers_available_capability_conservative_skeleton() {
+async fn found_cli_registers_available_platform_capabilities() {
     let (_directory, store) = authority().await;
     let mut registry = ProviderRegistry::new();
     register_codebuddy_provider_with_discovery(
@@ -78,11 +78,11 @@ async fn found_cli_registers_available_capability_conservative_skeleton() {
     assert_eq!(
         registered.capabilities(),
         ProviderCapabilities {
-            can_execute: false,
+            can_execute: cfg!(windows),
             can_continue: false,
             can_cancel: false,
             can_recover: cfg!(windows),
-            activity: false,
+            activity: cfg!(windows),
             token_usage: false,
         }
     );
@@ -90,12 +90,13 @@ async fn found_cli_registers_available_capability_conservative_skeleton() {
     use crate::agent::provider::control::{ProviderAdmissionCapability, ProviderAdmissionPolicy};
     let policy = ProviderAdmissionPolicy::new(Default::default());
     policy.set_enabled_for_test("codebuddy", true);
-    match policy.admit(&registry, &id, ProviderAdmissionCapability::Execute) {
-        Err(error) => assert_eq!(
+    let admission = policy.admit(&registry, &id, ProviderAdmissionCapability::Execute);
+    assert_eq!(admission.is_ok(), cfg!(windows));
+    if let Err(error) = admission {
+        assert_eq!(
             error.code,
             ProviderErrorCode::AgentProviderCapabilityUnsupported
-        ),
-        Ok(_) => panic!("CodeBuddy without execute implementation passed admission"),
+        );
     }
 }
 
@@ -172,7 +173,12 @@ async fn lifecycle_methods_never_start_unimplemented_behavior() {
     assert_eq!(
         execute,
         Err(ProviderExecutionFailure::State(
-            "AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into()
+            if cfg!(windows) {
+                "EXECUTION_NOT_FOUND"
+            } else {
+                "AGENT_PROVIDER_CAPABILITY_UNSUPPORTED"
+            }
+            .into()
         ))
     );
     assert_eq!(

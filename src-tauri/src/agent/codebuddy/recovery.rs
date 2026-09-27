@@ -168,7 +168,7 @@ pub(crate) async fn startup(
         let kind = if let Some(kind) = early {
             kind
         } else {
-            reconcile_execution(store, &id).await?
+            reconcile_execution(store, &id, true).await?
         };
         items.push(ProviderReconcileItem {
             subject_id: id,
@@ -196,7 +196,11 @@ pub(crate) async fn startup(
 }
 
 /// generic ownership 可用于安全停止 Job；缺失或冲突 private R1 永不授权释放 Claim。
-async fn reconcile_execution(store: &StateStore, id: &str) -> Result<Kind, String> {
+pub(super) async fn reconcile_execution(
+    store: &StateStore,
+    id: &str,
+    recover_runtime: bool,
+) -> Result<Kind, String> {
     let row = store
         .execution(id.into())
         .await?
@@ -206,22 +210,58 @@ async fn reconcile_execution(store: &StateStore, id: &str) -> Result<Kind, Strin
         return Ok(Kind::ExecutionUnknown);
     };
     let private_exists = store.codebuddy_state_exists(id.into()).await?;
-    let private_valid = private_exists && store.read_codebuddy_state(id.into()).await.is_ok();
+    let private = if private_exists {
+        store.read_codebuddy_state(id.into()).await.ok()
+    } else {
+        None
+    };
+    let private_valid = private.is_some();
+    // 私有 exact terminal 与 generic 暂存结果共同确认；单独 result JSON 永不授权结果恢复。
+    let staged = private.as_ref().is_some_and(|p| {
+        use agent_client_protocol::schema::v1::StopReason;
+        let terminal = match p.terminal_stop_reason {
+            Some(StopReason::EndTurn) => "completed",
+            Some(StopReason::Refusal) => "failed",
+            Some(StopReason::Cancelled) => "cancelled",
+            Some(StopReason::MaxTokens | StopReason::MaxTurnRequests) => "interrupted",
+            _ => return false,
+        };
+        p.prompt_state == super::store::PromptState::TerminalObserved
+            && p.runtime_instance_id.as_deref() == Some(runtime_id.as_str())
+            && p.session_id.is_some()
+            && p.terminal_observed_at.is_some()
+            && row.provider_terminal_status.as_deref() == Some(terminal)
+            && row
+                .provider_terminal_evidence_runtime_instance_id
+                .as_deref()
+                == Some(runtime_id.as_str())
+            && row.provider_terminal_evidence_at.is_some()
+            && row.final_result_json.is_some()
+    });
     // 已有私有身份发生冲突时连 OS mutation 也不执行，避免终止争议绑定。
     if private_exists && !private_valid {
         mark_unknown(store, id).await?;
         return Ok(Kind::ExecutionUnknown);
     }
     // 不推造 Session；generic 原绑定足以停止该 Job，private 缺失仍保留 Claim。
-    let recovered = recover(store, runtime_id.clone(), Duration::from_secs(10)).await;
-    if !private_valid || recovered.is_err() {
+    let recovered = if recover_runtime {
+        recover(store, runtime_id.clone(), Duration::from_secs(10)).await
+    } else {
+        Ok(())
+    };
+    let durable = store.runtime(runtime_id.clone()).await?;
+    #[cfg(windows)]
+    let approved = durable.as_ref().is_some_and(|durable| {
+        complete(durable)
+            && current_session().is_ok_and(|session| valid_identity(durable, session).is_ok())
+    });
+    #[cfg(not(windows))]
+    let approved = false;
+    if !private_valid || recovered.is_err() || !approved {
         mark_unknown(store, id).await?;
         return Ok(Kind::ExecutionUnknown);
     }
-    let evidence = store
-        .runtime(runtime_id.clone())
-        .await?
-        .ok_or("CODEBUDDY_RUNTIME_MISSING")?;
+    let evidence = durable.ok_or("CODEBUDDY_RUNTIME_MISSING")?;
     if row.status == "unknown" {
         if let Err(error) = store
             .provider_event(
@@ -241,37 +281,73 @@ async fn reconcile_execution(store: &StateStore, id: &str) -> Result<Kind, Strin
             }
             return Err(error);
         }
-    } else if row.status != "reconciling" {
+    } else if row.status != "reconciling" && !(staged && row.status == "finalizing") {
         store
             .provider_event(id.into(), Transition::Reconcile, now())
             .await?;
     }
-    let row = store
+    let mut row = store
         .execution(id.into())
         .await?
         .ok_or("EXECUTION_NOT_FOUND")?;
+    if staged && row.status == "reconciling" {
+        store
+            .provider_event(id.into(), Transition::ResumeStagedTerminal, now())
+            .await?;
+        row = store
+            .execution(id.into())
+            .await?
+            .ok_or("EXECUTION_NOT_FOUND")?;
+    }
+    let (terminal, result, completeness) = if staged {
+        let terminal = serde_json::from_value(serde_json::Value::String(
+            row.provider_terminal_status
+                .clone()
+                .ok_or("STAGED_TERMINAL_REQUIRED")?,
+        ))
+        .map_err(|e| e.to_string())?;
+        let result = serde_json::from_str(
+            row.final_result_json
+                .as_deref()
+                .ok_or("STAGED_RESULT_REQUIRED")?,
+        )
+        .map_err(|e| e.to_string())?;
+        let completeness = match row.result_completeness.as_str() {
+            "complete" => ResultCompleteness::Complete,
+            "partial" => ResultCompleteness::Partial,
+            "unknown" => ResultCompleteness::Unknown,
+            _ => return Err("STAGED_COMPLETENESS_INVALID".into()),
+        };
+        (terminal, result, completeness)
+    } else {
+        (Status::Interrupted, None, ResultCompleteness::Unknown)
+    };
     // 只使用现有 provider-neutral release 事务，不创建 R2 或恢复 Provider 结果。
     store
         .finalize_and_release_execution(
             id.into(),
             row.revision,
             Finalization {
-                terminal: Status::Interrupted,
+                terminal,
                 basis: ReleaseBasis::RuntimeTerminated,
-                result: None,
-                completeness: ResultCompleteness::Unknown,
+                result,
+                completeness,
             },
             now(),
         )
         .await?;
-    Ok(Kind::ExecutionInterrupted)
+    Ok(if staged {
+        Kind::ExecutionReleased
+    } else {
+        Kind::ExecutionInterrupted
+    })
 }
 
 #[cfg(all(test, windows))]
 mod tests;
 
 /// 仅投影 generic unknown，不引入 Codex recovery 依赖。
-async fn mark_unknown(store: &StateStore, id: &str) -> Result<(), String> {
+pub(super) async fn mark_unknown(store: &StateStore, id: &str) -> Result<(), String> {
     let row = store
         .execution(id.into())
         .await?

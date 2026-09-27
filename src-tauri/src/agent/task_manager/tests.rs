@@ -1836,11 +1836,11 @@ async fn provider_policy_refresh_recovers_initially_unavailable_resume() {
 }
 
 #[tokio::test]
-/// Fresh preparation 不开放 TaskManager admission；绕过 capability 直接 execute 也不能半接受。
-async fn codebuddy_fresh_preparation_keeps_execute_unaccepted_and_runtime_absent() {
+/// CLI unavailable 拒绝 TaskManager admission；registered descriptor 仍在，直接 execute 不半接受。
+async fn codebuddy_missing_cli_keeps_execute_unaccepted_and_runtime_absent() {
     use crate::agent::{
         codebuddy::{
-            discovery::DiscoveryResult, provider::register_codebuddy_provider_with_discovery,
+            discovery::DiscoveryError, provider::register_codebuddy_provider_with_discovery,
         },
         provider::{ProviderExecutionContext, port::ProviderAcceptanceSink},
     };
@@ -1864,23 +1864,23 @@ async fn codebuddy_fresh_preparation_keeps_execute_unaccepted_and_runtime_absent
         &mut registry,
         store.clone(),
         "host".into(),
-        Ok(DiscoveryResult::direct_for_test("C:/fake/codebuddy.exe")),
+        Err(DiscoveryError::not_found(false)),
     )
     .unwrap();
     let provider_id = ProviderId::new("codebuddy".into()).unwrap();
     let provider = registry.get_registered(&provider_id).unwrap();
     assert_eq!(
         registry.health(&provider_id).unwrap(),
-        ProviderHealth::Available
+        ProviderHealth::Unavailable
     );
     assert_eq!(
         provider.capabilities(),
         ProviderCapabilities {
-            can_execute: false,
+            can_execute: cfg!(windows),
             can_continue: false,
             can_cancel: false,
             can_recover: cfg!(windows),
-            activity: false,
+            activity: cfg!(windows),
             token_usage: false,
         }
     );
@@ -1891,7 +1891,7 @@ async fn codebuddy_fresh_preparation_keeps_execute_unaccepted_and_runtime_absent
     request.provider = provider_id;
     assert_eq!(
         manager.execute(request).await.unwrap_err(),
-        ProviderExecutionFailure::State("AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into())
+        ProviderExecutionFailure::State("AGENT_PROVIDER_UNAVAILABLE".into())
     );
     let acceptance = Arc::new(Acceptance::default());
     assert_eq!(
@@ -1905,7 +1905,14 @@ async fn codebuddy_fresh_preparation_keeps_execute_unaccepted_and_runtime_absent
             )
             .await
             .unwrap_err(),
-        ProviderExecutionFailure::State("AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into())
+        ProviderExecutionFailure::State(
+            if cfg!(windows) {
+                "CODEBUDDY_ACP_LAUNCH_FAILED"
+            } else {
+                "AGENT_PROVIDER_CAPABILITY_UNSUPPORTED"
+            }
+            .into()
+        )
     );
     assert!(!acceptance.0.load(Ordering::SeqCst));
     let db = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();

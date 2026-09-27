@@ -1,0 +1,14 @@
+[
+  {
+    "path": "src-tauri/src/agent/execution/state.rs",
+    "sha256": "128D9DA2D87B50E9F3FE99EC44DA0B8952B1444EB69C4FE6AECEFC149165A233"
+  },
+  {
+    "path": "src-tauri/src/agent/store/transactions.rs",
+    "sha256": "401C25EDB39647849FFF6B5848C33911628420A3428C892C97437FAD5C7BA4AE"
+  },
+  {
+    "path": "src-tauri/src/agent/store/transactions/tests.rs",
+    "sha256": "F76574F015BC3CCB2B4A95D5514579AB3AEF2187DC6E506AB15075E58879B35D"
+  }
+]

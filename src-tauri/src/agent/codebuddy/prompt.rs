@@ -7,6 +7,7 @@ use super::{
 };
 use crate::agent::{
     coordinator::now,
+    execution::state::{DispatchState, Transition},
     provider::{
         ProviderOutcome, ProviderResultCompleteness, ProviderRunResult,
         port::{AgentEventSink, ProviderAcceptanceSink, ProviderFuture},
@@ -46,7 +47,7 @@ pub(crate) async fn prompt(
 }
 
 /// 所有状态写入都等待事务完成；调用方放弃不会中断 MarkSent/ObserveTerminal 的提交。
-async fn run(
+pub(super) async fn run(
     mut session: PreparedFreshSession,
     store: StateStore,
     sink: Arc<dyn ProviderAcceptanceSink>,
@@ -81,7 +82,7 @@ async fn run(
         {
             return Err(Failure::State);
         }
-        let owner = Ownership {
+        let mut owner = Ownership {
             execution_revision: row.revision,
             runtime_instance_id: row.runtime_instance_id,
         };
@@ -120,6 +121,20 @@ async fn run(
             return Err(Failure::Closed);
         }
         session.mark_accepted(sink.as_ref())?;
+        store
+            .provider_event(
+                row.id.clone(),
+                Transition::Dispatch {
+                    to: DispatchState::Dispatching,
+                    runtime_id: owner.runtime_instance_id.clone(),
+                },
+                now(),
+            )
+            .await
+            .map_err(|_| Failure::State)?;
+        let mut flush = requests
+            .observe_prompt_flush(session_id.clone(), current.conversation_request_id.clone())?;
+        let mut flushed = false;
         let mut activity = ActivityMapper::new(
             row.id.clone(),
             session_id.clone(),
@@ -161,7 +176,21 @@ async fn run(
                 tokio::select! {
                     biased;
                     _ = &mut cancelled => break Err(Failure::Closed),
-                    response = &mut request => break response.map(|response| (response, publishing.is_some())),
+                    observation = &mut flush, if !flushed => {
+                        observation.map_err(|_| Failure::Io)?;
+                        dispatch_flushed(&store, &row.id).await?;
+                        flushed = true;
+                    }
+                    response = &mut request => {
+                        let response = response?;
+                        // 极早响应不能替代 flush 证据；仍必须取得真实 observer 再推进状态。
+                        if !flushed {
+                            tokio::time::timeout(requests.shared.limits.request_timeout, &mut flush)
+                                .await.map_err(|_| Failure::Timeout)?.map_err(|_| Failure::Io)?;
+                            dispatch_flushed(&store, &row.id).await?;
+                        }
+                        break Ok((response, publishing.is_some()));
+                    },
                     _ = async { match publishing.as_mut() {
                         Some(future) => future.await,
                         None => std::future::pending().await,
@@ -183,7 +212,12 @@ async fn run(
         }?;
         // SDK exact response 到达后做最后一次 drain；此后不再修改正文快照。
         let frames = requests.shared.take_session(&session_id)?;
-        publish_final_activity(&mut activity, &frames, telemetry.as_ref(), publication_pending);
+        publish_final_activity(
+            &mut activity,
+            &frames,
+            telemetry.as_ref(),
+            publication_pending,
+        );
         drop(activity);
         collector.drain(
             frames,
@@ -198,6 +232,12 @@ async fn run(
             return Err(Failure::Malformed);
         }
         let result = collector.finish(row.id.clone(), response.stop_reason)?;
+        let generic = store
+            .execution(row.id.clone())
+            .await
+            .map_err(|_| Failure::State)?
+            .ok_or(Failure::State)?;
+        owner.execution_revision = generic.revision;
         if let Some(value) = meta.get(PROVIDER_REQUEST) {
             let id = value.as_str().ok_or(Failure::Malformed)?;
             if !id.is_empty() {
@@ -248,6 +288,24 @@ async fn run(
             {
                 return Err(Failure::State);
             }
+            if row.dispatch_state == "dispatching" {
+                store
+                    .provider_event(
+                        row.id.clone(),
+                        Transition::Dispatch {
+                            to: DispatchState::Uncertain,
+                            runtime_id: None,
+                        },
+                        now(),
+                    )
+                    .await
+                    .map_err(|_| Failure::State)?;
+            }
+            let row = store
+                .execution(row.id.clone())
+                .await
+                .map_err(|_| Failure::State)?
+                .ok_or(Failure::State)?;
             private_store
                 .mutate(
                     current.execution_id,
@@ -273,6 +331,25 @@ async fn run(
         result
     };
     PromptCompletion { session, result }
+}
+
+/// 只有 GuardedWrite 的 exact flush observation 可以推进 generic dispatch evidence。
+async fn dispatch_flushed(store: &StateStore, id: &str) -> Result<(), Failure> {
+    store
+        .provider_event(
+            id.into(),
+            Transition::Dispatch {
+                to: DispatchState::Dispatched,
+                runtime_id: None,
+            },
+            now(),
+        )
+        .await
+        .map_err(|_| Failure::State)?;
+    store
+        .provider_event(id.into(), Transition::Running, now())
+        .await
+        .map_err(|_| Failure::State)
 }
 
 /// final drain 仅串行推进立即就绪事件；Pending 的已提交副作用不能靠 drop 撤销。

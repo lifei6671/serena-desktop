@@ -98,6 +98,32 @@ pub(crate) async fn prepare(
     desired: DesiredConfiguration,
     limits: Limits,
 ) -> Result<PreparedFreshSession, Failure> {
+    let runtime_id = format!(
+        "codebuddy-{}",
+        new_conversation_id().map_err(|_| Failure::State)?
+    );
+    prepare_owned(
+        store,
+        owner,
+        execution_id,
+        resolved,
+        desired,
+        limits,
+        runtime_id,
+    )
+    .await
+}
+
+/// execute 预先冻结本次 R1，失败后只能收敛这一次已取得的 ownership。
+pub(super) async fn prepare_owned(
+    store: StateStore,
+    owner: String,
+    execution_id: String,
+    resolved: &ResolvedLaunchSpec,
+    desired: DesiredConfiguration,
+    limits: Limits,
+    runtime_id: String,
+) -> Result<PreparedFreshSession, Failure> {
     let row = store
         .execution(execution_id.clone())
         .await
@@ -110,10 +136,6 @@ pub(crate) async fn prepare(
     {
         return Err(Failure::State);
     }
-    let runtime_id = format!(
-        "codebuddy-{}",
-        new_conversation_id().map_err(|_| Failure::State)?
-    );
     let request = LaunchRequest::from_resolved(
         resolved,
         Path::new(&row.canonical_workspace_root),

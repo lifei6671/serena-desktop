@@ -389,6 +389,7 @@ fn exact_11_by_11_matrix() {
         (4, 7),
         (4, 8),
         (4, 9),
+        (5, 4), // CB7-005：只有暂存结果和 Runtime evidence 才允许恢复 Finalizing。
         (5, 6),
         (5, 7),
         (5, 8),
@@ -405,7 +406,7 @@ fn exact_11_by_11_matrix() {
             count += usize::from(expected);
         }
     }
-    assert_eq!(count, 23);
+    assert_eq!(count, 24);
 }
 
 #[test]
@@ -482,6 +483,14 @@ fn status_edges_execute_and_forbidden_edges_reject() {
                 Status::Running => event(&s, Transition::Running, 3),
                 Status::CancelRequested => event(&s, Transition::RequestCancel, 3),
                 Status::Cancelling => event(&s, Transition::InterruptAck, 3),
+                Status::Finalizing if from == Status::Reconciling => {
+                    assert!(event(&s, Transition::ResumeStagedTerminal, 2).is_err());
+                    assert_eq!(status(&s).status, "reconciling");
+                    s.connection.lock().unwrap().execute("UPDATE executions SET provider_terminal_status='completed',provider_terminal_evidence_runtime_instance_id='r',provider_terminal_evidence_at=1,final_result_json='null',result_completeness='complete'",[]).unwrap();
+                    assert!(event(&s, Transition::ResumeStagedTerminal, 2).is_err());
+                    s.connection.lock().unwrap().execute("UPDATE runtime_instances SET state='terminated',termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',termination_evidence_at=2",[]).unwrap();
+                    event(&s, Transition::ResumeStagedTerminal, 3)
+                }
                 Status::Finalizing => event(
                     &s,
                     Transition::ProviderTerminal {
@@ -2346,4 +2355,177 @@ fn dispatch_atomically_persists_changed_runtime_binding() {
     );
     assert_eq!(status(&store).runtime_instance_id.as_deref(), Some("r"));
     assert_eq!(status(&store).revision, 1);
+}
+
+/// CB7-005：generic 暂存和释放是两个事务，终止前 Claim 必须保留。
+#[test]
+fn staged_terminal_result_requires_original_runtime_evidence_and_exact_values() {
+    for terminal in [
+        Status::Completed,
+        Status::Failed,
+        Status::Cancelled,
+        Status::Interrupted,
+    ] {
+        for result in [None, Some(Value::Null), Some(json!({"text":"safe"}))] {
+            let dir = tempfile::tempdir().unwrap();
+            let s = open(dir.path());
+            fixture(&s, Status::Running, DispatchState::Dispatched);
+            let staged = Transition::ProviderTerminalResult {
+                runtime_id: "r".into(),
+                status: terminal,
+                result: result.clone(),
+                completeness: ResultCompleteness::Complete,
+            };
+            event(&s, staged.clone(), 2).unwrap();
+            let before = execution_snapshot(&s);
+            assert_eq!(status(&s).status, "finalizing");
+            assert_eq!(
+                status(&s).final_result_json,
+                Some(serde_json::to_string(&result).unwrap())
+            );
+            assert_eq!(status(&s).release_evidence_state, "incomplete");
+            assert!(block(s.workspace_claim("root".into())).unwrap().is_some());
+            let release = Finalization {
+                terminal,
+                basis: ReleaseBasis::RuntimeTerminated,
+                result: result.clone(),
+                completeness: ResultCompleteness::Complete,
+            };
+            assert!(
+                block(s.finalize_and_release_execution(
+                    "e".into(),
+                    status(&s).revision,
+                    release.clone(),
+                    3
+                ))
+                .is_err()
+            );
+            assert_eq!(execution_snapshot(&s), before);
+            event(&s, staged, 3).unwrap();
+            let before = execution_snapshot(&s);
+            assert!(
+                event(
+                    &s,
+                    Transition::ProviderTerminalResult {
+                        runtime_id: "r".into(),
+                        status: terminal,
+                        result: Some(json!("different")),
+                        completeness: ResultCompleteness::Complete
+                    },
+                    4
+                )
+                .is_err()
+            );
+            assert_eq!(execution_snapshot(&s), before);
+            s.connection.lock().unwrap().execute("UPDATE runtime_instances SET state='terminated',termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',termination_evidence_at=5", []).unwrap();
+            for bad in [
+                Finalization {
+                    result: Some(json!("different")),
+                    ..release.clone()
+                },
+                Finalization {
+                    completeness: ResultCompleteness::Partial,
+                    ..release.clone()
+                },
+                Finalization {
+                    terminal: if terminal == Status::Failed {
+                        Status::Completed
+                    } else {
+                        Status::Failed
+                    },
+                    ..release.clone()
+                },
+            ] {
+                assert!(
+                    block(s.finalize_and_release_execution(
+                        "e".into(),
+                        status(&s).revision,
+                        bad,
+                        6
+                    ))
+                    .is_err()
+                );
+                assert_eq!(execution_snapshot(&s), before);
+            }
+            s.connection
+                .lock()
+                .unwrap()
+                .execute("UPDATE runtime_instances SET provider='foreign'", [])
+                .unwrap();
+            assert!(
+                block(s.finalize_and_release_execution(
+                    "e".into(),
+                    status(&s).revision,
+                    release.clone(),
+                    6
+                ))
+                .is_err()
+            );
+            assert!(block(s.workspace_claim("root".into())).unwrap().is_some());
+            s.connection
+                .lock()
+                .unwrap()
+                .execute("UPDATE runtime_instances SET provider='codex'", [])
+                .unwrap();
+            block(s.finalize_and_release_execution("e".into(), status(&s).revision, release, 7))
+                .unwrap();
+            assert_eq!(status(&s).status, terminal.as_str());
+            assert_eq!(
+                status(&s).release_evidence_kind.as_deref(),
+                Some("runtime_terminated")
+            );
+            assert!(block(s.workspace_claim("root".into())).unwrap().is_none());
+        }
+    }
+}
+
+/// CB7-005：result/release/Claim 边界任一故障都完整回滚，原证据可供一次精确重试。
+#[test]
+fn staged_finalization_faults_rollback_and_same_evidence_retry() {
+    for trigger in [
+        "CREATE TRIGGER injected BEFORE UPDATE OF final_result_json ON executions BEGIN SELECT RAISE(ABORT,'result fault'); END",
+        "CREATE TRIGGER injected BEFORE UPDATE OF release_evidence_state ON executions BEGIN SELECT RAISE(ABORT,'release fault'); END",
+        "CREATE TRIGGER injected BEFORE DELETE ON workspace_claims BEGIN SELECT RAISE(ABORT,'claim fault'); END",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let s = open(dir.path());
+        fixture(&s, Status::Running, DispatchState::Dispatched);
+        event(
+            &s,
+            Transition::ProviderTerminalResult {
+                runtime_id: "r".into(),
+                status: Status::Completed,
+                result: Some(json!({"text":"safe"})),
+                completeness: ResultCompleteness::Complete,
+            },
+            2,
+        )
+        .unwrap();
+        s.connection.lock().unwrap().execute("UPDATE runtime_instances SET state='terminated',termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',termination_evidence_at=5", []).unwrap();
+        s.connection.lock().unwrap().execute_batch(trigger).unwrap();
+        let before = execution_snapshot(&s);
+        let f = Finalization {
+            terminal: Status::Completed,
+            basis: ReleaseBasis::RuntimeTerminated,
+            result: Some(json!({"text":"safe"})),
+            completeness: ResultCompleteness::Complete,
+        };
+        assert!(
+            block(s.finalize_and_release_execution("e".into(), status(&s).revision, f.clone(), 6))
+                .is_err()
+        );
+        assert_eq!(execution_snapshot(&s), before);
+        assert!(block(s.workspace_claim("root".into())).unwrap().is_some());
+        s.connection
+            .lock()
+            .unwrap()
+            .execute_batch("DROP TRIGGER injected")
+            .unwrap();
+        block(s.finalize_and_release_execution("e".into(), status(&s).revision, f.clone(), 7))
+            .unwrap();
+        assert!(
+            block(s.finalize_and_release_execution("e".into(), status(&s).revision, f, 8)).is_err()
+        );
+        assert!(block(s.workspace_claim("root".into())).unwrap().is_none());
+    }
 }

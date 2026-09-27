@@ -1,4 +1,4 @@
-//! CodeBuddy discovery 与历史 Runtime recovery；执行能力仍保持关闭。
+//! CodeBuddy Windows Fresh Execute 与历史 Runtime recovery；能力由已验证的平台边界声明。
 
 use std::sync::Arc;
 
@@ -37,9 +37,9 @@ pub(crate) struct CodeBuddyProvider {
 }
 
 impl CodeBuddyProvider {
-    /// CB7-003 可消费的内部准备入口；当前 execute/admission 仍不调用它。
+    /// 内部准备入口复用生产 fresh primitive，供独立准备与 crash-window 测试。
     #[cfg(windows)]
-    #[allow(dead_code, reason = "CB7-003 才接完整 execute lifecycle")]
+    #[allow(dead_code, reason = "内部准备入口供独立 lifecycle 验证")]
     pub(crate) async fn prepare_fresh(
         &self,
         execution_id: String,
@@ -58,7 +58,7 @@ impl CodeBuddyProvider {
     }
 
     /// 从一次无进程 discovery 构造 Provider，失败结果仍保留 registered skeleton。
-    fn from_discovery(
+    pub(super) fn from_discovery(
         store: crate::agent::store::StateStore,
         owner: String,
         discovery: Result<DiscoveryResult, DiscoveryError>,
@@ -79,7 +79,7 @@ impl CodeBuddyProvider {
         }
     }
 
-    /// 返回本机 resolved LaunchSpec；内部 preparation 复用，公开 execute 仍保持关闭。
+    /// 返回当前 registered adapter 冻结的 LaunchSpec，execute 不重新 discovery 或 fallback。
     pub(crate) fn resolved_launch_spec(&self) -> Option<&ResolvedLaunchSpec> {
         self.discovery
             .as_ref()
@@ -126,7 +126,7 @@ pub(crate) fn register_codebuddy_provider_with_discovery(
     )
 }
 
-/// 未实现的 execute/cancel 保持稳定 capability unsupported，不创建新 Runtime。
+/// Cancel 尚未实现，保持稳定 capability unsupported。
 fn unsupported() -> ProviderError {
     ProviderError {
         code: ProviderErrorCode::AgentProviderCapabilityUnsupported,
@@ -146,30 +146,61 @@ impl AgentProvider for CodeBuddyProvider {
         }
     }
 
-    /// CB6-005 native Windows Job/startup Gate 已通过；其余能力等待各自实现 Gate。
+    /// Windows Fresh/Activity/Job recovery 已通过 Gate；其他平台与未实现能力保持关闭。
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
-            can_execute: false,
+            can_execute: cfg!(windows),
             can_continue: false,
             can_cancel: false,
             can_recover: cfg!(windows),
-            activity: false,
+            activity: cfg!(windows),
             token_usage: false,
         }
     }
 
-    /// skeleton 不得创建 Runtime、Session、Execution 或 Claim。
+    /// 当前 registered LaunchSpec 驱动受管 fresh lifecycle，接受后由原 owner 完成安全收敛。
     fn execute<'a>(
         &'a self,
-        _context: ProviderExecutionContext,
-        _acceptance: Arc<dyn ProviderAcceptanceSink>,
-        _telemetry: Arc<dyn AgentEventSink>,
+        context: ProviderExecutionContext,
+        acceptance: Arc<dyn ProviderAcceptanceSink>,
+        telemetry: Arc<dyn AgentEventSink>,
     ) -> ProviderFuture<'a, Result<ProviderRunResult, ProviderExecutionFailure>> {
-        Box::pin(async {
-            Err(ProviderExecutionFailure::State(
-                "AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into(),
-            ))
-        })
+        #[cfg(windows)]
+        {
+            let store = self.store.clone();
+            let owner = self.owner.clone();
+            let resolved = self.resolved_launch_spec().cloned();
+            Box::pin(async move {
+                let resolved = resolved.ok_or_else(|| {
+                    ProviderExecutionFailure::State("CODEBUDDY_ACP_LAUNCH_FAILED".into())
+                })?;
+                let (cancel, cancelled) = tokio::sync::oneshot::channel();
+                // 一个有界 owner task 持有整个 lifecycle；caller drop 通知它停止 prompt 并收敛证据。
+                let task = tokio::spawn(super::execute::run(
+                    store,
+                    owner,
+                    resolved,
+                    context.execution_id,
+                    acceptance,
+                    telemetry,
+                    cancelled,
+                ));
+                let result = task.await.map_err(|_| {
+                    ProviderExecutionFailure::State("CODEBUDDY_EXECUTION_OWNER_FAILED".into())
+                })?;
+                drop(cancel);
+                result
+            })
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = (context, acceptance, telemetry);
+            Box::pin(async {
+                Err(ProviderExecutionFailure::State(
+                    "AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into(),
+                ))
+            })
+        }
     }
 
     /// CB6-001 没有 Cancel 实现，直接返回稳定公共错误。

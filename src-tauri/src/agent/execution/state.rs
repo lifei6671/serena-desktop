@@ -57,7 +57,7 @@ impl Status {
                 )
                 | (
                     Reconciling,
-                    Completed | Failed | Cancelled | Interrupted | Unknown
+                    Finalizing | Completed | Failed | Cancelled | Interrupted | Unknown
                 )
                 | (Unknown, Reconciling)
         )
@@ -113,10 +113,19 @@ pub enum Transition {
         runtime_id: String,
         status: Status,
     },
+    /// 原子暂存 exact terminal 与安全结果；不授权释放 Claim。
+    ProviderTerminalResult {
+        runtime_id: String,
+        status: Status,
+        result: Option<Value>,
+        completeness: ResultCompleteness,
+    },
     /// Produced by a future verified same-Runtime, all-pages cleanup collector.
     CleanupEmpty {
         runtime_id: String,
     },
+    /// 从已暂存 exact 终态与新 Runtime evidence 恢复 Finalizing，不接受 caller 结果。
+    ResumeStagedTerminal,
     Reconcile,
     MarkUnknown,
     ResumeRecovery(RecoveryBasis),

@@ -298,14 +298,10 @@ async fn initialize_sanitized_fixture_and_missing_capability_keep_health_and_cap
         );
         assert_eq!(registry.health(&id).unwrap(), ProviderHealth::Available);
         assert_eq!(registry.capabilities(&id).unwrap(), before);
-        assert!(
-            !before.can_execute
-                && !before.can_continue
-                && !before.can_cancel
-                && !before.activity
-                && !before.token_usage
-        );
+        assert!(!before.can_continue && !before.can_cancel && !before.token_usage);
         assert_eq!(before.can_recover, cfg!(windows));
+        assert_eq!(before.can_execute, cfg!(windows));
+        assert_eq!(before.activity, cfg!(windows));
         client.shutdown().await;
     }
 }
@@ -457,14 +453,25 @@ async fn write_and_flush_closed_pipe_keep_first_failure_and_health_local() {
     ] {
         for on_flush in [false, true] {
             let shared = Shared::new(Limits::default());
-            let mut writer = GuardedWrite::new(ErrorWriter { kind, on_flush }, shared.clone());
+            let (sender, mut receiver) = oneshot::channel();
+            let observer = Arc::new(std::sync::Mutex::new(Some(PromptFlush {
+                session: "s".into(),
+                conversation: "c".into(),
+                sender,
+            })));
+            let mut writer = GuardedWrite::with_prompt_flush(
+                ErrorWriter { kind, on_flush },
+                shared.clone(),
+                observer,
+            );
             writer
                 .write_all(
-                    b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}\n",
+                    b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"s\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"c\"}}}\n",
                 )
                 .await
                 .unwrap();
             assert!(writer.flush().await.is_err());
+            assert!(receiver.try_recv().is_err());
             assert_eq!(shared.failure(), Some(expected));
             assert_eq!(shared.fail(Failure::Incompatible), expected);
             assert_eq!(expected.health_change(), None);
@@ -828,5 +835,76 @@ async fn dropped_request_closes_transport() {
     pending.abort();
     let _ = pending.await;
     assert_eq!(failure(&client.requests.shared).await, Failure::Closed);
+    client.shutdown().await;
+}
+
+/// CB7-005：只在 exact SDK frame 全部写入并成功 flush 后发送相同 id。
+#[tokio::test]
+async fn prompt_flush_observation_is_exact_and_physical() {
+    use futures::io::AsyncWriteExt;
+    let shared = Shared::new(Limits::default());
+    let (sender, mut receiver) = oneshot::channel();
+    let observer = Arc::new(std::sync::Mutex::new(Some(PromptFlush {
+        session: "s".into(),
+        conversation: "c".into(),
+        sender,
+    })));
+    let mut writer =
+        GuardedWrite::with_prompt_flush(futures::io::Cursor::new(Vec::new()), shared, observer);
+    let frame = b"{\"jsonrpc\":\"2.0\",\"id\":57,\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"s\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"c\"}}}\n";
+    writer.write_all(frame).await.unwrap();
+    assert!(matches!(
+        receiver.try_recv(),
+        Err(oneshot::error::TryRecvError::Empty)
+    ));
+    assert!(writer.inner.get_ref().is_empty());
+    writer.flush().await.unwrap();
+    assert_eq!(receiver.await.unwrap(), json!(57));
+    assert_eq!(writer.inner.get_ref(), frame);
+    // 相同 method 但外部身份不符不得写入、不得通知 flush。
+    let shared = Shared::new(Limits::default());
+    let (sender, mut receiver) = oneshot::channel();
+    let observer = Arc::new(std::sync::Mutex::new(Some(PromptFlush {
+        session: "wrong".into(),
+        conversation: "c".into(),
+        sender,
+    })));
+    let mut writer =
+        GuardedWrite::with_prompt_flush(futures::io::Cursor::new(Vec::new()), shared, observer);
+    assert!(writer.write_all(frame).await.is_err());
+    assert!(writer.inner.get_ref().is_empty());
+    assert!(receiver.try_recv().is_err());
+}
+
+#[tokio::test]
+/// 正式 SDK 生成的 Prompt id 与 observer 完全一致，flush 不能完成 response waiter。
+async fn sdk_prompt_flush_id_matches_wire_without_completing_waiter() {
+    use agent_client_protocol::schema::v1::PromptRequest;
+    let (client, mut peer) = pair(Limits::default()).await;
+    let requests = client.requests.clone();
+    let flushed = requests
+        .observe_prompt_flush("s".into(), "c".into())
+        .unwrap();
+    assert!(
+        requests
+            .observe_prompt_flush("s".into(), "c".into())
+            .is_err()
+    );
+    let task = tokio::spawn(async move {
+        requests
+            .request(
+                PromptRequest::new("s", vec![]).meta(serde_json::Map::from_iter([(
+                    "codebuddy.ai/conversationRequestId".into(),
+                    json!("c"),
+                )])),
+            )
+            .await
+    });
+    let wire = peer.next().await;
+    assert_eq!(wire["method"], "session/prompt");
+    assert_eq!(flushed.await.unwrap(), wire["id"]);
+    assert!(!task.is_finished());
+    peer.respond(&wire, json!({"stopReason":"end_turn"})).await;
+    assert!(task.await.unwrap().is_ok());
     client.shutdown().await;
 }

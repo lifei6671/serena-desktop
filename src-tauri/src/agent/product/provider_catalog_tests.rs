@@ -137,7 +137,9 @@ async fn codex_available_enabled_json_fixture() {
         .await;
     let mut expected: Value =
         serde_json::from_str(include_str!("fixtures/provider_catalog_codex.json")).unwrap();
-    // CB6-005 只在有 native Windows Job recovery Gate 的平台声明恢复能力。
+    // Fresh Execute、Activity 与 Job recovery 仅在通过 native Windows Gate 的平台声明。
+    expected["providers"][0]["capabilities"]["canExecute"] = json!(cfg!(windows));
+    expected["providers"][0]["capabilities"]["activity"] = json!(cfg!(windows));
     expected["providers"][0]["capabilities"]["canRecover"] = json!(cfg!(windows));
     assert_eq!(value, expected);
     assert!(durable_snapshot(directory.path()).iter().all(Vec::is_empty));
@@ -231,13 +233,13 @@ async fn codebuddy_catalog_and_refresh_preserve_capability_truth() {
                 "displayName": "CodeBuddy",
                 "enabled": enabled,
                 "health": if found { "available" } else { "unavailable" },
-                "availableForNewExecution": false,
+                "availableForNewExecution": cfg!(windows) && found && enabled,
                 "capabilities": {
-                    "canExecute": false,
+                    "canExecute": cfg!(windows),
                     "canContinue": false,
                     "canCancel": false,
                     "canRecover": cfg!(windows),
-                    "activity": false,
+                    "activity": cfg!(windows),
                     "tokenUsage": false
                 }
             });

@@ -606,7 +606,7 @@ async fn disabled_missing_cli_refresh_retains_recovery_authority() {
             let registry = manager.registry().unwrap();
             let provider = registry.get_registered(&provider_id).unwrap();
             assert!(provider.capabilities().can_recover);
-            assert!(!provider.capabilities().can_execute);
+            assert!(provider.capabilities().can_execute);
             assert!(registry.get(&provider_id).is_err());
             drop(registry);
             let report = manager.reconcile_startup().await.unwrap();

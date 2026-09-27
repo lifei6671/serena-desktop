@@ -15,7 +15,7 @@ use std::{
     collections::VecDeque,
     io,
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, Mutex},
     task::{Context, Poll},
     time::Duration,
 };
@@ -36,6 +36,14 @@ pub(crate) struct Requests {
     connection: ConnectionTo<Agent>,
     pub(crate) shared: Arc<Shared>,
     slots: Arc<Semaphore>,
+    prompt_flush: Arc<Mutex<Option<PromptFlush>>>,
+}
+
+/// 单个 fresh Prompt 的 exact 身份与有界一次性物理 flush 观察者。
+struct PromptFlush {
+    session: String,
+    conversation: String,
+    sender: oneshot::Sender<Value>,
 }
 
 /// 请求 future 被放弃时必须关闭 transport，不能留下 SDK pending 或自动 cancel 产品接线。
@@ -53,6 +61,25 @@ impl Drop for RequestLifetime {
 }
 
 impl Requests {
+    /// 在 SDK 编码前注册 exact Prompt；id 仍完全由 SDK 生成。
+    pub(crate) fn observe_prompt_flush(
+        &self,
+        session: String,
+        conversation: String,
+    ) -> Result<oneshot::Receiver<Value>, Failure> {
+        let mut observer = self.prompt_flush.lock().map_err(|_| Failure::State)?;
+        if observer.is_some() {
+            return Err(Failure::State);
+        }
+        let (sender, receiver) = oneshot::channel();
+        *observer = Some(PromptFlush {
+            session,
+            conversation,
+            sender,
+        });
+        Ok(receiver)
+    }
+
     /// Prompt send-intent 前与实际 request 共用完整 typed payload 大小及 admission 检查。
     pub(crate) fn preflight<R: JsonRpcRequest>(&self, request: &R) -> Result<(), Failure> {
         if let Some(error) = self.shared.failure() {
@@ -136,6 +163,8 @@ impl ManagedClient {
         let shared = Shared::new(limits);
         let (ready_tx, ready_rx) = oneshot::channel();
         let state = shared.clone();
+        let prompt_flush = Arc::new(Mutex::new(None));
+        let driver_flush = prompt_flush.clone();
         let driver = tokio::spawn(async move {
             let mut stopped = state.stop.subscribe();
             let maintenance = async {
@@ -147,7 +176,7 @@ impl ManagedClient {
             let sdk = Client.builder().name("codebuddy-managed")
                 .with_handler(Dispatcher(state.clone()))
                 .on_close({ let state = state.clone(); async move |_cx| { state.fail(Failure::Eof); Ok(()) } })
-                .connect_with(ByteStreams::new(GuardedWrite::new(outgoing, state.clone()), GuardedRead::new(incoming, state.clone())),
+                .connect_with(ByteStreams::new(GuardedWrite::with_prompt_flush(outgoing, state.clone(), driver_flush), GuardedRead::new(incoming, state.clone())),
                     async move |connection| {
                         ready_tx.send(connection).map_err(|_| agent_client_protocol::Error::internal_error())?;
                         std::future::pending::<Result<(), agent_client_protocol::Error>>().await
@@ -166,6 +195,7 @@ impl ManagedClient {
                     connection,
                     shared,
                     slots: Arc::new(Semaphore::new(limits.pending)),
+                    prompt_flush,
                 },
                 driver: Some(driver),
             }),
@@ -370,13 +400,26 @@ struct GuardedWrite<W> {
     offset: usize,
     complete: bool,
     response: bool,
+    prompt_flush: Arc<Mutex<Option<PromptFlush>>>,
+    flushed_prompt: Option<(Value, oneshot::Sender<Value>)>,
 }
 impl<W> GuardedWrite<W> {
     /// 仅缓冲一条正在写出的 SDK frame。
     fn new(inner: W, shared: Arc<Shared>) -> Self {
+        Self::with_prompt_flush(inner, shared, Arc::new(Mutex::new(None)))
+    }
+
+    /// 生产 driver 与 Requests 共享单个 Prompt observer，不干涉 SDK response waiter。
+    fn with_prompt_flush(
+        inner: W,
+        shared: Arc<Shared>,
+        prompt_flush: Arc<Mutex<Option<PromptFlush>>>,
+    ) -> Self {
         Self {
             inner,
             shared,
+            prompt_flush,
+            flushed_prompt: None,
             frame: Vec::new(),
             offset: 0,
             complete: false,
@@ -422,6 +465,23 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for GuardedWrite<W> {
             if let Err(error) = this.shared.outgoing(&raw) {
                 return Poll::Ready(Err(io_failure(&this.shared, error)));
             }
+            if raw["method"] == "session/prompt" {
+                let mut observer = this
+                    .prompt_flush
+                    .lock()
+                    .map_err(|_| io_failure(&this.shared, Failure::State))?;
+                if let Some(expected) = observer.as_ref() {
+                    if raw["params"]["sessionId"].as_str() != Some(expected.session.as_str())
+                        || raw["params"]["_meta"]["codebuddy.ai/conversationRequestId"].as_str()
+                            != Some(expected.conversation.as_str())
+                        || raw.get("id").is_none_or(Value::is_null)
+                    {
+                        return Poll::Ready(Err(io_failure(&this.shared, Failure::Malformed)));
+                    }
+                    let expected = observer.take().expect("checked observer");
+                    this.flushed_prompt = Some((raw["id"].clone(), expected.sender));
+                }
+            }
             this.response = raw.get("method").is_none();
             this.complete = true;
         }
@@ -450,6 +510,12 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for GuardedWrite<W> {
             Poll::Ready(Ok(())) => {
                 if this.response {
                     this.shared.acknowledge();
+                }
+                // 整 frame 已真实写入且 inner.flush 成功，才发布 SDK exact id。
+                if this.complete
+                    && let Some((id, sender)) = this.flushed_prompt.take()
+                {
+                    let _ = sender.send(id);
                 }
                 this.frame.clear();
                 this.offset = 0;

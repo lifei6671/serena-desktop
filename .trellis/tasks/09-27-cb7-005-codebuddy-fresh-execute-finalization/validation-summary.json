@@ -1,0 +1,278 @@
+[
+  {
+    "command": "cargo check --manifest-path src-tauri/Cargo.toml --locked --tests",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "check-initial.log",
+    "test_results": null
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked staged_ -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "generic-staged.log",
+    "test_results": [
+      "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1406 filtered out; finished in 0.85s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ]
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked codebuddy::execute::tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 101,
+    "log": "native-initial.log",
+    "test_results": "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 1409 filtered out; finished in 1.26s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib codebuddy::execute::tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "native-second.log",
+    "test_results": "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1409 filtered out; finished in 3.06s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib codebuddy",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 101,
+    "log": "codebuddy-parallel.log",
+    "test_results": "test result: FAILED. 115 passed; 1 failed; 0 ignored; 0 measured; 1297 filtered out; finished in 19.49s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib codebuddy -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "gate-codebuddy.log",
+    "test_results": "test result: ok. 117 passed; 0 failed; 0 ignored; 0 measured; 1297 filtered out; finished in 31.28s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::store::transactions::tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 101,
+    "log": "gate-agent-store-transactions-tests.log",
+    "test_results": "test result: FAILED. 50 passed; 2 failed; 0 ignored; 0 measured; 1363 filtered out; finished in 17.96s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::task_manager::tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "gate-agent-task_manager-tests.log",
+    "test_results": "test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 1385 filtered out; finished in 1.92s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::product::provider_catalog_tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "gate-agent-product-provider_catalog_tests.log",
+    "test_results": "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 1410 filtered out; finished in 0.47s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib telemetry -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "gate-telemetry.log",
+    "test_results": "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 1404 filtered out; finished in 0.09s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib same_runtime -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "gate-same_runtime.log",
+    "test_results": "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1413 filtered out; finished in 0.20s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib usage -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "gate-usage.log",
+    "test_results": "test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 1358 filtered out; finished in 1.73s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::store::transactions::tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "regate-agent-store-transactions-tests.log",
+    "test_results": "test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 1365 filtered out; finished in 23.02s"
+  },
+  {
+    "command": "cargo clippy --locked --all-targets -- -D warnings",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri",
+    "exit": 101,
+    "log": "clippy-initial.log",
+    "test_results": null
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib codebuddy -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "regate-codebuddy.log",
+    "test_results": "test result: ok. 120 passed; 0 failed; 0 ignored; 0 measured; 1297 filtered out; finished in 32.60s"
+  },
+  {
+    "command": "cargo test --locked --lib agent::task_manager -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri",
+    "exit": 101,
+    "log": "task-manager-full.log",
+    "test_results": "test result: FAILED. 47 passed; 1 failed; 1 ignored; 0 measured; 1368 filtered out; finished in 6.15s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::codex::provider::tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "regate-agent-codex-provider-tests.log",
+    "test_results": "test result: ok. 28 passed; 0 failed; 4 ignored; 0 measured; 1385 filtered out; finished in 55.37s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib codebuddy -- ",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 101,
+    "log": "final-codebuddy.log",
+    "test_results": "test result: FAILED. 117 passed; 3 failed; 0 ignored; 0 measured; 1297 filtered out; finished in 22.00s"
+  },
+  {
+    "command": "PowerShell optional testOptions runner: intended catalog filter, observed unfiltered full lib run (1417 tests)",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": "INTERRUPTED",
+    "log": "final-agent-product-provider_catalog_tests.log",
+    "test_results": null
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib codebuddy -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "final-serial-codebuddy.log",
+    "test_results": "test result: ok. 120 passed; 0 failed; 0 ignored; 0 measured; 1297 filtered out; finished in 33.98s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::product::provider_catalog_tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 101,
+    "log": "final-serial-agent-product-provider_catalog_tests.log",
+    "test_results": "test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 1412 filtered out; finished in 0.63s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::provider::control -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "final-serial-agent-provider-control.log",
+    "test_results": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1416 filtered out; finished in 0.00s"
+  },
+  {
+    "command": "cargo fmt --all -- --check",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri",
+    "exit": 0,
+    "log": "final-fmt.log",
+    "test_results": null
+  },
+  {
+    "command": "cargo check --locked",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri",
+    "exit": 0,
+    "log": "final-check.log",
+    "test_results": null
+  },
+  {
+    "command": "cargo clippy --locked --all-targets -- -D warnings",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri",
+    "exit": 101,
+    "log": "final-clippy.log",
+    "test_results": null
+  },
+  {
+    "command": "git diff --check",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri",
+    "exit": 0,
+    "log": "final-diff-check.log",
+    "test_results": null
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::product::provider_catalog_tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 101,
+    "log": "snapshot-agent-product-provider_catalog_tests.log",
+    "test_results": null
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib mcp::provider_query_tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 101,
+    "log": "snapshot-mcp-provider_query_tests.log",
+    "test_results": null
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::codex -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 101,
+    "log": "final-serial-agent-codex.log",
+    "test_results": "test result: FAILED. 149 passed; 1 failed; 6 ignored; 0 measured; 1261 filtered out; finished in 167.72s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::codebuddy::provider::tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "verified-agent-codebuddy-provider-tests.log",
+    "test_results": "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 1412 filtered out; finished in 0.21s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::product::provider_catalog_tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "verified-agent-product-provider_catalog_tests.log",
+    "test_results": "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 1412 filtered out; finished in 0.46s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib mcp::provider_query_tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "verified-mcp-provider_query_tests.log",
+    "test_results": "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1417 filtered out; finished in 0.00s"
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib mcp::orchestration_tests::provider_query_tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "verified-mcp-providers.log",
+    "test_results": "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1413 filtered out; finished in 0.49s"
+  },
+  {
+    "command": "cargo fmt --all -- --check",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri",
+    "exit": 0,
+    "log": "verified-fmt.log",
+    "test_results": null
+  },
+  {
+    "command": "cargo clippy --locked --all-targets -- -D warnings",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri",
+    "exit": 101,
+    "log": "verified-clippy.log",
+    "test_results": null
+  },
+  {
+    "command": "git diff --check",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri",
+    "exit": 0,
+    "log": "verified-diff-check.log",
+    "test_results": null
+  },
+  {
+    "command": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "repair1-fmt.log",
+    "test_results": null
+  },
+  {
+    "command": "git diff --check",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "repair1-diff-check.log",
+    "test_results": null
+  },
+  {
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::product::provider_catalog_tests -- --test-threads=1",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit": 0,
+    "log": "repair1-catalog.log",
+    "test_results": "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 1412 filtered out; finished in 0.48s"
+  }
+]

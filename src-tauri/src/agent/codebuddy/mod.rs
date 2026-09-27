@@ -52,3 +52,6 @@ pub(crate) fn discover() -> Result<discovery::DiscoveryResult, discovery::Discov
     }
     discovery::discover(discovery::DiscoveryInput::system())
 }
+
+#[cfg(windows)]
+mod execute;
