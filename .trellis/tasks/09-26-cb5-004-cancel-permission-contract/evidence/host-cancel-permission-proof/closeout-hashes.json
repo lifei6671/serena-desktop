@@ -1,0 +1,161 @@
+{
+  "reviewTargetSha256": "20ae1e998fb4154b44bc479734166acba4d96aa961bc3d8df75fe584aca38a11",
+  "files": [
+    {
+      "path": "docs/technical-design-multi-agent-provider-codebuddy-v0.1.md",
+      "sha256": "a80a5a6fa0b3d263b194f7d4604933a805475ca15761eeae86c3c7029e0e6e15"
+    },
+    {
+      "path": "docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md",
+      "sha256": "7af023d5e5a84e3106b12db14ac44eb9b4ba6e003cd3fdc2027c2fe29176f334"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/verification.md",
+      "sha256": "613b4eb0f256804cb730ee3bdd20e9f399ce2dcc8c21935ede4203183302b68f"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/acceptance.json",
+      "sha256": "85e796bd3c74bfc4e839772fd2617f3e65a6c0690378830d74bea831217b6c9d"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/after-process-evidence.json",
+      "sha256": "ab761d1cb5e171d32f6669ae6ede1d87d31b480d70dbb9282001a8da9500e168"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/after.attempt-started.json",
+      "sha256": "5c721c59c75ac4a98fbb0c05472ea43cba6d326256dbfd198516c995a2177268"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/before-process-evidence.json",
+      "sha256": "95e030979d69b0197ca4ebc7f28d9f50468e31ecbbb2edd042361c6920936c89"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/before.attempt-started.json",
+      "sha256": "12b969de804dc6f1bc7abf1469a3187e58cbaf26d78494ad2e033b429b1a9f87"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancel-after-result.identity.json",
+      "sha256": "10c87402add0d815761a415539e158a116d1043c5fda786c684e9f356a40152c"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancel-after-result.json",
+      "sha256": "2c7b1fd675d1c1150c59b203ca62914e2e6248f16bdbf94b9fab1e296934f1eb"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancel-before-result.identity.json",
+      "sha256": "58fcd99938093454ef33ef037e524fdc4fb73e7da1a0ef20f41b65ae3f5c21be"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancel-before-result.json",
+      "sha256": "229d9062fcadafc7091f02ebe8a8fefca3bb1e26dc2e5bc3a2a4b218221d18b7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancellation-after.jsonl",
+      "sha256": "b10cd349138f6b96f33add4a221c191b4d45d2939c79c8a8fdc981cc3b410cd4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancellation-before.jsonl",
+      "sha256": "68edffc4d6d669d63cf12f92ac565dd3f73ce17cbd22b3fbb4ff5e9933fd317f"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancellation.jsonl",
+      "sha256": "a4d3ccd80530429ee61261d5cc217a2166aaeddce6f5e6cea4b661e1adcdf59a"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/closeout-baseline.json",
+      "sha256": "d85dfa3e70d47f429e95ad9848125c86d11c6d8f6ede0aa16970b840e0ae7c04"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/closeout-scope.json",
+      "sha256": "271c5c3844baaedbcf3dc7c7daa84dc3ba7fb112a3270e02adac39f6d6560d42"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/evidence-hashes.json",
+      "sha256": "5ae09916e97c24e8c6c5c375024eebb50996f32c33c16dd95a108b0a8c6ea6cf"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission-deny-result.identity.json",
+      "sha256": "1a1f6718c9b49c03b90077e025b36931d32a2032d22db70b0f7eaf6d2d9d9b8e"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission-deny-result.json",
+      "sha256": "221e2b380ad470cbe258e75a1ede7472c8bbcb85c46471662d4f2d739d335ab0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission-options.json",
+      "sha256": "a160fc60c68014c0015e4aa6ae876e3a2520981788e39476593da52369b001eb"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission-process-evidence.json",
+      "sha256": "d41960c6fa0514e0d58fd99338bfcb6cc2d79d6026645e20f0c651faa31b997e"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission.attempt-started.json",
+      "sha256": "bcc4b7fec382a3cc47233df40a45177062d27268ea4f0feb48d9b6c9f1607761"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission.jsonl",
+      "sha256": "4084262cf6a2c6272614fe046093eabc72767f58220fcea700c0a4a34552aa76"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/pre-closeout-README.md",
+      "sha256": "4d978d9e787be132ba91373267369890cca449efd9f455365a78586a9c851609"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/pre-closeout-verification.md",
+      "sha256": "e1da7c75dfb2c4f5c9e64a2f63a7a35a908372e7e1af4f67f434897e8a619012"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/process-evidence.json",
+      "sha256": "6984185760bfcaf6791e7aa77d3d6a68bbd3dbdff0150b44cff08647c5d7bce0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/python-tests.txt",
+      "sha256": "30364e2504ee04e69a65687ea4079544962ac2f8fee56301387809f1182e8123"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/README.md",
+      "sha256": "59b40be757482f05ec48db4f40f3a9e0493675bcccf4d7117c05fdca3c8d1668"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/review-context.md",
+      "sha256": "4cc4a00a70c2cdacd14cf5c36a4a708bc9bb91cc907581efe46b82d9199f8ee0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/review-target.json",
+      "sha256": "34188f71d7a4d7d2031a646f45415036ae0f57c531d8046bc12a52faa4357795"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/review.md",
+      "sha256": "df45a6948e183376390e2e2ca522f0190b4eca901e55517c40ade13221e4410c"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/review.sha256",
+      "sha256": "2f47c9d66cfc575aee5b71f74533bc20b79c556b4a4e58fc2690cf4bc4ee43cf"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/rust-tests.txt",
+      "sha256": "9c0f285fcb9c06190196fbb40fa94bf8f5dc14dd76d4ad6c2899bd0a20896433"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/scope-baseline.json",
+      "sha256": "373182a5148d5e57e0a538f7eed5d6dc40d9d761e3db0d7333f3cf8d973d88f1"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/scope-verification.json",
+      "sha256": "2f522892d6c801c5c6388eea9c61cc6cd4ef1408ed1a4a5327bdc32905c925a2"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/verification.md",
+      "sha256": "d1e80a1e42c0d1e01c2b3299a8fad219a138cdfbebe1042e1f99182e870781c0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-exact-launcher-proof/wire-result.json",
+      "sha256": "7266eafaea0d7c23fe6a897b68e05a45d9fb120b7573c10e47f805ae1954e536"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-direct-codebuddy-proof/wire-result.json",
+      "sha256": "604122d0f0e342046b1936ba1dbb08f25bb172d70f6aa966338dd2be510d1c57"
+    }
+  ]
+}

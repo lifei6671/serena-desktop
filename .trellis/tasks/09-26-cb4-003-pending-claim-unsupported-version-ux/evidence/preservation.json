@@ -1,0 +1,27 @@
+{
+  "baseline_paths": 955,
+  "changed": [
+    "src/AgentPanel.test.mjs",
+    "src/AgentPanel.tsx",
+    "src/agentPresentation.ts",
+    "src/api.ts",
+    "src/types.ts"
+  ],
+  "missing": [],
+  "rust_changed": [],
+  "diff_check": {
+    "command": "git diff --check",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "exit_code": 0,
+    "status": "PASS",
+    "note": "LF/CRLF notices only; no whitespace error"
+  },
+  "protected_hashes": {
+    "src-tauri/src/mcp/registry.rs": "c89802beaeeb2dcb1c07205033ace37091e96ac41e1619cc09b126b64a747cc3",
+    "src-tauri/src/mcp/orchestration.rs": "f2c8bcd686adfd1b6ed51d38a0cdae27fb9e3af9b1165efb58cf1396efdc5db3",
+    "src-tauri/src/mcp/orchestration/dto.rs": "fd03616fe7be1a59891f9f81699f195cf15df8063111cbe48fce3c71bb2f6a9c",
+    "src-tauri/src/mcp/start_routing_tests.rs": "7b31ee3ee71031485fa934f4230f619fd72ad590253db108498324b0cfbd9a9b",
+    "docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md": "7e74f8ac766daf1c0c0e5c3cdaa68fee1db666ff8085084b18c5a24ea91e02a1",
+    "docs/technical-design-multi-agent-provider-codebuddy-v0.1.md": "f9f416b22a74b86f842349824009ef4a32da9e21054fb023387d0cde5d77a32b"
+  }
+}

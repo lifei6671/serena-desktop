@@ -244,42 +244,95 @@ async fn provider_policy_stale_whole_config_cannot_overwrite_local_policy() {
 #[tokio::test]
 async fn provider_policy_health_probe_has_no_execution_session_or_runtime() {
     let (directory, broker, manager) = fixture().await;
-    agent_provider_set_enabled_impl(&broker, id("codex"), false)
-        .await
-        .unwrap();
-    let original = manager.registry().unwrap();
-    for (probe, expected) in [
-        (
-            Err("BACKEND_UNAVAILABLE".into()),
-            ProviderHealth::Unavailable,
-        ),
-        (Ok("new-codex.exe".into()), ProviderHealth::Available),
-    ] {
-        let health = crate::agent::codex::TEST_BACKEND_DISCOVERY
-            .scope(probe, manager.refresh_provider_health(id("codex")))
-            .await
-            .unwrap();
-        assert_eq!(health, expected);
-        assert_eq!(
-            manager.registry().unwrap().health(&id("codex")).unwrap(),
-            expected
-        );
-        assert!(!agent_provider_settings_get_impl(&broker).providers["codex"].enabled);
-        assert!(manager.runtime_pool.is_empty());
-        assert_no_execution(&directory);
-    }
-    assert_eq!(
-        original.health(&id("codex")).unwrap(),
-        ProviderHealth::Available
-    );
-    assert_eq!(
-        manager
-            .refresh_provider_health(id("codebuddy"))
-            .await
-            .unwrap_err(),
-        "AGENT_PROVIDER_NOT_FOUND"
-    );
-    assert_no_execution(&directory);
+    crate::agent::codebuddy::TEST_DISCOVERY
+        .scope(
+            Err(crate::agent::codebuddy::discovery::DiscoveryError::not_found(false)),
+            async {
+                agent_provider_set_enabled_impl(&broker, id("codex"), false)
+                    .await
+                    .unwrap();
+                let original = manager.registry().unwrap();
+                assert_eq!(
+                    original.health(&id("codebuddy")).unwrap(),
+                    ProviderHealth::Unavailable
+                );
+                for (probe, expected) in [
+                    (
+                        Err("BACKEND_UNAVAILABLE".into()),
+                        ProviderHealth::Unavailable,
+                    ),
+                    (Ok("new-codex.exe".into()), ProviderHealth::Available),
+                ] {
+                    let health = crate::agent::codex::TEST_BACKEND_DISCOVERY
+                        .scope(probe, manager.refresh_provider_health(id("codex")))
+                        .await
+                        .unwrap();
+                    assert_eq!(health, expected);
+                    assert_eq!(
+                        manager.registry().unwrap().health(&id("codex")).unwrap(),
+                        expected
+                    );
+                    assert!(!agent_provider_settings_get_impl(&broker).providers["codex"].enabled);
+                    assert!(manager.runtime_pool.is_empty());
+                    assert_no_execution(&directory);
+                }
+                assert_eq!(
+                    original.health(&id("codex")).unwrap(),
+                    ProviderHealth::Available
+                );
+
+                // CodeBuddy refresh 只替换 admission adapter；不会触发 ACP 或持久化状态。
+                let available = crate::agent::codebuddy::TEST_DISCOVERY
+                    .scope(
+                        Ok(
+                            crate::agent::codebuddy::discovery::DiscoveryResult::direct_for_test(
+                                "C:/resolved/codebuddy.exe",
+                            ),
+                        ),
+                        manager.refresh_provider_health(id("codebuddy")),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(available, ProviderHealth::Available);
+                assert_eq!(
+                    manager
+                        .registry()
+                        .unwrap()
+                        .health(&id("codebuddy"))
+                        .unwrap(),
+                    ProviderHealth::Available
+                );
+                assert_eq!(
+                    manager.registry().unwrap().health(&id("codex")).unwrap(),
+                    ProviderHealth::Available
+                );
+                assert!(manager.runtime_pool.is_empty());
+                assert_no_execution(&directory);
+
+                let unavailable = manager
+                    .refresh_provider_health(id("codebuddy"))
+                    .await
+                    .unwrap();
+                assert_eq!(unavailable, ProviderHealth::Unavailable);
+                assert_eq!(
+                    manager
+                        .registry()
+                        .unwrap()
+                        .health(&id("codebuddy"))
+                        .unwrap(),
+                    ProviderHealth::Unavailable
+                );
+                assert_no_execution(&directory);
+                assert_eq!(
+                    manager
+                        .refresh_provider_health(id("future-provider"))
+                        .await
+                        .unwrap_err(),
+                    "AGENT_PROVIDER_NOT_FOUND"
+                );
+            },
+        )
+        .await;
 }
 
 /// Remote catalog 与 validation 均不能接触本地 mutation。

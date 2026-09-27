@@ -1,0 +1,3 @@
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"CB3-004 scope, routing errors, creation/retry race and acceptance criteria"}
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"Frozen Start Routing Authority and Execution provider/taskRole identity rules in §8-§9"}
+{"file":".trellis/tasks/09-26-cb3-004-start-routing-authority/HOST_RESOLUTION.md","reason":"Host-approved management -> operation boundary for final authority re-read through creation, released before handoff"}

@@ -1,0 +1,164 @@
+{
+  "launcherArgv": [
+    "C:\\nvm4w\\nodejs\\npx.cmd",
+    "-y",
+    "@tencent-ai/codebuddy-code@2.158.0",
+    "--acp"
+  ],
+  "executionCommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /e:ON /v:OFF /d /c \"\"C:\\nvm4w\\nodejs\\npx.cmd\" -y @tencent-ai/codebuddy-code@2.158.0 --acp\"",
+  "canonicalWorkspaceRoot": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-gold-band-zz4ko47e",
+  "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-gold-band-zz4ko47e",
+  "before": {},
+  "status": "PASS",
+  "promptSent": false,
+  "automaticRetries": 0,
+  "launcherResolution": {
+    "status": "READY",
+    "failureLayer": null,
+    "acpFailure": false,
+    "resolvedNpxPath": "C:\\nvm4w\\nodejs\\npx.cmd",
+    "resolvedNodePath": "C:\\nvm4w\\nodejs\\node.exe",
+    "siblingNodeExists": true,
+    "resolvedBareNpxPath": "C:\\nvm4w\\nodejs\\npx.cmd",
+    "resolvedCodebuddyPath": null,
+    "childPathContainsNvmSymlink": true,
+    "registryPathSourcesRead": {
+      "user": true,
+      "machine": true
+    },
+    "commandLineMode": "RAW_WINDOWS_STRING",
+    "flags": [
+      "/e:ON",
+      "/v:OFF",
+      "/d",
+      "/c"
+    ],
+    "runner": "serena-command-host"
+  },
+  "pid": 34468,
+  "stage": "session_ready",
+  "sessionId": "01a0e087-2650-70e3-9e02-ad4bf003caec",
+  "close": "NOT_ADVERTISED",
+  "initialize": {
+    "protocolVersion": 1,
+    "agentCapabilityKeys": [
+      "delegateToolsSupport",
+      "loadSession",
+      "mainAgentSupport",
+      "mcpCapabilities",
+      "multitaskSupport",
+      "promptCapabilities"
+    ],
+    "closeSupported": false
+  },
+  "launcherAvailable": true,
+  "cleanup": {
+    "directChildReaped": true,
+    "windowsJobAtCreationProven": false,
+    "treeContainmentProven": false,
+    "errors": [],
+    "treeKillExitCode": 0,
+    "exitCode": 1,
+    "readersJoined": true
+  },
+  "elapsedMs": 3172,
+  "stderrBytesDrained": 0,
+  "stderrClassification": {
+    "firstSafeCategory": null,
+    "bufferLimitBytes": 8192,
+    "rawSaved": false
+  },
+  "wire": [
+    {
+      "sequence": 1,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "elicitation": {
+              "form": {}
+            },
+            "_meta": {
+              "subagent-transcript": true,
+              "parameterizedModelPicker": true
+            }
+          },
+          "clientInfo": {
+            "name": "serena-desktop-gold-band-repro",
+            "title": "SerenaDesktop Gold Band Repro",
+            "version": "0.1"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 2,
+      "direction": "response",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": 1,
+          "agentCapabilityKeys": [
+            "delegateToolsSupport",
+            "loadSession",
+            "mainAgentSupport",
+            "mcpCapabilities",
+            "multitaskSupport",
+            "promptCapabilities"
+          ],
+          "closeSupported": false
+        }
+      }
+    },
+    {
+      "sequence": 3,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "session/new",
+        "params": {
+          "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-gold-band-zz4ko47e",
+          "mcpServers": []
+        }
+      }
+    },
+    {
+      "sequence": 4,
+      "direction": "notification",
+      "message": {
+        "method": "session/update",
+        "updateType": "config_option_update"
+      }
+    },
+    {
+      "sequence": 5,
+      "direction": "response",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "sessionId": "01a0e087-2650-70e3-9e02-ad4bf003caec"
+        }
+      }
+    }
+  ],
+  "notifications": {
+    "session/update:config_option_update": 1
+  },
+  "wrongRpcIdResponsesIgnored": 0,
+  "prerouteNotifications": {
+    "total": 1,
+    "buffered": 1,
+    "dropped": 0,
+    "limit": 64
+  },
+  "after": {},
+  "delta": [],
+  "workspaceDeleted": true
+}

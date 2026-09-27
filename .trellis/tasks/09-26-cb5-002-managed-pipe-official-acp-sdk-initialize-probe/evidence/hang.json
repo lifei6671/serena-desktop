@@ -1,0 +1,58 @@
+{
+  "argv": [
+    "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+    "--fake",
+    "hang"
+  ],
+  "environmentChanges": {},
+  "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-OrjJP3",
+  "pid": 2676,
+  "initializeTimeoutSeconds": 1,
+  "initializeElapsedMs": 1013,
+  "initializeSucceeded": false,
+  "protocolCompatible": false,
+  "supportedProtocolVersion": 1,
+  "response": null,
+  "sdkResponse": null,
+  "error": "INITIALIZE_TIMEOUT",
+  "wire": [
+    {
+      "sequence": 1,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "2bf1dc34-9777-47f9-ae06-c2ff0fea0a24",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false,
+              "writeTextFile": false
+            },
+            "terminal": false,
+            "auth": {
+              "terminal": false
+            }
+          }
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"2bf1dc34-9777-47f9-ae06-c2ff0fea0a24\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientCapabilities\":{\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false,\"auth\":{\"terminal\":false}}}}\n",
+      "redacted": false
+    }
+  ],
+  "stderrSanitized": "",
+  "cleanup": {
+    "streamsClosed": true,
+    "terminated": true,
+    "waited": true,
+    "exitCode": 1,
+    "directChildReaped": true,
+    "stderrJoined": true,
+    "succeeded": true,
+    "errors": [],
+    "stderrSanitized": "",
+    "windowsJobAtCreationProven": false
+  },
+  "totalElapsedMs": 3027
+}

@@ -1,0 +1,9 @@
+{
+  "sessionId": "01a0e123-b9e3-70a6-9060-212933bd10ea",
+  "conversationRequestId": "01a0e123b53672b3a375797ca450b9c8",
+  "requestId": "01a0e123b53672b3a375797ca450b9c8",
+  "promptState": "prepared",
+  "promptRpcId": null,
+  "runtimeTerminationEvidenceProven": false,
+  "claimReleasePermitted": false
+}

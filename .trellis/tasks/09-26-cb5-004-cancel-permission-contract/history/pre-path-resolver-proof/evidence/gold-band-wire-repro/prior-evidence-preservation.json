@@ -1,0 +1,150 @@
+{
+  "priorTargetId": "26630fa302d67bfc68a007b0dfb7cf740a14bc0821beefbac81c1229030779ec",
+  "priorEvidenceFiles": 28,
+  "allUnchanged": true,
+  "oldFailedProcesses": 8,
+  "newLauncherAttempts": 1,
+  "newSessionNewRequests": 0,
+  "checks": [
+    {
+      "path": "evidence/cancel-after-result.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/cancel-after-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/cancel-before-result.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/cancel-before-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/cancellation.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/permission-deny-result.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/permission-deny-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/permission-options.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/permission.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/process-evidence.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/runner-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/scope-baseline.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/scope-verification.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/session-new-diagnostic.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/session-new-diagnostic.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/cancellation.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/permission-options.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/permission.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/prior-evidence-preservation.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/process-evidence.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/runner-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/scope-verification.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair-result.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/initial-scenarios/cancel-after-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/initial-scenarios/cancel-before-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/initial-scenarios/permission-deny-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    }
+  ]
+}

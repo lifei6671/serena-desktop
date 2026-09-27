@@ -1,0 +1,24 @@
+{
+  "head": {
+    "command": "git rev-parse HEAD",
+    "exitCode": 0,
+    "stdout": "314687f9ec0ab8bb6115971cf1edc6e8ef116b2d\n",
+    "stderr": ""
+  },
+  "diffCheck": {
+    "command": "git diff --check",
+    "exitCode": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "trackedCompared": 755,
+  "changedTrackedFilesSinceCloseoutBaseline": [
+    "docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md",
+    "docs/technical-design-multi-agent-provider-codebuddy-v0.1.md"
+  ],
+  "unexpectedTrackedChanges": [],
+  "productDelta": [],
+  "historicalAndHostEvidenceCompared": 86,
+  "changedProtectedEvidence": [],
+  "noRealCallsThisTurn": true
+}

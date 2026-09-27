@@ -1,0 +1,27 @@
+{
+  "head": "f36bbc3a07fb6d0b7e4e21ad3af024584720077b",
+  "capturedAt": "2026-09-27",
+  "preExistingDirty": {
+    "tracked": [
+      ".gitignore"
+    ],
+    "untracked": [
+      ".trellis/tasks/09-26-*",
+      ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/",
+      ".vscode/",
+      ".zed/"
+    ]
+  },
+  "sourceHashes": {
+    "src-tauri/src/agent/mod.rs": "420f31c054f3a68dac343f813b776b42ef38891c1d1cbda292e021f8c1dde555",
+    "src-tauri/src/agent/task_manager.rs": "3b061ef499cb0b036708733e67a5426bc8395df5ff10c98ad815da5c5ee70214",
+    "src-tauri/src/agent/product/provider_catalog_tests.rs": "8562b4c75d92079a019e83901d6c5a86d6ac36a4fe4198d9d16014aa0825a966",
+    "src-tauri/src/agent/product/fixtures/provider_catalog_codex.json": "a4fe4edf5abfdffcc16acdafa47ed97f291b7630964bebe5e7c4bfa00d93f8e6",
+    "src-tauri/src/provider_policy_tests.rs": "6cdee480972979fa290008c20173b73da8c145cc2cf5b7ff45a9e521e40c48cd",
+    "src-tauri/Cargo.toml": "34f62032b577ce11cb2a96de5b899b7f30413e57d8303f845a93915ebb750738"
+  },
+  "notes": [
+    "CodeGraph Workspace discovery was unavailable because approval policy is never; exploration fell back to local rg/read.",
+    "No CB5 probe or real CodeBuddy CLI was executed."
+  ]
+}

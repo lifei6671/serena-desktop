@@ -1,0 +1,167 @@
+{
+  "oldEvidenceChecks": [
+    {
+      "path": "evidence/cancel-after-result.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/cancel-after-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/cancel-before-result.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/cancel-before-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/cancellation.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/permission-deny-result.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/permission-deny-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/permission-options.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/permission.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/process-evidence.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/runner-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/scope-baseline.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/scope-verification.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/session-new-diagnostic.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/session-new-diagnostic.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/cancellation.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/permission-options.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/permission.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/prior-evidence-preservation.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/process-evidence.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/runner-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/scope-verification.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair-result.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/attempt-started.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/conclusion.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/preflight.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/prior-evidence-preservation.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/review-repair-1.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/scope-verification.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/serve-auth-status.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/verification-results.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/wire-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/wire.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/initial-scenarios/cancel-after-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/initial-scenarios/cancel-before-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/initial-scenarios/permission-deny-result.json",
+      "unchanged": true
+    }
+  ],
+  "sourceAtRun": {
+    "gold_band_probe.py": "4b325f83b8befca939ff9775f33ba1ca73c50d7f0409dc1db3f623dbe52be1ca",
+    "path_resolver_probe.py": "d7d03aa793a6fd783d75495902b3d2b5301ef08ae0a74f9393ea0bd005e20800",
+    "test_path_resolver_probe.py": "0aa8c6bd86e869c8a175ab0b19e3700663f231a99a7ca684bc82f4f93965d247",
+    "test_gold_band_probe.py": "dab97ef948b795d0fe94bd3f28be212159c8c4b71d3e06c52d05cff4e874ba26"
+  },
+  "tests": {
+    "resolverPassed": 6,
+    "jsonlPassed": 10
+  },
+  "attemptLimit": 1
+}

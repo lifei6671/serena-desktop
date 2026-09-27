@@ -1,0 +1,21 @@
+{
+  "baseline_file_count": 981,
+  "baseline_time": "After task.py start, before implementation. Activation changed task.json status planning to in_progress and branch null to feat/codebuddy.",
+  "changed_existing_files": [
+    "src/AgentPanel.test.mjs",
+    "src/AgentPanel.tsx",
+    "src/App.test.mjs"
+  ],
+  "new_files": [
+    ".trellis/tasks/09-26-agent-management-surface-cleanup/evidence.md",
+    ".trellis/tasks/09-26-agent-management-surface-cleanup/implementation-delta.patch",
+    ".trellis/tasks/09-26-agent-management-surface-cleanup/preservation-check.json",
+    ".trellis/tasks/09-26-agent-management-surface-cleanup/review.md",
+    ".trellis/tasks/09-26-agent-management-surface-cleanup/source-hashes.json"
+  ],
+  "protected_file_count": 287,
+  "protected_changed_files": [],
+  "source_hashes_match": true,
+  "final_freshness": "FRESH",
+  "host_gate": "PENDING"
+}

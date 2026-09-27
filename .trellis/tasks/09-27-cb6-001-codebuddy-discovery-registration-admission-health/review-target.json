@@ -1,0 +1,18 @@
+{
+  "targetIdentity": "sha256:a5a952678c631d58cfcd612b59839d476b5a7e7ef543eab0f9c6022e41f6c0c5",
+  "hashAlgorithm": "SHA-256",
+  "aggregation": "UTF-8 path|lowercase-hash rows joined by LF in listed order",
+  "files": [
+    {"path": "src-tauri/src/agent/mod.rs", "sha256": "ea7daee2874028e93d3aeae4218016460d2cc7ceb5dbf2e17b4324c1edfb73bc"},
+    {"path": "src-tauri/src/agent/codebuddy/mod.rs", "sha256": "4077d87b9c1ba2e9eebc217286061d33026a6587e2614d232c8e854a16e9102e"},
+    {"path": "src-tauri/src/agent/codebuddy/discovery.rs", "sha256": "749b91c18eb5ec2891eae526e9906eaa897296f1d6afb00d1c577c0bdf443766"},
+    {"path": "src-tauri/src/agent/codebuddy/discovery/tests.rs", "sha256": "fcef2f373beb22ae44c49c609f14794f904185b454fa6ca7fff89aa4b09c7021"},
+    {"path": "src-tauri/src/agent/codebuddy/provider.rs", "sha256": "2bbb4a481c76065a3c32522b31c243efc179b4b0d9fdf3cff23dde50936b25a1"},
+    {"path": "src-tauri/src/agent/codebuddy/provider/tests.rs", "sha256": "25343aba8681753627512127b90adef085f5355c5d2a86d3a16f3f7f03091b6d"},
+    {"path": "src-tauri/src/agent/task_manager.rs", "sha256": "fd65d404c8cfd06613d5538bdbc7893e62b1fa5bf10256180eb7f4414f10392b"},
+    {"path": "src-tauri/src/agent/product/fixtures/provider_catalog_codex.json", "sha256": "8b0077fe810ba5b0fbf876c74025a161b26c80c99a14f457d03f2c9a7fe21830"},
+    {"path": "src-tauri/src/agent/product/provider_catalog_tests.rs", "sha256": "4bfd172b5afb831bd64470cff942e5729cb8149ab236b04c61d753331478d376"},
+    {"path": "src-tauri/src/mcp/provider_query_tests.rs", "sha256": "df23ec0f3180abbb4658cb4a9f632f66d4cd690adaf5341d33fb4d870803f1cf"},
+    {"path": "src-tauri/src/provider_policy_tests.rs", "sha256": "7e8cb47ce870c930206e437bdb33aa528f0f6a59cfe4c946a298e59dc2883b45"}
+  ]
+}

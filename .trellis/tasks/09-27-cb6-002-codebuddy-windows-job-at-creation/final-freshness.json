@@ -1,0 +1,12 @@
+{
+  "targetIdentity": "sha256:c58ac101d0ec2d4ff1427f52506f68fc7edabdd1bfe7308a9d30e1310d8c08d3",
+  "reviewMode": "CHILD_AGENT_INDEPENDENT_READ_ONLY",
+  "reviewGate": "PASSED",
+  "coverage": "COMPLETE",
+  "freshness": "FRESH",
+  "beforeReviewMatched": 4,
+  "afterReviewMatched": 4,
+  "findings": {"P0": 0, "P1": 0, "P2": 0},
+  "repairRoundsAfterFinalFreeze": 0,
+  "materialContractDifference": false
+}

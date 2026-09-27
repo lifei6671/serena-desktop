@@ -1,0 +1,302 @@
+{
+  "argv": [
+    "C:\\nvm4w\\nodejs\\node.exe",
+    "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+    "--acp",
+    "--permission-mode",
+    "auto"
+  ],
+  "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-003-ot8DA9",
+  "pid": 54692,
+  "environmentChanges": {},
+  "timeoutSeconds": 180,
+  "protocolSucceeded": false,
+  "error": "SDK: Authentication required: {\n  \"category\": \"auth\"\n}",
+  "sdkTyped": {
+    "stage": "session/new",
+    "initialize": {
+      "protocolVersion": 1,
+      "agentCapabilities": {
+        "loadSession": true,
+        "promptCapabilities": {
+          "image": true,
+          "audio": false,
+          "embeddedContext": true
+        },
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "sessionCapabilities": {},
+        "auth": {}
+      },
+      "authMethods": [
+        {
+          "id": "iOA",
+          "name": "Login with iOA"
+        },
+        {
+          "id": "external",
+          "name": "Login with Google/Github"
+        },
+        {
+          "id": "internal",
+          "name": "Login with WeChat"
+        },
+        {
+          "id": "selfhosted",
+          "name": "Login with Enterprise Domain"
+        }
+      ]
+    }
+  },
+  "initialize": {
+    "request": {
+      "sequence": 1,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "abd96a54-6eac-4e7d-a875-7e53e1d1d4ea",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false,
+              "writeTextFile": false
+            },
+            "terminal": false,
+            "auth": {
+              "terminal": false
+            }
+          }
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"abd96a54-6eac-4e7d-a875-7e53e1d1d4ea\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientCapabilities\":{\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false,\"auth\":{\"terminal\":false}}}}\n",
+      "redacted": false
+    },
+    "response": {
+      "sequence": 2,
+      "direction": "response",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "abd96a54-6eac-4e7d-a875-7e53e1d1d4ea",
+        "result": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": true,
+              "embeddedContext": true
+            },
+            "mcpCapabilities": {
+              "http": true,
+              "sse": true
+            },
+            "loadSession": true,
+            "delegateToolsSupport": true,
+            "mainAgentSupport": false,
+            "multitaskSupport": true
+          },
+          "authMethods": [
+            {
+              "id": "iOA",
+              "name": "Login with iOA",
+              "description": null
+            },
+            {
+              "id": "external",
+              "name": "Login with Google/Github",
+              "description": null
+            },
+            {
+              "id": "internal",
+              "name": "Login with WeChat",
+              "description": null
+            },
+            {
+              "id": "selfhosted",
+              "name": "Login with Enterprise Domain",
+              "description": null
+            }
+          ]
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"abd96a54-6eac-4e7d-a875-7e53e1d1d4ea\",\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"promptCapabilities\":{\"image\":true,\"embeddedContext\":true},\"mcpCapabilities\":{\"http\":true,\"sse\":true},\"loadSession\":true,\"delegateToolsSupport\":true,\"mainAgentSupport\":false,\"multitaskSupport\":true},\"authMethods\":[{\"id\":\"iOA\",\"name\":\"Login with iOA\",\"description\":null},{\"id\":\"external\",\"name\":\"Login with Google/Github\",\"description\":null},{\"id\":\"internal\",\"name\":\"Login with WeChat\",\"description\":null},{\"id\":\"selfhosted\",\"name\":\"Login with Enterprise Domain\",\"description\":null}]}}\n",
+      "redacted": false
+    }
+  },
+  "sessionNew": {
+    "request": {
+      "sequence": 3,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "6abbd799-9365-41f0-8b13-c5cc481f0d2f",
+        "method": "session/new",
+        "params": {
+          "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-003-ot8DA9",
+          "mcpServers": []
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"6abbd799-9365-41f0-8b13-c5cc481f0d2f\",\"method\":\"session/new\",\"params\":{\"cwd\":\"C:\\\\Users\\\\lifei\\\\AppData\\\\Local\\\\Temp\\\\cb5-003-ot8DA9\",\"mcpServers\":[]}}\n",
+      "redacted": false
+    },
+    "response": {
+      "sequence": 4,
+      "direction": "response",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "6abbd799-9365-41f0-8b13-c5cc481f0d2f",
+        "error": {
+          "code": -32000,
+          "message": "Authentication required",
+          "data": {
+            "category": "auth"
+          }
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"6abbd799-9365-41f0-8b13-c5cc481f0d2f\",\"error\":{\"code\":-32000,\"message\":\"Authentication required\",\"data\":{\"category\":\"auth\"}}}\n",
+      "redacted": false
+    }
+  },
+  "prompt": {
+    "request": null,
+    "response": null
+  },
+  "sessionId": null,
+  "conversationRequestId": "f319ee22-2a6c-47d4-bb0d-3b0fe3d7dbed",
+  "wire": [
+    {
+      "sequence": 1,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "abd96a54-6eac-4e7d-a875-7e53e1d1d4ea",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false,
+              "writeTextFile": false
+            },
+            "terminal": false,
+            "auth": {
+              "terminal": false
+            }
+          }
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"abd96a54-6eac-4e7d-a875-7e53e1d1d4ea\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientCapabilities\":{\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false,\"auth\":{\"terminal\":false}}}}\n",
+      "redacted": false
+    },
+    {
+      "sequence": 2,
+      "direction": "response",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "abd96a54-6eac-4e7d-a875-7e53e1d1d4ea",
+        "result": {
+          "protocolVersion": 1,
+          "agentCapabilities": {
+            "promptCapabilities": {
+              "image": true,
+              "embeddedContext": true
+            },
+            "mcpCapabilities": {
+              "http": true,
+              "sse": true
+            },
+            "loadSession": true,
+            "delegateToolsSupport": true,
+            "mainAgentSupport": false,
+            "multitaskSupport": true
+          },
+          "authMethods": [
+            {
+              "id": "iOA",
+              "name": "Login with iOA",
+              "description": null
+            },
+            {
+              "id": "external",
+              "name": "Login with Google/Github",
+              "description": null
+            },
+            {
+              "id": "internal",
+              "name": "Login with WeChat",
+              "description": null
+            },
+            {
+              "id": "selfhosted",
+              "name": "Login with Enterprise Domain",
+              "description": null
+            }
+          ]
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"abd96a54-6eac-4e7d-a875-7e53e1d1d4ea\",\"result\":{\"protocolVersion\":1,\"agentCapabilities\":{\"promptCapabilities\":{\"image\":true,\"embeddedContext\":true},\"mcpCapabilities\":{\"http\":true,\"sse\":true},\"loadSession\":true,\"delegateToolsSupport\":true,\"mainAgentSupport\":false,\"multitaskSupport\":true},\"authMethods\":[{\"id\":\"iOA\",\"name\":\"Login with iOA\",\"description\":null},{\"id\":\"external\",\"name\":\"Login with Google/Github\",\"description\":null},{\"id\":\"internal\",\"name\":\"Login with WeChat\",\"description\":null},{\"id\":\"selfhosted\",\"name\":\"Login with Enterprise Domain\",\"description\":null}]}}\n",
+      "redacted": false
+    },
+    {
+      "sequence": 3,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "6abbd799-9365-41f0-8b13-c5cc481f0d2f",
+        "method": "session/new",
+        "params": {
+          "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-003-ot8DA9",
+          "mcpServers": []
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"6abbd799-9365-41f0-8b13-c5cc481f0d2f\",\"method\":\"session/new\",\"params\":{\"cwd\":\"C:\\\\Users\\\\lifei\\\\AppData\\\\Local\\\\Temp\\\\cb5-003-ot8DA9\",\"mcpServers\":[]}}\n",
+      "redacted": false
+    },
+    {
+      "sequence": 4,
+      "direction": "response",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "6abbd799-9365-41f0-8b13-c5cc481f0d2f",
+        "error": {
+          "code": -32000,
+          "message": "Authentication required",
+          "data": {
+            "category": "auth"
+          }
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"6abbd799-9365-41f0-8b13-c5cc481f0d2f\",\"error\":{\"code\":-32000,\"message\":\"Authentication required\",\"data\":{\"category\":\"auth\"}}}\n",
+      "redacted": false
+    }
+  ],
+  "updates": [],
+  "before": {},
+  "after": {},
+  "manifestError": null,
+  "delta": [],
+  "workspaceIsolation": false,
+  "exactWriteContent": false,
+  "readMarkerReturned": false,
+  "cleanup": {
+    "streamsClosed": true,
+    "terminated": true,
+    "waited": true,
+    "exitCode": 1,
+    "directChildReaped": true,
+    "stderrJoined": true,
+    "succeeded": true,
+    "errors": [],
+    "stderrBytesDrained": 0,
+    "windowsJobAtCreationProven": false
+  },
+  "elapsedMs": 2881,
+  "canExecuteEvidence": false,
+  "safeErrorTerminal": "NOT_PROVEN",
+  "workspaceDeleted": true,
+  "workspaceDeleteError": null,
+  "harnessExitCode": 0,
+  "scenario": "write"
+}

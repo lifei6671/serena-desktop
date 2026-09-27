@@ -1,0 +1,17 @@
+[
+  {
+    "path": "src-tauri/src/agent/store/transactions.rs",
+    "baseline_sha256": "a22a59b664efda89f23e68e316b93600a8b0e1288b70f8e201c718bf04dbec19",
+    "sha256": "2cfef3672df14eed311af1f47f52147beb2ca6f395a9541fa0def8e1a4aa0e15"
+  },
+  {
+    "path": "src-tauri/src/mcp/continuation_routing_tests.rs",
+    "baseline_sha256": null,
+    "sha256": "2f846b53437e2e7d761eafa08647aff206ae017b6b4f1f91a0ae8d39bd3bdae5"
+  },
+  {
+    "path": "src-tauri/src/mcp/start_routing_tests.rs",
+    "baseline_sha256": "470c7a62ead4c1998c4957bb7f2a40a3f780933b11dcf4bc040383f1f9cd3cdf",
+    "sha256": "7b31ee3ee71031485fa934f4230f619fd72ad590253db108498324b0cfbd9a9b"
+  }
+]

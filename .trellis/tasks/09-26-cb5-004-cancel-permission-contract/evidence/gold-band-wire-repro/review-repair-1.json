@@ -1,0 +1,8 @@
+{
+  "finding": "P1 unbounded OTHER_NOTIFICATION and wrong-id response wire projections",
+  "repair": "all notification samples64; ignored response samples16; aggregate counts preserved",
+  "test": "mixed 200 notifications +100 wrong-id responses followed by exact matching responses",
+  "testsPassed": 10,
+  "realCliReruns": 0,
+  "receivedRealNotifications": 0
+}

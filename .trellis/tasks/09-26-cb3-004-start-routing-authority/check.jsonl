@@ -1,0 +1,3 @@
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"Review CB3-004 required routing matrix, scope and rollback behavior"}
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"Review Start Authority, no fallback, frozen provider/taskRole and request identity against §8-§9"}
+{"file":".trellis/tasks/09-26-cb3-004-start-routing-authority/HOST_RESOLUTION.md","reason":"Verify existing management lock serializes authority/create against official mutations and is released before handoff"}

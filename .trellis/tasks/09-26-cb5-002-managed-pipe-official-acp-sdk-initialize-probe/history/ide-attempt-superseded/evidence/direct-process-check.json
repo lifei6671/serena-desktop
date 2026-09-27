@@ -1,0 +1,37 @@
+[
+  {
+    "probe": "real-default",
+    "pid": 43100,
+    "presentAfterWait": false
+  },
+  {
+    "probe": "real-auto",
+    "pid": 58532,
+    "presentAfterWait": false
+  },
+  {
+    "probe": "eof-before",
+    "pid": 59932,
+    "presentAfterWait": false
+  },
+  {
+    "probe": "eof-during",
+    "pid": 61788,
+    "presentAfterWait": false
+  },
+  {
+    "probe": "mismatch",
+    "pid": 45564,
+    "presentAfterWait": false
+  },
+  {
+    "probe": "missing-capability",
+    "pid": 35424,
+    "presentAfterWait": false
+  },
+  {
+    "probe": "hang",
+    "pid": 62904,
+    "presentAfterWait": false
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "scenario": "usage",
+  "status": "NOT_RUN",
+  "authority": "Parent Host only",
+  "continuation": "Stage A Host PASS; session/resume frozen; no load fallback"
+}

@@ -2,6 +2,9 @@
 #[cfg(all(test, any(windows, target_os = "macos")))]
 use super::codex::provider::CodexProvider;
 use super::{
+    codebuddy::provider::{
+        register_codebuddy_provider, register_codebuddy_provider_with_discovery,
+    },
     codex::provider::register_codex_provider_with_discovery,
     coordinator::WorkspaceExecutionCoordinator,
     execution::{CreateExecutionInput, ExecutionMode, canonicalize_request},
@@ -422,6 +425,8 @@ impl AgentTaskManager {
             self.runtime_pool.clone(),
             discovery,
         )?;
+        // CodeBuddy discovery 失败只影响其自身 health，不能阻断 Desktop 或 Codex 注册。
+        register_codebuddy_provider(&mut registry)?;
         Ok(registry)
     }
     /// Product 只读复用唯一 Registry；Registry 初始化与派发语义保持原样。
@@ -447,18 +452,24 @@ impl AgentTaskManager {
         registry
             .get_registered(&id)
             .map_err(|e| provider_error_code(e.code).to_string())?;
-        if id.as_str() != "codex" {
-            return Err("AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into());
-        }
-        let discovery = self.discover_backend().await;
         let mut refreshed = ProviderRegistry::new();
-        register_codex_provider_with_discovery(
-            &mut refreshed,
-            self.store.clone(),
-            self.owner.clone(),
-            self.runtime_pool.clone(),
-            discovery,
-        )
+        match id.as_str() {
+            "codex" => register_codex_provider_with_discovery(
+                &mut refreshed,
+                self.store.clone(),
+                self.owner.clone(),
+                self.runtime_pool.clone(),
+                self.discover_backend().await,
+            ),
+            // CodeBuddy refresh 只重复无进程 discovery，不创建 ACP 或 Runtime。
+            "codebuddy" => register_codebuddy_provider_with_discovery(
+                &mut refreshed,
+                super::codebuddy::discover(),
+            ),
+            _ => {
+                return Err("AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into());
+            }
+        }
         .map_err(|e| provider_error_code(e.code).to_string())?;
         let health = refreshed
             .health(&id)

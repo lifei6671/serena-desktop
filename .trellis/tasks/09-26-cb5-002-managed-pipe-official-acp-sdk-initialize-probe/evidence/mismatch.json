@@ -1,0 +1,91 @@
+{
+  "argv": [
+    "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+    "--fake",
+    "mismatch"
+  ],
+  "environmentChanges": {},
+  "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-wVf40E",
+  "pid": 34092,
+  "initializeTimeoutSeconds": 5,
+  "initializeElapsedMs": 3,
+  "initializeSucceeded": true,
+  "protocolCompatible": false,
+  "supportedProtocolVersion": 1,
+  "response": {
+    "protocolVersion": 999,
+    "agentCapabilities": {}
+  },
+  "sdkResponse": {
+    "protocolVersion": 999,
+    "agentCapabilities": {
+      "loadSession": false,
+      "promptCapabilities": {
+        "image": false,
+        "audio": false,
+        "embeddedContext": false
+      },
+      "mcpCapabilities": {
+        "http": false,
+        "sse": false
+      },
+      "sessionCapabilities": {},
+      "auth": {}
+    }
+  },
+  "error": null,
+  "wire": [
+    {
+      "sequence": 1,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "c3b49212-6c34-4b2a-9dd6-9bdbc3dc6b4c",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false,
+              "writeTextFile": false
+            },
+            "terminal": false,
+            "auth": {
+              "terminal": false
+            }
+          }
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"c3b49212-6c34-4b2a-9dd6-9bdbc3dc6b4c\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientCapabilities\":{\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false,\"auth\":{\"terminal\":false}}}}\n",
+      "redacted": false
+    },
+    {
+      "sequence": 2,
+      "direction": "response",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "c3b49212-6c34-4b2a-9dd6-9bdbc3dc6b4c",
+        "result": {
+          "protocolVersion": 999,
+          "agentCapabilities": {}
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"c3b49212-6c34-4b2a-9dd6-9bdbc3dc6b4c\",\"result\":{\"protocolVersion\":999,\"agentCapabilities\":{}}}\n",
+      "redacted": false
+    }
+  ],
+  "stderrSanitized": "",
+  "cleanup": {
+    "streamsClosed": true,
+    "terminated": false,
+    "waited": true,
+    "exitCode": 0,
+    "directChildReaped": true,
+    "stderrJoined": true,
+    "succeeded": true,
+    "errors": [],
+    "stderrSanitized": "",
+    "windowsJobAtCreationProven": false
+  },
+  "totalElapsedMs": 4
+}

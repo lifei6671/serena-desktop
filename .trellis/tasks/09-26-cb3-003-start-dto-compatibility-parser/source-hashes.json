@@ -1,0 +1,6 @@
+{
+  "src-tauri/src/mcp/orchestration/dto.rs": "fd03616fe7be1a59891f9f81699f195cf15df8063111cbe48fce3c71bb2f6a9c",
+  "src-tauri/src/mcp/orchestration.rs": "3760f34991e6385b2779635e54cd10140a0408b627782cf38c2c277acb0f7044",
+  "src-tauri/src/mcp/registry.rs": "394c403c9e91b312a9caf75ae0e03df39ada8677c416945e8094fa43144fed74",
+  "src-tauri/src/mcp/provider_query_tests.rs": "17818533697afda6db4d6ba3075064cba797dbb39f0ab2885b1811b7c784ed8a"
+}

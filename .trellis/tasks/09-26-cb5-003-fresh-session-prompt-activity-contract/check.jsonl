@@ -1,0 +1,2 @@
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"Review canExecute first-hand evidence and temp-workspace isolation"}
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"Review session identity/conversationRequestId/update/terminal contract boundaries"}

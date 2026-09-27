@@ -1,0 +1,18 @@
+{
+  "exactLauncherFlagsAndQuotes": "PASS",
+  "externalCwdNormalWin32": true,
+  "childPathMinimumDirectoriesPresent": true,
+  "wireStatus": "LAUNCHER_UNAVAILABLE_OR_NO_ACP_HANDSHAKE",
+  "safeStderrCategory": "NPM_EPERM",
+  "stderrRawSaved": false,
+  "initializeSent": true,
+  "initializeResponseReceived": false,
+  "sessionNewSent": false,
+  "promptSent": false,
+  "automaticRetries": 0,
+  "failureLayer": "NPM_LAUNCHER_PRECONDITION",
+  "specificCacheFilePermissionCause": "NOT_ESTABLISHED",
+  "acpIncompatibility": "NOT_PROVEN",
+  "cancelPermissionAcceptance": "NOT_PROVEN",
+  "productChanged": false
+}

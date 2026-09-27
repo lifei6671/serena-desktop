@@ -1,0 +1,58 @@
+{
+  "argv": [
+    "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+    "--fake",
+    "eof-before"
+  ],
+  "environmentChanges": {},
+  "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-CPh9ZE",
+  "pid": 60208,
+  "initializeTimeoutSeconds": 5,
+  "initializeElapsedMs": 3,
+  "initializeSucceeded": false,
+  "protocolCompatible": false,
+  "supportedProtocolVersion": 1,
+  "response": null,
+  "sdkResponse": null,
+  "error": "SDK: Incoming transport closed: {\n  \"reason\": \"incoming_transport_closed\",\n  \"method\": \"initialize\"\n}",
+  "wire": [
+    {
+      "sequence": 1,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "2c6ee217-53de-49d1-822a-50ac891d9621",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false,
+              "writeTextFile": false
+            },
+            "terminal": false,
+            "auth": {
+              "terminal": false
+            }
+          }
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"2c6ee217-53de-49d1-822a-50ac891d9621\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientCapabilities\":{\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false,\"auth\":{\"terminal\":false}}}}\n",
+      "redacted": false
+    }
+  ],
+  "stderrSanitized": "",
+  "cleanup": {
+    "streamsClosed": true,
+    "terminated": false,
+    "waited": true,
+    "exitCode": 0,
+    "directChildReaped": true,
+    "stderrJoined": true,
+    "succeeded": true,
+    "errors": [],
+    "stderrSanitized": "",
+    "windowsJobAtCreationProven": false
+  },
+  "totalElapsedMs": 4
+}

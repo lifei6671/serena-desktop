@@ -1,0 +1,126 @@
+{
+  "oldEvidenceChecks": [
+    {
+      "path": "evidence/cancel-after-result.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/cancel-after-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/cancel-before-result.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/cancel-before-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/cancellation.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/permission-deny-result.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/permission-deny-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/permission-options.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/permission.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/process-evidence.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/runner-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/scope-baseline.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/scope-verification.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/session-new-diagnostic.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/session-new-diagnostic.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/cancellation.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/permission-options.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/permission.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/prior-evidence-preservation.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/process-evidence.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/runner-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/scope-verification.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair-result.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/initial-scenarios/cancel-after-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/initial-scenarios/cancel-before-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/initial-scenarios/permission-deny-result.json",
+      "unchanged": true
+    }
+  ],
+  "sourceAtRun": {
+    "gold_band_probe.py": "d428ece7bb3cd5fbeab56bf8ab71d94b49236c76c46d5c18d220f8ca49227185",
+    "test_gold_band_probe.py": "194bfdfd96af7ce23cb9c318c9e5613f2d4608a01423da7c45b4ca3eb5f6d146"
+  },
+  "fakeTests": {
+    "passed": 9,
+    "failed": 0
+  },
+  "realAttemptLimit": 1,
+  "promptAllowed": false
+}

@@ -1,0 +1,32 @@
+[
+  {
+    "probe": "real-cli",
+    "pid": 3692,
+    "presentAfterWait": false
+  },
+  {
+    "probe": "eof-before",
+    "pid": 60208,
+    "presentAfterWait": false
+  },
+  {
+    "probe": "eof-during",
+    "pid": 19268,
+    "presentAfterWait": false
+  },
+  {
+    "probe": "mismatch",
+    "pid": 34092,
+    "presentAfterWait": false
+  },
+  {
+    "probe": "missing-capability",
+    "pid": 51448,
+    "presentAfterWait": false
+  },
+  {
+    "probe": "hang",
+    "pid": 2676,
+    "presentAfterWait": false
+  }
+]

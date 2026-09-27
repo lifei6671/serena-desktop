@@ -1,0 +1,39 @@
+{
+  "priorReviewTargetId": "3aa77978fb779bfbfacdfc578a826049b43b792eaafa8b7b2b37aa9d899091af",
+  "sourceFiles": [
+    {
+      "path": "run_probe.py",
+      "sha256": "16c8229f4df119196bbf9f41f7b2b332a5bc0d5cd025545258394e099203e623",
+      "unchanged": false
+    },
+    {
+      "path": "harness/Cargo.lock",
+      "sha256": "2dd7ec5b969ac79090533ba20972fba1cb1bf9b6a0c8319ff80b9d7480d4ff25",
+      "unchanged": true
+    },
+    {
+      "path": "harness/Cargo.toml",
+      "sha256": "0ce4c0f967bee5a194534341bad3c8677600fb238b67e84cfb8c58535cea3fb8",
+      "unchanged": false
+    },
+    {
+      "path": "harness/src/main.rs",
+      "sha256": "f2f7d0468eeeeefed28de50a9fd79d1dd932228834924bd860ff59e6a9f149c3",
+      "unchanged": false
+    },
+    {
+      "path": "harness/src/transport.rs",
+      "sha256": "5401114cf0e100d5f1230e1b2a22c4bdc572162dd8294588ea451529f905ea3d",
+      "unchanged": true
+    },
+    {
+      "path": "harness/tests/contracts.rs",
+      "sha256": "0270b33f9a3697bd6e031b0157527ebc352274f2d22b30b07ce9700e33096f60",
+      "unchanged": true
+    }
+  ],
+  "sourceDelta": 3,
+  "reason": "Authorized UUIDv7 simple format correction, public correlation preservation, one fresh retry per session/new HTTP500 scenario",
+  "originalBaselineUnchanged": true,
+  "runnerRepair": "fresh per-attempt output; fail closed on execution/cleanup failure; aggregate every attempt"
+}

@@ -129,7 +129,12 @@ async fn codex_available_enabled_json_fixture() {
             ..Default::default()
         },
     );
-    let value = serde_json::to_value(service.provider_catalog(&supervisor).unwrap()).unwrap();
+    let value = crate::agent::codebuddy::TEST_DISCOVERY
+        .scope(
+            Err(crate::agent::codebuddy::discovery::DiscoveryError::not_found(false)),
+            async { serde_json::to_value(service.provider_catalog(&supervisor).unwrap()).unwrap() },
+        )
+        .await;
     let expected: Value =
         serde_json::from_str(include_str!("fixtures/provider_catalog_codex.json")).unwrap();
     assert_eq!(value, expected);

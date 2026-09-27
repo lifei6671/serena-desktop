@@ -1,0 +1,16 @@
+{
+  "pathResolverStatus": "READY",
+  "resolvedNpxPath": "C:\\nvm4w\\nodejs\\npx.cmd",
+  "resolvedNodePath": "C:\\nvm4w\\nodejs\\node.exe",
+  "childPathContainsNvmSymlink": true,
+  "wireStatus": "LAUNCHER_UNAVAILABLE_OR_NO_ACP_HANDSHAKE",
+  "initializeSent": true,
+  "initializeResponseReceived": false,
+  "sessionNewSent": false,
+  "promptSent": false,
+  "automaticRetries": 0,
+  "rootCauseClassification": "NOT_ESTABLISHED",
+  "CHILD_ENV_PATH_RESOLUTION_proven": false,
+  "reason": "Required npx/node/child PATH preconditions satisfied but no ACP initialize response; insufficient evidence to attribute prior failures",
+  "productChanged": false
+}

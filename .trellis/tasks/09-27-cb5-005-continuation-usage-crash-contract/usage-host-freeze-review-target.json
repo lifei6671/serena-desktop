@@ -1,0 +1,17 @@
+{
+  "scope": "Stage B Host Freeze documentation only; independent read-only incremental review; no real CLI",
+  "files": {
+    "usage-host-freeze.md": "66e847ce6b30f12bffcac2264f690b1052e3dbc5bd991b6d9192933addc8eaff",
+    "usage-host-freeze-checks.json": "ccef17715c7d899d4b176035c7f8d411853f33f4df6a62bee55114b8b3b38f07",
+    "usage-verification.md": "c8d022cb5e61b27614e5747ecc763d683e3be5f197d8b87e3a87140221d37c5a",
+    "usage-README.md": "eace3d101508598da44efd5e5f6a12502b8453f145c5dee25b13981a28d8273f",
+    "task.json": "492593d9ee38d23b7f6df7a9c4ccced51e5b5bf8079a2b0d651e183fa1570b78"
+  },
+  "aggregateSha256": "b3929cf25c991b983f8545bf6e923a1d457c3b09355117fa3f95fcd738855010",
+  "baselinePreservedExcept": [
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/task.json",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-README.md",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-verification.md"
+  ],
+  "checks": "JSON, Markdown local links, baseline scope hashes PASS; original evidence and harness unchanged"
+}

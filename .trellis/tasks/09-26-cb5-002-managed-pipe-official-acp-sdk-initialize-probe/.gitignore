@@ -1,0 +1,4 @@
+# 临时编译产物与下载缓存不属于证据交付。
+.cargo-cache/
+harness/target/
+__pycache__/

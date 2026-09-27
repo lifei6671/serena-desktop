@@ -1,0 +1,104 @@
+{
+  "scenario": "permission",
+  "fake": null,
+  "argv": [
+    "C:\\nvm4w\\nodejs\\node.exe",
+    "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+    "--acp",
+    "--permission-mode",
+    "default",
+    "--tools",
+    "Write",
+    "--settings",
+    "{\"permissions\":{\"ask\":[\"Write\",\"Edit\",\"Bash\"]}}"
+  ],
+  "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-7Yc3Ab",
+  "pid": 35836,
+  "conversationRequestId": "01a0de0f1753755bac4cc5a17ac9e24a",
+  "identityDurableBeforePrompt": true,
+  "protocol": {
+    "stage": "session/new",
+    "permissionDecisions": [],
+    "protocolVersion": 1
+  },
+  "prompt": {
+    "request": null,
+    "response": null
+  },
+  "cancel": null,
+  "wire": [
+    {
+      "sequence": 1,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "6b99ecca-e3ef-44d1-be6a-7c2faa14b86b",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1
+        }
+      }
+    },
+    {
+      "sequence": 2,
+      "direction": "response",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "6b99ecca-e3ef-44d1-be6a-7c2faa14b86b",
+        "result": {
+          "protocolVersion": 1
+        }
+      }
+    },
+    {
+      "sequence": 3,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "16442a3e-cf97-41b2-bd70-ebd2f3c6b4e4",
+        "method": "session/new",
+        "params": {}
+      }
+    },
+    {
+      "sequence": 4,
+      "direction": "response",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "16442a3e-cf97-41b2-bd70-ebd2f3c6b4e4",
+        "error": {
+          "code": -32603,
+          "detailsOmitted": true,
+          "classification": "HTTP_500"
+        }
+      }
+    }
+  ],
+  "updates": [],
+  "before": {},
+  "after": {},
+  "delta": [],
+  "manifestError": null,
+  "markerRetained": false,
+  "error": "SDK_ERROR_DETAILS_OMITTED",
+  "cleanup": {
+    "streamsClosed": true,
+    "terminated": true,
+    "waited": true,
+    "exitCode": 1,
+    "directChildReaped": true,
+    "stderrJoined": true,
+    "succeeded": true,
+    "errors": [],
+    "stderrBytesDrained": 0,
+    "windowsJobAtCreationProven": false
+  },
+  "elapsedMs": 1526,
+  "postActionTimeoutMs": 20000,
+  "providerTerminalReceived": false,
+  "runtimeTerminationEvidence": true,
+  "claimReleaseAuthorizedByCancel": false,
+  "workspaceDeleted": true,
+  "workspaceDeleteError": null,
+  "harnessExitCode": 0
+}

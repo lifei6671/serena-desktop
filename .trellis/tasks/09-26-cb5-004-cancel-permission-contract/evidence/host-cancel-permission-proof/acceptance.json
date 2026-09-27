@@ -1,0 +1,108 @@
+{
+  "freshSessionPrerequisite": "PASS",
+  "cancelBefore": "PASS",
+  "cancelAfter": "PASS",
+  "permissionDeny": "PASS",
+  "cb5_004": "PASS",
+  "verification": "READ_ONLY_EXACT_EVIDENCE_CHECKS",
+  "checks": {
+    "before": {
+      "status": "PASS",
+      "sessionId": "01a0e0a3-2bc8-7a6a-8525-d6114b2f6fae",
+      "conversationRequestId": "01a0e0a327367436a7a4295f69cb3d4e",
+      "promptRpcId": "ef8438ff-09b7-4dbe-939c-d9c7b003dbc0",
+      "promptSequence": 6,
+      "terminalSequence": 30,
+      "stopReason": "cancelled",
+      "wireRows": 30,
+      "sanitizedRawLinesEqualMessages": true,
+      "exactRpcCorrelation": true,
+      "cleanupSucceeded": true,
+      "workspaceDeleted": true,
+      "delta": [],
+      "cancelSequence": 29,
+      "trigger": {
+        "kind": "correlated_activity_and_zero_delta",
+        "manifest": {},
+        "promptRpcId": "ef8438ff-09b7-4dbe-939c-d9c7b003dbc0",
+        "observedThroughSequence": 28
+      }
+    },
+    "after": {
+      "status": "PASS",
+      "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+      "conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74",
+      "promptRpcId": "63887a82-be47-4ae3-8c34-556da27510f4",
+      "promptSequence": 11,
+      "terminalSequence": 47,
+      "stopReason": "cancelled",
+      "wireRows": 47,
+      "sanitizedRawLinesEqualMessages": true,
+      "exactRpcCorrelation": true,
+      "cleanupSucceeded": true,
+      "workspaceDeleted": true,
+      "delta": [
+        "before-cancel.txt"
+      ],
+      "cancelSequence": 43,
+      "trigger": {
+        "kind": "actual_marker_exact_bytes",
+        "manifest": {
+          "before-cancel.txt": {
+            "kind": "file",
+            "size": 27,
+            "sha256": "613841732b16579f9417ffa2ffeb2a86dab63957b0c8381976403c6ee4960301"
+          }
+        },
+        "promptRpcId": "63887a82-be47-4ae3-8c34-556da27510f4",
+        "observedThroughSequence": 42
+      }
+    },
+    "permission": {
+      "status": "PASS",
+      "sessionId": "01a0e0a4-6b47-757a-93d2-a16dcd37279d",
+      "conversationRequestId": "01a0e0a46686733e8d037e019672fd6a",
+      "promptRpcId": "8bbf7587-fb5e-40b3-af6a-f557e6e2d22e",
+      "promptSequence": 6,
+      "terminalSequence": 96,
+      "stopReason": "cancelled",
+      "wireRows": 96,
+      "sanitizedRawLinesEqualMessages": true,
+      "exactRpcCorrelation": true,
+      "cleanupSucceeded": true,
+      "workspaceDeleted": true,
+      "delta": [],
+      "permissionRequestSequence": 91,
+      "permissionRpcId": 0,
+      "permissionResponseSequence": 92,
+      "toolCallId": "chatcmpl-tool-abb0061c65d2a344",
+      "options": [
+        {
+          "optionId": "allow_always",
+          "kind": "allow_always"
+        },
+        {
+          "optionId": "allow",
+          "kind": "allow_once"
+        },
+        {
+          "optionId": "reject",
+          "kind": "reject_once"
+        }
+      ],
+      "chosenKind": "reject_once",
+      "chosenOptionId": "reject",
+      "sessionCancelSent": false
+    }
+  },
+  "boundaries": {
+    "productionCanCancelAdvertised": false,
+    "canCancelAlsoRequires": "CB8-001 implementation PASS",
+    "windowsJobAtCreationProven": false,
+    "claimReleaseAuthorizedByCancelOrDeny": false,
+    "cancelRollsBackSideEffect": false,
+    "permissionOptionsAreVersionSpecificObservation": true,
+    "realCallsDuringCloseout": 0,
+    "CB5-005": "NOT_STARTED"
+  }
+}

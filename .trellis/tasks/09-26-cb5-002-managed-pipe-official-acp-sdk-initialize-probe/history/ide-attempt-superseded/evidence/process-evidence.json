@@ -1,0 +1,244 @@
+{
+  "scope": "harness-owned direct Child and external streams; descendant containment NOT_PROVEN",
+  "runs": [
+    {
+      "argv": [
+        "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\CodeBuddy CN.exe",
+        "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app\\out\\cli.js",
+        "--acp"
+      ],
+      "environmentChanges": {
+        "ELECTRON_RUN_AS_NODE": "1",
+        "VSCODE_DEV": null
+      },
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-XkLJ13",
+      "pid": 43100,
+      "initializeTimeoutSeconds": 20,
+      "initializeElapsedMs": 161,
+      "initializeSucceeded": false,
+      "protocolCompatible": false,
+      "supportedProtocolVersion": 1,
+      "error": "SDK: Incoming transport closed: {\n  \"reason\": \"incoming_transport_closed\",\n  \"method\": \"initialize\"\n}",
+      "stderrSanitized": "Warning: 'acp' is not in the list of known options, but still passed to Electron/Chromium.\n",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": false,
+        "waited": true,
+        "exitCode": 0,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "Warning: 'acp' is not in the list of known options, but still passed to Electron/Chromium.\n",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 165,
+      "probe": "real-default"
+    },
+    {
+      "argv": [
+        "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\CodeBuddy CN.exe",
+        "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app\\out\\cli.js",
+        "--acp",
+        "--permission-mode",
+        "auto"
+      ],
+      "environmentChanges": {
+        "ELECTRON_RUN_AS_NODE": "1",
+        "VSCODE_DEV": null
+      },
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-5RLJWW",
+      "pid": 58532,
+      "initializeTimeoutSeconds": 20,
+      "initializeElapsedMs": 158,
+      "initializeSucceeded": false,
+      "protocolCompatible": false,
+      "supportedProtocolVersion": 1,
+      "error": "SDK: Incoming transport closed: {\n  \"reason\": \"incoming_transport_closed\",\n  \"method\": \"initialize\"\n}",
+      "stderrSanitized": "Warning: 'acp' is not in the list of known options, but still passed to Electron/Chromium.\nWarning: 'permission-mode' is not in the list of known options, but still passed to Electron/Chromium.\n",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": false,
+        "waited": true,
+        "exitCode": 0,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "Warning: 'acp' is not in the list of known options, but still passed to Electron/Chromium.\nWarning: 'permission-mode' is not in the list of known options, but still passed to Electron/Chromium.\n",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 162,
+      "probe": "real-auto"
+    },
+    {
+      "argv": [
+        "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+        "--fake",
+        "eof-before"
+      ],
+      "environmentChanges": {},
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-qqp0LV",
+      "pid": 59932,
+      "initializeTimeoutSeconds": 5,
+      "initializeElapsedMs": 4,
+      "initializeSucceeded": false,
+      "protocolCompatible": false,
+      "supportedProtocolVersion": 1,
+      "error": "SDK: Incoming transport closed: {\n  \"reason\": \"incoming_transport_closed\",\n  \"method\": \"initialize\"\n}",
+      "stderrSanitized": "",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": false,
+        "waited": true,
+        "exitCode": 0,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 4,
+      "probe": "eof-before"
+    },
+    {
+      "argv": [
+        "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+        "--fake",
+        "eof-during"
+      ],
+      "environmentChanges": {},
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-qb8RY5",
+      "pid": 61788,
+      "initializeTimeoutSeconds": 5,
+      "initializeElapsedMs": 4,
+      "initializeSucceeded": false,
+      "protocolCompatible": false,
+      "supportedProtocolVersion": 1,
+      "error": "SDK: Incoming transport closed: {\n  \"reason\": \"incoming_transport_closed\",\n  \"method\": \"initialize\"\n}",
+      "stderrSanitized": "",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": false,
+        "waited": true,
+        "exitCode": 0,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 4,
+      "probe": "eof-during"
+    },
+    {
+      "argv": [
+        "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+        "--fake",
+        "mismatch"
+      ],
+      "environmentChanges": {},
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-g8XG2b",
+      "pid": 45564,
+      "initializeTimeoutSeconds": 5,
+      "initializeElapsedMs": 3,
+      "initializeSucceeded": true,
+      "protocolCompatible": false,
+      "supportedProtocolVersion": 1,
+      "error": null,
+      "stderrSanitized": "",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": false,
+        "waited": true,
+        "exitCode": 0,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 4,
+      "probe": "mismatch"
+    },
+    {
+      "argv": [
+        "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+        "--fake",
+        "missing-capability"
+      ],
+      "environmentChanges": {},
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-enAMCU",
+      "pid": 35424,
+      "initializeTimeoutSeconds": 5,
+      "initializeElapsedMs": 3,
+      "initializeSucceeded": true,
+      "protocolCompatible": true,
+      "supportedProtocolVersion": 1,
+      "error": null,
+      "stderrSanitized": "",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": false,
+        "waited": true,
+        "exitCode": 0,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 4,
+      "probe": "missing-capability"
+    },
+    {
+      "argv": [
+        "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+        "--fake",
+        "hang"
+      ],
+      "environmentChanges": {},
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-IaRQfi",
+      "pid": 62904,
+      "initializeTimeoutSeconds": 1,
+      "initializeElapsedMs": 1005,
+      "initializeSucceeded": false,
+      "protocolCompatible": false,
+      "supportedProtocolVersion": 1,
+      "error": "INITIALIZE_TIMEOUT",
+      "stderrSanitized": "",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": true,
+        "waited": true,
+        "exitCode": 1,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 3020,
+      "probe": "hang"
+    }
+  ],
+  "temporaryCwdRemoved": {
+    "real-default": true,
+    "real-auto": true,
+    "eof-before": true,
+    "eof-during": true,
+    "mismatch": true,
+    "missing-capability": true,
+    "hang": true
+  },
+  "sdkNeverReceivesChild": true,
+  "windowsJobAtCreationProven": false,
+  "descendantOrphanFreedom": "UNVERIFIED: wrapper may forward to desktop Electron; no production Job used",
+  "proxyPortClosed": true,
+  "fixtureWatchdog": "PASS: owned harness tree attempted taskkill; known peer handle fallback TerminateProcess + bounded WaitForSingleObject; direct harness reaped. No real Electron descendant claim."
+}

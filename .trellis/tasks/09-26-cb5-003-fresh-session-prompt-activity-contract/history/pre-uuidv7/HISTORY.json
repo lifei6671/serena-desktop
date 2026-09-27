@@ -1,0 +1,126 @@
+{
+  "status": "HISTORICAL_PRE_UUIDV7",
+  "note": "Prior HTTP500 attempts and invalid UUIDv4/hyphen generator; not final contract evidence",
+  "files": [
+    {
+      "path": "baseline.json",
+      "sha256": "789d2cea9c7b41d894eaebd43fe5fbeda57492ced10bbba4ba335500a85d1a20"
+    },
+    {
+      "path": "check.jsonl",
+      "sha256": "8f4f01b7a141badbb1096201ee54240e3aef6d17f05328e216bc1c901d104465"
+    },
+    {
+      "path": "delivery-review.md",
+      "sha256": "727f3586fbf8e62b1872b27d06aa8dfbc9f601a1359c79fa92222b1c5ccf3e22"
+    },
+    {
+      "path": "design.md",
+      "sha256": "e174dfa783ce34bf53c30a6a14e398ead9bf1d837761877eaeacb1219190fd0e"
+    },
+    {
+      "path": "evidence.sha256",
+      "sha256": "a61e6c0c8810f4e3ff07a086aef30b9765412fa07dadf403f3ebe16ba58377d1"
+    },
+    {
+      "path": "implement.jsonl",
+      "sha256": "265065814030d620608206dcf8094bd1502db73e043ec2c1bb942a9b03be3ef0"
+    },
+    {
+      "path": "implement.md",
+      "sha256": "3a68c6cca1eb3666c4b43c935211d197aca66b7de82e517c1c58384aea1a8fe0"
+    },
+    {
+      "path": "prd.md",
+      "sha256": "bc83a2d29d5b95d1fd90594a19bf964198677abac5e35c7d89b9c7251dbf3308"
+    },
+    {
+      "path": "review-freshness.json",
+      "sha256": "2a76c569309181103cad355b6285edd6157a745ec53d22c7bd032cbb9d896de1"
+    },
+    {
+      "path": "review-target.json",
+      "sha256": "451b176df03436a034536a51f1c84c9fd742ee18dcdaca7d514b98d261359f66"
+    },
+    {
+      "path": "run_probe.py",
+      "sha256": "0bb566bdc0fe981569d275955a6c4e7612c0b47bd859bdefc6ff087f01f7e1d7"
+    },
+    {
+      "path": "task.json",
+      "sha256": "a6fd4a3351cff284c0ac1521237f5e71169ef9d597bdacbf6290f84e89807b3b"
+    },
+    {
+      "path": "verification.md",
+      "sha256": "f2328b5bc87608e75ca402d7bef0964ac3cd2f204e2b22c301e40da60f1adad2"
+    },
+    {
+      "path": "evidence/activity-order.json",
+      "sha256": "2a6ada3dfee028fc1bb25d9e45d8d2c0ea96ae59fb74f274caeaa51815341d77"
+    },
+    {
+      "path": "evidence/cargo-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "evidence/cargo-test.log",
+      "sha256": "751424967dd9b5d3b65a6139382ca40373f425e963d39db733904da3276c6b1f"
+    },
+    {
+      "path": "evidence/conversation-request-id.json",
+      "sha256": "1fc44e6ebe1782534f1faa088a2c741c4ecfa6fa3d7c5f30e4f09d28fdba3524"
+    },
+    {
+      "path": "evidence/fresh-session.jsonl",
+      "sha256": "24e0f47a678675c15a93f4662851ed02c27e92688960ebad0b14c5499750fc55"
+    },
+    {
+      "path": "evidence/isolated-write-result.json",
+      "sha256": "bd1e7ce2e0b89e034a8548f2ee2f93a0ab8056490df129c3c7154ed722842e5c"
+    },
+    {
+      "path": "evidence/process-evidence.json",
+      "sha256": "aa0dfd3eb43671727d22dab0921435fbda015145a1c17b25baf1e462eef5f7d0"
+    },
+    {
+      "path": "evidence/read-only-result.json",
+      "sha256": "ff1df8b7579551df5293f54719a9b8a5ed929263ff1e9833a04940ed9699e915"
+    },
+    {
+      "path": "evidence/real-run.log",
+      "sha256": "c3e8a5792d193fa2489b9d5feee37c1442017121c67b8afb840984809074db83"
+    },
+    {
+      "path": "evidence/rerun-source-check.json",
+      "sha256": "bece8da4c92c51caa2eb76661d0428a0f9919b3d72e8943315308ca2efcfc6c9"
+    },
+    {
+      "path": "evidence/scope-verification.json",
+      "sha256": "ebdc30ae5a812245fb97340a5a6a6ee5fb01bcd715b26e24ec2d803583dfa187"
+    },
+    {
+      "path": "evidence/sdk-details.json",
+      "sha256": "7a477ee86a74a4c750463bd18d1a7196b238d26a4083d48f15122717bce52e29"
+    },
+    {
+      "path": "harness/Cargo.toml",
+      "sha256": "8879f41fa58fd45e0bb3759f901a2c54b7d756999363b40459ee5812c7ec7e71"
+    },
+    {
+      "path": "harness/Cargo.lock",
+      "sha256": "2dd7ec5b969ac79090533ba20972fba1cb1bf9b6a0c8319ff80b9d7480d4ff25"
+    },
+    {
+      "path": "harness/src/main.rs",
+      "sha256": "a4e540eee10ce8b978eadf59a7adbaf697f7555892f704c9e644f1a2e400ae6d"
+    },
+    {
+      "path": "harness/src/transport.rs",
+      "sha256": "5401114cf0e100d5f1230e1b2a22c4bdc572162dd8294588ea451529f905ea3d"
+    },
+    {
+      "path": "harness/tests/contracts.rs",
+      "sha256": "0270b33f9a3697bd6e031b0157527ebc352274f2d22b30b07ce9700e33096f60"
+    }
+  ]
+}

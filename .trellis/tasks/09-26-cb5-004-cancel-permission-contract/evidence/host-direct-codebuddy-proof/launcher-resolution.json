@@ -1,0 +1,7 @@
+{
+  "status": "READY",
+  "launcher": "absolute-node-plus-codebuddy-script",
+  "nodeExists": true,
+  "scriptExists": true,
+  "environmentMode": "host-standard-user-env"
+}

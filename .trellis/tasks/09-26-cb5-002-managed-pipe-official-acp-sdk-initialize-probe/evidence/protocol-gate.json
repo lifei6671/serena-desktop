@@ -1,0 +1,106 @@
+{
+  "predicate": "initializeSucceeded && negotiatedProtocolVersion == supportedProtocolVersion",
+  "supportedProtocolVersion": 1,
+  "supportedJsonType": "number",
+  "authority": {
+    "technicalDesignSha256": "200d348ee639b851db708a4392fe19779a4f0d749ca217f9d4917662aab8abad",
+    "taskBreakdownSha256": "dca62bdc54aaab7e418335beea53f189bc74243d08fb865cf298e696eadebb46",
+    "contract": "stable ACP v1; current user protocolVersion-only gate"
+  },
+  "productVersionAndHashUsedForGate": false,
+  "capabilitiesUsedForGate": false,
+  "childExitCodeUsedForGate": false,
+  "runs": {
+    "real-cli": {
+      "initializeSucceeded": true,
+      "negotiatedProtocolVersion": 1,
+      "negotiatedJsonType": "number",
+      "protocolCompatible": true,
+      "cleanupSucceeded": true,
+      "childExitCode": 1
+    },
+    "eof-before": {
+      "initializeSucceeded": false,
+      "negotiatedProtocolVersion": null,
+      "negotiatedJsonType": null,
+      "protocolCompatible": false,
+      "cleanupSucceeded": true,
+      "childExitCode": 0
+    },
+    "eof-during": {
+      "initializeSucceeded": false,
+      "negotiatedProtocolVersion": null,
+      "negotiatedJsonType": null,
+      "protocolCompatible": false,
+      "cleanupSucceeded": true,
+      "childExitCode": 0
+    },
+    "mismatch": {
+      "initializeSucceeded": true,
+      "negotiatedProtocolVersion": 999,
+      "negotiatedJsonType": "number",
+      "protocolCompatible": false,
+      "cleanupSucceeded": true,
+      "childExitCode": 0
+    },
+    "missing-capability": {
+      "initializeSucceeded": true,
+      "negotiatedProtocolVersion": 1,
+      "negotiatedJsonType": "number",
+      "protocolCompatible": true,
+      "cleanupSucceeded": true,
+      "childExitCode": 0
+    },
+    "hang": {
+      "initializeSucceeded": false,
+      "negotiatedProtocolVersion": null,
+      "negotiatedJsonType": null,
+      "protocolCompatible": false,
+      "cleanupSucceeded": true,
+      "childExitCode": 1
+    }
+  },
+  "rawRealCapabilities": {
+    "promptCapabilities": {
+      "image": true,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "loadSession": true,
+    "delegateToolsSupport": true,
+    "mainAgentSupport": false,
+    "multitaskSupport": true
+  },
+  "sdkTypedCapabilities": {
+    "loadSession": true,
+    "promptCapabilities": {
+      "image": true,
+      "audio": false,
+      "embeddedContext": true
+    },
+    "mcpCapabilities": {
+      "http": true,
+      "sse": true
+    },
+    "sessionCapabilities": {},
+    "auth": {}
+  },
+  "providerCapabilitiesEnabled": {
+    "canExecute": false,
+    "canContinue": false,
+    "canCancel": false,
+    "canRecover": false,
+    "activity": false,
+    "tokenUsage": false
+  },
+  "providerCapabilitiesNote": "No product changes or method probes; advertised loadSession does not prove recovery; every product capability remains unenabled/unknown in this card.",
+  "missingCapabilityFixture": {
+    "rawAgentCapabilities": {},
+    "sdkLoadSession": false,
+    "protocolCompatible": true
+  },
+  "status": "PASS; Host Gate pending"
+}

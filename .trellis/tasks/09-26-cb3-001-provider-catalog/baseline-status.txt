@@ -1,0 +1,69 @@
+ M src-tauri/src/agent/product.rs
+ M src-tauri/src/agent/product/tests.rs
+ M src-tauri/src/agent/provider/mod.rs
+ M src-tauri/src/agent/provider/registry.rs
+ M src-tauri/src/agent/provider/tests.rs
+ M src-tauri/src/agent/store.rs
+ M src-tauri/src/agent/task_manager.rs
+ M src-tauri/src/agent/task_manager/tests.rs
+ M src-tauri/src/autostart.rs
+ M src-tauri/src/commands.rs
+ M src-tauri/src/lib.rs
+ M src-tauri/src/serena.rs
+ M src/AgentPanel.test.mjs
+ M src/App.test.mjs
+ M src/api.ts
+ M src/app/useAppController.ts
+ M src/types.ts
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/check.jsonl
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/design.md
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/implement.jsonl
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/implement.md
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/prd.md
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/research/contract.md
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/task.json
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/baseline-summary.json
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/changes.json
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/check.jsonl
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/delivery.patch
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/design.md
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/implement.jsonl
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/implement.md
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/prd.md
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/review-context.md
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/review.md
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/task.json
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/verification.md
+?? .trellis/tasks/09-26-cb2-004-frontend-config/baseline.json
+?? .trellis/tasks/09-26-cb2-004-frontend-config/check.jsonl
+?? .trellis/tasks/09-26-cb2-004-frontend-config/design.md
+?? .trellis/tasks/09-26-cb2-004-frontend-config/implement.jsonl
+?? .trellis/tasks/09-26-cb2-004-frontend-config/implement.md
+?? .trellis/tasks/09-26-cb2-004-frontend-config/prd.md
+?? .trellis/tasks/09-26-cb2-004-frontend-config/review-context.md
+?? .trellis/tasks/09-26-cb2-004-frontend-config/review.md
+?? .trellis/tasks/09-26-cb2-004-frontend-config/target.json
+?? .trellis/tasks/09-26-cb2-004-frontend-config/task.json
+?? .trellis/tasks/09-26-cb2-004-frontend-config/verification.md
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/baseline-hashes.json
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/baseline.patch
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/check.jsonl
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/code-hashes.json
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/design.md
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/evidence.md
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/implement.jsonl
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/implement.md
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/matrix.jsonl
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/prd.md
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/review.md
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/task.json
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/test-inventory.txt
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/check.jsonl
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/implement.jsonl
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/prd.md
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/task.json
+?? src-tauri/src/agent/provider/control.rs
+?? src-tauri/src/provider_policy_drain_tests.rs
+?? src-tauri/src/provider_policy_tests.rs
+?? src/configFixtures.mjs
+?? src/configModel.test.mjs

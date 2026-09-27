@@ -348,7 +348,17 @@ async fn http_providers_reuses_cb3_001_codex_product_fixture_without_runtime() {
     let dir = tempfile::tempdir().unwrap();
     let broker = fixture(dir.path());
     let store = StateStore::open(dir.path().join("state")).await.unwrap();
-    let manager = AgentTaskManager::new(store.clone(), PathBuf::new());
+    let manager = crate::agent::codebuddy::TEST_DISCOVERY
+        .scope(
+            Err(crate::agent::codebuddy::discovery::DiscoveryError::not_found(false)),
+            async {
+                let manager = AgentTaskManager::new(store.clone(), PathBuf::new());
+                // Registry 是懒初始化；必须在 override 作用域内冻结 missing discovery。
+                manager.registry().unwrap();
+                manager
+            },
+        )
+        .await;
     *manager.runtime_pool.test_connect.lock().unwrap() =
         Some(Arc::new(|_, _| panic!("catalog must not connect Codex")));
     assert!(

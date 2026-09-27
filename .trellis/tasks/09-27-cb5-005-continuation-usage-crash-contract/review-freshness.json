@@ -1,0 +1,13 @@
+{
+  "targetId": "bfbbfbb31ae2041690adf359378a8eb23247b74057d43d840a29655b8665d3d3",
+  "reviewedFiles": 20,
+  "changedSinceReview": [],
+  "baselineChanged": [],
+  "realEvidenceFiles": [
+    "NOT_RUN.json"
+  ],
+  "head": "f36bbc3a07fb6d0b7e4e21ad3af024584720077b",
+  "gate": "PASSED",
+  "coverage": "COMPLETE",
+  "freshness": "FRESH"
+}

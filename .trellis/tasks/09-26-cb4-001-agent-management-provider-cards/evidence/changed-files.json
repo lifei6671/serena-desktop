@@ -1,0 +1,57 @@
+[
+  {
+    "path": "src-tauri/src/agent/product/provider_catalog_tests.rs",
+    "beforeSha256": "2941f0f08bd4581830d7e18ca5da559089aa720ed0bb9937135dd89dd2d22ba9",
+    "sha256": "8562b4c75d92079a019e83901d6c5a86d6ac36a4fe4198d9d16014aa0825a966"
+  },
+  {
+    "path": "src-tauri/src/commands.rs",
+    "beforeSha256": "328d8a5f47793e93bfcdfbc38a0b46e07465b69fb344a81f1d3d78e9b3b7185b",
+    "sha256": "c3989090808b14c5fc58ac915fa1e6737287195120a7eae871e9feacb94552b5"
+  },
+  {
+    "path": "src-tauri/src/lib.rs",
+    "beforeSha256": "63d46cbaa9009b13a04481272574448b0c8b9bb14fd9416391b2de896404d2d9",
+    "sha256": "495140a1cbe6df891f37d8a1582616680fd8c409998c0224b8308f2b7060a938"
+  },
+  {
+    "path": "src/AgentPanel.test.mjs",
+    "beforeSha256": "3cc4c752b3a6eabf97e54eecdcb4ad987f8b5aed7ab6e925c5db94c7abcb7040",
+    "sha256": "62f089693823ea12bece0a5e1bbbfc6281ece8992d8b7002c3211bdad4fdad26"
+  },
+  {
+    "path": "src/AgentPanel.tsx",
+    "beforeSha256": "72833d19ae59afdd6aeba9361c1845d380677e8170b2527f6848fc1b7db8a554",
+    "sha256": "b90ed7822a2967b0aab13815470eb6d48fd4f2188b4a92ebc86f83d4f94d0683"
+  },
+  {
+    "path": "src/App.test.mjs",
+    "beforeSha256": "1dd0f63d9915779ca40e6e84a4154a3270e70aea85a18fb957796fbcfa188778",
+    "sha256": "5eead0204e14afbf08797a1c279d7f655d62db3d904c45c7bd010fcae157a19b"
+  },
+  {
+    "path": "src/App.tsx",
+    "beforeSha256": "d470294552e25dd9189848761584514e27dd7a34992aaf6d0101c62dc3a6e1e4",
+    "sha256": "a572c5cb68f3b2bfbc218f36e5e464690592331cf462bfd4fc9c4b04ab1dacaf"
+  },
+  {
+    "path": "src/agentPresentation.ts",
+    "beforeSha256": "3e94aa867a48034121bc3a6555de7e023da185394ee86e901dbfb3c6d4002c28",
+    "sha256": "1a8740cfb0deb587ef00ab6f06b4eeef8b65e6a9c3df16cbf1697b5a9a4f0cf8"
+  },
+  {
+    "path": "src/api.ts",
+    "beforeSha256": "53db62032f3ed3c19d3864d7f1bc3b24e80e989dc0bc7f4840f715d8191c6515",
+    "sha256": "4e4a8949d18283d4260bafac92a03f1372189d35337d1d3034fa017e343d32c2"
+  },
+  {
+    "path": "src/styles.css",
+    "beforeSha256": "ed8f5c24ba13c31462d2bfeab51f4928b37e69afa422170c293994841cbe9611",
+    "sha256": "af9d92bd1023efdc6b178f33fde00469cf617d8a69f94670581df14c914e933a"
+  },
+  {
+    "path": "src/types.ts",
+    "beforeSha256": "235d2821c980d536a35f127720bf9c7699e0570586654fa6573a189742bae63a",
+    "sha256": "b02af6b46de3117c8fd8a5e70f9f7cc017b9e2f1f70e6620a7fa27c4ec8e572e"
+  }
+]

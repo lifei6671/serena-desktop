@@ -1,0 +1,62 @@
+[
+  {
+    "path": "src-tauri/src/agent/task_manager/tests.rs",
+    "baselineSha256": "f98553e10b9eaa43fea2f6f47b00b38de85c21d12fe27bf4d44edcc9a58e0ea2",
+    "currentSha256": "655926819623707dfb3ade3916b0344ff536074fe4988b58e3d3cdce0ace8ec2",
+    "unchanged": false
+  },
+  {
+    "path": "src-tauri/src/agent/product.rs",
+    "baselineSha256": "b24ac088e5538f9cb2437e69db9c428e03de09f4836e08bc62336c17adb3684f",
+    "currentSha256": "39fa0bae702bdfc355869c6761ed78ab1e2bc6146ce00c1d8bfa6147dc9cf5de",
+    "unchanged": false
+  },
+  {
+    "path": "src-tauri/src/agent/product/tests.rs",
+    "baselineSha256": "f6ec81f37f1b653474bb4945805c86c89a27d91bf34f9648599f9d2f7089f7bb",
+    "currentSha256": "f6ec81f37f1b653474bb4945805c86c89a27d91bf34f9648599f9d2f7089f7bb",
+    "unchanged": true
+  },
+  {
+    "path": "src-tauri/src/lib.rs",
+    "baselineSha256": "639f1526a73a9dd830316933ea916a85ae57eafdf33e5a4ec2809065194a1b77",
+    "currentSha256": "63d46cbaa9009b13a04481272574448b0c8b9bb14fd9416391b2de896404d2d9",
+    "unchanged": false
+  },
+  {
+    "path": "src-tauri/src/agent/provider/mod.rs",
+    "baselineSha256": "35b2d4b96a3e06fc02137fbf13e0efde71820c0e801bda737ed71f7f00885a3d",
+    "currentSha256": "35b2d4b96a3e06fc02137fbf13e0efde71820c0e801bda737ed71f7f00885a3d",
+    "unchanged": true
+  },
+  {
+    "path": "src-tauri/src/autostart.rs",
+    "baselineSha256": "4b98c96457c175bab00a8c2573112adaf460faaaedf69a75dc22ccbddedea564",
+    "currentSha256": "4b98c96457c175bab00a8c2573112adaf460faaaedf69a75dc22ccbddedea564",
+    "unchanged": true
+  },
+  {
+    "path": "src-tauri/src/agent/provider/control.rs",
+    "baselineSha256": "abd052d7362ce8d110b3075ceb6ea0cc8d483ab62a8d4354ba89deb6417f86c4",
+    "currentSha256": "20c5cce0f12563a141440e81f9b77b805e6fa7634de7d378976c3c58cdd37167",
+    "unchanged": false
+  },
+  {
+    "path": "src-tauri/src/agent/provider/tests.rs",
+    "baselineSha256": "ff93e65eb4de6cbea4fbfbc5b43961e74f78b020d5e87e1771f73418c82ebd75",
+    "currentSha256": "ff93e65eb4de6cbea4fbfbc5b43961e74f78b020d5e87e1771f73418c82ebd75",
+    "unchanged": true
+  },
+  {
+    "path": "src-tauri/src/agent/store.rs",
+    "baselineSha256": "e329787bcb97543717c7b1af10c4eaeca8f86154e3088f4efd1dc6b5ebec64c2",
+    "currentSha256": "e329787bcb97543717c7b1af10c4eaeca8f86154e3088f4efd1dc6b5ebec64c2",
+    "unchanged": true
+  },
+  {
+    "path": "src-tauri/src/agent/task_manager.rs",
+    "baselineSha256": "756f29efb29501e57692ce6b48d4c880d51199887c0ddc785b47caf7859f1e85",
+    "currentSha256": "c33ab92361278ad84000bcf4633324e37b2e798c3cecfc57c053e40a2c13d682",
+    "unchanged": false
+  }
+]

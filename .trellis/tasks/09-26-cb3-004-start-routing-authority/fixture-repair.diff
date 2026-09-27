@@ -1,0 +1,152 @@
+--- fixture-repair-baseline/src-tauri/src/agent/product.rs
++++ src-tauri/src/agent/product.rs
+@@ -840,13 +840,11 @@
+     #[cfg(test)]
+     pub(crate) fn new_with_rejected_dispatch_for_test(store: StateStore) -> Self {
+         let mut manager = AgentTaskManager::new(store.clone(), std::path::PathBuf::new());
+-        // discovery 故障固定在 Provider 内，避免测试发现或启动用户安装的 Codex。
+-        manager.backend_error = Some("TEST_DISPATCH_REJECTED".into());
+-        // 此 fixture 专测创建后的 handoff 拒绝；Admission 必须可用才能到达该边界。
+-        let mut registry = manager.registry().unwrap().as_ref().clone();
++        // 只注册无 Runtime 能力的 fake；绝不创建或提升真实 Codex adapter 的健康状态。
++        let mut registry = super::provider::registry::ProviderRegistry::new();
+         registry
+-            .set_health(
+-                &ProviderId::new("codex".into()).unwrap(),
++            .register(
++                std::sync::Arc::new(tests::RejectedDispatchProvider),
+                 super::provider::registry::ProviderHealth::Available,
+             )
+             .unwrap();
+--- fixture-repair-baseline/src-tauri/src/agent/product/tests.rs
++++ src-tauri/src/agent/product/tests.rs
+@@ -1,8 +1,129 @@
+ use super::*;
++use crate::agent::provider::{
++    ProviderCancelContext, ProviderCapabilities, ProviderError, ProviderExecutionContext,
++    ProviderRunResult, ProviderStartupContext,
++    port::{
++        AgentEventSink, AgentProvider, ProviderAcceptanceSink, ProviderExecutionFailure,
++        ProviderFuture, ProviderReconcileSummary,
++    },
++};
+ #[cfg(windows)]
+ use crate::agent::{codex::app_server::Client, coordinator::now};
+ use std::sync::Arc;
+ use std::time::Duration;
++
++/// 仅模拟可通过 admission、但在接受执行前拒绝的 Provider；不持有 Store、CLI 或 Runtime。
++pub(super) struct RejectedDispatchProvider;
++
++impl AgentProvider for RejectedDispatchProvider {
++    /// 使用兼容入口配置的 codex 身份，但实现完全独立于真实 Codex adapter。
++    fn descriptor(&self) -> ProviderDescriptor {
++        ProviderDescriptor {
++            id: ProviderId::new("codex".into()).unwrap(),
++            display_name: "Rejected dispatch fixture".into(),
++            version: None,
++        }
++    }
++    /// 只有 execute 准入可用，避免测试进入无关生命周期。
++    fn capabilities(&self) -> ProviderCapabilities {
++        ProviderCapabilities {
++            can_execute: true,
++            can_continue: false,
++            can_cancel: false,
++            can_recover: false,
++            activity: false,
++            token_usage: false,
++        }
++    }
++    /// 固定在 accepted() 之前失败，且没有任何 discovery、文件或进程访问。
++    fn execute<'a>(
++        &'a self,
++        _: ProviderExecutionContext,
++        _: Arc<dyn ProviderAcceptanceSink>,
++        _: Arc<dyn AgentEventSink>,
++    ) -> ProviderFuture<'a, Result<ProviderRunResult, ProviderExecutionFailure>> {
++        Box::pin(async {
++            Err(ProviderExecutionFailure::State(
++                "TEST_DISPATCH_REJECTED".into(),
++            ))
++        })
++    }
++    /// fixture 不支持取消，调用即暴露测试越界。
++    fn cancel<'a>(
++        &'a self,
++        _: ProviderCancelContext,
++    ) -> ProviderFuture<'a, Result<(), ProviderError>> {
++        Box::pin(async { panic!("rejected-dispatch fixture must not cancel") })
++    }
++    /// fixture 不支持启动恢复，调用即暴露测试越界。
++    fn startup_reconcile<'a>(
++        &'a self,
++        _: ProviderStartupContext,
++    ) -> ProviderFuture<'a, Result<ProviderReconcileSummary, ProviderError>> {
++        Box::pin(async { panic!("rejected-dispatch fixture must not reconcile") })
++    }
++}
++
++/// 锁定 fixture 的真正派发边界，不能用真实 Codex 的环境状态模拟拒绝。
++#[tokio::test]
++async fn rejected_dispatch_fixture_fails_before_acceptance_without_runtime() {
++    struct NeverAccept;
++    impl ProviderAcceptanceSink for NeverAccept {
++        /// fake 必须在 Provider 接受前拒绝。
++        fn accepted(&self) {
++            panic!("rejected-dispatch fixture must not accept")
++        }
++    }
++    impl AgentEventSink for NeverAccept {}
++    let directory = tempfile::tempdir().unwrap();
++    let store = StateStore::open(directory.path().join("store"))
++        .await
++        .unwrap();
++    let service = AgentProductService::new_with_rejected_dispatch_for_test(store.clone());
++    let id = ProviderId::new("codex".into()).unwrap();
++    let registry = service.manager.registry().unwrap();
++    assert_eq!(
++        registry.health(&id).unwrap(),
++        crate::agent::provider::registry::ProviderHealth::Available
++    );
++    let provider = registry.get(&id).unwrap();
++    assert!(provider.capabilities().can_execute);
++    assert_eq!(
++        provider
++            .execute(
++                ProviderExecutionContext {
++                    execution_id: "never-created".into()
++                },
++                Arc::new(NeverAccept),
++                Arc::new(NeverAccept)
++            )
++            .await
++            .unwrap_err(),
++        ProviderExecutionFailure::State("TEST_DISPATCH_REJECTED".into())
++    );
++    let response = service
++        .checked_operation(start("rejected", "key"), w(directory.path(), "W"))
++        .await;
++    assert_eq!(response["error"]["code"], "AGENT_OPERATION_FAILED");
++    assert_eq!(response["control"]["requestAccepted"], true);
++    assert_eq!(
++        store
++            .product_read(None, None, None, 10)
++            .await
++            .unwrap()
++            .len(),
++        1
++    );
++    let db = rusqlite::Connection::open(directory.path().join("store/agent-state.db")).unwrap();
++    for table in ["runtime_instances", "execution_runtime_attempts"] {
++        let count: i64 = db
++            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
++                row.get(0)
++            })
++            .unwrap();
++        assert_eq!(count, 0, "{table}");
++    }
++}
+ #[cfg(windows)]
+ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+ // 只有具体 Runtime/Fake wire 测试保留 Windows gate，纯 Store/协议覆盖跨平台运行。

@@ -1,0 +1,194 @@
+{
+  "task": "CB5-001",
+  "captured_at_utc": "2026-09-26T10:54:48.550431+00:00",
+  "platform": "win32",
+  "discovery_command_name": "buddycn",
+  "where_executable": "C:\\WINDOWS\\system32\\where.exe",
+  "entry_source": "explicit_shim_argument",
+  "discovery_status": "FOUND",
+  "discovery": {
+    "codebuddy": {
+      "argv": [
+        "where.exe",
+        "codebuddy"
+      ],
+      "command_line": "where.exe codebuddy",
+      "cwd": "\\\\?\\E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+      "environment_changes": {},
+      "timeout_seconds": 15,
+      "exit_code": 1,
+      "timed_out": false,
+      "stdout": "",
+      "stderr": "信息: 用提供的模式无法找到文件。\r\n",
+      "encoding": "oem",
+      "stdout_base64": "",
+      "stderr_base64": "0MXPojog08PM4bmptcTEo8q9zt63qNXStb3OxLz+oaMNCg=="
+    },
+    "buddycn": {
+      "argv": [
+        "where.exe",
+        "buddycn"
+      ],
+      "command_line": "where.exe buddycn",
+      "cwd": "\\\\?\\E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+      "environment_changes": {},
+      "timeout_seconds": 15,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\bin\\buddycn\r\nC:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\bin\\buddycn.cmd\r\n",
+      "stderr": "",
+      "encoding": "oem",
+      "stdout_base64": "QzpcVXNlcnNcbGlmZWlcQXBwRGF0YVxMb2NhbFxQcm9ncmFtc1xDb2RlQnVkZHkgQ05cYmluXGJ1ZGR5Y24NCkM6XFVzZXJzXGxpZmVpXEFwcERhdGFcTG9jYWxcUHJvZ3JhbXNcQ29kZUJ1ZGR5IENOXGJpblxidWRkeWNuLmNtZA0K",
+      "stderr_base64": ""
+    }
+  },
+  "entry": {
+    "shim_path": "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\bin\\buddycn.cmd",
+    "shim_content": "@echo off\nsetlocal\nset VSCODE_DEV=\nset ELECTRON_RUN_AS_NODE=1\n\"%~dp0..\\CodeBuddy CN.exe\" \"%~dp0..\\resources\\app\\out\\cli.js\" %*\nIF %ERRORLEVEL% NEQ 0 EXIT /b %ERRORLEVEL%\nendlocal\n",
+    "canonical_exe": "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\CodeBuddy CN.exe",
+    "cli_js": "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app\\out\\cli.js",
+    "environment": {
+      "ELECTRON_RUN_AS_NODE": "1",
+      "VSCODE_DEV": null
+    },
+    "status": "FOUND"
+  },
+  "actual_probe_status": "PASS",
+  "bin_listing": [
+    "buddycn",
+    "buddycn.cmd"
+  ],
+  "bin_in_process_path": true,
+  "raw_cli": {
+    "--version": {
+      "argv": [
+        "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\CodeBuddy CN.exe",
+        "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app\\out\\cli.js",
+        "--version"
+      ],
+      "command_line": "\"C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\CodeBuddy CN.exe\" \"C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app\\out\\cli.js\" --version",
+      "cwd": "\\\\?\\E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+      "environment_changes": {
+        "ELECTRON_RUN_AS_NODE": "1",
+        "VSCODE_DEV": null
+      },
+      "timeout_seconds": 15,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "1.106.1\nb4c35ed08ffb428910211608831a314565c1256e\nx64\n",
+      "stderr": "",
+      "encoding": "utf-8-sig",
+      "stdout_base64": "MS4xMDYuMQpiNGMzNWVkMDhmZmI0Mjg5MTAyMTE2MDg4MzFhMzE0NTY1YzEyNTZlCng2NAo=",
+      "stderr_base64": ""
+    },
+    "--help": {
+      "argv": [
+        "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\CodeBuddy CN.exe",
+        "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app\\out\\cli.js",
+        "--help"
+      ],
+      "command_line": "\"C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\CodeBuddy CN.exe\" \"C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app\\out\\cli.js\" --help",
+      "cwd": "\\\\?\\E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+      "environment_changes": {
+        "ELECTRON_RUN_AS_NODE": "1",
+        "VSCODE_DEV": null
+      },
+      "timeout_seconds": 15,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "CodeBuddy CN 1.106.1\n\nUsage: buddycn.exe [options] [paths...]\n\nTo read from stdin, append '-' (e.g. 'echo Hello World | buddycn.exe -')\n\nOptions\n  -d --diff <file> <file>                    Compare two files with each\n                                             other.\n  -m --merge <path1> <path2> <base> <result> Perform a three-way merge by\n                                             providing paths for two modified\n                                             versions of a file, the common\n                                             origin of both modified versions\n                                             and the output file to save merge\n                                             results.\n  -a --add <folder>                          Add folder(s) to the last active\n                                             window.\n  --remove <folder>                          Remove folder(s) from the last\n                                             active window.\n  -g --goto <file:line[:character]>          Open a file at the path on the\n                                             specified line and character\n                                             position.\n  -n --new-window                            Force to open a new window.\n  -r --reuse-window                          Force to open a file or folder in\n                                             an already opened window.\n  -w --wait                                  Wait for the files to be closed\n                                             before returning.\n  --locale <locale>                          The locale to use (e.g. en-US or\n                                             zh-TW).\n  --user-data-dir <dir>                      Specifies the directory that user\n                                             data is kept in. Can be used to\n                                             open multiple distinct instances\n                                             of Code.\n  --profile <profileName>                    Opens the provided folder or\n                                             workspace with the given profile\n                                             and associates the profile with\n                                             the workspace. If the profile does\n                                             not exist, a new empty one is\n                                             created.\n  -h --help                                  Print usage.\n\nExtensions Management\n  --extensions-dir <dir>              Set the root path for extensions.\n  --list-extensions                   List the installed extensions.\n  --show-versions                     Show versions of installed extensions,\n                                      when using --list-extensions.\n  --category <category>               Filters installed extensions by provided\n                                      category, when using --list-extensions.\n  --install-extension <ext-id | path> Installs or updates an extension. The\n                                      argument is either an extension id or a\n                                      path to a VSIX. The identifier of an\n                                      extension is '${publisher}.${name}'. Use\n                                      '--force' argument to update to latest\n                                      version. To install a specific version\n                                      provide '@${version}'. For example:\n                                      'vscode.csharp@1.2.3'.\n  --pre-release                       Installs the pre-release version of the\n                                      extension, when using\n                                      --install-extension\n  --uninstall-extension <ext-id>      Uninstalls an extension.\n  --update-extensions                 Update the installed extensions.\n  --enable-proposed-api <ext-id>      Enables proposed API features for\n                                      extensions. Can receive one or more\n                                      extension IDs to enable individually.\n\nModel Context Protocol\n  --add-mcp <json> Adds a Model Context Protocol server definition to the user\n                   profile. Accepts JSON input in the form\n                   '{\"name\":\"server-name\",\"command\":...}'\n\nTroubleshooting\n  -v --version                            Print version.\n  --verbose                               Print verbose output (implies\n                                          --wait).\n  --log <level>                           Log level to use. Default is 'info'.\n                                          Allowed values are 'critical',\n                                          'error', 'warn', 'info', 'debug',\n                                          'trace', 'off'. You can also\n                                          configure the log level of an\n                                          extension by passing extension id and\n                                          log level in the following format:\n                                          '${publisher}.${name}:${logLevel}'.\n                                          For example: 'vscode.csharp:trace'.\n                                          Can receive one or more such\n                                          entries.\n  -s --status                             Print process usage and diagnostics\n                                          information.\n  --prof-startup                          Run CPU profiler during startup.\n  --disable-extensions                    Disable all installed extensions.\n                                          This option is not persisted and is\n                                          effective only when the command opens\n                                          a new window.\n  --disable-extension <ext-id>            Disable the provided extension. This\n                                          option is not persisted and is\n                                          effective only when the command opens\n                                          a new window.\n  --sync <on | off>                       Turn sync on or off.\n  --inspect-extensions <port>             Allow debugging and profiling of\n                                          extensions. Check the developer tools\n                                          for the connection URI.\n  --inspect-brk-extensions <port>         Allow debugging and profiling of\n                                          extensions with the extension host\n                                          being paused after start. Check the\n                                          developer tools for the connection\n                                          URI.\n  --disable-lcd-text                      Disable LCD font rendering.\n  --disable-gpu                           Disable GPU hardware acceleration.\n  --disable-chromium-sandbox              Use this option only when there is\n                                          requirement to launch the application\n                                          as sudo user on Linux or when running\n                                          as an elevated user in an applocker\n                                          environment on Windows.\n  --locate-shell-integration-path <shell> Print the path to a terminal shell\n                                          integration script. Allowed values\n                                          are 'bash', 'pwsh', 'zsh' or 'fish'.\n  --telemetry                             Shows all telemetry events which VS\n                                          code collects.\n  --transient                             Run with temporary data and extension\n                                          directories, as if launched for the\n                                          first time.\n\nSubcommands\n  chat         Pass in a prompt to run in a chat session in the current working\n               directory.\n  serve-web    Run a server that displays the editor UI in browsers.\n  tunnel       Make the current machine accessible from vscode.dev or other\n               machines through a secure tunnel.\n\n",
+      "stderr": "",
+      "encoding": "utf-8-sig",
+      "stdout_base64": "Q29kZUJ1ZGR5IENOIDEuMTA2LjEKClVzYWdlOiBidWRkeWNuLmV4ZSBbb3B0aW9uc10gW3BhdGhzLi4uXQoKVG8gcmVhZCBmcm9tIHN0ZGluLCBhcHBlbmQgJy0nIChlLmcuICdlY2hvIEhlbGxvIFdvcmxkIHwgYnVkZHljbi5leGUgLScpCgpPcHRpb25zCiAgLWQgLS1kaWZmIDxmaWxlPiA8ZmlsZT4gICAgICAgICAgICAgICAgICAgIENvbXBhcmUgdHdvIGZpbGVzIHdpdGggZWFjaAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBvdGhlci4KICAtbSAtLW1lcmdlIDxwYXRoMT4gPHBhdGgyPiA8YmFzZT4gPHJlc3VsdD4gUGVyZm9ybSBhIHRocmVlLXdheSBtZXJnZSBieQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBwcm92aWRpbmcgcGF0aHMgZm9yIHR3byBtb2RpZmllZAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICB2ZXJzaW9ucyBvZiBhIGZpbGUsIHRoZSBjb21tb24KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgb3JpZ2luIG9mIGJvdGggbW9kaWZpZWQgdmVyc2lvbnMKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgYW5kIHRoZSBvdXRwdXQgZmlsZSB0byBzYXZlIG1lcmdlCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHJlc3VsdHMuCiAgLWEgLS1hZGQgPGZvbGRlcj4gICAgICAgICAgICAgICAgICAgICAgICAgIEFkZCBmb2xkZXIocykgdG8gdGhlIGxhc3QgYWN0aXZlCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHdpbmRvdy4KICAtLXJlbW92ZSA8Zm9sZGVyPiAgICAgICAgICAgICAgICAgICAgICAgICAgUmVtb3ZlIGZvbGRlcihzKSBmcm9tIHRoZSBsYXN0CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGFjdGl2ZSB3aW5kb3cuCiAgLWcgLS1nb3RvIDxmaWxlOmxpbmVbOmNoYXJhY3Rlcl0+ICAgICAgICAgIE9wZW4gYSBmaWxlIGF0IHRoZSBwYXRoIG9uIHRoZQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBzcGVjaWZpZWQgbGluZSBhbmQgY2hhcmFjdGVyCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHBvc2l0aW9uLgogIC1uIC0tbmV3LXdpbmRvdyAgICAgICAgICAgICAgICAgICAgICAgICAgICBGb3JjZSB0byBvcGVuIGEgbmV3IHdpbmRvdy4KICAtciAtLXJldXNlLXdpbmRvdyAgICAgICAgICAgICAgICAgICAgICAgICAgRm9yY2UgdG8gb3BlbiBhIGZpbGUgb3IgZm9sZGVyIGluCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGFuIGFscmVhZHkgb3BlbmVkIHdpbmRvdy4KICAtdyAtLXdhaXQgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgV2FpdCBmb3IgdGhlIGZpbGVzIHRvIGJlIGNsb3NlZAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBiZWZvcmUgcmV0dXJuaW5nLgogIC0tbG9jYWxlIDxsb2NhbGU+ICAgICAgICAgICAgICAgICAgICAgICAgICBUaGUgbG9jYWxlIHRvIHVzZSAoZS5nLiBlbi1VUyBvcgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICB6aC1UVykuCiAgLS11c2VyLWRhdGEtZGlyIDxkaXI+ICAgICAgICAgICAgICAgICAgICAgIFNwZWNpZmllcyB0aGUgZGlyZWN0b3J5IHRoYXQgdXNlcgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBkYXRhIGlzIGtlcHQgaW4uIENhbiBiZSB1c2VkIHRvCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIG9wZW4gbXVsdGlwbGUgZGlzdGluY3QgaW5zdGFuY2VzCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIG9mIENvZGUuCiAgLS1wcm9maWxlIDxwcm9maWxlTmFtZT4gICAgICAgICAgICAgICAgICAgIE9wZW5zIHRoZSBwcm92aWRlZCBmb2xkZXIgb3IKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgd29ya3NwYWNlIHdpdGggdGhlIGdpdmVuIHByb2ZpbGUKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgYW5kIGFzc29jaWF0ZXMgdGhlIHByb2ZpbGUgd2l0aAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICB0aGUgd29ya3NwYWNlLiBJZiB0aGUgcHJvZmlsZSBkb2VzCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIG5vdCBleGlzdCwgYSBuZXcgZW1wdHkgb25lIGlzCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGNyZWF0ZWQuCiAgLWggLS1oZWxwICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIFByaW50IHVzYWdlLgoKRXh0ZW5zaW9ucyBNYW5hZ2VtZW50CiAgLS1leHRlbnNpb25zLWRpciA8ZGlyPiAgICAgICAgICAgICAgU2V0IHRoZSByb290IHBhdGggZm9yIGV4dGVuc2lvbnMuCiAgLS1saXN0LWV4dGVuc2lvbnMgICAgICAgICAgICAgICAgICAgTGlzdCB0aGUgaW5zdGFsbGVkIGV4dGVuc2lvbnMuCiAgLS1zaG93LXZlcnNpb25zICAgICAgICAgICAgICAgICAgICAgU2hvdyB2ZXJzaW9ucyBvZiBpbnN0YWxsZWQgZXh0ZW5zaW9ucywKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICB3aGVuIHVzaW5nIC0tbGlzdC1leHRlbnNpb25zLgogIC0tY2F0ZWdvcnkgPGNhdGVnb3J5PiAgICAgICAgICAgICAgIEZpbHRlcnMgaW5zdGFsbGVkIGV4dGVuc2lvbnMgYnkgcHJvdmlkZWQKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBjYXRlZ29yeSwgd2hlbiB1c2luZyAtLWxpc3QtZXh0ZW5zaW9ucy4KICAtLWluc3RhbGwtZXh0ZW5zaW9uIDxleHQtaWQgfCBwYXRoPiBJbnN0YWxscyBvciB1cGRhdGVzIGFuIGV4dGVuc2lvbi4gVGhlCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgYXJndW1lbnQgaXMgZWl0aGVyIGFuIGV4dGVuc2lvbiBpZCBvciBhCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgcGF0aCB0byBhIFZTSVguIFRoZSBpZGVudGlmaWVyIG9mIGFuCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgZXh0ZW5zaW9uIGlzICcke3B1Ymxpc2hlcn0uJHtuYW1lfScuIFVzZQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICctLWZvcmNlJyBhcmd1bWVudCB0byB1cGRhdGUgdG8gbGF0ZXN0CiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgdmVyc2lvbi4gVG8gaW5zdGFsbCBhIHNwZWNpZmljIHZlcnNpb24KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBwcm92aWRlICdAJHt2ZXJzaW9ufScuIEZvciBleGFtcGxlOgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICd2c2NvZGUuY3NoYXJwQDEuMi4zJy4KICAtLXByZS1yZWxlYXNlICAgICAgICAgICAgICAgICAgICAgICBJbnN0YWxscyB0aGUgcHJlLXJlbGVhc2UgdmVyc2lvbiBvZiB0aGUKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBleHRlbnNpb24sIHdoZW4gdXNpbmcKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAtLWluc3RhbGwtZXh0ZW5zaW9uCiAgLS11bmluc3RhbGwtZXh0ZW5zaW9uIDxleHQtaWQ+ICAgICAgVW5pbnN0YWxscyBhbiBleHRlbnNpb24uCiAgLS11cGRhdGUtZXh0ZW5zaW9ucyAgICAgICAgICAgICAgICAgVXBkYXRlIHRoZSBpbnN0YWxsZWQgZXh0ZW5zaW9ucy4KICAtLWVuYWJsZS1wcm9wb3NlZC1hcGkgPGV4dC1pZD4gICAgICBFbmFibGVzIHByb3Bvc2VkIEFQSSBmZWF0dXJlcyBmb3IKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBleHRlbnNpb25zLiBDYW4gcmVjZWl2ZSBvbmUgb3IgbW9yZQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGV4dGVuc2lvbiBJRHMgdG8gZW5hYmxlIGluZGl2aWR1YWxseS4KCk1vZGVsIENvbnRleHQgUHJvdG9jb2wKICAtLWFkZC1tY3AgPGpzb24+IEFkZHMgYSBNb2RlbCBDb250ZXh0IFByb3RvY29sIHNlcnZlciBkZWZpbml0aW9uIHRvIHRoZSB1c2VyCiAgICAgICAgICAgICAgICAgICBwcm9maWxlLiBBY2NlcHRzIEpTT04gaW5wdXQgaW4gdGhlIGZvcm0KICAgICAgICAgICAgICAgICAgICd7Im5hbWUiOiJzZXJ2ZXItbmFtZSIsImNvbW1hbmQiOi4uLn0nCgpUcm91Ymxlc2hvb3RpbmcKICAtdiAtLXZlcnNpb24gICAgICAgICAgICAgICAgICAgICAgICAgICAgUHJpbnQgdmVyc2lvbi4KICAtLXZlcmJvc2UgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgUHJpbnQgdmVyYm9zZSBvdXRwdXQgKGltcGxpZXMKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgLS13YWl0KS4KICAtLWxvZyA8bGV2ZWw+ICAgICAgICAgICAgICAgICAgICAgICAgICAgTG9nIGxldmVsIHRvIHVzZS4gRGVmYXVsdCBpcyAnaW5mbycuCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIEFsbG93ZWQgdmFsdWVzIGFyZSAnY3JpdGljYWwnLAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAnZXJyb3InLCAnd2FybicsICdpbmZvJywgJ2RlYnVnJywKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgJ3RyYWNlJywgJ29mZicuIFlvdSBjYW4gYWxzbwogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBjb25maWd1cmUgdGhlIGxvZyBsZXZlbCBvZiBhbgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBleHRlbnNpb24gYnkgcGFzc2luZyBleHRlbnNpb24gaWQgYW5kCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGxvZyBsZXZlbCBpbiB0aGUgZm9sbG93aW5nIGZvcm1hdDoKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgJyR7cHVibGlzaGVyfS4ke25hbWV9OiR7bG9nTGV2ZWx9Jy4KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgRm9yIGV4YW1wbGU6ICd2c2NvZGUuY3NoYXJwOnRyYWNlJy4KICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgQ2FuIHJlY2VpdmUgb25lIG9yIG1vcmUgc3VjaAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBlbnRyaWVzLgogIC1zIC0tc3RhdHVzICAgICAgICAgICAgICAgICAgICAgICAgICAgICBQcmludCBwcm9jZXNzIHVzYWdlIGFuZCBkaWFnbm9zdGljcwogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBpbmZvcm1hdGlvbi4KICAtLXByb2Ytc3RhcnR1cCAgICAgICAgICAgICAgICAgICAgICAgICAgUnVuIENQVSBwcm9maWxlciBkdXJpbmcgc3RhcnR1cC4KICAtLWRpc2FibGUtZXh0ZW5zaW9ucyAgICAgICAgICAgICAgICAgICAgRGlzYWJsZSBhbGwgaW5zdGFsbGVkIGV4dGVuc2lvbnMuCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIFRoaXMgb3B0aW9uIGlzIG5vdCBwZXJzaXN0ZWQgYW5kIGlzCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGVmZmVjdGl2ZSBvbmx5IHdoZW4gdGhlIGNvbW1hbmQgb3BlbnMKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgYSBuZXcgd2luZG93LgogIC0tZGlzYWJsZS1leHRlbnNpb24gPGV4dC1pZD4gICAgICAgICAgICBEaXNhYmxlIHRoZSBwcm92aWRlZCBleHRlbnNpb24uIFRoaXMKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgb3B0aW9uIGlzIG5vdCBwZXJzaXN0ZWQgYW5kIGlzCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGVmZmVjdGl2ZSBvbmx5IHdoZW4gdGhlIGNvbW1hbmQgb3BlbnMKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgYSBuZXcgd2luZG93LgogIC0tc3luYyA8b24gfCBvZmY+ICAgICAgICAgICAgICAgICAgICAgICBUdXJuIHN5bmMgb24gb3Igb2ZmLgogIC0taW5zcGVjdC1leHRlbnNpb25zIDxwb3J0PiAgICAgICAgICAgICBBbGxvdyBkZWJ1Z2dpbmcgYW5kIHByb2ZpbGluZyBvZgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBleHRlbnNpb25zLiBDaGVjayB0aGUgZGV2ZWxvcGVyIHRvb2xzCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGZvciB0aGUgY29ubmVjdGlvbiBVUkkuCiAgLS1pbnNwZWN0LWJyay1leHRlbnNpb25zIDxwb3J0PiAgICAgICAgIEFsbG93IGRlYnVnZ2luZyBhbmQgcHJvZmlsaW5nIG9mCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGV4dGVuc2lvbnMgd2l0aCB0aGUgZXh0ZW5zaW9uIGhvc3QKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgYmVpbmcgcGF1c2VkIGFmdGVyIHN0YXJ0LiBDaGVjayB0aGUKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgZGV2ZWxvcGVyIHRvb2xzIGZvciB0aGUgY29ubmVjdGlvbgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBVUkkuCiAgLS1kaXNhYmxlLWxjZC10ZXh0ICAgICAgICAgICAgICAgICAgICAgIERpc2FibGUgTENEIGZvbnQgcmVuZGVyaW5nLgogIC0tZGlzYWJsZS1ncHUgICAgICAgICAgICAgICAgICAgICAgICAgICBEaXNhYmxlIEdQVSBoYXJkd2FyZSBhY2NlbGVyYXRpb24uCiAgLS1kaXNhYmxlLWNocm9taXVtLXNhbmRib3ggICAgICAgICAgICAgIFVzZSB0aGlzIG9wdGlvbiBvbmx5IHdoZW4gdGhlcmUgaXMKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgcmVxdWlyZW1lbnQgdG8gbGF1bmNoIHRoZSBhcHBsaWNhdGlvbgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBhcyBzdWRvIHVzZXIgb24gTGludXggb3Igd2hlbiBydW5uaW5nCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGFzIGFuIGVsZXZhdGVkIHVzZXIgaW4gYW4gYXBwbG9ja2VyCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIGVudmlyb25tZW50IG9uIFdpbmRvd3MuCiAgLS1sb2NhdGUtc2hlbGwtaW50ZWdyYXRpb24tcGF0aCA8c2hlbGw+IFByaW50IHRoZSBwYXRoIHRvIGEgdGVybWluYWwgc2hlbGwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgaW50ZWdyYXRpb24gc2NyaXB0LiBBbGxvd2VkIHZhbHVlcwogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBhcmUgJ2Jhc2gnLCAncHdzaCcsICd6c2gnIG9yICdmaXNoJy4KICAtLXRlbGVtZXRyeSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgU2hvd3MgYWxsIHRlbGVtZXRyeSBldmVudHMgd2hpY2ggVlMKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgY29kZSBjb2xsZWN0cy4KICAtLXRyYW5zaWVudCAgICAgICAgICAgICAgICAgICAgICAgICAgICAgUnVuIHdpdGggdGVtcG9yYXJ5IGRhdGEgYW5kIGV4dGVuc2lvbgogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBkaXJlY3RvcmllcywgYXMgaWYgbGF1bmNoZWQgZm9yIHRoZQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBmaXJzdCB0aW1lLgoKU3ViY29tbWFuZHMKICBjaGF0ICAgICAgICAgUGFzcyBpbiBhIHByb21wdCB0byBydW4gaW4gYSBjaGF0IHNlc3Npb24gaW4gdGhlIGN1cnJlbnQgd29ya2luZwogICAgICAgICAgICAgICBkaXJlY3RvcnkuCiAgc2VydmUtd2ViICAgIFJ1biBhIHNlcnZlciB0aGF0IGRpc3BsYXlzIHRoZSBlZGl0b3IgVUkgaW4gYnJvd3NlcnMuCiAgdHVubmVsICAgICAgIE1ha2UgdGhlIGN1cnJlbnQgbWFjaGluZSBhY2Nlc3NpYmxlIGZyb20gdnNjb2RlLmRldiBvciBvdGhlcgogICAgICAgICAgICAgICBtYWNoaW5lcyB0aHJvdWdoIGEgc2VjdXJlIHR1bm5lbC4KCg==",
+      "stderr_base64": ""
+    }
+  },
+  "pe_metadata_command": {
+    "argv": [
+      "powershell.exe",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $v=(Get-Item -LiteralPath 'C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\CodeBuddy CN.exe').VersionInfo; [ordered]@{FileVersion=$v.FileVersion;ProductVersion=$v.ProductVersion;ProductName=$v.ProductName}|ConvertTo-Json -Compress"
+    ],
+    "command_line": "powershell.exe -NoProfile -NonInteractive -Command \"[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $v=(Get-Item -LiteralPath 'C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\CodeBuddy CN.exe').VersionInfo; [ordered]@{FileVersion=$v.FileVersion;ProductVersion=$v.ProductVersion;ProductName=$v.ProductName}|ConvertTo-Json -Compress\"",
+    "cwd": "\\\\?\\E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "environment_changes": {},
+    "timeout_seconds": 15,
+    "exit_code": 0,
+    "timed_out": false,
+    "stdout": "{\"FileVersion\":\"1.106.1.0\",\"ProductVersion\":\"4.12.0\",\"ProductName\":\"CodeBuddy CN\"}\r\n",
+    "stderr": "",
+    "encoding": "utf-8-sig",
+    "stdout_base64": "eyJGaWxlVmVyc2lvbiI6IjEuMTA2LjEuMCIsIlByb2R1Y3RWZXJzaW9uIjoiNC4xMi4wIiwiUHJvZHVjdE5hbWUiOiJDb2RlQnVkZHkgQ04ifQ0K",
+    "stderr_base64": ""
+  },
+  "pe_version_info": {
+    "FileVersion": "1.106.1.0",
+    "ProductVersion": "4.12.0",
+    "ProductName": "CodeBuddy CN"
+  },
+  "parsed_cli_version": {
+    "status": "PARSED",
+    "reason": null,
+    "value": "1.106.1",
+    "source": "cli_stdout",
+    "commit": "b4c35ed08ffb428910211608831a314565c1256e",
+    "architecture": "x64"
+  },
+  "product_version_candidate": {
+    "value": "4.12.0",
+    "source": "pe_product_version",
+    "supported": false
+  },
+  "embedded_metadata": {
+    "product.json": {
+      "path": "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app\\product.json",
+      "sha256": "0d9e5e61180c70e32747d4745c3bb607dbbf35f1ecfb4ce34d37a8e55be25829",
+      "fields": {
+        "applicationName": "buddycn",
+        "version": "1.106.1",
+        "commit": "b4c35ed08ffb428910211608831a314565c1256e",
+        "quality": "stable"
+      }
+    },
+    "package.json": {
+      "path": "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app\\package.json",
+      "sha256": "e5c43d4d1c8dbd04bcd69a9765af333dd91db7c354ecfe721841d231e66acd2d",
+      "fields": {
+        "name": "CodeBuddy CN",
+        "version": "1.106.1"
+      }
+    }
+  },
+  "identities": [
+    {
+      "role": "exe",
+      "path": "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\CodeBuddy CN.exe",
+      "sha256": "d289e2a508dece84064ffb3243b817faf9c429877b5f022a726002463b428ed2"
+    },
+    {
+      "role": "cli",
+      "path": "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app\\out\\cli.js",
+      "sha256": "5dd40efc70561675207cde74b2970ac532721944e996a683ea62888bd4a98904"
+    },
+    {
+      "role": "shim",
+      "path": "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\bin\\buddycn.cmd",
+      "sha256": "72f9f2c74c5374817d23544d0986bb02285530e403563d332f3fa9f947b44620"
+    }
+  ],
+  "supported_version_candidate_evidence": {
+    "product_version": {
+      "value": "4.12.0",
+      "source": "pe_product_version",
+      "supported": false
+    },
+    "exe_sha256": "d289e2a508dece84064ffb3243b817faf9c429877b5f022a726002463b428ed2",
+    "cli_sha256": "5dd40efc70561675207cde74b2970ac532721944e996a683ea62888bd4a98904",
+    "commit": "b4c35ed08ffb428910211608831a314565c1256e",
+    "applicationName": "buddycn",
+    "support_status": "UNVERIFIED"
+  },
+  "binary_identity_status": "PASS"
+}

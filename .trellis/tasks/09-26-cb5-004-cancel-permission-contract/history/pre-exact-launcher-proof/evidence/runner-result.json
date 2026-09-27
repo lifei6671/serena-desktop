@@ -1,0 +1,11 @@
+{
+  "scenarios": {
+    "before": "PARTIAL",
+    "after": "PARTIAL",
+    "permission": "PARTIAL"
+  },
+  "status": "PARTIAL",
+  "automaticRetries": 0,
+  "explicitFreshFollowupAfterSessionNewOnly": true,
+  "windowsJobAtCreationProven": false
+}

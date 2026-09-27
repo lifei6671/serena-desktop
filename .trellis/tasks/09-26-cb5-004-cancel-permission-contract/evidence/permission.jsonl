@@ -1,0 +1,8 @@
+{"scenario": "permission", "pid": 7988, "sequence": 1, "direction": "request", "message": {"jsonrpc": "2.0", "id": "e371334c-572d-4caa-9391-39965aece353", "method": "initialize", "params": {"protocolVersion": 1}}}
+{"scenario": "permission", "pid": 7988, "sequence": 2, "direction": "response", "message": {"jsonrpc": "2.0", "id": "e371334c-572d-4caa-9391-39965aece353", "result": {"protocolVersion": 1}}}
+{"scenario": "permission", "pid": 7988, "sequence": 3, "direction": "request", "message": {"jsonrpc": "2.0", "id": "b2b0287b-d018-4d97-a4dc-2dbdd016f20e", "method": "session/new", "params": {}}}
+{"scenario": "permission", "pid": 7988, "sequence": 4, "direction": "response", "message": {"jsonrpc": "2.0", "id": "b2b0287b-d018-4d97-a4dc-2dbdd016f20e", "error": {"code": -32603, "detailsOmitted": true}}}
+{"scenario": "permission", "pid": 35836, "sequence": 1, "direction": "request", "message": {"jsonrpc": "2.0", "id": "6b99ecca-e3ef-44d1-be6a-7c2faa14b86b", "method": "initialize", "params": {"protocolVersion": 1}}}
+{"scenario": "permission", "pid": 35836, "sequence": 2, "direction": "response", "message": {"jsonrpc": "2.0", "id": "6b99ecca-e3ef-44d1-be6a-7c2faa14b86b", "result": {"protocolVersion": 1}}}
+{"scenario": "permission", "pid": 35836, "sequence": 3, "direction": "request", "message": {"jsonrpc": "2.0", "id": "16442a3e-cf97-41b2-bd70-ebd2f3c6b4e4", "method": "session/new", "params": {}}}
+{"scenario": "permission", "pid": 35836, "sequence": 4, "direction": "response", "message": {"jsonrpc": "2.0", "id": "16442a3e-cf97-41b2-bd70-ebd2f3c6b4e4", "error": {"code": -32603, "detailsOmitted": true, "classification": "HTTP_500"}}}

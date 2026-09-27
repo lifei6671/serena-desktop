@@ -1,0 +1,16 @@
+[
+  {
+    "file": "src-tauri/src/agent/product.rs",
+    "sha256": "98086a5a00dc760bfb041834e80882d52785e5b78a42596ab51e7028d0374fcb",
+    "new": false,
+    "added": 4,
+    "removed": 6
+  },
+  {
+    "file": "src-tauri/src/agent/product/tests.rs",
+    "sha256": "ddf17d7fbc75ddb1e4781639bbe1a893ebdee6be0073281fac93cecde85984f8",
+    "new": false,
+    "added": 121,
+    "removed": 0
+  }
+]

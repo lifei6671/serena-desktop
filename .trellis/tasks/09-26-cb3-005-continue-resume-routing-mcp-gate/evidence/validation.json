@@ -1,0 +1,108 @@
+[
+  {
+    "name": "start-routing",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib mcp::orchestration_tests::start_routing_tests -- --nocapture",
+    "exit_code": 0,
+    "seconds": 22.17,
+    "summary": [
+      "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 1271 filtered out; finished in 21.51s"
+    ]
+  },
+  {
+    "name": "product",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::product:: -- --nocapture",
+    "exit_code": 0,
+    "seconds": 29.73,
+    "summary": [
+      "test result: ok. 132 passed; 0 failed; 5 ignored; 0 measured; 1148 filtered out; finished in 29.12s"
+    ]
+  },
+  {
+    "name": "task-manager",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::task_manager:: -- --nocapture",
+    "exit_code": 0,
+    "seconds": 10.03,
+    "summary": [
+      "test result: ok. 47 passed; 0 failed; 1 ignored; 0 measured; 1237 filtered out; finished in 9.43s"
+    ]
+  },
+  {
+    "name": "store",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::store:: -- --nocapture",
+    "exit_code": 0,
+    "seconds": 36.33,
+    "summary": [
+      "test result: ok. 124 passed; 0 failed; 0 ignored; 0 measured; 1161 filtered out; finished in 35.72s"
+    ]
+  },
+  {
+    "name": "provider",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::provider:: -- --nocapture",
+    "exit_code": 0,
+    "seconds": 0.61,
+    "summary": [
+      "test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 1256 filtered out; finished in 0.00s"
+    ]
+  },
+  {
+    "name": "execution",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::execution:: -- --nocapture",
+    "exit_code": 0,
+    "seconds": 0.61,
+    "summary": [
+      "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 1272 filtered out; finished in 0.00s"
+    ]
+  },
+  {
+    "name": "mcp",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib mcp:: -- --nocapture",
+    "exit_code": 0,
+    "seconds": 24.69,
+    "summary": [
+      "test result: ok. 309 passed; 0 failed; 4 ignored; 0 measured; 972 filtered out; finished in 24.05s"
+    ]
+  },
+  {
+    "name": "check",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo check --manifest-path src-tauri/Cargo.toml --locked",
+    "exit_code": 0,
+    "seconds": 2.39,
+    "summary": []
+  },
+  {
+    "name": "fmt",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
+    "exit_code": 0,
+    "seconds": 1.12,
+    "summary": []
+  },
+  {
+    "name": "clippy",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings",
+    "exit_code": 101,
+    "seconds": 35.11,
+    "summary": [
+      "error: this `MutexGuard` is held across an await point",
+      "error: could not compile `serena-desktop` (lib test) due to 1 previous error"
+    ]
+  },
+  {
+    "name": "diff-check",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "git diff --check",
+    "exit_code": 0,
+    "summary": [
+      "PASS; whitespace check"
+    ]
+  }
+]

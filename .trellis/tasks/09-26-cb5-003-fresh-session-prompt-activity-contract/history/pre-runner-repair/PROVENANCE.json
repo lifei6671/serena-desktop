@@ -1,0 +1,81 @@
+{
+  "note": "Real four attempts were executed by this pre-repair runner. Original real evidence stays in evidence unchanged; independent review verified distinct processes/wire and successful cleanup. No further real CLI executions authorized in this iteration.",
+  "files": [
+    {
+      "path": "run_probe.py",
+      "sha256": "26aa6b1a5505be03996a2fd5eff4f2c3c5c4817063c198bd5d187fa4c3529390"
+    },
+    {
+      "path": "verification.md",
+      "sha256": "a9c59d1e81fb8b30d4e07afa6e36f0f46472a68240909cb43c51e54cd41dfe33"
+    },
+    {
+      "path": "review-target.json",
+      "sha256": "bdf464b09326f4416247e84e493fb955e026f414d5449f90c7d078fcd50162e9"
+    },
+    {
+      "path": "evidence/activity-order.json",
+      "sha256": "c3993e4dbd4dac865b7c5f323fe5c6437d57d8921feeac521e45caf2ff839b22"
+    },
+    {
+      "path": "evidence/cargo-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "evidence/cargo-test.log",
+      "sha256": "56d63da001ce8e843e9ca4e4d818f088f50eac59184353a464f3b5bbba06526e"
+    },
+    {
+      "path": "evidence/conversation-request-id.json",
+      "sha256": "ba748488443b36de733bf87b2266100eba0423946273a8aa54a22f8396b99a58"
+    },
+    {
+      "path": "evidence/fresh-session.jsonl",
+      "sha256": "4a736931274144ecab8bbf3523690ddaa4e04d9e3fcd36e3999b074ad134448b"
+    },
+    {
+      "path": "evidence/isolated-write-result.json",
+      "sha256": "5442c61d9fd9c85864e55e0e5b3d6f592b07588476e76849a3ee6d09afd117cb"
+    },
+    {
+      "path": "evidence/process-evidence.json",
+      "sha256": "dcfb49c7ebbf057aa704fffd88aeffe30278883a795d7d3d1d96cce8a1f1c8d3"
+    },
+    {
+      "path": "evidence/read-attempt-1.json",
+      "sha256": "f7a2a7ec8e1fc3f2f7d0e5275434034296adc53fa62739d2e01a14df09075fc8"
+    },
+    {
+      "path": "evidence/read-attempt-2.json",
+      "sha256": "adf2b200bb161c3fffd73b1ea163fc940d13fb9f162af00f7ce092626684b2c0"
+    },
+    {
+      "path": "evidence/read-only-result.json",
+      "sha256": "adf2b200bb161c3fffd73b1ea163fc940d13fb9f162af00f7ce092626684b2c0"
+    },
+    {
+      "path": "evidence/real-run.log",
+      "sha256": "b65136b2d77417ae8ef1d0403cc9e8bb6ee5dce178778c4e60c90e99d71bd00f"
+    },
+    {
+      "path": "evidence/rerun-source-check.json",
+      "sha256": "1a93ad8d6390571308e1cb4b3afaf20bbd25f9190bbf05ca03ae4697bba2c1ab"
+    },
+    {
+      "path": "evidence/scope-verification.json",
+      "sha256": "3d70353a4a5e3ba84320be8fa8bd8ae71421e7864657378163e53bd1af50b449"
+    },
+    {
+      "path": "evidence/sdk-details.json",
+      "sha256": "7a477ee86a74a4c750463bd18d1a7196b238d26a4083d48f15122717bce52e29"
+    },
+    {
+      "path": "evidence/write-attempt-1.json",
+      "sha256": "1744190dbcf4be42c90d1d41a0f4bd178c2731de79ddd86a35a6aaccb2615d7b"
+    },
+    {
+      "path": "evidence/write-attempt-2.json",
+      "sha256": "5442c61d9fd9c85864e55e0e5b3d6f592b07588476e76849a3ee6d09afd117cb"
+    }
+  ]
+}

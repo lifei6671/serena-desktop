@@ -1,0 +1,23 @@
+pub(crate) mod discovery;
+pub(crate) mod provider;
+#[cfg(windows)]
+#[allow(
+    dead_code,
+    reason = "CB6-002 先冻结 launcher primitive，后续 CB6-003/CB7-002 才接入 Runtime"
+)]
+pub(crate) mod windows_launcher;
+
+#[cfg(test)]
+tokio::task_local! {
+    /// 测试只在当前异步作用域替换 discovery 结果，不读取开发机 PATH 或 Registry。
+    pub(crate) static TEST_DISCOVERY: Result<discovery::DiscoveryResult, discovery::DiscoveryError>;
+}
+
+/// 执行一次无进程 discovery；测试 override 与生产 resolver 共用同一注册边界。
+pub(crate) fn discover() -> Result<discovery::DiscoveryResult, discovery::DiscoveryError> {
+    #[cfg(test)]
+    if let Ok(result) = TEST_DISCOVERY.try_with(Clone::clone) {
+        return result;
+    }
+    discovery::discover(discovery::DiscoveryInput::system())
+}

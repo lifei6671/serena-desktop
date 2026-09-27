@@ -1,0 +1,339 @@
+--- baseline/src/AgentPanel.test.mjs
++++ src/AgentPanel.test.mjs
+@@ -157,7 +157,8 @@
+ test('provider presentation and card layout contain no provider ID special cases', () => {
+   const presentation = readFileSync('src/agentPresentation.ts', 'utf8');
+   const panel = readFileSync('src/AgentPanel.tsx', 'utf8');
+-  assert.doesNotMatch(presentation, /codex|codebuddy/iu);
++  // 稳定诊断码允许专用文案；移除该字面量后仍禁止 Provider ID 分支。
++  assert.doesNotMatch(presentation.replaceAll('CODEBUDDY_VERSION_UNSUPPORTED', ''), /codex|codebuddy/iu);
+   assert.doesNotMatch(panel, /codex|codebuddy/iu);
+   assert.match(panel, /catalog\?\.providers\.map\(provider/u);
+   assert.match(readFileSync('src/api.ts', 'utf8'), /invoke<ProviderCatalogSnapshot>\("agent_provider_catalog_get"\)/u);
+@@ -1476,3 +1477,161 @@
+   assert.ok(!tooltip.textContent.includes('\n'));
+   assert.notEqual(tooltip.textContent, prompt);
+ });
++
++/** 启停 fixture 返回完整 settings，以检验只采纳目标 Provider。 */
++function enabledSettings(providers, roleRouting = {}) {
++  return { ...roleSettings(roleRouting), providers: Object.fromEntries(Object.entries(providers).map(([id, enabled]) => [id, { enabled }])) };
++}
++
++/** 通过实际 shadcn Switch 触发本地策略保存。 */
++async function toggleProvider(name = 'Codex') {
++  const control = document.querySelector(`[role="switch"][aria-label="启用 ${name}"]`);
++  assert.ok(control);
++  assert.equal(control.disabled, false);
++  await act(async () => control.click());
++}
++
++// 两种 Product 投影都可单独提示 blocker，不从 dispatchState 或身份猜测。
++for (const projection of [
++  { attention: 'pending_explicit_resume', canResumePending: false },
++  { attention: 'none', canResumePending: true },
++]) {
++  test(`disabled pending blocker uses existing view/cancel paths: ${projection.attention}`, async () => {
++    const pending = row({ provider: { id: 'future', displayName: 'Future' }, status: 'dispatch_pending', attention: projection.attention,
++      availableActions: { canCancel: true, canResumePending: projection.canResumePending, canContinue: false } });
++    const actions = await mount([pending, row({ executionId: 'unrelated', attention: 'pending_explicit_resume' })], undefined, {},
++      { providers: [catalogProvider({ id: 'future', displayName: 'Future', enabled: false })], roleRouting: { testing: 'future' } });
++    const card = document.querySelector('.agent-provider-card');
++    assert.match(card.textContent, /该 Provider 有待恢复任务仍占用 Workspace Claim。/);
++    assert.equal(card.querySelectorAll('li').length, 1);
++    assert.equal(document.querySelector('#agent-role-testing').textContent, 'Future · 已停用');
++    assert.doesNotMatch(card.textContent, /Force Unlock|强制解锁/iu);
++    await click('取消任务', card);
++    assert.deepEqual(actions.filter(action => action.action === 'cancel'), [{ action: 'cancel', executionId: 'old-E1' }]);
++    await click('查看任务', card);
++    assert.ok(actions.some(action => action.action === 'observe' && action.executionId === 'old-E1' && action.includeResult));
++    assert.ok(document.querySelector('details.agent-technical'));
++    assert.equal(actions.some(action => action.action === 'resume_pending'), false);
++  });
++}
++
++test('reenable pending Provider uses local IPC without resuming or rebinding', async () => {
++  const calls = [];
++  api.agentProviderSetEnabled = async (id, enabled) => { calls.push([id, enabled]); return enabledSettings({ future: enabled }, { testing: 'other' }); };
++  const actions = await mount([row({ provider: { id: 'future' }, attention: 'pending_explicit_resume' })], undefined, {},
++    { providers: [catalogProvider({ id: 'future', displayName: 'Future', enabled: false })], roleRouting: { testing: 'future' } });
++  await click('重新启用 Provider');
++  assert.deepEqual(calls, [['future', true]]);
++  assert.equal(cardValues(document.querySelector('.agent-provider-card'))['接入'], '已启用');
++  assert.doesNotMatch(document.querySelector('.agent-provider-card').textContent, /仍占用 Workspace Claim/);
++  assert.equal(document.querySelector('#agent-role-testing').textContent, 'Future');
++  assert.ok(actions.every(action => action.action === 'list'));
++  assert.match(readFileSync('src/api.ts', 'utf8'), /invoke<AgentProviderSettings>\("agent_provider_set_enabled", \{ providerId, enabled \}\)/);
++});
++
++test('disable running Provider leaves execution untouched and shows draining and disabled binding', async () => {
++  api.agentProviderSetEnabled = async () => enabledSettings({ codex: false });
++  const execution = row({ status: 'running', attention: 'none' });
++  const frozen = structuredClone(execution);
++  const actions = await mount([execution], undefined, {}, { providers: [catalogProvider()], roleRouting: { development: 'codex' } });
++  await toggleProvider();
++  const values = cardValues(document.querySelector('.agent-provider-card'));
++  assert.equal(values['接入'], '正在停用');
++  assert.equal(values['Runtime'], '运行中');
++  assert.equal(values['活动任务'], '1');
++  assert.equal(document.querySelectorAll('article').length, 1);
++  assert.equal(document.querySelector('#agent-role-development').textContent, 'Codex · 已停用');
++  assert.deepEqual(execution, frozen);
++  assert.ok(actions.every(action => action.action === 'list'));
++});
++
++for (const enabled of [false, true]) {
++  test(`Provider ${enabled ? 'disable' : 'enable'} failure rolls back without changing other policy`, async () => {
++    const mutation = deferredRoleResponse();
++    api.agentProviderSetEnabled = () => mutation.promise;
++    await mount([], undefined, {}, { providers: [catalogProvider({ enabled })], roleRouting: { general: 'codex' } });
++    await toggleProvider();
++    const control = document.querySelector('[role="switch"]');
++    assert.equal(control.getAttribute('aria-checked'), String(!enabled));
++    assert.equal(control.disabled, true);
++    await act(async () => mutation.reject(new Error('persist failed')));
++    assert.equal(control.getAttribute('aria-checked'), String(enabled));
++    assert.equal(control.disabled, false);
++    assert.equal(document.querySelector('#agent-role-general').textContent, enabled ? 'Codex' : 'Codex · 已停用');
++    assert.match(notifications.at(-1)[1], /启用状态保存失败，已恢复原状态/);
++  });
++}
++
++test('two Provider mutations and role mutation commit independently out of order', async () => {
++  const first = deferredRoleResponse(), second = deferredRoleResponse(), role = deferredRoleResponse();
++  api.agentProviderSetEnabled = id => id === 'codex' ? first.promise : second.promise;
++  api.agentProviderSetRoleRoute = () => role.promise;
++  await mount([], undefined, {}, { providers: [catalogProvider(), catalogProvider({ id: 'other', displayName: 'Other', enabled: false })], roleRouting: { development: 'codex' } });
++  await toggleProvider();
++  await toggleProvider('Other');
++  await chooseRole('development', 'Other');
++  await act(async () => second.resolve(enabledSettings({ codex: true, other: true }, { development: 'codex' })));
++  await act(async () => role.resolve(enabledSettings({ codex: true, other: false }, { development: 'other' })));
++  assert.equal(document.querySelector('#agent-role-development').textContent, 'Other');
++  await act(async () => first.resolve(enabledSettings({ codex: false, other: false }, { development: 'codex' })));
++  assert.deepEqual([...document.querySelectorAll('[role="switch"]')].map(control => control.getAttribute('aria-checked')), ['false', 'true']);
++  assert.equal(document.querySelector('#agent-role-development').textContent, 'Other');
++});
++
++test('catalog crossing enabled mutation cannot overwrite pending or committed state; fresh poll remains authoritative', async t => {
++  const timers = [];
++  const originalSetInterval = globalThis.setInterval;
++  // 保留动画真实时钟，仅手动推进目录轮询。
++  t.mock.method(globalThis, 'setInterval', (callback, delay, ...args) => {
++    if (delay === 1500) { timers.push(callback); return originalSetInterval(() => {}, 60_000); }
++    return originalSetInterval(callback, delay, ...args);
++  });
++  const mutation = deferredRoleResponse(), before = deferredRoleResponse(), during = deferredRoleResponse();
++  const initial = { providers: [catalogProvider()], roleRouting: { development: 'codex' } };
++  let polls = 0;
++  api.agentProviderSetEnabled = () => mutation.promise;
++  api.agentProviderSetRoleRoute = async () => roleSettings({ development: null });
++  await mount([], undefined, {}, () => {
++    polls++;
++    if (polls === 2) return before.promise;
++    if (polls === 3) return during.promise;
++    return Promise.resolve(initial);
++  });
++  await act(async () => timers[0]());
++  await toggleProvider();
++  await chooseRole('development', '未指定 Agent');
++  await act(async () => before.resolve(initial));
++  const control = document.querySelector('[role="switch"]');
++  assert.equal(control.getAttribute('aria-checked'), 'false');
++  assert.equal(control.disabled, true);
++  assert.equal(document.querySelector('#agent-role-development').textContent, '未指定 Agent');
++  await act(async () => timers[0]());
++  await act(async () => mutation.resolve(enabledSettings({ codex: false }, { development: 'codex' })));
++  await act(async () => during.resolve({ ...initial, roleRouting: { development: null } }));
++  assert.equal(control.getAttribute('aria-checked'), 'false');
++  assert.equal(control.disabled, false);
++  assert.equal(document.querySelector('#agent-role-development').textContent, '未指定 Agent');
++  await act(async () => timers[0]());
++  assert.equal(control.getAttribute('aria-checked'), 'true');
++  assert.equal(document.querySelector('#agent-role-development').textContent, 'Codex');
++  assert.equal(polls, 4);
++});
++
++// 任意 Provider 身份都消费同一稳定码，缺失版本不编造值。
++for (const version of ['9.8.7', null, '  ']) {
++  test(`exact unsupported diagnostic has fixed safe copy and no override: ${JSON.stringify(version)}`, async () => {
++    await mount([], undefined, {}, { providers: [catalogProvider({ id: 'future', displayName: 'Future Agent', diagnosticCode: 'CODEBUDDY_VERSION_UNSUPPORTED', version })], roleRouting: {} });
++    const card = document.querySelector('.agent-provider-card');
++    assert.ok(card.textContent.includes(`Future Agent 版本 ${version?.trim() || '（未提供）'} 尚未经过当前 SerenaDesktop 的兼容性验证。当前未启用该版本的 Agent 执行。请使用受支持版本，或升级 SerenaDesktop 后重新检测。`));
++    assert.doesNotMatch(card.textContent, /忽略版本检查|强制放行|仍然运行|Force Unlock|override|强制解锁/iu);
++    assert.deepEqual([...card.querySelectorAll('button')].map(control => control.getAttribute('role')), ['switch']);
++  });
++}
++
++for (const diagnosticCode of [undefined, null, 'AGENT_PROVIDER_UNAVAILABLE', 'CODEBUDDY_VERSION_UNSUPPORTED_EXTRA', 'codebuddy_version_unsupported']) {
++  test(`generic unavailable does not infer unsupported version: ${diagnosticCode}`, async () => {
++    await mount([], undefined, {}, { providers: [catalogProvider({ id: 'codebuddy', displayName: 'CodeBuddy', health: 'unavailable', version: 'unknown-dev', diagnosticCode,
++      errorMessage: 'CODEBUDDY_VERSION_UNSUPPORTED' })], roleRouting: {} });
++    assert.doesNotMatch(document.querySelector('.agent-provider-card').textContent, /兼容性验证|受支持版本|未启用该版本/);
++  });
++}
+--- baseline/src/AgentPanel.tsx
++++ src/AgentPanel.tsx
+@@ -5,6 +5,7 @@
+ import { toast } from "sonner";
+ import { ChevronDown, Folder, RefreshCw, LoaderCircle, Trash2, FileText, CheckCircle2, CircleAlert, CircleX, Clock3, Play } from "lucide-react";
+ import { Button } from "@/components/ui/button";
++import { Switch } from "@/components/ui/switch";
+ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+ import { api } from "./api";
+@@ -17,6 +18,7 @@
+ const roleLabels = { development: "开发", testing: "测试", review: "评审", analysis: "分析", general: "通用" };
+ type TaskRole = keyof AgentProviderSettings["roleRouting"];
+ type RoleEdits = Partial<Record<TaskRole, { value: string | null; pending: boolean }>>;
++type ProviderEdits = Partial<Record<string, { value: boolean; pending: boolean }>>;
+ 
+ function StatusIcon({ tone }: { tone: string }) {
+   if (tone === "green") return <CheckCircle2 aria-hidden="true" />;
+@@ -34,6 +36,9 @@
+   const [roleEdits, setRoleEdits] = useState<RoleEdits>({});
+   const roleEditsRef = useRef<RoleEdits>({});
+   const roleGenerations = useRef<Partial<Record<TaskRole, number>>>({});
++  const [providerEdits, setProviderEdits] = useState<ProviderEdits>({});
++  const providerEditsRef = useRef<ProviderEdits>({});
++  const providerGenerations = useRef<Partial<Record<string, number>>>({});
+   // 目录独立读取，失败不阻塞任务列表、Composer 或详情操作。
+   useEffect(() => {
+     let disposed = false;
+@@ -43,6 +48,7 @@
+       if (waiting) return;
+       waiting = true;
+       const generations = { ...roleGenerations.current };
++      const enabledGenerations = { ...providerGenerations.current };
+       try {
+         const snapshot = await api.agentProviderCatalog();
+         if (!disposed) {
+@@ -54,6 +60,13 @@
+           }
+           roleEditsRef.current = edits;
+           setRoleEdits(edits);
++          // Provider 与 Role 独立保护；跨越启停开始/结束的轮询不能覆盖本地值。
++          const enabledEdits = { ...providerEditsRef.current };
++          for (const id of Object.keys(enabledEdits)) {
++            if (!enabledEdits[id]?.pending && enabledGenerations[id] === providerGenerations.current[id]) delete enabledEdits[id];
++          }
++          providerEditsRef.current = enabledEdits;
++          setProviderEdits(enabledEdits);
+           setCatalog(snapshot);
+           setCatalogError(false);
+         }
+@@ -84,6 +97,27 @@
+       roleGenerations.current[role] = (roleGenerations.current[role] ?? 0) + 1;
+       roleEditsRef.current = { ...roleEditsRef.current, [role]: { value, pending: false } };
+       setRoleEdits(roleEditsRef.current);
++    }
++  }
++  /** 只采纳本 Provider 的持久化结果，保留并行角色保存与其它 Provider 的状态。 */
++  async function saveProviderEnabled(providerId: string, enabled: boolean) {
++    const provider = catalog?.providers.find(entry => entry.id === providerId);
++    if (!provider || providerEditsRef.current[providerId]?.pending) return;
++    const previous = providerEditsRef.current[providerId]?.value ?? provider.enabled;
++    if (previous === enabled) return;
++    providerGenerations.current[providerId] = (providerGenerations.current[providerId] ?? 0) + 1;
++    providerEditsRef.current = { ...providerEditsRef.current, [providerId]: { value: enabled, pending: true } };
++    setProviderEdits(providerEditsRef.current);
++    let value = previous;
++    try {
++      const settings = await api.agentProviderSetEnabled(providerId, enabled);
++      value = settings.providers[providerId].enabled;
++    } catch {
++      toast.error(`${provider.displayName?.trim() || providerId} 启用状态保存失败，已恢复原状态，请重试。`);
++    } finally {
++      providerGenerations.current[providerId] = (providerGenerations.current[providerId] ?? 0) + 1;
++      providerEditsRef.current = { ...providerEditsRef.current, [providerId]: { value, pending: false } };
++      setProviderEdits(providerEditsRef.current);
+     }
+   }
+   const visibleRows = useRef<ExecutionView[]>([]);
+@@ -361,7 +395,9 @@
+       {!catalog && !catalogError && <p role="status" className="agent-muted">正在加载 Agent 接入…</p>}
+       {catalog?.providers.length === 0 && <p className="agent-muted">暂无已注册的 Agent。</p>}
+       <div className="agent-provider-grid">{catalog?.providers.map(provider => {
+-        const card = providerCardPresentation(provider, rows);
++        const edit = providerEdits[provider.id];
++        const enabled = edit?.value ?? provider.enabled;
++        const card = providerCardPresentation({ ...provider, enabled }, rows);
+         return <section className="agent-provider-card" key={provider.id} aria-label={`${card.name} 接入`}>
+           <header><h3>{card.name}</h3><code>{provider.id}</code></header>
+           <dl>
+@@ -372,6 +408,24 @@
+             <div><dt>Runtime</dt><dd className={card.runtime === "running" ? "tone-blue" : "tone-slate"}>{card.runtimeLabel}</dd></div>
+             <div><dt>活动任务</dt><dd>{card.activeExecutions}</dd></div>
+           </dl>
++          <div className="mt-3 flex items-center gap-2">
++            <Switch aria-label={`启用 ${card.name}`} checked={enabled} disabled={edit?.pending} onCheckedChange={value => void saveProviderEnabled(provider.id, value)} />
++            <span className="agent-muted">启用 Provider</span>
++            {edit?.pending && <span role="status" className="agent-muted">正在保存…</span>}
++          </div>
++          {card.unsupportedVersionNotice && <p className="mt-3 text-sm text-amber-700">{card.unsupportedVersionNotice}</p>}
++          {!enabled && card.pendingBlockers.length > 0 && <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
++            <p>该 Provider 有待恢复任务仍占用 Workspace Claim。</p>
++            <p>可以取消任务释放工作区，或重新启用 Provider 后继续恢复。</p>
++            <ul className="mt-2 space-y-2">{card.pendingBlockers.map(row => <li key={row.executionId}>
++              <p>{taskSummary(row.prompt)}</p>
++              <div className="flex flex-wrap gap-2">
++                <Button variant="outline" size="sm" onClick={event => { opener.current = event.currentTarget; void openDetails(row.executionId, row); }}>查看任务</Button>
++                <Button variant="outline" size="sm" disabled={disabled || !!listError || !row.availableActions.canCancel} onClick={() => void operate({ action: "cancel", executionId: row.executionId })}>取消任务</Button>
++              </div>
++            </li>)}</ul>
++            <Button className="mt-2" variant="outline" size="sm" disabled={edit?.pending} onClick={() => void saveProviderEnabled(provider.id, true)}>重新启用 Provider</Button>
++          </div>}
+         </section>;
+       })}</div>
+     </section>
+@@ -390,7 +444,7 @@
+             <SelectTrigger id={`agent-role-${role}`} size="sm" aria-labelledby={`agent-role-label-${role}`}><SelectValue /></SelectTrigger>
+             <SelectContent>
+               <SelectItem value="none">未指定 Agent</SelectItem>
+-              {catalog.providers.map(provider => <SelectItem key={provider.id} value={`provider:${provider.id}`}>{provider.displayName?.trim() || provider.id}{!provider.enabled && " · 已停用"}</SelectItem>)}
++              {catalog.providers.map(provider => <SelectItem key={provider.id} value={`provider:${provider.id}`}>{provider.displayName?.trim() || provider.id}{!(providerEdits[provider.id]?.value ?? provider.enabled) && " · 已停用"}</SelectItem>)}
+               {unknown && <SelectItem value={`provider:${value}`}>{value} · 未注册</SelectItem>}
+             </SelectContent>
+           </Select>
+--- baseline/src/agentPresentation.ts
++++ src/agentPresentation.ts
+@@ -7,8 +7,15 @@
+ export function providerCardPresentation(provider: ProviderCatalogEntry, rows: ExecutionView[]) {
+   const activeExecutions = rows.filter(row => row.provider.id === provider.id && activeExecutionStatuses.has(row.status)).length;
+   const draining = !provider.enabled && activeExecutions > 0;
++  const name = provider.displayName?.trim() || provider.id;
+   return {
+-    name: provider.displayName?.trim() || provider.id,
++    name,
++    // 只消费 Product 的恢复投影，不重新推导 Claim Authority。
++    pendingBlockers: rows.filter(row => row.provider.id === provider.id && (row.attention === "pending_explicit_resume" || row.availableActions.canResumePending)),
++    // 稳定诊断码是唯一文案入口；缺失版本明确表示未知，不猜测支持范围。
++    unsupportedVersionNotice: provider.diagnosticCode === "CODEBUDDY_VERSION_UNSUPPORTED"
++      ? `${name} 版本 ${provider.version?.trim() || "（未提供）"} 尚未经过当前 SerenaDesktop 的兼容性验证。当前未启用该版本的 Agent 执行。请使用受支持版本，或升级 SerenaDesktop 后重新检测。`
++      : null,
+     version: provider.version?.trim() || "—",
+     // Catalog 尚未提供协议元数据，不根据 Provider 身份猜测。
+     protocol: "—",
+--- baseline/src/api.ts
++++ src/api.ts
+@@ -14,6 +14,9 @@
+   agent: (request: AgentAction) => invoke<AgentEnvelope>("agent_operation", { request }),
+   // 只读本地 Catalog，不刷新健康状态或创建运行实例。
+   agentProviderCatalog: () => invoke<ProviderCatalogSnapshot>("agent_provider_catalog_get"),
++  // 启停仅修改本地 Human Policy，不取消运行任务或恢复待派发任务。
++  agentProviderSetEnabled: (providerId: string, enabled: boolean) =>
++    invoke<AgentProviderSettings>("agent_provider_set_enabled", { providerId, enabled }),
+   // 角色策略只走本地专用 Authority；null 显式清空，不修改现有 Execution。
+   agentProviderSetRoleRoute: (taskRole: keyof AgentProviderSettings["roleRouting"], providerId: string | null) =>
+     invoke<AgentProviderSettings>("agent_provider_set_role_route", { taskRole, providerId }),
+--- baseline/src/types.ts
++++ src/types.ts
+@@ -196,6 +196,8 @@
+ /** 直接镜像 Product Catalog；缺失 descriptor 元数据只在展示层降级。 */
+ export interface ProviderCatalogEntry {
+   id: string;
++  /** 预留稳定诊断消费契约；当前后端未提供时保持缺失，不推测版本兼容性。 */
++  diagnosticCode?: string | null;
+   displayName?: string | null;
+   version?: string | null;
+   enabled: boolean;

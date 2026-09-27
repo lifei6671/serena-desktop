@@ -1,0 +1,29 @@
+{
+  "goldBandPythonTests": {
+    "passed": 10,
+    "failed": 0,
+    "exitCode": 0
+  },
+  "cargoFmtCheck": {
+    "exitCode": 0
+  },
+  "gitDiffCheck": {
+    "exitCode": 0
+  },
+  "unchangedRustSuite": {
+    "status": "NOT_RERUN",
+    "priorPassed": 18
+  },
+  "unchangedRunnerSuite": {
+    "status": "NOT_RERUN",
+    "priorPassed": 4
+  },
+  "postRunChange": {
+    "description": "review repair1: all notification wire samples capped64; ignored wrong-id response samples capped16; aggregate counts retained; added mixed flood regression; actual real run had zero received frames",
+    "realReruns": 0,
+    "finalSource": {
+      "gold_band_probe.py": "b68e0d61a1ec2ee5a52bab6b6670df5f88b4abca80b36d527772ef11a7b2c52f",
+      "test_gold_band_probe.py": "dab97ef948b795d0fe94bd3f28be212159c8c4b71d3e06c52d05cff4e874ba26"
+    }
+  }
+}

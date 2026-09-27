@@ -1,0 +1,18 @@
+{
+  "legacy": {
+    "action": "start",
+    "workRunId": "wrk-1",
+    "workspaceId": "project-4",
+    "requestKey": "run-tests-v1",
+    "prompt": "执行相关测试并报告失败原因"
+  },
+  "explicit": {
+    "action": "start",
+    "workRunId": "wrk-1",
+    "workspaceId": "project-4",
+    "requestKey": "run-tests-v1",
+    "prompt": "执行相关测试并报告失败原因",
+    "taskRole": "testing",
+    "providerId": "codebuddy"
+  }
+}

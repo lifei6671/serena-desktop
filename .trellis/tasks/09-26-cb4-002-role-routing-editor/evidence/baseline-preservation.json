@@ -1,0 +1,25 @@
+{
+  "baselineFiles": 933,
+  "changed": [
+    "src-tauri/src/mcp/start_routing_tests.rs",
+    "src/AgentPanel.test.mjs",
+    "src/AgentPanel.tsx",
+    "src/api.ts",
+    "src/styles.css"
+  ],
+  "missing": [],
+  "backendAndRemoteUnchanged": false,
+  "reviewManifestSHA256": "121371b97b3a34bd999135b99296945478be51bc87c0f7aaad8e82e189c441a0",
+  "deliveryOwnedChanges": [
+    "src/AgentPanel.test.mjs",
+    "src/AgentPanel.tsx",
+    "src/api.ts",
+    "src/styles.css"
+  ],
+  "externalConcurrentChanges": [
+    "src-tauri/src/mcp/start_routing_tests.rs"
+  ],
+  "note": "No session agent edited backend. Concurrent test file preserved and excluded from delivery. Policy and registry source hashes remain unchanged.",
+  "remoteProductionUnchanged": true,
+  "backendProductionUnchanged": true
+}

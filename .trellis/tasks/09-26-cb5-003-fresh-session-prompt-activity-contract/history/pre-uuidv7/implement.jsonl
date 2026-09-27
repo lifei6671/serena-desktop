@@ -1,0 +1,2 @@
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"CB5-003 exact fresh session/prompt/activity scope and acceptance"}
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"§15 Fresh Start/session identity, §19 activity, §21 terminal result, §28.1 contract probe"}

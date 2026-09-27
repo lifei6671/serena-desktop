@@ -1,0 +1,14 @@
+{
+  "targetIdentity": "sha256:c58ac101d0ec2d4ff1427f52506f68fc7edabdd1bfe7308a9d30e1310d8c08d3",
+  "hashAlgorithm": "SHA-256",
+  "aggregation": "UTF-8 path|lowercase-hash rows joined by LF in listed order",
+  "files": [
+    {"path": "src-tauri/src/agent/codebuddy/mod.rs", "sha256": "8752b7539858995cc639bde817ffc6c5603a8c13a18ee5ae6a83b00eac7b069f", "scope": "CB6-002 module wiring hunk; remaining file is CB6-001 context"},
+    {"path": "src-tauri/src/agent/codebuddy/windows_launcher.rs", "sha256": "c21f8cdb41ac6fdb840d7f15c16ae0c0ff711224fdcd21a4c149dac57316f00a"},
+    {"path": "src-tauri/src/agent/codebuddy/windows_launcher/tests.rs", "sha256": "15b5aa15dc43c42ef9be295a6b02b337350896618335cd3aa11ef53ad4369993"},
+    {"path": "src-tauri/tests/fixtures/codebuddy_launcher_child.rs", "sha256": "e17b14e2f408ee6cb7f9a6f3899366f873854bae94068a2734d75472ff0b584b"}
+  ],
+  "head": "f36bbc3a07fb6d0b7e4e21ad3af024584720077b",
+  "taskTimeCommits": [],
+  "materialContractDifference": false
+}

@@ -1,0 +1,65 @@
+{
+  "status": "PASS",
+  "hostGate": "Stage C Crash Contract Freeze",
+  "hostExecutionReported": true,
+  "realProviderExecutedDuringFreeze": false,
+  "commandRuns": {
+    "crash-before-terminal": {
+      "id": "command-26872-1790483578322192-95",
+      "state": "completed",
+      "exitCode": 0
+    },
+    "crash-after-terminal": {
+      "id": "command-26872-1790483608562452-96",
+      "state": "completed",
+      "exitCode": 0
+    }
+  },
+  "rawEvidenceHashes": {
+    "crash-before-terminal.attempt-started.json": "95ba86a8b5b4cd4dd0aff6e912f86be74c716bd335dfcd44eec897e500163357",
+    "crash-before-terminal.prompt-identity.json": "5cde957cc63eaf12493ec16cba212395b1d527acbd9b78f7f3be9855767e4833",
+    "crash-before-terminal.result.json": "fd4ab8af2902f4389b9ef1e209ff9c981fdc9fad47ea8ae1f33e5ddd1bc71cee",
+    "crash-after-terminal.attempt-started.json": "a53296b0b0dacc174399ea64c88192865663bd63cb9f84bd65859cfd995c5e67",
+    "crash-after-terminal.prompt-identity.json": "53971653a83b3bbc94c16d2522f945314f9e5ff7831929b77762169756d8a560",
+    "crash-after-terminal.result.json": "0f66ede4ad5f2964306c0eabcf05ec59967838a50dc9bfee31730b317317bde3"
+  },
+  "results": {
+    "crash-before-terminal": {
+      "status": "PASS",
+      "r2Status": "INSPECTED",
+      "resultCompleteness": "partial",
+      "beforeWindowObserved": true,
+      "manifestComplete": true,
+      "workspaceDelta": [],
+      "workspaceDeleted": true,
+      "businessCompletedRecoverable": false,
+      "productionExecutionResultPersisted": false,
+      "windowsJobAtCreationProven": false,
+      "runtimeTerminationEvidenceProven": false,
+      "claimReleasePermitted": false
+    },
+    "crash-after-terminal": {
+      "status": "PASS",
+      "r2Status": "INSPECTED",
+      "resultCompleteness": "partial",
+      "terminalExactConversation": true,
+      "terminalStopReason": "end_turn",
+      "messageIdSetMatchesLive": true,
+      "answerMatchesLive": true,
+      "materialContractDifference": false,
+      "manifestComplete": true,
+      "workspaceDelta": [],
+      "workspaceDeleted": true,
+      "businessCompletedRecoverable": false,
+      "productionExecutionResultPersisted": false,
+      "windowsJobAtCreationProven": false,
+      "runtimeTerminationEvidenceProven": false,
+      "claimReleasePermitted": false
+    }
+  },
+  "productionRuntimeImplemented": false,
+  "windowsJobImplemented": false,
+  "productionStateStoreImplemented": false,
+  "claimReleaseAuthorized": false,
+  "scope": "read-only evidence assertions; no harness, test, binary, or real CodeBuddy CLI execution"
+}

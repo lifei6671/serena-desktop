@@ -1,0 +1,701 @@
+{
+  "name": "agent_execute",
+  "description": "【做什么】\n执行需要自主代码修改、工程分析和多步骤迭代的复合编码任务。\n\n【什么时候使用】\n调用方已明确任务目标和约束，但仍需 Agent 阅读代码、修改实现、根据中间结果调整并完成验证时使用；若只是运行已确定的命令，优先使用 command_execute。每个 WorkRun 只有第一个 Execution 使用 start(workRunId, workspaceId, requestKey, prompt, context?)；WorkRun 已有 Execution 后，后续执行必须使用 continue(workRunId, parentExecutionId, requestKey, prompt, context?)。cancel(workRunId, executionId) 取消指定 Execution；resume_pending(workRunId, executionId) 只恢复允许首次派发的原 Execution。\n\n【关键约束】\nstart 必须显式携带 workspaceId，并由 Registry 解析后冻结，且同一 WorkRun 只能成功 start 一次；WorkRun 仅校验其一致性。对同一 requestKey 的完全相同 start 重试仍幂等返回原 Execution。WorkRun 已存在 Execution 时不得换新 requestKey 再 start：关联 Execution 仍未终态时先 observe/cancel，已具备 continuation 资格时使用 continue。continue 创建新 Execution，可复用 Thread；context 传递 Host 验证的 path+sha256 引用。start/continue 重试保留原 requestKey 和请求；cancel 取消指定 Execution，resume_pending 仅显式恢复允许首次派发的原 Execution。command_execute 能完成的确定性命令不应转交 Agent。",
+  "inputSchema": {
+    "$defs": {
+      "Context": {
+        "additionalProperties": false,
+        "properties": {
+          "files": {
+            "default": [],
+            "items": {
+              "$ref": "#/$defs/FileReference"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "FileReference": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "sha256"
+        ],
+        "type": "object"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "oneOf": [
+      {
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "taskRole"
+                  ]
+                },
+                {
+                  "required": [
+                    "providerId"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "required": [
+              "taskRole",
+              "providerId"
+            ]
+          }
+        ],
+        "properties": {
+          "action": {
+            "const": "start",
+            "type": "string"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Context"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "providerId": {
+            "minLength": 1,
+            "not": {
+              "pattern": "[\\u0000-\\u0020\\u007f-\\u009f\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]"
+            },
+            "type": "string"
+          },
+          "requestKey": {
+            "type": "string"
+          },
+          "taskRole": {
+            "enum": [
+              "development",
+              "testing",
+              "review",
+              "analysis",
+              "general"
+            ],
+            "type": "string"
+          },
+          "workRunId": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "workRunId",
+          "workspaceId",
+          "requestKey",
+          "prompt"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "const": "continue",
+            "type": "string"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Context"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "parentExecutionId": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "requestKey": {
+            "type": "string"
+          },
+          "workRunId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "workRunId",
+          "parentExecutionId",
+          "requestKey",
+          "prompt"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "const": "cancel",
+            "type": "string"
+          },
+          "executionId": {
+            "type": "string"
+          },
+          "workRunId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "workRunId",
+          "executionId"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "const": "resume_pending",
+            "type": "string"
+          },
+          "executionId": {
+            "type": "string"
+          },
+          "workRunId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "workRunId",
+          "executionId"
+        ],
+        "type": "object"
+      }
+    ],
+    "title": "AgentExecute",
+    "type": "object"
+  },
+  "outputSchema": {
+    "$defs": {
+      "control": {
+        "additionalProperties": false,
+        "properties": {
+          "dispatchCertainty": {
+            "enum": [
+              "not_dispatched",
+              "dispatched",
+              "uncertain"
+            ]
+          },
+          "nextAction": {
+            "$ref": "#/$defs/nextAction"
+          },
+          "providerInvoked": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "requestAccepted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "requestAccepted",
+          "providerInvoked",
+          "dispatchCertainty",
+          "nextAction"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      },
+      "execution": {
+        "properties": {
+          "activityRevision": {
+            "description": "Activity/Progress source token derived from persisted Activity identity; display-only age/silence changes do not change it; never controls default observe wake-ups.",
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "attention": {
+            "type": "string"
+          },
+          "availableActions": {
+            "additionalProperties": false,
+            "properties": {
+              "canCancel": {
+                "type": "boolean"
+              },
+              "canContinue": {
+                "type": "boolean"
+              },
+              "canResumePending": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "canCancel",
+              "canContinue",
+              "canResumePending"
+            ],
+            "type": "object"
+          },
+          "canonicalWorkspaceRoot": {
+            "type": "string"
+          },
+          "completedAt": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "controlRevision": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer"
+          },
+          "dispatchState": {
+            "type": "string"
+          },
+          "errorCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "errorMessage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "executionId": {
+            "type": "string"
+          },
+          "finalResult": {},
+          "interruptAcknowledged": {
+            "type": "boolean"
+          },
+          "interruptRequested": {
+            "type": "boolean"
+          },
+          "interruptTimedOut": {
+            "type": "boolean"
+          },
+          "mismatchKind": {
+            "enum": [
+              "control",
+              "activity"
+            ]
+          },
+          "nextAction": {
+            "$ref": "#/$defs/nextAction"
+          },
+          "progress": {
+            "additionalProperties": false,
+            "properties": {
+              "activityAgeMs": {
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "activityPhase": {
+                "enum": [
+                  "provider",
+                  "tool",
+                  null
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lastActivityAt": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "phase": {
+                "enum": [
+                  "pending",
+                  "dispatching",
+                  "running",
+                  "finalizing",
+                  "reconciling",
+                  "terminal"
+                ]
+              },
+              "silenceLevel": {
+                "description": "silenceLevel 是由 activityAgeMs 派生的展示桶：fresh <30s；quiet 30s–<120s；prolonged >=120s；null 表示尚无可观察 Activity。quiet/prolonged 不表示 stalled、timeout、失败或卡死，不能单独作为控制行为依据。",
+                "enum": [
+                  "fresh",
+                  "quiet",
+                  "prolonged",
+                  null
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "summaryCode": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "toolCategory": {
+                "enum": [
+                  "build",
+                  "test",
+                  "command",
+                  "read",
+                  "edit",
+                  "tool",
+                  null
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "phase",
+              "activityPhase",
+              "toolCategory",
+              "lastActivityAt",
+              "activityAgeMs",
+              "silenceLevel",
+              "summaryCode"
+            ],
+            "type": "object"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "providerTerminalStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resultAvailable": {
+            "type": "boolean"
+          },
+          "resultCompleteness": {
+            "type": "string"
+          },
+          "revision": {
+            "description": "Legacy alias of controlRevision; Activity alone does not change it.",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "threadId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "threadName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unchanged": {
+            "type": "boolean"
+          },
+          "updatedAt": {
+            "type": "integer"
+          },
+          "usage": {
+            "additionalProperties": false,
+            "properties": {
+              "cacheWriteInputTokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "cachedInputTokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "completeness": {
+                "enum": [
+                  "unknown",
+                  "partial",
+                  "complete"
+                ]
+              },
+              "inputTokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "modelContextWindow": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "outputTokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "reasoningTokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "totalTokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "updatedAt": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "usageRevision": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "inputTokens",
+              "cachedInputTokens",
+              "cacheWriteInputTokens",
+              "outputTokens",
+              "reasoningTokens",
+              "totalTokens",
+              "modelContextWindow",
+              "completeness",
+              "usageRevision",
+              "updatedAt"
+            ],
+            "type": "object"
+          },
+          "wakeReason": {
+            "enum": [
+              "initial_mismatch",
+              "control",
+              "activity",
+              "terminal",
+              "result",
+              "timeout"
+            ]
+          },
+          "workspaceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "executionId",
+          "agentId",
+          "workspaceId",
+          "status",
+          "dispatchState",
+          "revision",
+          "controlRevision",
+          "activityRevision",
+          "resultCompleteness",
+          "attention",
+          "providerTerminalStatus",
+          "resultAvailable",
+          "progress",
+          "nextAction",
+          "availableActions",
+          "prompt",
+          "canonicalWorkspaceRoot",
+          "threadId",
+          "threadName",
+          "turnId",
+          "errorCode",
+          "errorMessage",
+          "interruptRequested",
+          "interruptAcknowledged",
+          "interruptTimedOut",
+          "createdAt",
+          "updatedAt",
+          "completedAt",
+          "usage"
+        ],
+        "type": "object"
+      },
+      "nextAction": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "observe",
+              "review_result",
+              "continue",
+              "resume_pending",
+              "manual_resolution",
+              "correct_input",
+              "activate_workspace",
+              "list"
+            ]
+          },
+          "executionId": {
+            "type": "string"
+          },
+          "includeResult": {
+            "type": "boolean"
+          },
+          "waitMs": {
+            "maximum": 25000,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": [
+          "object",
+          "null"
+        ]
+      }
+    },
+    "oneOf": [
+      {
+        "additionalProperties": false,
+        "properties": {
+          "control": {
+            "$ref": "#/$defs/control"
+          },
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/execution"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "executions": {
+                    "items": {
+                      "$ref": "#/$defs/execution"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "executions"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "ok",
+          "data",
+          "control"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "control": {
+            "$ref": "#/$defs/control"
+          },
+          "error": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "executionId": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          },
+          "ok": {
+            "const": false
+          }
+        },
+        "required": [
+          "ok",
+          "error",
+          "control"
+        ],
+        "type": "object"
+      }
+    ],
+    "type": "object"
+  },
+  "annotations": {
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true
+  }
+}

@@ -1,0 +1,837 @@
+--- a/src-tauri/src/agent/product.rs
++++ b/src-tauri/src/agent/product.rs
+@@ -556,6 +556,14 @@
+     manager: AgentTaskManager,
+ }
+ impl AgentProductService {
++    /// 本地健康刷新只进入 Manager 的 admission probe。
++    pub(crate) async fn refresh_provider_health(
++        &self,
++        id: super::provider::ProviderId,
++    ) -> Result<super::provider::registry::ProviderHealth, String> {
++        self.manager.refresh_provider_health(id).await
++    }
++
+     pub(crate) fn work_product(&self) -> super::work::WorkProductService {
+         super::work::WorkProductService::new(self.store.clone())
+     }
+@@ -645,7 +653,7 @@
+     pub(crate) async fn initialize_with_terminal_notifier_and_provider_settings(
+         store: StateStore,
+         terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
+-        provider_settings: crate::config::AgentProviderSettings,
++        provider_settings: impl Into<super::provider::control::ProviderAdmissionPolicy>,
+     ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+         // 先创建唯一 Manager shell，discovery probe 才能共用其 Store/owner/Pool。
+         let mut manager = AgentTaskManager::new_with_terminal_notifier_and_provider_settings(
+@@ -703,7 +711,7 @@
+     pub(crate) async fn initialize_desktop_deferred_with_provider_settings(
+         store: StateStore,
+         terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
+-        provider_settings: crate::config::AgentProviderSettings,
++        provider_settings: impl Into<super::provider::control::ProviderAdmissionPolicy>,
+     ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+         let mut manager = AgentTaskManager::new_with_terminal_notifier_and_provider_settings(
+             store.clone(),
+--- a/src-tauri/src/agent/provider/control.rs
++++ b/src-tauri/src/agent/provider/control.rs
+@@ -21,7 +21,28 @@
+     settings: Arc<RwLock<AgentProviderSettings>>,
+ }
+ 
++impl From<AgentProviderSettings> for ProviderAdmissionPolicy {
++    /// 独立 Manager 仍可从持久化快照建立策略。
++    fn from(settings: AgentProviderSettings) -> Self {
++        Self::new(settings)
++    }
++}
+ impl ProviderAdmissionPolicy {
++    /// 落盘完成前持有写锁，admission 只能观察已提交策略。
++    pub(crate) fn commit(
++        &self,
++        settings: AgentProviderSettings,
++        persist: impl FnOnce() -> Result<(), String>,
++    ) -> Result<(), String> {
++        let mut current = self
++            .settings
++            .write()
++            .expect("provider admission policy lock poisoned");
++        persist()?;
++        *current = settings;
++        Ok(())
++    }
++
+     /// 从已经加载并验证的 ManagerConfig 快照建立 admission policy。
+     pub(crate) fn new(settings: AgentProviderSettings) -> Self {
+         Self {
+--- a/src-tauri/src/agent/provider/registry.rs
++++ b/src-tauri/src/agent/provider/registry.rs
+@@ -8,18 +8,20 @@
+     port::AgentProvider,
+ };
+ 
+-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
++#[serde(rename_all = "snake_case")]
+ pub enum ProviderHealth {
+     Available,
+     Unavailable,
+ }
+ 
++#[derive(Clone)]
+ struct RegistryEntry {
+     provider: Arc<dyn AgentProvider>,
+     health: ProviderHealth,
+ }
+ 
+-#[derive(Default)]
++#[derive(Clone, Default)]
+ pub struct ProviderRegistry {
+     entries: HashMap<ProviderId, RegistryEntry>,
+ }
+@@ -80,6 +82,18 @@
+         Ok(())
+     }
+ 
++    /// 只替换已注册的 admission adapter，旧调用持有的 Arc 不受影响。
++    pub(crate) fn replace_registered(
++        &mut self,
++        provider: Arc<dyn AgentProvider>,
++        health: ProviderHealth,
++    ) -> Result<(), ProviderError> {
++        let id = provider.descriptor().id;
++        self.get_registered(&id)?;
++        self.entries.insert(id, RegistryEntry { provider, health });
++        Ok(())
++    }
++
+     pub fn list_descriptors(&self) -> Vec<ProviderDescriptor> {
+         let mut descriptors: Vec<_> = self
+             .entries
+--- a/src-tauri/src/agent/task_manager.rs
++++ b/src-tauri/src/agent/task_manager.rs
+@@ -302,7 +302,7 @@
+         store: StateStore,
+         executable: PathBuf,
+         terminal_notifier: Arc<dyn AgentTerminalNotifier>,
+-        provider_settings: AgentProviderSettings,
++        provider_settings: impl Into<ProviderAdmissionPolicy>,
+     ) -> Self {
+         Self {
+             store,
+@@ -311,7 +311,7 @@
+             owner: Self::id("host"),
+             runtime_pool: Default::default(),
+             registry: Default::default(),
+-            admission: ProviderAdmissionPolicy::new(provider_settings),
++            admission: provider_settings.into(),
+             auto_recovery: Default::default(),
+             terminal_notifier,
+             #[cfg(test)]
+@@ -433,6 +433,49 @@
+         let registry = Arc::new(self.build_registry()?);
+         *current = Some(registry.clone());
+         Ok(registry)
++    }
++
++    /// 只重新执行 admission discovery，不创建 Execution、Session 或 Agent Runtime。
++    /// macOS 复用受管 CLI probe 的 ownership 记录；只导出 schema，不启动 app-server。
++    pub(crate) async fn refresh_provider_health(
++        &self,
++        id: ProviderId,
++    ) -> Result<super::provider::registry::ProviderHealth, String> {
++        let registry = self
++            .registry()
++            .map_err(|e| provider_error_code(e.code).to_string())?;
++        registry
++            .get_registered(&id)
++            .map_err(|e| provider_error_code(e.code).to_string())?;
++        if id.as_str() != "codex" {
++            return Err("AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into());
++        }
++        let discovery = self.discover_backend().await;
++        let mut refreshed = ProviderRegistry::new();
++        register_codex_provider_with_discovery(
++            &mut refreshed,
++            self.store.clone(),
++            self.owner.clone(),
++            self.runtime_pool.clone(),
++            discovery,
++        )
++        .map_err(|e| provider_error_code(e.code).to_string())?;
++        let health = refreshed
++            .health(&id)
++            .map_err(|e| provider_error_code(e.code).to_string())?;
++        let provider = refreshed
++            .get_registered(&id)
++            .map_err(|e| provider_error_code(e.code).to_string())?;
++        let mut current = self.registry.lock().unwrap();
++        let mut next = current
++            .as_ref()
++            .expect("registry initialized")
++            .as_ref()
++            .clone();
++        next.replace_registered(provider, health)
++            .map_err(|e| provider_error_code(e.code).to_string())?;
++        *current = Some(Arc::new(next));
++        Ok(health)
+     }
+ 
+     /// 使用单一 policy owner 解析新工作，避免调用方自行重排 enabled/health/capability。
+@@ -723,12 +766,8 @@
+                         };
+                         return Err(super::product::ProductError::new(error, Some(execution_id)));
+                     }
+-                    if let Some(error) = &manager.backend_error {
+-                        return Err(super::product::ProductError::new(
+-                            error.clone(),
+-                            Some(execution_id),
+-                        ));
+-                    }
++                    // 健康刷新后的 Registry/admission 是当前准入 Authority；
++                    // dispatch 自身会校验 health，不再用启动时的 backend_error 拒绝恢复。
+                     let (tx, rx) = tokio::sync::oneshot::channel();
+                     let id = execution_id.clone();
+                     tokio::spawn(async move {
+--- a/src-tauri/src/commands.rs
++++ b/src-tauri/src/commands.rs
+@@ -1126,3 +1126,101 @@
+         .ok_or("BACKEND_UNAVAILABLE: Agent service not initialized")?;
+     product.history_page(before, workspace).await
+ }
++
++/// 读取 Supervisor 已提交策略；不启动任何服务。
++#[tauri::command]
++pub fn agent_provider_settings_get(app: AppHandle) -> crate::config::AgentProviderSettings {
++    agent_provider_settings_get_impl(&crate::mcp::get(&app))
++}
++
++/// 本地 Human Authority 修改开关，合法但未注册的 Provider 仍保留配置。
++#[tauri::command]
++pub async fn agent_provider_set_enabled(
++    app: AppHandle,
++    provider_id: crate::agent::provider::ProviderId,
++    enabled: bool,
++) -> Result<crate::config::AgentProviderSettings, String> {
++    let broker = crate::mcp::get(&app);
++    tauri::async_runtime::spawn_blocking(move || {
++        tauri::async_runtime::block_on(agent_provider_set_enabled_impl(
++            &broker,
++            provider_id,
++            enabled,
++        ))
++    })
++    .await
++    .map_err(|error| error.to_string())?
++}
++
++/// 本地角色路由只修改未来请求策略，null 显式清空。
++#[tauri::command]
++pub async fn agent_provider_set_role_route(
++    app: AppHandle,
++    task_role: crate::agent::execution::AgentTaskRole,
++    provider_id: Option<crate::agent::provider::ProviderId>,
++) -> Result<crate::config::AgentProviderSettings, String> {
++    let broker = crate::mcp::get(&app);
++    tauri::async_runtime::spawn_blocking(move || {
++        tauri::async_runtime::block_on(agent_provider_set_role_route_impl(
++            &broker,
++            task_role,
++            provider_id,
++        ))
++    })
++    .await
++    .map_err(|error| error.to_string())?
++}
++
++/// 刷新 Admission Health，禁止进入 execute/session/ACP。
++#[tauri::command]
++pub async fn agent_provider_refresh_health(
++    app: AppHandle,
++    provider_id: crate::agent::provider::ProviderId,
++) -> Result<crate::agent::provider::registry::ProviderHealth, String> {
++    let broker = crate::mcp::get(&app);
++    let _management = broker.management.lock().await;
++    broker
++        .product
++        .get()
++        .ok_or("BACKEND_UNAVAILABLE: Agent service not initialized")?
++        .refresh_provider_health(provider_id)
++        .await
++}
++
++/// 本地读取与 mutation 测试共用相同已提交快照。
++fn agent_provider_settings_get_impl(
++    broker: &crate::mcp::Broker,
++) -> crate::config::AgentProviderSettings {
++    broker.config().agent_providers
++}
++/// 与其他本地配置管理操作使用同一 Broker 锁。
++async fn agent_provider_set_enabled_impl(
++    broker: &crate::mcp::Broker,
++    provider_id: crate::agent::provider::ProviderId,
++    enabled: bool,
++) -> Result<crate::config::AgentProviderSettings, String> {
++    let _management = broker.management.lock().await;
++    broker.supervisor.mutate_provider_settings(|settings| {
++        settings.providers.insert(
++            provider_id.as_str().into(),
++            crate::config::AgentProviderPolicy { enabled },
++        );
++    })
++}
++/// 角色已由 IPC 的 AgentTaskRole 反序列化校验，保留合法未知 Provider。
++async fn agent_provider_set_role_route_impl(
++    broker: &crate::mcp::Broker,
++    task_role: crate::agent::execution::AgentTaskRole,
++    provider_id: Option<crate::agent::provider::ProviderId>,
++) -> Result<crate::config::AgentProviderSettings, String> {
++    let _management = broker.management.lock().await;
++    broker.supervisor.mutate_provider_settings(|settings| {
++        settings
++            .role_routing
++            .insert(task_role.as_str().into(), provider_id);
++    })
++}
++
++#[cfg(test)]
++#[path = "provider_policy_tests.rs"]
++mod provider_policy_tests;
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -177,7 +177,7 @@
+                     supervisor.clone(),
+                 ));
+             // Desktop 启动只读取已持久化的本地 Provider policy 快照。
+-            let provider_settings = supervisor.snapshot().config.agent_providers;
++            let provider_settings = supervisor.provider_policy();
+             // macOS Desktop 发布前保留 recovery，但把耗时的 Codex CLI probe 延到首次 Agent execute。
+             #[cfg(target_os = "macos")]
+             let initialization =
+@@ -295,6 +295,10 @@
+             remote::remote_probe,
+             remote::remote_approve,
+             commands::agent_operation,
++            commands::agent_provider_settings_get,
++            commands::agent_provider_set_enabled,
++            commands::agent_provider_set_role_route,
++            commands::agent_provider_refresh_health,
+             commands::command_query,
+             commands::command_execute,
+             commands::agent_manual_resolve,
+--- a/src-tauri/src/serena.rs
++++ b/src-tauri/src/serena.rs
+@@ -172,6 +172,7 @@
+ pub struct SupervisorState {
+     runtime: Arc<Mutex<Runtime>>,
+     operation: Mutex<()>,
++    provider_policy: crate::agent::provider::control::ProviderAdmissionPolicy,
+     capability_manager: Arc<WorkspaceCapabilityManager>,
+     workspace_write_guards: Arc<Mutex<WorkspaceWriteGuardState>>,
+     target_commit_coordinator: crate::mcp::source_write_commit::TargetCommitCoordinator,
+@@ -214,6 +215,9 @@
+     pub fn new(paths: AppPaths) -> Result<Self, String> {
+         logs::ensure_directory(&paths.log_directory)?;
+         let config = config::load(&paths.config_file)?;
++        let provider_policy = crate::agent::provider::control::ProviderAdmissionPolicy::new(
++            config.agent_providers.clone(),
++        );
+         // Provider 只读取最新配置快照；Registry 构造本身不执行 Serena CLI 或 Runtime 生命周期。
+         let runtime = Arc::new(Mutex::new(Runtime {
+             config,
+@@ -246,6 +250,7 @@
+         Ok(Self {
+             runtime,
+             operation: Mutex::new(()),
++            provider_policy,
+             capability_manager: Arc::new(WorkspaceCapabilityManager::new(Arc::new(
+                 WorkspaceCapabilityRegistry::new([
+                     serena_provider,
+@@ -749,8 +754,41 @@
+         Ok(())
+     }
+ 
+-    pub fn replace_config(&self, next: ManagerConfig) -> Result<(), String> {
++    /// Desktop 与 Manager 共享已提交的 admission Authority。
++    pub(crate) fn provider_policy(
++        &self,
++    ) -> crate::agent::provider::control::ProviderAdmissionPolicy {
++        self.provider_policy.clone()
++    }
++
++    /// 在 operation 锁内读取最新配置、原子落盘，然后发布策略。
++    pub(crate) fn mutate_provider_settings(
++        &self,
++        mutate: impl FnOnce(&mut config::AgentProviderSettings),
++    ) -> Result<config::AgentProviderSettings, String> {
+         let _operation = self.operation.lock().expect("operation mutex poisoned");
++        let mut runtime = self.runtime.lock().expect("supervisor mutex poisoned");
++        let mut next = runtime.config.clone();
++        mutate(&mut next.agent_providers);
++        self.provider_policy
++            .commit(next.agent_providers.clone(), || {
++                config::save(&self.paths.config_file, &next)?;
++                runtime.config = next.clone();
++                Ok(())
++            })?;
++        Ok(next.agent_providers)
++    }
++
++    pub fn replace_config(&self, mut next: ManagerConfig) -> Result<(), String> {
++        let _operation = self.operation.lock().expect("operation mutex poisoned");
++        // 整配置入口保留专用入口的最新 Provider 策略。
++        next.agent_providers = self
++            .runtime
++            .lock()
++            .expect("supervisor mutex poisoned")
++            .config
++            .agent_providers
++            .clone();
+         next.validate()?;
+         let installation = discovery::detect(&next, &self.paths);
+         if next.serena_path.is_some() && installation.state != InstallationState::Standard {
+@@ -1396,6 +1434,38 @@
+         )
+     }
+ 
++    /// Provider mutation 必须等待 Supervisor 的既有 operation mutex。
++    #[test]
++    fn provider_policy_waits_for_supervisor_operation_lock() {
++        let (_directory, supervisor, _, _) = workspace_write_guard_fixture();
++        let supervisor = Arc::new(supervisor);
++        let guard = supervisor.operation.lock().unwrap();
++        let (started_tx, started_rx) = std::sync::mpsc::channel();
++        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
++        let worker_supervisor = supervisor.clone();
++        let worker = std::thread::spawn(move || {
++            started_tx.send(()).unwrap();
++            worker_supervisor
++                .mutate_provider_settings(|settings| {
++                    entered_tx.send(()).unwrap();
++                    settings.providers.get_mut("codex").unwrap().enabled = false;
++                })
++                .unwrap();
++        });
++        started_rx.recv().unwrap();
++        assert!(
++            entered_rx
++                .recv_timeout(std::time::Duration::from_millis(50))
++                .is_err()
++        );
++        drop(guard);
++        entered_rx
++            .recv_timeout(std::time::Duration::from_secs(2))
++            .unwrap();
++        worker.join().unwrap();
++        assert!(!supervisor.snapshot().config.agent_providers.providers["codex"].enabled);
++    }
++
+     /// leader 已退出但忽略 SIGTERM 的 leaf 仍在 group 时，stop 必须保留原 owner 与身份。
+     #[cfg(target_os = "macos")]
+     #[test]
+--- a/src-tauri/src/provider_policy_tests.rs
++++ b/src-tauri/src/provider_policy_tests.rs
+@@ -0,0 +1,351 @@
++//! CB2-003 本地 IPC 实现与持久化、门禁隔离契约。
++use super::*;
++use crate::agent::{
++    execution::AgentTaskRole,
++    notification::noop_agent_terminal_notifier,
++    provider::{ProviderId, control::ProviderAdmissionCapability, registry::ProviderHealth},
++    store::StateStore,
++    task_manager::AgentTaskManager,
++};
++use std::sync::Arc;
++
++/// 真实 Supervisor、Broker 与 Store；不初始化后台恢复或 Runtime。
++async fn fixture() -> (tempfile::TempDir, Arc<crate::mcp::Broker>, AgentTaskManager) {
++    let directory = tempfile::tempdir().unwrap();
++    let root = directory.path();
++    let supervisor = Arc::new(
++        crate::serena::SupervisorState::new(crate::config::AppPaths {
++            runtime_directory: root.join("runtime"),
++            config_file: root.join("config.json"),
++            log_directory: root.join("logs"),
++            app_log: root.join("logs/app.log"),
++            serena_log: root.join("logs/serena.log"),
++        })
++        .unwrap(),
++    );
++    let store = StateStore::open(root.into()).await.unwrap();
++    let manager = AgentTaskManager::new_with_terminal_notifier_and_provider_settings(
++        store,
++        "unused-codex.exe".into(),
++        noop_agent_terminal_notifier(),
++        supervisor.provider_policy(),
++    );
++    (
++        directory,
++        Arc::new(crate::mcp::Broker::new(supervisor)),
++        manager,
++    )
++}
++
++/// 使用与 Tauri 参数相同的 ProviderId 反序列化边界。
++fn id(value: &str) -> ProviderId {
++    serde_json::from_value(serde_json::json!(value)).unwrap()
++}
++
++/// 查询真实持久化表，禁止测试只依赖返回值推断无执行副作用。
++fn assert_no_execution(directory: &tempfile::TempDir) {
++    let db = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
++    for table in ["executions", "runtime_instances", "workspace_claims"] {
++        let count: i64 = db
++            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
++                row.get(0)
++            })
++            .unwrap();
++        assert_eq!(count, 0, "{table}");
++    }
++}
++
++/// 持久化成功立即更新同一 admission，重启恢复未知 Provider 和显式空路由。
++#[tokio::test]
++async fn provider_policy_persists_restarts_and_updates_admission_without_runtime() {
++    let (directory, broker, manager) = fixture().await;
++    let registry = manager.registry().unwrap();
++    assert!(
++        broker
++            .supervisor
++            .provider_policy()
++            .admit(
++                &registry,
++                &id("codex"),
++                ProviderAdmissionCapability::Execute
++            )
++            .is_ok()
++    );
++    agent_provider_set_enabled_impl(&broker, id("codex"), false)
++        .await
++        .unwrap();
++    assert_eq!(
++        broker
++            .supervisor
++            .provider_policy()
++            .admit(
++                &registry,
++                &id("codex"),
++                ProviderAdmissionCapability::Execute
++            )
++            .err()
++            .unwrap()
++            .code,
++        crate::agent::provider::ProviderErrorCode::AgentProviderDisabled
++    );
++    // Manager 必须观察同一成功提交策略，拒绝发生在创建 Execution/Claim 之前。
++    let input = serde_json::from_value(serde_json::json!({
++        "agent_id": "policy-agent", "request_key": "disabled-start", "prompt": "no runtime",
++        "execution_profile": {}, "workspace_id": "workspace",
++        "canonical_workspace_root": directory.path().to_str().unwrap(),
++        "provider": "codex", "mode": "read_only"
++    }))
++    .unwrap();
++    assert_eq!(
++        manager.execute(input).await.unwrap_err(),
++        crate::agent::provider::port::ProviderExecutionFailure::State(
++            "AGENT_PROVIDER_DISABLED".into()
++        )
++    );
++    agent_provider_set_enabled_impl(&broker, id("future-provider"), true)
++        .await
++        .unwrap();
++    agent_provider_set_role_route_impl(&broker, AgentTaskRole::Review, Some(id("future-provider")))
++        .await
++        .unwrap();
++    agent_provider_set_role_route_impl(&broker, AgentTaskRole::General, None)
++        .await
++        .unwrap();
++    let settings = agent_provider_settings_get_impl(&broker);
++    assert_eq!(settings.role_routing["general"], None);
++    assert_eq!(settings.role_routing["review"], Some(id("future-provider")));
++    assert!(settings.providers["future-provider"].enabled);
++    let reopened = crate::serena::SupervisorState::new(broker.supervisor.paths.clone()).unwrap();
++    assert_eq!(reopened.snapshot().config.agent_providers, settings);
++    assert_eq!(
++        crate::config::load(&broker.supervisor.paths.config_file)
++            .unwrap()
++            .agent_providers,
++        settings
++    );
++    assert!(manager.runtime_pool.is_empty());
++    assert_no_execution(&directory);
++}
++
++/// IPC 的既有领域类型拒绝非法 Provider/Role，null 仍可表示清空。
++#[test]
++fn provider_policy_ipc_validation_reuses_domain_types() {
++    for value in ["", " codex", "codex ", "a\nb", "a b"] {
++        assert!(serde_json::from_value::<ProviderId>(serde_json::json!(value)).is_err());
++    }
++    for value in ["", "Review", "future", "review "] {
++        assert!(serde_json::from_value::<AgentTaskRole>(serde_json::json!(value)).is_err());
++    }
++    assert_eq!(
++        serde_json::from_value::<Option<ProviderId>>(serde_json::Value::Null).unwrap(),
++        None
++    );
++}
++
++/// 原子落盘失败不改变磁盘、Supervisor 或 admission Authority。
++#[tokio::test]
++async fn provider_policy_persist_failure_preserves_authority() {
++    let (directory, broker, manager) = fixture().await;
++    agent_provider_set_enabled_impl(&broker, id("codex"), true)
++        .await
++        .unwrap();
++    let before = agent_provider_settings_get_impl(&broker);
++    // 将配置文件替换为目录，稳定触发 atomic replace 失败。
++    std::fs::remove_file(&broker.supervisor.paths.config_file).unwrap();
++    std::fs::create_dir(&broker.supervisor.paths.config_file).unwrap();
++    assert!(
++        agent_provider_set_enabled_impl(&broker, id("codex"), false)
++            .await
++            .is_err()
++    );
++    assert!(
++        agent_provider_set_role_route_impl(&broker, AgentTaskRole::Review, None)
++            .await
++            .is_err()
++    );
++    assert_eq!(agent_provider_settings_get_impl(&broker), before);
++    assert!(
++        broker
++            .supervisor
++            .provider_policy()
++            .admit(
++                &manager.registry().unwrap(),
++                &id("codex"),
++                ProviderAdmissionCapability::Execute
++            )
++            .is_ok()
++    );
++    assert!(broker.supervisor.paths.config_file.is_dir());
++    assert_no_execution(&directory);
++}
++
++/// 两个 mutation 都等待既有 management 锁，随后分别保留对方最新字段。
++#[tokio::test]
++async fn provider_policy_concurrent_mutations_wait_for_management_lock() {
++    let (directory, broker, _) = fixture().await;
++    let guard = broker.management.lock().await;
++    let first_broker = broker.clone();
++    let first = tokio::spawn(async move {
++        agent_provider_set_enabled_impl(&first_broker, id("codex"), false).await
++    });
++    let second_broker = broker.clone();
++    let second = tokio::spawn(async move {
++        agent_provider_set_role_route_impl(&second_broker, AgentTaskRole::Testing, None).await
++    });
++    tokio::task::yield_now().await;
++    assert!(!first.is_finished());
++    assert!(!second.is_finished());
++    assert!(!broker.supervisor.paths.config_file.exists());
++    drop(guard);
++    first.await.unwrap().unwrap();
++    second.await.unwrap().unwrap();
++    let settings = agent_provider_settings_get_impl(&broker);
++    assert!(!settings.providers["codex"].enabled);
++    assert_eq!(settings.role_routing["testing"], None);
++    assert_eq!(
++        crate::config::load(&broker.supervisor.paths.config_file)
++            .unwrap()
++            .agent_providers,
++        settings
++    );
++    assert_no_execution(&directory);
++}
++
++/// 整配置保存携带旧 Provider 快照时不覆盖专用入口，普通配置仍保存。
++#[tokio::test]
++async fn provider_policy_stale_whole_config_cannot_overwrite_local_policy() {
++    let (_, broker, manager) = fixture().await;
++    let mut stale = broker.config();
++    stale.minimize_to_tray = !stale.minimize_to_tray;
++    agent_provider_set_enabled_impl(&broker, id("codex"), false)
++        .await
++        .unwrap();
++    save_config_impl(&broker, stale.clone()).await.unwrap();
++    assert!(!broker.config().agent_providers.providers["codex"].enabled);
++    assert_eq!(broker.config().minimize_to_tray, stale.minimize_to_tray);
++    assert!(
++        broker
++            .supervisor
++            .provider_policy()
++            .admit(
++                &manager.registry().unwrap(),
++                &id("codex"),
++                ProviderAdmissionCapability::Execute
++            )
++            .is_err()
++    );
++}
++
++/// 健康刷新可使 unavailable 恢复；enabled 独立，原 Registry 句柄不变。
++#[tokio::test]
++async fn provider_policy_health_probe_has_no_execution_session_or_runtime() {
++    let (directory, broker, manager) = fixture().await;
++    agent_provider_set_enabled_impl(&broker, id("codex"), false)
++        .await
++        .unwrap();
++    let original = manager.registry().unwrap();
++    for (probe, expected) in [
++        (
++            Err("BACKEND_UNAVAILABLE".into()),
++            ProviderHealth::Unavailable,
++        ),
++        (Ok("new-codex.exe".into()), ProviderHealth::Available),
++    ] {
++        let health = crate::agent::codex::TEST_BACKEND_DISCOVERY
++            .scope(probe, manager.refresh_provider_health(id("codex")))
++            .await
++            .unwrap();
++        assert_eq!(health, expected);
++        assert_eq!(
++            manager.registry().unwrap().health(&id("codex")).unwrap(),
++            expected
++        );
++        assert!(!agent_provider_settings_get_impl(&broker).providers["codex"].enabled);
++        assert!(manager.runtime_pool.is_empty());
++        assert_no_execution(&directory);
++    }
++    assert_eq!(
++        original.health(&id("codex")).unwrap(),
++        ProviderHealth::Available
++    );
++    assert_eq!(
++        manager
++            .refresh_provider_health(id("codebuddy"))
++            .await
++            .unwrap_err(),
++        "AGENT_PROVIDER_NOT_FOUND"
++    );
++    assert_no_execution(&directory);
++}
++
++/// Remote catalog 与 validation 均不能接触本地 mutation。
++#[test]
++fn provider_policy_mutations_are_absent_from_remote_registry() {
++    for enabled in [false, true] {
++        let tools = crate::mcp::registry::list_with_capabilities(enabled, true, true);
++        for name in [
++            "agent_provider_settings_get",
++            "agent_provider_set_enabled",
++            "agent_provider_set_role_route",
++            "agent_provider_refresh_health",
++        ] {
++            assert!(!tools.iter().any(|tool| tool.name == name));
++            assert_eq!(
++                crate::mcp::registry::validate(name, &serde_json::json!({})),
++                Err("UNKNOWN_TOOL".into())
++            );
++        }
++    }
++}
++
++/// 已持久化的在途 Execution 保留原 Provider、Role、状态与 Claim。
++#[tokio::test]
++async fn provider_policy_route_changes_leave_running_execution_frozen() {
++    let (directory, broker, manager) = fixture().await;
++    let store = StateStore::open(directory.path().into()).await.unwrap();
++    let root = directory.path().to_string_lossy().into_owned();
++    store
++        .product_create_fresh(
++            "running".into(),
++            "agent".into(),
++            "request".into(),
++            "prompt".into(),
++            "workspace".into(),
++            Some(
++                crate::agent::store::transactions::product::WorkspaceSnapshot {
++                    id: "workspace".into(),
++                    root: root.clone(),
++                    generation: 1,
++                },
++            ),
++            1,
++        )
++        .await
++        .unwrap();
++    // 固定已在途行，不通过 Runtime 启动制造测试副作用。
++    rusqlite::Connection::open(directory.path().join("agent-state.db"))
++        .unwrap()
++        .execute(
++            "UPDATE executions SET status='running' WHERE id='running'",
++            [],
++        )
++        .unwrap();
++    let before = store.execution("running".into()).await.unwrap().unwrap();
++    let claim = store.workspace_claim(root.clone()).await.unwrap();
++    agent_provider_set_role_route_impl(
++        &broker,
++        AgentTaskRole::General,
++        Some(id("future-provider")),
++    )
++    .await
++    .unwrap();
++    agent_provider_set_enabled_impl(&broker, id("codex"), false)
++        .await
++        .unwrap();
++    assert_eq!(
++        store.execution("running".into()).await.unwrap().unwrap(),
++        before
++    );
++    assert_eq!(store.workspace_claim(root).await.unwrap(), claim);
++    assert!(manager.runtime_pool.is_empty());
++}
+--- a/src-tauri/src/agent/task_manager/tests.rs
++++ b/src-tauri/src/agent/task_manager/tests.rs
+@@ -1788,3 +1788,49 @@
+         "AGENT_PROVIDER_NOT_FOUND"
+     );
+ }
++
++/// 启动时不可用的诊断不能覆盖刷新后的健康事实；Resume 使用当前 adapter。
++#[tokio::test]
++async fn provider_policy_refresh_recovers_initially_unavailable_resume() {
++    let directory = tempfile::tempdir().unwrap();
++    let store = StateStore::open(directory.path().into()).await.unwrap();
++    let mut manager = AgentTaskManager::new(store.clone(), PathBuf::new());
++    manager.install_backend_resolution(Err("BACKEND_UNAVAILABLE: initial discovery".into()));
++    let codex = ProviderId::new("codex".into()).unwrap();
++    assert_eq!(
++        manager.registry().unwrap().health(&codex).unwrap(),
++        ProviderHealth::Unavailable
++    );
++    let created = manager
++        .create(input(directory.path(), "refresh-resume"))
++        .await
++        .unwrap();
++    assert_eq!(
++        crate::agent::codex::TEST_BACKEND_DISCOVERY
++            .scope(
++                Ok("refreshed-codex.exe".into()),
++                manager.refresh_provider_health(codex.clone())
++            )
++            .await
++            .unwrap(),
++        ProviderHealth::Available
++    );
++    // 仅在 Runtime 执行边界替换 FakeProvider，保持真实 refresh 与 Resume 入口。
++    let fake = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
++    let mut registry = manager.registry().unwrap().as_ref().clone();
++    registry
++        .replace_registered(fake.clone(), ProviderHealth::Available)
++        .unwrap();
++    *manager.registry.lock().unwrap() = Some(Arc::new(registry));
++    let id = manager
++        .product_submit(
++            super::super::product::Action::ResumePending {
++                execution_id: created.execution_id.clone(),
++            },
++            None,
++        )
++        .await
++        .unwrap();
++    assert_eq!(id, created.execution_id);
++    assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 1);
++}

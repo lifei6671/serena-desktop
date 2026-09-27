@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "baseline_files": 315,
+  "current_files": 315,
+  "changed_or_missing": [],
+  "added": [],
+  "git_status_matches_baseline": true,
+  "head": "a3ed7962d0cfdcf213de7bcfd02cf48bdf195aef",
+  "verification": "SHA256 of each src/ and src-tauri/ file compared with task-start product-baseline.json; file inventory checked for additions",
+  "scope": "CB5-001 only; no product changes, no Git commit; awaiting Host Gate"
+}

@@ -1,0 +1,16 @@
+[
+  [
+    {
+      "optionId": "allow_always",
+      "kind": "allow_always"
+    },
+    {
+      "optionId": "allow",
+      "kind": "allow_once"
+    },
+    {
+      "optionId": "reject",
+      "kind": "reject_once"
+    }
+  ]
+]

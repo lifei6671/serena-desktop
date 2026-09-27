@@ -1,0 +1,56 @@
+diff --git a/.trellis/tasks/09-26-acp-compatibility-ux-cutover/evidence/baseline-AgentPanel.test.mjs.txt b/src/AgentPanel.test.mjs
+index e0b10b8..edc57b5 100644
+--- a/.trellis/tasks/09-26-acp-compatibility-ux-cutover/evidence/baseline-AgentPanel.test.mjs.txt
++++ b/src/AgentPanel.test.mjs
+@@ -156,8 +156,10 @@ test('catalog failure preserves sidebar and detail access without composer', asy
+ test('provider presentation and card layout contain no provider ID special cases', () => {
+   const presentation = readFileSync('src/agentPresentation.ts', 'utf8');
+   const panel = readFileSync('src/AgentPanel.tsx', 'utf8');
+-  // 稳定诊断码允许专用文案；移除该字面量后仍禁止 Provider ID 分支。
+-  assert.doesNotMatch(presentation.replaceAll('CODEBUDDY_VERSION_UNSUPPORTED', ''), /codex|codebuddy/iu);
++  // 仅允许稳定诊断码及固定提示中的产品名称，其余源码仍禁止 Provider ID 特判。
++  assert.doesNotMatch(presentation
++    .replaceAll('"CODEBUDDY_ACP_INCOMPATIBLE"', '""')
++    .replaceAll('请升级 CodeBuddy 或 SerenaDesktop 后重新检测。', ''), /codex|codebuddy/iu);
+   assert.doesNotMatch(panel, /codex|codebuddy/iu);
+   assert.match(panel, /catalog\?\.providers\.map\(provider/u);
+   assert.match(readFileSync('src/api.ts', 'utf8'), /invoke<ProviderCatalogSnapshot>\("agent_provider_catalog_get"\)/u);
+@@ -1439,21 +1441,27 @@ test('catalog crossing enabled mutation cannot overwrite pending or committed st
+   assert.equal(polls, 4);
+ });
+ 
+-// 任意 Provider 身份都消费同一稳定码，缺失版本不编造值。
+-for (const version of ['9.8.7', null, '  ']) {
+-  test(`exact unsupported diagnostic has fixed safe copy and no override: ${JSON.stringify(version)}`, async () => {
+-    await mount([], undefined, {}, { providers: [catalogProvider({ id: 'future', displayName: 'Future Agent', diagnosticCode: 'CODEBUDDY_VERSION_UNSUPPORTED', version })], roleRouting: {} });
++// 任意产品版本与诊断 hash 都不改变稳定码的含义，未知 Provider 身份同样适用。
++for (const version of ['2.153.0', '999.0.0-new', 'unknown-dev', null, '  ']) {
++  test(`exact ACP incompatibility has fixed copy and no override: ${JSON.stringify(version)}`, async () => {
++    await mount([], undefined, {}, { providers: [catalogProvider({ id: 'future', displayName: 'Future Agent', diagnosticCode: 'CODEBUDDY_ACP_INCOMPATIBLE', version, binaryHash: `arbitrary-${version}` })], roleRouting: {} });
+     const card = document.querySelector('.agent-provider-card');
+-    assert.ok(card.textContent.includes(`Future Agent 版本 ${version?.trim() || '（未提供）'} 尚未经过当前 SerenaDesktop 的兼容性验证。当前未启用该版本的 Agent 执行。请使用受支持版本，或升级 SerenaDesktop 后重新检测。`));
+-    assert.doesNotMatch(card.textContent, /忽略版本检查|强制放行|仍然运行|Force Unlock|override|强制解锁/iu);
++    assert.equal(card.querySelector('p.text-amber-700').textContent, 'Future Agent 的 ACP 协议或必需能力与当前 SerenaDesktop 不兼容。请升级 CodeBuddy 或 SerenaDesktop 后重新检测。');
++    assert.equal(cardValues(card).版本, version?.trim() || '—');
++    assert.doesNotMatch(card.textContent, /忽略版本检查|跳过协议检查|绕过|强制放行|仍然运行|Force Unlock|override|强制解锁/iu);
+     assert.deepEqual([...card.querySelectorAll('button')].map(control => control.getAttribute('role')), ['switch']);
+   });
+ }
+ 
+-for (const diagnosticCode of [undefined, null, 'AGENT_PROVIDER_UNAVAILABLE', 'CODEBUDDY_VERSION_UNSUPPORTED_EXTRA', 'codebuddy_version_unsupported']) {
+-  test(`generic unavailable does not infer unsupported version: ${diagnosticCode}`, async () => {
+-    await mount([], undefined, {}, { providers: [catalogProvider({ id: 'codebuddy', displayName: 'CodeBuddy', health: 'unavailable', version: 'unknown-dev', diagnosticCode,
+-      errorMessage: 'CODEBUDDY_VERSION_UNSUPPORTED' })], roleRouting: {} });
+-    assert.doesNotMatch(document.querySelector('.agent-provider-card').textContent, /兼容性验证|受支持版本|未启用该版本/);
++// 旧码、近似码与普通 unavailable 均不能从身份、版本、hash 或自由文本推断兼容性。
++for (const diagnosticCode of [undefined, null, 'CODEBUDDY_VERSION_UNSUPPORTED', 'AGENT_PROVIDER_UNAVAILABLE', 'CODEBUDDY_ACP_INCOMPATIBLE_EXTRA', 'codebuddy_acp_incompatible', ' CODEBUDDY_ACP_INCOMPATIBLE ']) {
++  test(`non-exact diagnostic never infers ACP incompatibility: ${diagnosticCode}`, async () => {
++    await mount([], undefined, {}, { providers: ['2.153.0', '999.0.0-new', 'unknown-dev', null, '  '].map((version, index) => catalogProvider({
++      id: index === 0 ? 'codebuddy' : `future-${index}`, displayName: 'CodeBuddy', health: 'unavailable', version, diagnosticCode,
++      binaryHash: `arbitrary-${version}`, errorMessage: 'CODEBUDDY_ACP_INCOMPATIBLE' })), roleRouting: {} });
++    for (const card of document.querySelectorAll('.agent-provider-card')) {
++      assert.equal(card.querySelector('p.text-amber-700'), null);
++      assert.doesNotMatch(card.textContent, /ACP 协议|兼容性验证|受支持版本|未启用该版本/);
++    }
+   });
+ }

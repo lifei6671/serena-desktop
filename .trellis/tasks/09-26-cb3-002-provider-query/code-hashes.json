@@ -1,0 +1,54 @@
+[
+  {
+    "path": "src-tauri/src/mcp/orchestration.rs",
+    "sha256": "9c93ca3c04872e0ffb93c6e1d34a07e8c45980c84be3704c2be2646cd643fff5"
+  },
+  {
+    "path": "src-tauri/src/mcp/orchestration/dto.rs",
+    "sha256": "8d7bf8dbf71645ff6a27c3fded9fcb0e451c848b3ba2f488e028c820840aea88"
+  },
+  {
+    "path": "src-tauri/src/mcp/orchestration_tests.rs",
+    "sha256": "9657b5e5efa0f9a968b8dcee85155089acd2f11e1745ceb5f78db7edcf73b8fb"
+  },
+  {
+    "path": "src-tauri/src/mcp/provider_query_tests.rs",
+    "sha256": "5acf910a18b1c1c4ce58a4286592c728618440d1aeb9109f858f1029a2d2eea5"
+  },
+  {
+    "path": "src-tauri/src/mcp/registry.rs",
+    "sha256": "73114384ccae242fbf745f4a7b69dad5b086a7ad1502b9daf8771eaed7dd8e3f"
+  },
+  {
+    "path": "src-tauri/src/agent/product.rs",
+    "sha256": "c8e7ba23baade5f87f4ddf48f7840aee1211315467669acfd0d6f803a9be1de1"
+  },
+  {
+    "path": "src-tauri/src/agent/provider/mod.rs",
+    "sha256": "0b5869e47faa24cb397b1920c8d406bec1826f322020a7bad440b91fe8ba9114"
+  },
+  {
+    "path": "src-tauri/src/agent/provider/registry.rs",
+    "sha256": "0a351c98d7f13be114e7a782a6f8888810ddba85fdafb18854afa4006d49b2e2"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/agent-query-descriptor.json",
+    "sha256": "79a118468b0d68e14208584bb7e363f69dda5c9291cc2484f97ac49daec5d623"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/agent-query-input-schema.json",
+    "sha256": "61d4b882f9339583f1044421cdc2d94c3e53ad3404957121e6e4d4e3fe2cd18d"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/agent-query-output-schema.json",
+    "sha256": "1160454aab7e2d8a784d61229473662b28d36c88c29f18389da99655f1eb1359"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/mcp-input.json",
+    "sha256": "dca26043099ef7c16e0bcd3b6bd012801ac1a3a82783f1ba031c68c6a48704b2"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/mcp-output.json",
+    "sha256": "48e51063747325e83225fe549071c3c25d8d4edab0b74c8c6bae7467a93dfbac"
+  }
+]

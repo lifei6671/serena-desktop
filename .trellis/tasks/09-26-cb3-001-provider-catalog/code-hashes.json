@@ -1,0 +1,6 @@
+{
+  "src-tauri/src/agent/product/fixtures/provider_catalog_codex.json": "A4FE4EDF5ABFDFFCC16ACDAFA47ED97F291B7630964BEBE5E7C4BFA00D93F8E6",
+  "src-tauri/src/agent/product.rs": "B0905536770AF90F8DF87E3C9C17860625F4D8591F495B163D2C08191E3033A5",
+  "src-tauri/src/agent/product/provider_catalog_tests.rs": "2941F0F08BD4581830D7E18CA5DA559089AA720ED0BB9937135DD89DD2D22BA9",
+  "src-tauri/src/agent/product/fixtures/provider_catalog_current_policy.json": "C85FCCAAE303D2BAB46A7E4DD92542E0518A0CEBF3BC4E1FAD00702212C67495"
+}

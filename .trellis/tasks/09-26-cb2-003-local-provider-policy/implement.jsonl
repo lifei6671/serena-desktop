@@ -1,0 +1,4 @@
+{"file":"AGENTS.md","reason":"Repository rules"}
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"Only CB2-003"}
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"Section 26 and frozen provider policy"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"IPC config admission boundaries"}

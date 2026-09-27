@@ -1,0 +1,15 @@
+{
+  "status": "FRESH",
+  "baseline_paths": 955,
+  "changed": [
+    "src/AgentPanel.test.mjs",
+    "src/AgentPanel.tsx",
+    "src/agentPresentation.ts",
+    "src/api.ts",
+    "src/types.ts"
+  ],
+  "unexpected_new_paths": [],
+  "target_hashes_match": true,
+  "head_unchanged": true,
+  "staged_paths": []
+}

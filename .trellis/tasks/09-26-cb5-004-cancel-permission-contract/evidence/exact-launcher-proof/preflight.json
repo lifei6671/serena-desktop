@@ -1,0 +1,208 @@
+{
+  "oldEvidenceChecks": [
+    {
+      "path": "evidence/cancel-after-result.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/cancel-after-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/cancel-before-result.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/cancel-before-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/cancellation.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/permission-deny-result.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/permission-deny-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/permission-options.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/permission.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/process-evidence.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/runner-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/scope-baseline.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/scope-verification.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/session-new-diagnostic.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/session-new-diagnostic.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/cancellation.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/permission-options.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/permission.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/prior-evidence-preservation.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/process-evidence.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/runner-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/scope-verification.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair-result.identity.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/attempt-started.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/conclusion.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/preflight.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/prior-evidence-preservation.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/review-repair-1.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/scope-verification.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/serve-auth-status.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/verification-results.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/wire-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/wire.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/initial-scenarios/cancel-after-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/initial-scenarios/cancel-before-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/initial-scenarios/permission-deny-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/path-resolver-proof/attempt-started.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/path-resolver-proof/conclusion.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/path-resolver-proof/launcher-resolution.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/path-resolver-proof/preflight.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/path-resolver-proof/prior-evidence-preservation.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/path-resolver-proof/scope-verification.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/path-resolver-proof/verification-results.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/path-resolver-proof/wire-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/path-resolver-proof/wire.jsonl",
+      "unchanged": true
+    }
+  ],
+  "sourceAtRun": {
+    "gold_band_probe.py": "71bdc1e2eb2f7f5bbdc0831bd0fc16ae39a53f2eb11fdcc988024ed9f46b162f",
+    "path_resolver_probe.py": "ab1cd31eaa5c62aadafee0f3cb2a2427553fe4f44dd8577431be339328bf9f33",
+    "exact_launcher_probe.py": "8af05054677ab088dea1a2daf5c16a851041ddebb43e360c24ad2dca3c26a255",
+    "test_exact_launcher_probe.py": "5c14f6ae9b210a123fc4b038b438a286ecbf8379c6eeda0b218701c0ffd20d6d",
+    "test_path_resolver_probe.py": "0aa8c6bd86e869c8a175ab0b19e3700663f231a99a7ca684bc82f4f93965d247",
+    "test_gold_band_probe.py": "dab97ef948b795d0fe94bd3f28be212159c8c4b71d3e06c52d05cff4e874ba26"
+  },
+  "tests": {
+    "exactLauncherPassed": 4,
+    "resolverPassed": 6,
+    "jsonlPassed": 10
+  },
+  "attemptLimit": 1,
+  "prelaunchPeerReview": "PASS: independent reviewer checked actual raw Popen command line, cwd projection and child env wiring",
+  "realAttemptStarted": false
+}

@@ -1,0 +1,23 @@
+{
+  "authStatus": "NOT_AVAILABLE",
+  "wireStatus": "LAUNCHER_UNAVAILABLE_OR_NO_ACP_HANDSHAKE",
+  "initializeSent": true,
+  "initializeResponseReceived": false,
+  "sessionNewSent": false,
+  "newSessionId": null,
+  "closeSent": false,
+  "promptSent": false,
+  "automaticRetries": 0,
+  "launcherSwitched": false,
+  "diagnosis": "INSUFFICIENT_EVIDENCE_TO_DISTINGUISH_BACKEND_AUTH_OR_LAUNCHER_CAUSE",
+  "goldBandWirePass": false,
+  "backendHealthyAuthBranchSupported": false,
+  "authUnhealthyBranchSupported": false,
+  "materialChangesAttempted": [
+    "pinned npx launcher",
+    "elicitation.form capability",
+    "clientCapabilities._meta flags",
+    "clientInfo identity"
+  ],
+  "fieldCausalityProven": false
+}

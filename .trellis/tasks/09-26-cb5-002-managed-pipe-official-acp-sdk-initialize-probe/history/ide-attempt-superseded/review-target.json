@@ -1,0 +1,32 @@
+{
+  "task": "CB5-002",
+  "status": "BLOCKED real initialize; ready for independent review",
+  "code": {
+    ".gitignore": "7ba08f0c42883ea22ccc2ebcee272f83393101a5e7a3709db5af7fac3e17563f",
+    "cargo_bootstrap.py": "ce6c0c0bbb453129da216dcd5305bc0e010b0836d8b596a25988536d41fb7f06",
+    "harness/Cargo.toml": "eb4e535045daa76f5877ab65180ef9b269ae78fa91c553696ce85e3cd42a7b11",
+    "harness/Cargo.lock": "47430a3c38d3b8bb73f47eaa194851a7b7339987784cfd72490ab44a35c50da3",
+    "harness/src/main.rs": "65ca2ff497fc217312fd7ffc389b1cdf17e9da70ca78cb91a745ffd13ac303d6",
+    "harness/tests/contracts.rs": "022dafd1df555589d3c7fe735b9c100bfe508c387f1484e6a77215ce7c436f3a",
+    "test_cargo_bootstrap.py": "e558029c5ef304d1e53483303f311b2bf702e4897615c104d38e889deb356aa0"
+  },
+  "reviewContext": [
+    "prd.md",
+    "design.md",
+    "implement.md",
+    "verification.md",
+    "evidence/initialize.jsonl",
+    "evidence/sdk-details.json",
+    "evidence/process-evidence.json",
+    "evidence/protocol-gate.json",
+    "evidence/cargo-test-final.log",
+    "evidence/installation-entry-search.json",
+    "evidence/bootstrap-test.log"
+  ],
+  "excluded": [
+    "preexisting Host task artifacts",
+    "build/download caches",
+    "unrelated product baseline dirty state"
+  ],
+  "repairRound": 1
+}
