@@ -85,6 +85,11 @@ fn main() {
                 continue;
             }
             updates("updates.jsonl", if behavior == "stream" { 20 } else { 0 });
+            // Activity 测试等待真实异步 projector 落库后才允许终态响应。
+            if behavior == "activity-gate" {
+                fs::write("updates-sent", "").unwrap();
+                gate("release-prompt");
+            }
             let body = fs::read_to_string("response.json").unwrap();
             reply(id, &body, false);
             if behavior == "duplicate" {

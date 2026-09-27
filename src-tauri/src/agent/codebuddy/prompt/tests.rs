@@ -1,5 +1,11 @@
 //! 真实 Store + Windows Job + SDK fake wire，覆盖内部 Prompt authority。
 use super::*;
+
+#[path = "activity_tests.rs"]
+mod activity_tests;
+
+struct NoopTelemetry;
+impl AgentEventSink for NoopTelemetry {}
 use crate::agent::codebuddy::{
     fresh::{
         DesiredConfiguration, prepare,
@@ -170,7 +176,14 @@ async fn exact_wire_order_terminal_result_and_late_freeze() {
         )],
     );
     std::fs::write(dir.path().join("behavior"), "duplicate").unwrap();
-    let completed = prompt(session, store.clone(), sink.clone()).await.unwrap();
+    let completed = prompt(
+        session,
+        store.clone(),
+        sink.clone(),
+        Arc::new(NoopTelemetry),
+    )
+    .await
+    .unwrap();
     let result = completed.result.as_ref().unwrap();
     assert_eq!(
         serde_json::to_value(result).unwrap(),
@@ -274,7 +287,9 @@ async fn continuously_drains_bounded_collector() {
             .collect::<Vec<_>>(),
     );
     std::fs::write(dir.path().join("behavior"), "stream").unwrap();
-    let completed = prompt(session, store, sink).await.unwrap();
+    let completed = prompt(session, store, sink, Arc::new(NoopTelemetry))
+        .await
+        .unwrap();
     let result = completed.result.unwrap();
     assert_eq!(
         result.result_completeness,
@@ -331,13 +346,20 @@ async fn failures_and_future_drop_are_uncertain_without_retry() {
         )
         .unwrap();
         if behavior == "drop" {
-            let task = tokio::spawn(prompt(session, store.clone(), sink));
+            let task = tokio::spawn(prompt(
+                session,
+                store.clone(),
+                sink,
+                Arc::new(NoopTelemetry),
+            ));
             wait_wire(dir.path(), 3).await;
             task.abort();
             let _ = task.await;
             cleanup_evidence(&store, &id).await;
         } else {
-            let completed = prompt(session, store.clone(), sink).await.unwrap();
+            let completed = prompt(session, store.clone(), sink, Arc::new(NoopTelemetry))
+                .await
+                .unwrap();
             assert!(completed.result.is_err(), "{behavior}");
             assert_eq!(
                 completed.session.private.prompt_state,
@@ -515,7 +537,12 @@ async fn permission_is_not_terminal_and_typed_responses_persist() {
                 json!({"jsonrpc":"2.0","id":"permission","method":"session/request_permission","params":{}}),
             ],
         );
-        let task = tokio::spawn(prompt(session, store.clone(), sink));
+        let task = tokio::spawn(prompt(
+            session,
+            store.clone(),
+            sink,
+            Arc::new(NoopTelemetry),
+        ));
         let rows = wait_wire(dir.path(), 4).await;
         assert_eq!(
             rows[3]["result"],
@@ -591,7 +618,14 @@ async fn rejected_identity_preflight_and_stale_revision_send_nothing() {
             }
             _ => unreachable!(),
         }
-        let completed = prompt(session, store.clone(), sink.clone()).await.unwrap();
+        let completed = prompt(
+            session,
+            store.clone(),
+            sink.clone(),
+            Arc::new(NoopTelemetry),
+        )
+        .await
+        .unwrap();
         assert!(completed.result.is_err(), "{case}");
         assert_eq!(sink.calls.load(Ordering::SeqCst), 0);
         assert_eq!(
@@ -620,7 +654,12 @@ async fn occ_conflicts_fail_closed_without_terminal_overwrite() {
         let (dir, store, session, sink) = setup(&base, Limits::default()).await;
         let id = session.private.execution_id.clone();
         std::fs::write(dir.path().join("behavior"), "gate").unwrap();
-        let task = tokio::spawn(prompt(session, store.clone(), sink));
+        let task = tokio::spawn(prompt(
+            session,
+            store.clone(),
+            sink,
+            Arc::new(NoopTelemetry),
+        ));
         wait_wire(dir.path(), 3).await;
         let private_store = CodeBuddyStore(store.clone());
         let current = private_store.read(id.clone()).await.unwrap();

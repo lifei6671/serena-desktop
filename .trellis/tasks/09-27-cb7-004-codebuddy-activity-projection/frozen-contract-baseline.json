@@ -1,0 +1,22 @@
+[
+  {
+    "sha256": "C90595FCE0E1D57460648E3E28B2DC33A2C6E6AE7656C39C90AE96980958A778",
+    "path": "src-tauri/src/agent/store/usage_tests.rs"
+  },
+  {
+    "sha256": "4816ECA14E63D86C32A0BB6785FC6BC7D3A8F264679A267C6112C07099D1957B",
+    "path": "src-tauri/src/agent/provider/telemetry.rs"
+  },
+  {
+    "sha256": "6142F3552593100724F297D332F642792654B01DA36F1B2985866F8B23841325",
+    "path": "src-tauri/src/agent/provider/port.rs"
+  },
+  {
+    "sha256": "01B13136F0CEE32483D711B552782B872A35F4F247E26C7DB8CC0AE5946B4916",
+    "path": "src-tauri/src/agent/codebuddy/provider.rs"
+  },
+  {
+    "sha256": "DAEC729D75A3AB733B4C726EB51CB356D8BC0CFEADCA12A7CCDECE305609CC1E",
+    "path": "src-tauri/src/agent/telemetry_projector.rs"
+  }
+]

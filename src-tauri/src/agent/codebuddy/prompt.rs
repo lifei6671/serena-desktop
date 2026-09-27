@@ -1,5 +1,6 @@
 //! 内部单次 Prompt / terminal primitive；保留 Runtime，不授权 generic finalize 或 Claim release。
 use super::{
+    activity::ActivityMapper,
     fresh::PreparedFreshSession,
     protocol::{Failure, SessionFrame},
     store::{CodeBuddyStore, Mutation, Ownership, PromptState},
@@ -8,13 +9,15 @@ use crate::agent::{
     coordinator::now,
     provider::{
         ProviderOutcome, ProviderResultCompleteness, ProviderRunResult,
-        port::ProviderAcceptanceSink,
+        port::{AgentEventSink, ProviderAcceptanceSink, ProviderFuture},
+        telemetry::AgentTelemetryEvent,
     },
     store::StateStore,
 };
 use agent_client_protocol::schema::v1::{ContentBlock, PromptRequest, StopReason, TextContent};
+use futures::FutureExt;
 use serde_json::{Value, json};
-use std::{sync::Arc, time::Duration};
+use std::{collections::VecDeque, sync::Arc, time::Duration};
 use tokio::sync::oneshot;
 
 const CONVERSATION: &str = "codebuddy.ai/conversationRequestId";
@@ -31,11 +34,12 @@ pub(crate) async fn prompt(
     session: PreparedFreshSession,
     store: StateStore,
     sink: Arc<dyn ProviderAcceptanceSink>,
+    telemetry: Arc<dyn AgentEventSink>,
 ) -> Result<PromptCompletion, Failure> {
     let (cancel, cancelled) = oneshot::channel();
     // 单个有界 ownership task 保证 SQLite 写入不因 caller future drop 而悬空。
     // 放弃后仅收敛 Uncertain 并走 Runtime 的既有 Job cleanup，不重试请求。
-    let task = tokio::spawn(run(session, store, sink, cancelled));
+    let task = tokio::spawn(run(session, store, sink, telemetry, cancelled));
     let completion = task.await.map_err(|_| Failure::State);
     drop(cancel);
     completion
@@ -46,6 +50,7 @@ async fn run(
     mut session: PreparedFreshSession,
     store: StateStore,
     sink: Arc<dyn ProviderAcceptanceSink>,
+    telemetry: Arc<dyn AgentEventSink>,
     mut cancelled: oneshot::Receiver<()>,
 ) -> PromptCompletion {
     let private_store = CodeBuddyStore(store.clone());
@@ -97,12 +102,7 @@ async fn run(
         )]));
         requests.preflight(&request)?;
         let mut collector = Collector::default();
-        collector.drain(
-            std::mem::take(&mut session.early_frames),
-            &session_id,
-            &current.conversation_request_id,
-            requests.shared.limits.queue_bytes,
-        );
+        let early_frames = std::mem::take(&mut session.early_frames);
         if cancelled.try_recv() != Err(oneshot::error::TryRecvError::Empty) {
             return Err(Failure::Closed);
         }
@@ -120,7 +120,30 @@ async fn run(
             return Err(Failure::Closed);
         }
         session.mark_accepted(sink.as_ref())?;
-        let response = {
+        let mut activity = ActivityMapper::new(
+            row.id.clone(),
+            session_id.clone(),
+            current.conversation_request_id.clone(),
+            current.provider_request_id.clone(),
+            requests.shared.limits.queue_count,
+        );
+        let (response, publication_pending) = {
+            let mut queue = VecDeque::new();
+            // early 帧同样经过 exact identity；接受完成前不调用 telemetry。
+            for frame in &early_frames {
+                if let Some(event) = activity.map(frame)
+                    && queue.len() < requests.shared.limits.queue_count
+                {
+                    queue.push_back(AgentTelemetryEvent::Activity(event));
+                }
+            }
+            collector.drain(
+                early_frames,
+                &session_id,
+                &current.conversation_request_id,
+                requests.shared.limits.queue_bytes,
+            );
+            let mut publishing: Option<ProviderFuture<'_, ()>> = None;
             let request = requests.request(request);
             tokio::pin!(request);
             // 轮询间隔小于 queue TTL；每次释放 exact route 的 count/bytes 预算。
@@ -129,20 +152,41 @@ async fn run(
                 .max(Duration::from_micros(1));
             let mut tick = tokio::time::interval(interval);
             loop {
+                // 单一在途 publish 与有界 FIFO，不阻塞 request/timeout，也不创建后台任务。
+                if publishing.is_none()
+                    && let Some(event) = queue.pop_front()
+                {
+                    publishing = Some(telemetry.publish(event));
+                }
                 tokio::select! {
                     biased;
                     _ = &mut cancelled => break Err(Failure::Closed),
-                    response = &mut request => break response,
+                    response = &mut request => break response.map(|response| (response, publishing.is_some())),
+                    _ = async { match publishing.as_mut() {
+                        Some(future) => future.await,
+                        None => std::future::pending().await,
+                    }} => { publishing = None; }
                     _ = tick.tick() => {
-                        collector.drain(requests.shared.take_session(&session_id)?, &session_id,
+                        let frames = requests.shared.take_session(&session_id)?;
+                        for frame in &frames {
+                            if let Some(event) = activity.map(frame)
+                                && queue.len() < requests.shared.limits.queue_count
+                            {
+                                queue.push_back(AgentTelemetryEvent::Activity(event));
+                            }
+                        }
+                        collector.drain(frames, &session_id,
                             &current.conversation_request_id, requests.shared.limits.queue_bytes);
                     }
                 }
             }
         }?;
         // SDK exact response 到达后做最后一次 drain；此后不再修改正文快照。
+        let frames = requests.shared.take_session(&session_id)?;
+        publish_final_activity(&mut activity, &frames, telemetry.as_ref(), publication_pending);
+        drop(activity);
         collector.drain(
-            requests.shared.take_session(&session_id)?,
+            frames,
             &session_id,
             &current.conversation_request_id,
             requests.shared.limits.queue_bytes,
@@ -229,6 +273,30 @@ async fn run(
         result
     };
     PromptCompletion { session, result }
+}
+
+/// final drain 仅串行推进立即就绪事件；Pending 的已提交副作用不能靠 drop 撤销。
+fn publish_final_activity(
+    activity: &mut ActivityMapper,
+    frames: &[SessionFrame],
+    telemetry: &dyn AgentEventSink,
+    publication_pending: bool,
+) {
+    // 已有在途发布可能仍在写 Store，不再提交后续事件，避免终态边界发生逆序覆盖。
+    if publication_pending {
+        return;
+    }
+    for frame in frames {
+        if let Some(event) = activity.map(frame)
+            && telemetry
+                .publish(AgentTelemetryEvent::Activity(event))
+                .now_or_never()
+                .is_none()
+        {
+            // 首次 Pending 后放弃余下 Activity；private collector 仍消费整批快照。
+            break;
+        }
+    }
 }
 
 /// 只保留有界正文；任何无法归属或超预算片段都降级 completeness。

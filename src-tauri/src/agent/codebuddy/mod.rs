@@ -1,3 +1,6 @@
+#[cfg(windows)]
+#[allow(dead_code, reason = "CB7-004 内部 Activity mapper，能力仍冻结")]
+mod activity;
 #[allow(
     dead_code,
     reason = "CB6-003 建立 transport primitive，CB7 才接产品执行"

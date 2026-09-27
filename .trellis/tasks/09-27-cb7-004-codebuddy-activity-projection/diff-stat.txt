@@ -1,0 +1,5 @@
+ src-tauri/src/agent/codebuddy/mod.rs               |  3 +
+ src-tauri/src/agent/codebuddy/prompt.rs            | 94 +++++++++++++++++++---
+ src-tauri/src/agent/codebuddy/prompt/tests.rs      | 53 ++++++++++--
+ src-tauri/tests/fixtures/codebuddy_prompt_child.rs |  5 ++
+ 4 files changed, 135 insertions(+), 20 deletions(-)
