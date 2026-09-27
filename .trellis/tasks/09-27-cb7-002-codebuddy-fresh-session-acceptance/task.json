@@ -1,0 +1,34 @@
+{
+  "id": "cb7-002-codebuddy-fresh-session-acceptance",
+  "name": "cb7-002-codebuddy-fresh-session-acceptance",
+  "title": "CB7-002 Fresh Session / Workspace Binding / Acceptance",
+  "status": "completed",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-09-27",
+  "completedAt": "2026-09-27",
+  "branch": "feat/codebuddy",
+  "priority": "P1",
+  "relatedFiles": [
+    "src-tauri/src/agent/codebuddy/client_tests.rs",
+    "src-tauri/src/agent/codebuddy/mod.rs",
+    "src-tauri/src/agent/codebuddy/protocol.rs",
+    "src-tauri/src/agent/codebuddy/provider.rs",
+    "src-tauri/src/agent/codebuddy/recovery.rs",
+    "src-tauri/src/agent/codebuddy/runtime.rs",
+    "src-tauri/src/agent/codebuddy/runtime_tests.rs",
+    "src-tauri/src/agent/codebuddy/windows_launcher.rs",
+    "src-tauri/src/agent/store/codebuddy_runtime.rs",
+    "src-tauri/src/agent/task_manager/tests.rs",
+    "src-tauri/src/agent/codebuddy/fresh.rs",
+    "src-tauri/src/agent/codebuddy/fresh/boundary_tests.rs",
+    "src-tauri/src/agent/codebuddy/fresh/tests.rs",
+    "src-tauri/tests/fixtures/codebuddy_fresh_child.rs"
+  ],
+  "notes": "Original MCD RESOLVED_BY_HOST_DESIGN. Internal PreparedFreshSession implemented; execute unsupported/canExecute=false. CodeBuddy 90/90 PASS; broad TaskManager/Codex failures reproduced at baseline; Clippy only frozen usage_tests.rs:987. Independent FULL_SCOPE review PASSED after one P2 repair; no remaining findings. No CB7-003 lifecycle in this task.",
+  "meta": {
+    "deliveryStatus": "COMPLETED",
+    "originalMcd": "RESOLVED_BY_HOST_DESIGN",
+    "reviewTarget": "70FFF7427843B5738161F2FA92249D527C3F59E8699A69327B5AB5674B2CB6D3"
+  }
+}

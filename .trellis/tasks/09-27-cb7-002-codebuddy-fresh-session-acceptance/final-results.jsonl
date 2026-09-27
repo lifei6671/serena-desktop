@@ -1,0 +1,5 @@
+{"name":"task-manager-final","command":"C:/Users/lifei/.cargo/bin/cargo.exe test --lib agent::task_manager -- --nocapture","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exitCode":101}
+{"name":"codex-final","command":"C:/Users/lifei/.cargo/bin/cargo.exe test --lib agent::codex -- --nocapture","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exitCode":101}
+{"name":"fmt-final","command":"C:/Users/lifei/.cargo/bin/cargo.exe fmt --all -- --check","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exitCode":1}
+{"name":"check-final","command":"C:/Users/lifei/.cargo/bin/cargo.exe check --lib --tests","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exitCode":0}
+{"name":"clippy-final","command":"C:/Users/lifei/.cargo/bin/cargo.exe clippy --lib --tests -- -D warnings","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exitCode":101}

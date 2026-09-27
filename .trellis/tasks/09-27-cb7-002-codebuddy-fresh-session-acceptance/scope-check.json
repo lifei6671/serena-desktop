@@ -1,0 +1,24 @@
+{
+  "baselineCount": 840,
+  "changed": [
+    "src-tauri/src/agent/codebuddy/client_tests.rs",
+    "src-tauri/src/agent/codebuddy/mod.rs",
+    "src-tauri/src/agent/codebuddy/protocol.rs",
+    "src-tauri/src/agent/codebuddy/provider.rs",
+    "src-tauri/src/agent/codebuddy/recovery.rs",
+    "src-tauri/src/agent/codebuddy/runtime.rs",
+    "src-tauri/src/agent/codebuddy/runtime_tests.rs",
+    "src-tauri/src/agent/codebuddy/windows_launcher.rs",
+    "src-tauri/src/agent/store/codebuddy_runtime.rs",
+    "src-tauri/src/agent/task_manager/tests.rs"
+  ],
+  "added": [
+    "src-tauri/src/agent/codebuddy/fresh.rs",
+    "src-tauri/src/agent/codebuddy/fresh/boundary_tests.rs",
+    "src-tauri/src/agent/codebuddy/fresh/tests.rs",
+    "src-tauri/tests/fixtures/codebuddy_fresh_child.rs"
+  ],
+  "head": "5e2ff1e21999a8888b29af02e4dca2773d27efe5",
+  "branch": "feat/codebuddy",
+  "usageTestsSha256": "C90595FCE0E1D57460648E3E28B2DC33A2C6E6AE7656C39C90AE96980958A778"
+}

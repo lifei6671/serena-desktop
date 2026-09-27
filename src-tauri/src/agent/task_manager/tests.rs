@@ -1834,3 +1834,83 @@ async fn provider_policy_refresh_recovers_initially_unavailable_resume() {
     assert_eq!(id, created.execution_id);
     assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+/// Fresh preparation 不开放 TaskManager admission；绕过 capability 直接 execute 也不能半接受。
+async fn codebuddy_fresh_preparation_keeps_execute_unaccepted_and_runtime_absent() {
+    use crate::agent::{
+        codebuddy::{
+            discovery::DiscoveryResult, provider::register_codebuddy_provider_with_discovery,
+        },
+        provider::{ProviderExecutionContext, port::ProviderAcceptanceSink},
+    };
+    /// 记录真实 sink 调用，而非从 execute 返回值反推 acceptance。
+    #[derive(Default)]
+    struct Acceptance(AtomicBool);
+    impl ProviderAcceptanceSink for Acceptance {
+        /// 若边界退化为先 accepted 后 unsupported，此标记令契约测试失败。
+        fn accepted(&self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+    /// 此测试无活动消息消费，也不提供任何 prompt authority。
+    struct Events;
+    impl AgentEventSink for Events {}
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let mut registry = ProviderRegistry::new();
+    register_codebuddy_provider_with_discovery(
+        &mut registry,
+        store.clone(),
+        "host".into(),
+        Ok(DiscoveryResult::direct_for_test("C:/fake/codebuddy.exe")),
+    )
+    .unwrap();
+    let provider_id = ProviderId::new("codebuddy".into()).unwrap();
+    let provider = registry.get_registered(&provider_id).unwrap();
+    assert_eq!(
+        registry.health(&provider_id).unwrap(),
+        ProviderHealth::Available
+    );
+    assert_eq!(
+        provider.capabilities(),
+        ProviderCapabilities {
+            can_execute: false,
+            can_continue: false,
+            can_cancel: false,
+            can_recover: cfg!(windows),
+            activity: false,
+            token_usage: false,
+        }
+    );
+    let mut manager = AgentTaskManager::new(store.clone(), "must-not-launch.exe".into());
+    manager.use_registry(registry);
+    manager.set_provider_enabled_for_test("codebuddy", true);
+    let mut request = input(directory.path(), "codebuddy-blocked");
+    request.provider = provider_id;
+    assert_eq!(
+        manager.execute(request).await.unwrap_err(),
+        ProviderExecutionFailure::State("AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into())
+    );
+    let acceptance = Arc::new(Acceptance::default());
+    assert_eq!(
+        provider
+            .execute(
+                ProviderExecutionContext {
+                    execution_id: "direct-bypass".into()
+                },
+                acceptance.clone(),
+                Arc::new(Events)
+            )
+            .await
+            .unwrap_err(),
+        ProviderExecutionFailure::State("AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into())
+    );
+    assert!(!acceptance.0.load(Ordering::SeqCst));
+    let db = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+    let counts: (i64, i64, i64) = db.query_row(
+        "SELECT (SELECT COUNT(*) FROM runtime_instances), (SELECT COUNT(*) FROM execution_runtime_attempts), (SELECT COUNT(*) FROM codebuddy_execution_state)",
+        [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
+    assert_eq!(counts, (0, 0, 0));
+}

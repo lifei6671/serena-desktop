@@ -178,6 +178,11 @@ impl LaunchRequest {
     pub(crate) fn projected_cwd(&self) -> &ExternalProcessPath {
         &self.current_dir
     }
+
+    /// 持久化 Runtime 与真实 Job 名必须引用同一个 R1。
+    pub(crate) fn runtime_instance_id(&self) -> &str {
+        &self.runtime_instance_id
+    }
 }
 
 impl fmt::Debug for LaunchRequest {

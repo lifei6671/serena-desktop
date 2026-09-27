@@ -135,6 +135,12 @@ mod windows;
 #[cfg(windows)]
 use windows::observe;
 
+/// prepare 使用与 recovery 相同的 Local Job namespace authority。
+#[cfg(windows)]
+pub(crate) fn current_session() -> Result<u32, String> {
+    windows::session()
+}
+
 /// 每个 execution 不确定映射为 generic unknown；全局 Store 失败才传播到 Provider health。
 pub(crate) async fn startup(
     store: &StateStore,

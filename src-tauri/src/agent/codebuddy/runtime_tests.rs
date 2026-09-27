@@ -189,3 +189,120 @@ async fn managed_job_handshake_and_failure_cleanup() {
         );
     }
 }
+
+#[tokio::test]
+/// persisted fake Job 覆盖 lifecycle、drop、握手失败、launch 失败和 caller 取消；不运行真实 CLI。
+async fn persisted_runtime_ownership_and_recovery_evidence() {
+    let directory = tempfile::tempdir().unwrap();
+    let base = directory.path().join("base.exe");
+    let build = std::process::Command::new("rustc")
+        .args(["--edition=2024", "--crate-name", "codebuddy_acp_child"])
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/codebuddy_acp_child.rs"))
+        .arg("-o")
+        .arg(&base)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .unwrap();
+    assert!(
+        build.status.success(),
+        "{}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    for (sequence, mode) in ["success", "drop", "mismatch", "timeout", "missing"]
+        .into_iter()
+        .enumerate()
+    {
+        let executable = directory.path().join(format!("{mode}.exe"));
+        if mode != "missing" {
+            std::fs::copy(&base, &executable).unwrap();
+        }
+        let request = request(&executable, sequence + 100);
+        let runtime_id = request.runtime_instance_id().to_string();
+        let database = tempfile::tempdir().unwrap();
+        let store = StateStore::open(database.path().into()).await.unwrap();
+        store
+            .prepare_codebuddy_runtime(
+                runtime_id.clone(),
+                "runtime-test-host".into(),
+                super::super::recovery::current_session().unwrap(),
+                executable.to_str().unwrap().into(),
+                now(),
+            )
+            .await
+            .unwrap();
+        let pending = tokio::spawn(Runtime::start_persisted(
+            request,
+            Limits {
+                request_timeout: Duration::from_millis(500),
+                ..Limits::default()
+            },
+            store.clone(),
+            runtime_id.clone(),
+        ));
+        if mode == "timeout" {
+            // 取消外部 future 时私有 owner task 仍完成有界握手及清理，不能抢先生成 destroyed。
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                if store
+                    .runtime(runtime_id.clone())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .codex_pid
+                    .is_some()
+                {
+                    break;
+                }
+                assert!(Instant::now() < deadline);
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            pending.abort();
+            let _ = pending.await;
+        } else {
+            let result = pending.await.unwrap();
+            match mode {
+                "success" | "drop" => {
+                    let (runtime, _) = result.unwrap();
+                    let row = store.runtime(runtime_id.clone()).await.unwrap().unwrap();
+                    assert_eq!(row.state, "running");
+                    assert!(row.job_policy_verified_at.is_some());
+                    assert!(row.codex_pid.is_some());
+                    assert!(row.codex_process_start_token.is_some());
+                    if mode == "drop" {
+                        drop(runtime);
+                    } else {
+                        runtime.shutdown().await.unwrap();
+                    }
+                }
+                "mismatch" => assert!(matches!(result, Err(Failure::Incompatible))),
+                // 未创建/验证 Job 不能伪造 policy/evidence；恢复明确保持 unknown。
+                "missing" => assert!(matches!(result, Err(Failure::Cleanup))),
+                _ => unreachable!(),
+            }
+        }
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let row = store.runtime(runtime_id.clone()).await.unwrap().unwrap();
+            if mode == "missing" {
+                assert_eq!(row.state, "unknown");
+                assert!(row.job_policy_verified_at.is_none());
+                assert_ne!(row.termination_evidence_state, "complete");
+                break;
+            }
+            if row.termination_evidence_state == "complete" {
+                assert_eq!(row.state, "terminated");
+                assert!(matches!(
+                    row.termination_evidence_type.as_deref(),
+                    Some("managed_job_destroyed" | "job_active_processes_zero")
+                ));
+                // 与 startup recovery 共用原 identity 和证据，重复恢复必须幂等成功。
+                super::super::recovery::recover(&store, runtime_id.clone(), Duration::from_secs(1))
+                    .await
+                    .unwrap();
+                break;
+            }
+            assert!(Instant::now() < deadline, "{mode}: {}", row.state);
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+}

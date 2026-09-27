@@ -1,0 +1,3367 @@
+{
+  "head": "5e2ff1e21999a8888b29af02e4dca2773d27efe5",
+  "branch": "feat/codebuddy",
+  "clean": true,
+  "files": [
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/baseline.json",
+      "sha256": "789D2CEA9C7B41D894EAEBD43FE5FBEDA57492CED10BBBA4BA335500A85D1A20"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/check.jsonl",
+      "sha256": "8F4F01B7A141BADBB1096201EE54240E3AEF6D17F05328E216BC1C901D104465"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/delivery-review.md",
+      "sha256": "AD6924FD6C15F310C9B7FBECE1D35146927925BC818EDBA080B2357007FDDE22"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/design.md",
+      "sha256": "95F77B520D7206D7D923063CC42DBA0ECAA838AEB2A69D3FCA58B1B033EBA7E8"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence.sha256",
+      "sha256": "D280C0DBD89C8D809B7B6C8D920331F8602F74A25E9C7B0BDB3CFB0AAAC2ED66"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/activity-order.json",
+      "sha256": "A84B1F50C58719F3D57A6199FDB923885A56389377DFF323B534050CCD18D5F5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/conversation-request-id.json",
+      "sha256": "5B0DA8A02DD066495A2F46060143E9780FFB660053CC6CAE122EE86C182FF576"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/fresh-session.jsonl",
+      "sha256": "FD3C5AAECA5F04B7A078370BB5755F232B1BC515218A889D525026FC15A66A2A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/isolated-write-result.json",
+      "sha256": "EAB22083146D8B6AF4521FBFDA52BBD2210F23B0F5D2532EEA63AE9B2C4877BE"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/process-evidence.json",
+      "sha256": "4E6549DA0BF27CE4828257A8F8AE60E2D40E8197FF18882C71EF048F5D93D887"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/read-attempt-1.json",
+      "sha256": "1B6EE364B69C0D84E7E391F5479A3D471F7FA0A0452C1DECBC326CBC3789C054"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/read-attempt-2.json",
+      "sha256": "ADF2B200BB161C3FFFD73B1EA163FC940D13FB9F162AF00F7CE092626684B2C0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/read-only-result.json",
+      "sha256": "1B6EE364B69C0D84E7E391F5479A3D471F7FA0A0452C1DECBC326CBC3789C054"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/rerun-source-check.json",
+      "sha256": "7D23A8838F36FF3BEB79D7429DC79032C0FB280425798F88E852E643922AAFEF"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/runner-repair-provenance.json",
+      "sha256": "FE4262F9B56E3A702F621002329B5D70F56A10D97940C76FE917C526A31E1B4A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/runner-result.json",
+      "sha256": "43F106C04EF1D1638CCCA1FDA801CE18E8BD47D288A432A9D3632D8BA72A6EF1"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/scope-verification.json",
+      "sha256": "3D70353A4A5E3BA84320BE8FA8BD8AE71421E7864657378163E53BD1AF50B449"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/sdk-details.json",
+      "sha256": "7A477EE86A74A4C750463BD18D1A7196B238D26A4083D48F15122717BCE52E29"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/write-attempt-1.json",
+      "sha256": "EAB22083146D8B6AF4521FBFDA52BBD2210F23B0F5D2532EEA63AE9B2C4877BE"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/write-attempt-2.json",
+      "sha256": "5442C61D9FD9C85864E55E0E5B3D6F592B07588476E76849A3EE6D09AFD117CB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/harness/Cargo.lock",
+      "sha256": "2DD7EC5B969AC79090533BA20972FBA1CB1BF9B6A0C8319FF80B9D7480D4FF25"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/harness/Cargo.toml",
+      "sha256": "0CE4C0F967BEE5A194534341BAD3C8677600FB238B67E84CFB8C58535CEA3FB8"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/harness/src/main.rs",
+      "sha256": "F2F7D0468EEEEEFED28DE50A9FD79D1DD932228834924BD860FF59E6A9F149C3"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/harness/src/transport.rs",
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/harness/tests/contracts.rs",
+      "sha256": "0270B33F9A3697BD6E031B0157527EBC352274F2D22B30B07CE9700E33096F60"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/HISTORY.json",
+      "sha256": "CE0745A9031F0592B0BF2D65DE33C9EEE111E419973619CAB82DD8C9F9AFA664"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/delivery-review.md",
+      "sha256": "2284A13C55155599FCB39E3445250687BDB08007D59C10E0A46467C83F846479"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/activity-order.json",
+      "sha256": "2A6ADA3DFEE028FC1BB25D9E45D8D2C0EA96AE59FB74F274CAEAA51815341D77"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/conversation-request-id.json",
+      "sha256": "DAB04F9299A6FC309FF6A2F98D3630CBD4E71855AB7A2E5B8AF89F33B6368A61"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/fresh-session.jsonl",
+      "sha256": "0B9A36360EF1ACEFDBB7A9656B13FC695D838492A8C5B7F2A0990F12F5BE74FE"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/isolated-write-result.json",
+      "sha256": "69E1D72DCB5B480E230AEBB7A846B566CEF8F25B42727628E7715FE836E28203"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/process-evidence.json",
+      "sha256": "87A7807DADAAAE51B4CE6314B3F92452DEE1F0A592D9F01092539AFD46A8884D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/read-only-result.json",
+      "sha256": "1DC41A675731D262B3CC6644E1B7ACD8AE7501EEA9BACC256906D3436BE7FD88"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/scope-verification.json",
+      "sha256": "AD8F13E5D5B857A077F26A4B8969C8BCB4F9F31B8498664329F05E2453A8FA9A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/sdk-details.json",
+      "sha256": "7A477EE86A74A4C750463BD18D1A7196B238D26A4083D48F15122717BCE52E29"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/review-freshness.json",
+      "sha256": "8F7CB710B18497832F8057808C0E0388CC91CAF59E0E71C00FD699C2035F9979"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/review-target.json",
+      "sha256": "3C7BA3B8DA19766F0AA48BDD55202430FEFCAB0766B59630AA979F8349888DF6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/verification.md",
+      "sha256": "EFA89D86ABB90B7FE32623EAE47E7FB6D52A260E29FD10A2EDBDF873CA4EB88F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-runner-repair/PROVENANCE.json",
+      "sha256": "B8E4D6ADC21A8BBDA61D821D3F9F9ADEE47506874255C68CB3DA9E8992F1D3E1"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-runner-repair/review-target.json",
+      "sha256": "BDF464B09326F4416247E84E493FB955E026F414D5449F90C7D078FCD50162E9"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-runner-repair/run_probe.py",
+      "sha256": "26AA6B1A5505BE03996A2FD5EFF4F2C3C5C4817063C198BD5D187FA4C3529390"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-runner-repair/verification.md",
+      "sha256": "A9C59D1E81FB8B30D4E07AFA6E36F0F46472A68240909CB43C51E54CD41DFE33"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/HISTORY.json",
+      "sha256": "B32F15CBAFEBFD03E164F6464FE966ACE60E3C8965A9489C5BA6C265157475E7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/baseline.json",
+      "sha256": "789D2CEA9C7B41D894EAEBD43FE5FBEDA57492CED10BBBA4BA335500A85D1A20"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/check.jsonl",
+      "sha256": "8F4F01B7A141BADBB1096201EE54240E3AEF6D17F05328E216BC1C901D104465"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/delivery-review.md",
+      "sha256": "727F3586FBF8E62B1872B27D06AA8DFBC9F601A1359C79FA92222B1C5CCF3E22"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/design.md",
+      "sha256": "E174DFA783CE34BF53C30A6A14E398EAD9BF1D837761877EAEACB1219190FD0E"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence.sha256",
+      "sha256": "A61E6C0C8810F4E3FF07A086AEF30B9765412FA07DADF403F3EBE16BA58377D1"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/activity-order.json",
+      "sha256": "2A6ADA3DFEE028FC1BB25D9E45D8D2C0EA96AE59FB74F274CAEAA51815341D77"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/conversation-request-id.json",
+      "sha256": "1FC44E6EBE1782534F1FAA088A2C741C4ECFA6FA3D7C5F30E4F09D28FDBA3524"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/fresh-session.jsonl",
+      "sha256": "24E0F47A678675C15A93F4662851ED02C27E92688960EBAD0B14C5499750FC55"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/isolated-write-result.json",
+      "sha256": "BD1E7CE2E0B89E034A8548F2EE2F93A0AB8056490DF129C3C7154ED722842E5C"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/process-evidence.json",
+      "sha256": "AA0DFD3EB43671727D22DAB0921435FBDA015145A1C17B25BAF1E462EEF5F7D0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/read-only-result.json",
+      "sha256": "FF1DF8B7579551DF5293F54719A9B8A5ED929263FF1E9833A04940ED9699E915"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/rerun-source-check.json",
+      "sha256": "BECE8DA4C92C51CAA2EB76661D0428A0F9919B3D72E8943315308CA2EFCFC6C9"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/scope-verification.json",
+      "sha256": "EBDC30AE5A812245FB97340A5A6A6EE5FB01BCD715B26E24EC2D803583DFA187"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/sdk-details.json",
+      "sha256": "7A477EE86A74A4C750463BD18D1A7196B238D26A4083D48F15122717BCE52E29"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/harness/Cargo.lock",
+      "sha256": "2DD7EC5B969AC79090533BA20972FBA1CB1BF9B6A0C8319FF80B9D7480D4FF25"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/harness/Cargo.toml",
+      "sha256": "8879F41FA58FD45E0BB3759F901A2C54B7D756999363B40459EE5812C7EC7E71"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/harness/src/main.rs",
+      "sha256": "A4E540EEE10CE8B978EADF59A7ADBAF697F7555892F704C9E644F1A2E400AE6D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/harness/src/transport.rs",
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/harness/tests/contracts.rs",
+      "sha256": "0270B33F9A3697BD6E031B0157527EBC352274F2D22B30B07CE9700E33096F60"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/implement.jsonl",
+      "sha256": "265065814030D620608206DCF8094BD1502DB73E043EC2C1BB942A9B03BE3EF0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/implement.md",
+      "sha256": "3A68C6CCA1EB3666C4B43C935211D197ACA66B7DE82E517C1C58384AEA1A8FE0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/prd.md",
+      "sha256": "BC83A2D29D5B95D1FD90594A19BF964198677ABAC5E35C7D89B9C7251DBF3308"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/review-freshness.json",
+      "sha256": "2A76C569309181103CAD355B6285EDD6157A745EC53D22C7BD032CBB9D896DE1"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/review-target.json",
+      "sha256": "451B176DF03436A034536A51F1C84C9FD742EE18DCDACA7D514B98D261359F66"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/run_probe.py",
+      "sha256": "0BB566BDC0FE981569D275955A6C4E7612C0B47BD859BDEFC6FF087F01F7E1D7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/task.json",
+      "sha256": "A6FD4A3351CFF284C0AC1521237F5E71169EF9D597BDACBF6290F84E89807B3B"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/verification.md",
+      "sha256": "F2328B5BC87608E75CA402D7BEF0964AC3CD2F204E2B22C301E40DA60F1ADAD2"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/implement.jsonl",
+      "sha256": "265065814030D620608206DCF8094BD1502DB73E043EC2C1BB942A9B03BE3EF0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/implement.md",
+      "sha256": "3A68C6CCA1EB3666C4B43C935211D197ACA66B7DE82E517C1C58384AEA1A8FE0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/prd.md",
+      "sha256": "2FC8AF7A4ACDDB3E7D530DFFBAC414ADFBA9B8368705176745431CA2801596D1"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/review-freshness.json",
+      "sha256": "E057D1089080D99A627F0CAF64217D8FAE855307E30DD937D4494918D8B223E1"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/review-round-uuidv7-1.md",
+      "sha256": "34A52FEAE26D2311D617A2913AA3EE1FAFA902DF76465AD5691A3D1AAAED8D14"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/review-target.json",
+      "sha256": "C1E0826D666EB3388890F9218B5F8A20186B1FDD94F3E7DA6D698DCC0DF9AA50"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/run_probe.py",
+      "sha256": "16C8229F4DF119196BBF9F41F7B2B332A5BC0D5CD025545258394E099203E623"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/task.json",
+      "sha256": "A6FD4A3351CFF284C0AC1521237F5E71169EF9D597BDACBF6290F84E89807B3B"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/test_run_probe.py",
+      "sha256": "FD807FC9B94EFA1B5A125BF92AF9F540AE87502C80FB37BBE5C3A630C86C25FC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/verification.md",
+      "sha256": "6E0E501238554789F6E6238244887C374E893DCE4F0CB90265ABEE7FEC5B3A77"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/check.jsonl",
+      "sha256": "B93CB990F2D0604879FABED23FFD2C1C92D9F351797F84ECCD0320C8822E737F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/design.md",
+      "sha256": "AEE8C39C4D6AEE84317FDD3F9A1979845B332573C3223BACE1B8EBAEE79882EB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence.sha256",
+      "sha256": "FAF94ED945F3D31B1CB2DFD68CA30D6AE303BCBBD6CC1289F340FEA03B0090E4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/cancel-after-result.identity.json",
+      "sha256": "35CF6809285FAC760024EB94B9F50BEA197B7EB320875C2E4383421A23180A98"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/cancel-after-result.json",
+      "sha256": "CB4A24147B224C8C8B1903A355AE4853E54A3E916CA629D1AD6F24178A65B8A4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/cancel-before-result.identity.json",
+      "sha256": "FC6CF2FCD90AD8E7AF7F2C50247272F44AFF32DD033D59B774E40CAAE9527895"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/cancel-before-result.json",
+      "sha256": "D63BA1A7A5161A956C2FEC03AE8F00933DE5D08C2A187FA6600FC2CB1B7D6FE7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/cancellation.jsonl",
+      "sha256": "01000ED590CBB3180C6306A901F9DF27F2E62084AC76FB11E6D24A0B9CB2BFF8"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/cancellation.jsonl",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/permission-options.json",
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/permission.jsonl",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/prior-evidence-preservation.json",
+      "sha256": "735F070AE6E34FF903BF5A2CB7AD82F860A961A56367C44B8695109F2E3A8C8D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/process-evidence.json",
+      "sha256": "B8A89E4AB17D95AD01B0A7BCF85361D4208FDB6125D8909CE6F6599095486913"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/runner-result.json",
+      "sha256": "C20758B068039987DC4880260DB6B7CD9B9D57CF9985DE664D6A20B13C45B555"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/session-new-repair-result.identity.json",
+      "sha256": "ED296F0890BE80FB414A5E1D89A1DD813287C4FD9AE24C65946A7A69FAEAB089"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/session-new-repair-result.json",
+      "sha256": "F28F6945321F378C1A3EF648B5288A8BDB8FD5759389D8EE053C26CF332577E5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/session-new-repair.jsonl",
+      "sha256": "E75E40E94175C668529B9C38891153ED921BE774D96688FD9422E8FB5A1CEE95"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/attempt-started.json",
+      "sha256": "75536905F7F3CBBBE4B0E48DD90A446521E68EC66E32B3B3133ECF331F6520B9"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/conclusion.json",
+      "sha256": "747503F7DDB9A0F60B882CF1754C7B978BBDDE5B2E0980A07EDF1A540373B962"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/launcher-resolution.json",
+      "sha256": "A8D7C673658A23A40EE5EC0DE8C707CC29F5F3C3406CC152AEBB8EC95D7024B6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/preflight.json",
+      "sha256": "6F44DBA9F582F99AF6C74B7CDD2007D918FB56495511294E5316A8C9B9D57FBF"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/prior-evidence-preservation.json",
+      "sha256": "13AA2D89A4DFD247C0F4110D302DC31D5825B8D49C6E540DB19EDD9B3C9AE0F7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/verification-results.json",
+      "sha256": "3D5854C380D8EA75B71E113447B38D911346ACCADFC20A980DE6F65A06B18BE0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/wire-result.json",
+      "sha256": "38B6429765505E4A963FF68735FDB7E1A24FE444EA27AD22C6026B1E5D5CF6B7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/wire.jsonl",
+      "sha256": "8950D95A213082816C1AD634CB4CB8402AE2E88FF2F397812F5B14D7B28ED5A0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/attempt-started.json",
+      "sha256": "35749FED71F19A5C1E5B10938929BA00B867D5EBE6F0A7EEE3C88B4A7FC97DC5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/conclusion.json",
+      "sha256": "B24FC3797CC711A5D9F331D67DAD7A3A30094B634585444DD1C3E429F61265B3"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/preflight.json",
+      "sha256": "296E81F84DEA7781E96E6A30DDEEA9EB833987B9CB028C56AD185693B0830208"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/prior-evidence-preservation.json",
+      "sha256": "6618DE46CB2AADE1325469571E22AA330FB6B851E1B24637085A28FF6328BB1C"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/review-repair-1.json",
+      "sha256": "CB4F0EADAAF22B21D1F5094D613BBEFEFEC029BCFAF44EE1325992F381043DB7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/serve-auth-status.json",
+      "sha256": "2B64F2C9161295B1F6F48B1399A96D17E8D7DE75B1BDAD9D6AD24173C4A3590F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/verification-results.json",
+      "sha256": "F49EDB65B96A83FECDED85CCF609971472151EE2C1EB556B68DFA7C8084696FE"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/wire-result.json",
+      "sha256": "18335B825BE80CC303FB1DE631675034A7C0CE24CA603BA0853F6A3E33C28761"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/wire.jsonl",
+      "sha256": "8950D95A213082816C1AD634CB4CB8402AE2E88FF2F397812F5B14D7B28ED5A0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/HOST_REVIEW.md",
+      "sha256": "40AA0B7D20DD5343E86A5E0B1C76902112272CC443F2EA346FDD67BDFDEA939D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/HOST_REVIEW.sha256",
+      "sha256": "3D784BD5F751CD3E1B087F6B2222EC77B71462A3E8133053E41CEAA21EDF7407"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/README.md",
+      "sha256": "59B40BE757482F05EC48DB4F40F3A9E0493675BCCCF4D7117C05FDCA3C8D1668"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/acceptance.json",
+      "sha256": "85E796BD3C74BFC4E839772FD2617F3E65A6C0690378830D74BEA831217B6C9D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/after-process-evidence.json",
+      "sha256": "AB761D1CB5E171D32F6669AE6EDE1D87D31B480D70DBB9282001A8DA9500E168"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/after.attempt-started.json",
+      "sha256": "5C721C59C75AC4A98FBB0C05472EA43CBA6D326256DBFD198516C995A2177268"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/before-process-evidence.json",
+      "sha256": "95E030979D69B0197CA4EBC7F28D9F50468E31ECBBB2EDD042361C6920936C89"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/before.attempt-started.json",
+      "sha256": "12B969DE804DC6F1BC7ABF1469A3187E58CBAF26D78494AD2E033B429B1A9F87"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancel-after-result.identity.json",
+      "sha256": "10C87402ADD0D815761A415539E158A116D1043C5FDA786C684E9F356A40152C"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancel-after-result.json",
+      "sha256": "2C7B1FD675D1C1150C59B203CA62914E2E6248F16BDBF94B9FAB1E296934F1EB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancel-before-result.identity.json",
+      "sha256": "58FCD99938093454EF33EF037E524FDC4FB73E7DA1A0EF20F41B65AE3F5C21BE"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancel-before-result.json",
+      "sha256": "229D9062FCADAFC7091F02EBE8A8FEFCA3BB1E26DC2E5BC3A2A4B218221D18B7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancellation-after.jsonl",
+      "sha256": "B10CD349138F6B96F33ADD4A221C191B4D45D2939C79C8A8FDC981CC3B410CD4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancellation-before.jsonl",
+      "sha256": "68EDFFC4D6D669D63CF12F92AC565DD3F73CE17CBD22B3FBB4FF5E9933FD317F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancellation.jsonl",
+      "sha256": "A4D3CCD80530429EE61261D5CC217A2166AAEDDCE6F5E6CEA4B661E1ADCDF59A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/closeout-baseline.json",
+      "sha256": "D85DFA3E70D47F429E95AD9848125C86D11C6D8F6EDE0AA16970B840E0AE7C04"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/closeout-hashes.json",
+      "sha256": "3840310904D825CE79265D4904960EF5FF650D567D7DA6C6E83910AD8C821BD4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/closeout-review-target.json",
+      "sha256": "20AE1E998FB4154B44BC479734166ACBA4D96AA961BC3D8DF75FE584ACA38A11"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/closeout-scope.json",
+      "sha256": "271C5C3844BAAEDBCF3DC7C7DAA84DC3BA7FB112A3270E02ADAC39F6D6560D42"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/evidence-hashes.json",
+      "sha256": "5AE09916E97C24E8C6C5C375024EEBB50996F32C33C16DD95A108B0A8C6EA6CF"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission-deny-result.identity.json",
+      "sha256": "1A1F6718C9B49C03B90077E025B36931D32A2032D22DB70B0F7EAF6D2D9D9B8E"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission-deny-result.json",
+      "sha256": "221E2B380AD470CBE258E75A1EDE7472C8BBCB85C46471662D4F2D739D335AB0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission-options.json",
+      "sha256": "A160FC60C68014C0015E4AA6AE876E3A2520981788E39476593DA52369B001EB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission-process-evidence.json",
+      "sha256": "D41960C6FA0514E0D58FD99338BFCB6CC2D79D6026645E20F0C651FAA31B997E"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission.attempt-started.json",
+      "sha256": "BCC4B7FEC382A3CC47233DF40A45177062D27268EA4F0FEB48D9B6C9F1607761"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission.jsonl",
+      "sha256": "4084262CF6A2C6272614FE046093EABC72767F58220FCEA700C0A4A34552AA76"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/pre-closeout-README.md",
+      "sha256": "4D978D9E787BE132BA91373267369890CCA449EFD9F455365A78586A9C851609"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/pre-closeout-verification.md",
+      "sha256": "E1DA7C75DFB2C4F5C9E64A2F63A7A35A908372E7E1AF4F67F434897E8A619012"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/process-evidence.json",
+      "sha256": "6984185760BFCAF6791E7AA77D3D6A68BBD3DBDFF0150B44CFF08647C5D7BCE0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/python-tests.txt",
+      "sha256": "30364E2504EE04E69A65687EA4079544962AC2F8FEE56301387809F1182E8123"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/review-context.md",
+      "sha256": "4CC4A00A70C2CDACD14CF5C36A4A708BC9BB91CC907581EFE46B82D9199F8EE0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/review-target.json",
+      "sha256": "34188F71D7A4D7D2031A646F45415036AE0F57C531D8046BC12A52FAA4357795"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/review.md",
+      "sha256": "DF45A6948E183376390E2E2CA522F0190B4ECA901E55517C40ADE13221E4410C"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/review.sha256",
+      "sha256": "2F47C9D66CFC575AEE5B71F74533BC20B79C556B4A4E58FC2690CF4BC4EE43CF"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/rust-tests.txt",
+      "sha256": "9C0F285FCB9C06190196FBB40FA94BF8F5DC14DD76D4AD6C2899BD0A20896433"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/scope-baseline.json",
+      "sha256": "373182A5148D5E57E0A538F7EED5D6DC40D9D761E3DB0D7333F3CF8D973D88F1"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/scope-verification.json",
+      "sha256": "2F522892D6C801C5C6388EEA9C61CC6CD4EF1408ED1A4A5327BDC32905C925A2"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/verification.md",
+      "sha256": "D1E80A1E42C0D1E01C2B3299A8FAD219A138CDFBEBE1042E1F99182E870781C0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-direct-codebuddy-proof/attempt-started.json",
+      "sha256": "75C64C4EBF65C993A3EC98B9C5B57D774FD96BE14687B453B87A5D87E3EBC80B"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-direct-codebuddy-proof/launcher-resolution.json",
+      "sha256": "470FAFBB7C7031688660D4310910A68F0A771FDD549A7994DCEBA5DD1E6AF64A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-direct-codebuddy-proof/wire-result.json",
+      "sha256": "604122D0F0E342046B1936BA1DBB08F25BB172D70F6AA966338DD2BE510D1C57"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-direct-codebuddy-proof/wire.jsonl",
+      "sha256": "BF193E9D353357A1114293307107A4D5B6A1E671E6B2A6CB4C4FE45AE04B1B01"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-exact-launcher-proof/attempt-started.json",
+      "sha256": "75536905F7F3CBBBE4B0E48DD90A446521E68EC66E32B3B3133ECF331F6520B9"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-exact-launcher-proof/launcher-resolution.json",
+      "sha256": "3E13A3C7152414AA3F3CE6FBFD9E2F4B66D6BF85C5F93890A75C9434C350E930"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-exact-launcher-proof/wire-result.json",
+      "sha256": "7266EAFAEA0D7C23FE6A897B68E05A45D9FB120B7573C10E47F805AE1954E536"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-exact-launcher-proof/wire.jsonl",
+      "sha256": "5F2C4DF063D214627F17E8A5BF77975D6B4E935D648A2127D0B2D16EC81B9E9F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/initial-scenarios/cancel-after-result.json",
+      "sha256": "BEEE55D1073A828D1AB926D04C035AA6682F19C3CA506FCCB6FA8BD7CF03284D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/initial-scenarios/cancel-before-result.json",
+      "sha256": "CA850EAE5C67BF1539713FE7F9B51F61223AD5A45D0FB6657E449D40A7A6056D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/initial-scenarios/permission-deny-result.json",
+      "sha256": "710C7AE92300678D34E8005BB7D0FACABBEE7F83B0408BFF4D672790196663A7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/attempt-started.json",
+      "sha256": "D9757D3FF7A64EF478CF3A669E88B8D8944F5A65526A4A58EABA883D32C11028"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/conclusion.json",
+      "sha256": "7D1882BE1C6B4946F2E2D515F2A080AEC0A83B82E7857E4674CDBFCEC1434597"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/launcher-resolution.json",
+      "sha256": "236DCE339A4A24F3C58E08733B17D54EA5A33E94158ED134A55D22E0418B49D4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/preflight.json",
+      "sha256": "D4DE710051E0036568D8CC605A5E9154036C3EFED5DC0D9BE2A9126510659BB6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/prior-evidence-preservation.json",
+      "sha256": "8A2EDDCFD7D8452D972D891639B7730BA0278ED22E7FC9C2CD35B56E286E7AC1"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/verification-results.json",
+      "sha256": "4307763C2F615050280250DDD6E55A834903405A6AD98DACFEBF156164BA8B15"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/wire-result.json",
+      "sha256": "0255AC8FFBB4205E943C4775F3D90D8EBFDD15D07484BA3AA199EAC8BABD4CFF"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/wire.jsonl",
+      "sha256": "8950D95A213082816C1AD634CB4CB8402AE2E88FF2F397812F5B14D7B28ED5A0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/permission-deny-result.identity.json",
+      "sha256": "C101C3BC744AD8535C5DEC39BD1C52429BD15B8EA22CBA775E6D2DC73EAB5200"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/permission-deny-result.json",
+      "sha256": "728809DE1DA9D0989B02DA3B15D4C3DE9E3DDFA6904AC2834266F656000C728A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/permission-options.json",
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/permission.jsonl",
+      "sha256": "B1EFEC92C45C1C6DCFBCE804B6EBBC11EE3DEF4AAB5D6CEB917C6FED0F8BB04E"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/process-evidence.json",
+      "sha256": "8AC0CDD0CC74E31C63E94C169C5504A99756B86BB80F36A73FF52B0DE7E61DC2"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/runner-result.json",
+      "sha256": "677425360A30D48074095BCDD0BFB9C1838D23FA49D362E1B55A3810B1287493"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/scope-baseline.json",
+      "sha256": "F408EEFF622E4F4C5F6BE9D9AC836102ECB08A4A9E0D3A0087663194307B1576"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/session-new-diagnostic.identity.json",
+      "sha256": "FF43118E52AC82A4E9C55099248BE4B51D5C3477C00F62EAEE14B66AEB334FFB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/session-new-diagnostic.json",
+      "sha256": "28091EF73613CD088902751E20BAD36A60266FC6B4F39A05E7FF3A7FEC25A9D6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/exact_launcher_probe.py",
+      "sha256": "8AF05054677AB088DEA1A2DAF5C16A851041DDEBB43E360C24AD2DCA3C26A255"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/gold_band_probe.py",
+      "sha256": "71BDC1E2EB2F7F5BBDC0831BD0FC16AE39A53F2EB11FDCC988024ED9F46B162F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/Cargo.lock",
+      "sha256": "5F7AEF89F5890A7AAFBDDFC38E990E5489E139761A9640E11F52517FDD03BBD6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/Cargo.toml",
+      "sha256": "8FD88856BDE99C35404BF04079EA5C73AA3C7E74AF98E665C95849B9203EDFDB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/src/base.rs",
+      "sha256": "19950AF2A65D58DEAA92E2A9FC35F57CB28682FEA88D6CD6016DD3C13FB9BC29"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/src/bin/host_cancel_permission.rs",
+      "sha256": "2FDBCB4CE170DCA23E8F24A902488A4B5032EB4B3425D73C1D2B4219360958CD"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/src/host_transport.rs",
+      "sha256": "C3A54D4BBAD7A73464C59767BAB75DCE76FA0CC37B51C612C8DE3FD5AAA73D6A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/src/main.rs",
+      "sha256": "3949A36C18B387650E44C49A1C7677E472BE6CDD1EDFDEF45BD7C76C2CE00264"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/src/transport.rs",
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/tests/contracts.rs",
+      "sha256": "A6397CC0502C55785B66A26D5EC62497A96B5C063EC03930CED0134F3C90B660"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/tests/host_contracts.rs",
+      "sha256": "EDAC5E88D1C7B61A13EE7F7A7874D80ACD3A19D44B6543CD51C78A595E2A0229"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/ARCHIVE.json",
+      "sha256": "19017500CD543EA7FEAF21E5A1A16727313297C9B699E9E3EA694A339408B4CF"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/check.jsonl",
+      "sha256": "B93CB990F2D0604879FABED23FFD2C1C92D9F351797F84ECCD0320C8822E737F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/design.md",
+      "sha256": "AEE8C39C4D6AEE84317FDD3F9A1979845B332573C3223BACE1B8EBAEE79882EB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence.sha256",
+      "sha256": "5D6EC481A08F8662255B47470239F627F380C6C2BF9ACFD181541A442BBD2A1B"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/cancel-after-result.identity.json",
+      "sha256": "35CF6809285FAC760024EB94B9F50BEA197B7EB320875C2E4383421A23180A98"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/cancel-after-result.json",
+      "sha256": "CB4A24147B224C8C8B1903A355AE4853E54A3E916CA629D1AD6F24178A65B8A4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/cancel-before-result.identity.json",
+      "sha256": "FC6CF2FCD90AD8E7AF7F2C50247272F44AFF32DD033D59B774E40CAAE9527895"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/cancel-before-result.json",
+      "sha256": "D63BA1A7A5161A956C2FEC03AE8F00933DE5D08C2A187FA6600FC2CB1B7D6FE7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/cancellation.jsonl",
+      "sha256": "01000ED590CBB3180C6306A901F9DF27F2E62084AC76FB11E6D24A0B9CB2BFF8"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/initial-scenarios/cancel-after-result.json",
+      "sha256": "BEEE55D1073A828D1AB926D04C035AA6682F19C3CA506FCCB6FA8BD7CF03284D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/initial-scenarios/cancel-before-result.json",
+      "sha256": "CA850EAE5C67BF1539713FE7F9B51F61223AD5A45D0FB6657E449D40A7A6056D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/initial-scenarios/permission-deny-result.json",
+      "sha256": "710C7AE92300678D34E8005BB7D0FACABBEE7F83B0408BFF4D672790196663A7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/permission-deny-result.identity.json",
+      "sha256": "C101C3BC744AD8535C5DEC39BD1C52429BD15B8EA22CBA775E6D2DC73EAB5200"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/permission-deny-result.json",
+      "sha256": "728809DE1DA9D0989B02DA3B15D4C3DE9E3DDFA6904AC2834266F656000C728A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/permission-options.json",
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/permission.jsonl",
+      "sha256": "B1EFEC92C45C1C6DCFBCE804B6EBBC11EE3DEF4AAB5D6CEB917C6FED0F8BB04E"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/process-evidence.json",
+      "sha256": "8AC0CDD0CC74E31C63E94C169C5504A99756B86BB80F36A73FF52B0DE7E61DC2"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/runner-result.json",
+      "sha256": "677425360A30D48074095BCDD0BFB9C1838D23FA49D362E1B55A3810B1287493"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/scope-baseline.json",
+      "sha256": "F408EEFF622E4F4C5F6BE9D9AC836102ECB08A4A9E0D3A0087663194307B1576"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/session-new-diagnostic.identity.json",
+      "sha256": "FF43118E52AC82A4E9C55099248BE4B51D5C3477C00F62EAEE14B66AEB334FFB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/session-new-diagnostic.json",
+      "sha256": "28091EF73613CD088902751E20BAD36A60266FC6B4F39A05E7FF3A7FEC25A9D6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/harness/Cargo.lock",
+      "sha256": "5F7AEF89F5890A7AAFBDDFC38E990E5489E139761A9640E11F52517FDD03BBD6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/harness/Cargo.toml",
+      "sha256": "8FD88856BDE99C35404BF04079EA5C73AA3C7E74AF98E665C95849B9203EDFDB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/harness/src/base.rs",
+      "sha256": "19950AF2A65D58DEAA92E2A9FC35F57CB28682FEA88D6CD6016DD3C13FB9BC29"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/harness/src/main.rs",
+      "sha256": "55A156628980983827C87EB72CE5F8C72A05DADD8207C4E5D27D39791BB40CFC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/harness/src/transport.rs",
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/harness/tests/contracts.rs",
+      "sha256": "64918C8F776B071F7E39EEB8A2839C831B30416E6C44916283BFF68311044AAE"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/implement.jsonl",
+      "sha256": "94A5476BE3ED41CE2568639B88017C5F388EF987DC683FDD8A4FFB2FE423DCE6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/implement.md",
+      "sha256": "5D53D38202CCE18BC59B98ADB8DE232A2D49727FBD399699B37C082B9CFA3F98"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/prd.md",
+      "sha256": "96CBD546408D53CD5E7F13CCF9F943A1ACF60E43349267C33A12F5B925165DEC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/review-context.md",
+      "sha256": "68CDFD7FE0F57719A260CC21CE0F18FBC17A016487F41263DE681FB0738CBABF"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/review-target.json",
+      "sha256": "5F7B0208680719CA978EB808FD474ADD21AE5CF16DE6D96AA852FACD924207E3"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/review.md",
+      "sha256": "BC0314ACBD31436660F989B82DA4D7E6A6D9D0EDE39ABA792C0345549E9518DA"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/review.sha256",
+      "sha256": "4C652B5655D73AA2165396D85EA917AE19CF1B17ECCC043E298293E4F715721F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/run_probe.py",
+      "sha256": "46FAADBDFB623B843887D2FB3EDF7C5C84D5FEEB0D305BADBD5F96292B3330A3"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/task.json",
+      "sha256": "59B363B9C7B05BA77E11FED6F5A7D2C76AE6BA29D5E0333A242EA2DD877133B8"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/test_run_probe.py",
+      "sha256": "1939516AA8C62C03E97EEA6C73A2B5BEE2A3954DD50D6CE0A0855905B5E871E3"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/verification.md",
+      "sha256": "836AE556B0B9E4D920C1049ED3CEF8050CA763C06896BF424758EDD56718B3EE"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/ARCHIVE.json",
+      "sha256": "F7DC5C5C8CE042769D01770B367C8A161264404C9402C77F5C4783B19E65D12F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/check.jsonl",
+      "sha256": "B93CB990F2D0604879FABED23FFD2C1C92D9F351797F84ECCD0320C8822E737F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/design.md",
+      "sha256": "AEE8C39C4D6AEE84317FDD3F9A1979845B332573C3223BACE1B8EBAEE79882EB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence.sha256",
+      "sha256": "3AFEA4246CBF690E2D1BD0A5886764ABDB797896C286DB1CEEC70F71FF949456"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/cancel-after-result.identity.json",
+      "sha256": "35CF6809285FAC760024EB94B9F50BEA197B7EB320875C2E4383421A23180A98"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/cancel-after-result.json",
+      "sha256": "CB4A24147B224C8C8B1903A355AE4853E54A3E916CA629D1AD6F24178A65B8A4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/cancel-before-result.identity.json",
+      "sha256": "FC6CF2FCD90AD8E7AF7F2C50247272F44AFF32DD033D59B774E40CAAE9527895"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/cancel-before-result.json",
+      "sha256": "D63BA1A7A5161A956C2FEC03AE8F00933DE5D08C2A187FA6600FC2CB1B7D6FE7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/cancellation.jsonl",
+      "sha256": "01000ED590CBB3180C6306A901F9DF27F2E62084AC76FB11E6D24A0B9CB2BFF8"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/cancellation.jsonl",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/permission-options.json",
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/permission.jsonl",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/prior-evidence-preservation.json",
+      "sha256": "735F070AE6E34FF903BF5A2CB7AD82F860A961A56367C44B8695109F2E3A8C8D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/process-evidence.json",
+      "sha256": "B8A89E4AB17D95AD01B0A7BCF85361D4208FDB6125D8909CE6F6599095486913"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/runner-result.json",
+      "sha256": "C20758B068039987DC4880260DB6B7CD9B9D57CF9985DE664D6A20B13C45B555"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/session-new-repair-result.identity.json",
+      "sha256": "ED296F0890BE80FB414A5E1D89A1DD813287C4FD9AE24C65946A7A69FAEAB089"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/session-new-repair-result.json",
+      "sha256": "F28F6945321F378C1A3EF648B5288A8BDB8FD5759389D8EE053C26CF332577E5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/session-new-repair.jsonl",
+      "sha256": "E75E40E94175C668529B9C38891153ED921BE774D96688FD9422E8FB5A1CEE95"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/attempt-started.json",
+      "sha256": "35749FED71F19A5C1E5B10938929BA00B867D5EBE6F0A7EEE3C88B4A7FC97DC5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/conclusion.json",
+      "sha256": "B24FC3797CC711A5D9F331D67DAD7A3A30094B634585444DD1C3E429F61265B3"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/preflight.json",
+      "sha256": "296E81F84DEA7781E96E6A30DDEEA9EB833987B9CB028C56AD185693B0830208"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/prior-evidence-preservation.json",
+      "sha256": "6618DE46CB2AADE1325469571E22AA330FB6B851E1B24637085A28FF6328BB1C"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/review-repair-1.json",
+      "sha256": "CB4F0EADAAF22B21D1F5094D613BBEFEFEC029BCFAF44EE1325992F381043DB7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/serve-auth-status.json",
+      "sha256": "2B64F2C9161295B1F6F48B1399A96D17E8D7DE75B1BDAD9D6AD24173C4A3590F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/verification-results.json",
+      "sha256": "F49EDB65B96A83FECDED85CCF609971472151EE2C1EB556B68DFA7C8084696FE"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/wire-result.json",
+      "sha256": "18335B825BE80CC303FB1DE631675034A7C0CE24CA603BA0853F6A3E33C28761"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/wire.jsonl",
+      "sha256": "8950D95A213082816C1AD634CB4CB8402AE2E88FF2F397812F5B14D7B28ED5A0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/initial-scenarios/cancel-after-result.json",
+      "sha256": "BEEE55D1073A828D1AB926D04C035AA6682F19C3CA506FCCB6FA8BD7CF03284D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/initial-scenarios/cancel-before-result.json",
+      "sha256": "CA850EAE5C67BF1539713FE7F9B51F61223AD5A45D0FB6657E449D40A7A6056D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/initial-scenarios/permission-deny-result.json",
+      "sha256": "710C7AE92300678D34E8005BB7D0FACABBEE7F83B0408BFF4D672790196663A7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/attempt-started.json",
+      "sha256": "D9757D3FF7A64EF478CF3A669E88B8D8944F5A65526A4A58EABA883D32C11028"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/conclusion.json",
+      "sha256": "7D1882BE1C6B4946F2E2D515F2A080AEC0A83B82E7857E4674CDBFCEC1434597"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/launcher-resolution.json",
+      "sha256": "236DCE339A4A24F3C58E08733B17D54EA5A33E94158ED134A55D22E0418B49D4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/preflight.json",
+      "sha256": "D4DE710051E0036568D8CC605A5E9154036C3EFED5DC0D9BE2A9126510659BB6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/prior-evidence-preservation.json",
+      "sha256": "8A2EDDCFD7D8452D972D891639B7730BA0278ED22E7FC9C2CD35B56E286E7AC1"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/verification-results.json",
+      "sha256": "4307763C2F615050280250DDD6E55A834903405A6AD98DACFEBF156164BA8B15"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/wire-result.json",
+      "sha256": "0255AC8FFBB4205E943C4775F3D90D8EBFDD15D07484BA3AA199EAC8BABD4CFF"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/wire.jsonl",
+      "sha256": "8950D95A213082816C1AD634CB4CB8402AE2E88FF2F397812F5B14D7B28ED5A0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/permission-deny-result.identity.json",
+      "sha256": "C101C3BC744AD8535C5DEC39BD1C52429BD15B8EA22CBA775E6D2DC73EAB5200"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/permission-deny-result.json",
+      "sha256": "728809DE1DA9D0989B02DA3B15D4C3DE9E3DDFA6904AC2834266F656000C728A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/permission-options.json",
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/permission.jsonl",
+      "sha256": "B1EFEC92C45C1C6DCFBCE804B6EBBC11EE3DEF4AAB5D6CEB917C6FED0F8BB04E"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/process-evidence.json",
+      "sha256": "8AC0CDD0CC74E31C63E94C169C5504A99756B86BB80F36A73FF52B0DE7E61DC2"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/runner-result.json",
+      "sha256": "677425360A30D48074095BCDD0BFB9C1838D23FA49D362E1B55A3810B1287493"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/scope-baseline.json",
+      "sha256": "F408EEFF622E4F4C5F6BE9D9AC836102ECB08A4A9E0D3A0087663194307B1576"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/session-new-diagnostic.identity.json",
+      "sha256": "FF43118E52AC82A4E9C55099248BE4B51D5C3477C00F62EAEE14B66AEB334FFB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/session-new-diagnostic.json",
+      "sha256": "28091EF73613CD088902751E20BAD36A60266FC6B4F39A05E7FF3A7FEC25A9D6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/gold_band_probe.py",
+      "sha256": "4B325F83B8BEFCA939FF9775F33BA1CA73C50D7F0409DC1DB3F623DBE52BE1CA"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/harness/Cargo.lock",
+      "sha256": "5F7AEF89F5890A7AAFBDDFC38E990E5489E139761A9640E11F52517FDD03BBD6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/harness/Cargo.toml",
+      "sha256": "8FD88856BDE99C35404BF04079EA5C73AA3C7E74AF98E665C95849B9203EDFDB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/harness/src/base.rs",
+      "sha256": "19950AF2A65D58DEAA92E2A9FC35F57CB28682FEA88D6CD6016DD3C13FB9BC29"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/harness/src/main.rs",
+      "sha256": "3949A36C18B387650E44C49A1C7677E472BE6CDD1EDFDEF45BD7C76C2CE00264"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/harness/src/transport.rs",
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/harness/tests/contracts.rs",
+      "sha256": "A6397CC0502C55785B66A26D5EC62497A96B5C063EC03930CED0134F3C90B660"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/implement.jsonl",
+      "sha256": "94A5476BE3ED41CE2568639B88017C5F388EF987DC683FDD8A4FFB2FE423DCE6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/implement.md",
+      "sha256": "5D53D38202CCE18BC59B98ADB8DE232A2D49727FBD399699B37C082B9CFA3F98"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/path_resolver_probe.py",
+      "sha256": "D7D03AA793A6FD783D75495902B3D2B5301EF08AE0A74F9393EA0BD005E20800"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/prd.md",
+      "sha256": "96CBD546408D53CD5E7F13CCF9F943A1ACF60E43349267C33A12F5B925165DEC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/review-context.md",
+      "sha256": "56D90E31FEB74487F9E1E14AB1C8D06358E8CFE94078D1861EDCB4E8BBC901D4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/review-target.json",
+      "sha256": "21CAFA5049645768AB7ABD5879B605F4BF9EA04733EB8E9C972EE3281032E515"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/review.md",
+      "sha256": "BEFB46F32FC9383292B9707F1F1474BCFC47A73835E125A195603665C2829C83"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/review.sha256",
+      "sha256": "CF2B884717DF046B02D73B1D10EAA0DA6729BFC966AA84A542DE51DCB17A346A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/run_probe.py",
+      "sha256": "05D29F7900C7939747AD5083AB3654FE2A42CD61016E8C605496A19AE2C2C7D5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/task.json",
+      "sha256": "59B363B9C7B05BA77E11FED6F5A7D2C76AE6BA29D5E0333A242EA2DD877133B8"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/test_gold_band_probe.py",
+      "sha256": "DAB97EF948B795D0FE94BD3F28BE212159C8C4B71D3E06C52D05CFF4E874BA26"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/test_path_resolver_probe.py",
+      "sha256": "0AA8C6BD86E869C8A175AB0B19E3700663F231A99A7CA684BC82F4F93965D247"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/test_run_probe.py",
+      "sha256": "ACF098EA440DED46323FD25C03A48562B05ABB40C6261D0BC6D3F8894A7AAF60"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/verification.md",
+      "sha256": "633FBB5147A4C48943A03F4C8AF0B562D16A03D6579AE8B9DFF8D7AE06BBD166"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/ARCHIVE.json",
+      "sha256": "4F340C9F9A9C0F9BFBEB02B7945529F4424066E2D47DF9E4CA571EE1E88FE90D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/check.jsonl",
+      "sha256": "B93CB990F2D0604879FABED23FFD2C1C92D9F351797F84ECCD0320C8822E737F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/design.md",
+      "sha256": "AEE8C39C4D6AEE84317FDD3F9A1979845B332573C3223BACE1B8EBAEE79882EB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence.sha256",
+      "sha256": "86F5FCC115FB019FC6243B81F5F578C943DDB24BA4F21838BB2B364D61EC7633"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/cancel-after-result.identity.json",
+      "sha256": "35CF6809285FAC760024EB94B9F50BEA197B7EB320875C2E4383421A23180A98"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/cancel-after-result.json",
+      "sha256": "CB4A24147B224C8C8B1903A355AE4853E54A3E916CA629D1AD6F24178A65B8A4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/cancel-before-result.identity.json",
+      "sha256": "FC6CF2FCD90AD8E7AF7F2C50247272F44AFF32DD033D59B774E40CAAE9527895"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/cancel-before-result.json",
+      "sha256": "D63BA1A7A5161A956C2FEC03AE8F00933DE5D08C2A187FA6600FC2CB1B7D6FE7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/cancellation.jsonl",
+      "sha256": "01000ED590CBB3180C6306A901F9DF27F2E62084AC76FB11E6D24A0B9CB2BFF8"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/cancellation.jsonl",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/permission-options.json",
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/permission.jsonl",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/prior-evidence-preservation.json",
+      "sha256": "735F070AE6E34FF903BF5A2CB7AD82F860A961A56367C44B8695109F2E3A8C8D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/process-evidence.json",
+      "sha256": "B8A89E4AB17D95AD01B0A7BCF85361D4208FDB6125D8909CE6F6599095486913"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/runner-result.json",
+      "sha256": "C20758B068039987DC4880260DB6B7CD9B9D57CF9985DE664D6A20B13C45B555"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/session-new-repair-result.identity.json",
+      "sha256": "ED296F0890BE80FB414A5E1D89A1DD813287C4FD9AE24C65946A7A69FAEAB089"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/session-new-repair-result.json",
+      "sha256": "F28F6945321F378C1A3EF648B5288A8BDB8FD5759389D8EE053C26CF332577E5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/session-new-repair.jsonl",
+      "sha256": "E75E40E94175C668529B9C38891153ED921BE774D96688FD9422E8FB5A1CEE95"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/initial-scenarios/cancel-after-result.json",
+      "sha256": "BEEE55D1073A828D1AB926D04C035AA6682F19C3CA506FCCB6FA8BD7CF03284D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/initial-scenarios/cancel-before-result.json",
+      "sha256": "CA850EAE5C67BF1539713FE7F9B51F61223AD5A45D0FB6657E449D40A7A6056D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/initial-scenarios/permission-deny-result.json",
+      "sha256": "710C7AE92300678D34E8005BB7D0FACABBEE7F83B0408BFF4D672790196663A7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/permission-deny-result.identity.json",
+      "sha256": "C101C3BC744AD8535C5DEC39BD1C52429BD15B8EA22CBA775E6D2DC73EAB5200"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/permission-deny-result.json",
+      "sha256": "728809DE1DA9D0989B02DA3B15D4C3DE9E3DDFA6904AC2834266F656000C728A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/permission-options.json",
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/permission.jsonl",
+      "sha256": "B1EFEC92C45C1C6DCFBCE804B6EBBC11EE3DEF4AAB5D6CEB917C6FED0F8BB04E"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/process-evidence.json",
+      "sha256": "8AC0CDD0CC74E31C63E94C169C5504A99756B86BB80F36A73FF52B0DE7E61DC2"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/runner-result.json",
+      "sha256": "677425360A30D48074095BCDD0BFB9C1838D23FA49D362E1B55A3810B1287493"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/scope-baseline.json",
+      "sha256": "F408EEFF622E4F4C5F6BE9D9AC836102ECB08A4A9E0D3A0087663194307B1576"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/session-new-diagnostic.identity.json",
+      "sha256": "FF43118E52AC82A4E9C55099248BE4B51D5C3477C00F62EAEE14B66AEB334FFB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/session-new-diagnostic.json",
+      "sha256": "28091EF73613CD088902751E20BAD36A60266FC6B4F39A05E7FF3A7FEC25A9D6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/harness/Cargo.lock",
+      "sha256": "5F7AEF89F5890A7AAFBDDFC38E990E5489E139761A9640E11F52517FDD03BBD6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/harness/Cargo.toml",
+      "sha256": "8FD88856BDE99C35404BF04079EA5C73AA3C7E74AF98E665C95849B9203EDFDB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/harness/src/base.rs",
+      "sha256": "19950AF2A65D58DEAA92E2A9FC35F57CB28682FEA88D6CD6016DD3C13FB9BC29"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/harness/src/main.rs",
+      "sha256": "3949A36C18B387650E44C49A1C7677E472BE6CDD1EDFDEF45BD7C76C2CE00264"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/harness/src/transport.rs",
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/harness/tests/contracts.rs",
+      "sha256": "A6397CC0502C55785B66A26D5EC62497A96B5C063EC03930CED0134F3C90B660"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/implement.jsonl",
+      "sha256": "94A5476BE3ED41CE2568639B88017C5F388EF987DC683FDD8A4FFB2FE423DCE6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/implement.md",
+      "sha256": "5D53D38202CCE18BC59B98ADB8DE232A2D49727FBD399699B37C082B9CFA3F98"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/prd.md",
+      "sha256": "96CBD546408D53CD5E7F13CCF9F943A1ACF60E43349267C33A12F5B925165DEC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/review-context.md",
+      "sha256": "00BDB07EBE0FC79DE5CF1F1E8EFBF7EEB1627A43D3F69142B8608499C42C62F4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/review-target.json",
+      "sha256": "D8527FA5C7875D5F609EC7A9A5F3015B88252F839F23FEED3E6FE0048475F8B9"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/review.md",
+      "sha256": "5BF2A60DB3D165D55C3E3BB04E873B1AE1F007AB92FACF567740AF872F585950"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/review.sha256",
+      "sha256": "F1F99BC3735541DFFE722D1809D6CF19E2F26116D4C40D3B7CA85AA3BC853B49"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/run_probe.py",
+      "sha256": "05D29F7900C7939747AD5083AB3654FE2A42CD61016E8C605496A19AE2C2C7D5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/task.json",
+      "sha256": "59B363B9C7B05BA77E11FED6F5A7D2C76AE6BA29D5E0333A242EA2DD877133B8"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/test_run_probe.py",
+      "sha256": "ACF098EA440DED46323FD25C03A48562B05ABB40C6261D0BC6D3F8894A7AAF60"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/verification.md",
+      "sha256": "80FA796D07B6774F0D7ABA4F9AE85B6C7EF6127992B2C0678582D2E5D6A979BE"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/ARCHIVE.json",
+      "sha256": "BEF7F57462231860B844238E11841EEF7AEED3A7A57BE079B4D8483E9CDA281E"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/check.jsonl",
+      "sha256": "B93CB990F2D0604879FABED23FFD2C1C92D9F351797F84ECCD0320C8822E737F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/design.md",
+      "sha256": "AEE8C39C4D6AEE84317FDD3F9A1979845B332573C3223BACE1B8EBAEE79882EB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence.sha256",
+      "sha256": "98CE8FD2EAC7B3AB51F2BAE3A36B949B2D239F6B76A708E5825E34623F621880"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/cancel-after-result.identity.json",
+      "sha256": "35CF6809285FAC760024EB94B9F50BEA197B7EB320875C2E4383421A23180A98"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/cancel-after-result.json",
+      "sha256": "CB4A24147B224C8C8B1903A355AE4853E54A3E916CA629D1AD6F24178A65B8A4"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/cancel-before-result.identity.json",
+      "sha256": "FC6CF2FCD90AD8E7AF7F2C50247272F44AFF32DD033D59B774E40CAAE9527895"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/cancel-before-result.json",
+      "sha256": "D63BA1A7A5161A956C2FEC03AE8F00933DE5D08C2A187FA6600FC2CB1B7D6FE7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/cancellation.jsonl",
+      "sha256": "01000ED590CBB3180C6306A901F9DF27F2E62084AC76FB11E6D24A0B9CB2BFF8"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/cancellation.jsonl",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/permission-options.json",
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/permission.jsonl",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/prior-evidence-preservation.json",
+      "sha256": "735F070AE6E34FF903BF5A2CB7AD82F860A961A56367C44B8695109F2E3A8C8D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/process-evidence.json",
+      "sha256": "B8A89E4AB17D95AD01B0A7BCF85361D4208FDB6125D8909CE6F6599095486913"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/runner-result.json",
+      "sha256": "C20758B068039987DC4880260DB6B7CD9B9D57CF9985DE664D6A20B13C45B555"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/session-new-repair-result.identity.json",
+      "sha256": "ED296F0890BE80FB414A5E1D89A1DD813287C4FD9AE24C65946A7A69FAEAB089"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/session-new-repair-result.json",
+      "sha256": "F28F6945321F378C1A3EF648B5288A8BDB8FD5759389D8EE053C26CF332577E5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/session-new-repair.jsonl",
+      "sha256": "E75E40E94175C668529B9C38891153ED921BE774D96688FD9422E8FB5A1CEE95"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/attempt-started.json",
+      "sha256": "35749FED71F19A5C1E5B10938929BA00B867D5EBE6F0A7EEE3C88B4A7FC97DC5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/conclusion.json",
+      "sha256": "B24FC3797CC711A5D9F331D67DAD7A3A30094B634585444DD1C3E429F61265B3"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/preflight.json",
+      "sha256": "296E81F84DEA7781E96E6A30DDEEA9EB833987B9CB028C56AD185693B0830208"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/prior-evidence-preservation.json",
+      "sha256": "6618DE46CB2AADE1325469571E22AA330FB6B851E1B24637085A28FF6328BB1C"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/review-repair-1.json",
+      "sha256": "CB4F0EADAAF22B21D1F5094D613BBEFEFEC029BCFAF44EE1325992F381043DB7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/serve-auth-status.json",
+      "sha256": "2B64F2C9161295B1F6F48B1399A96D17E8D7DE75B1BDAD9D6AD24173C4A3590F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/verification-results.json",
+      "sha256": "F49EDB65B96A83FECDED85CCF609971472151EE2C1EB556B68DFA7C8084696FE"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/wire-result.json",
+      "sha256": "18335B825BE80CC303FB1DE631675034A7C0CE24CA603BA0853F6A3E33C28761"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/wire.jsonl",
+      "sha256": "8950D95A213082816C1AD634CB4CB8402AE2E88FF2F397812F5B14D7B28ED5A0"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/initial-scenarios/cancel-after-result.json",
+      "sha256": "BEEE55D1073A828D1AB926D04C035AA6682F19C3CA506FCCB6FA8BD7CF03284D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/initial-scenarios/cancel-before-result.json",
+      "sha256": "CA850EAE5C67BF1539713FE7F9B51F61223AD5A45D0FB6657E449D40A7A6056D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/initial-scenarios/permission-deny-result.json",
+      "sha256": "710C7AE92300678D34E8005BB7D0FACABBEE7F83B0408BFF4D672790196663A7"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/permission-deny-result.identity.json",
+      "sha256": "C101C3BC744AD8535C5DEC39BD1C52429BD15B8EA22CBA775E6D2DC73EAB5200"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/permission-deny-result.json",
+      "sha256": "728809DE1DA9D0989B02DA3B15D4C3DE9E3DDFA6904AC2834266F656000C728A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/permission-options.json",
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/permission.jsonl",
+      "sha256": "B1EFEC92C45C1C6DCFBCE804B6EBBC11EE3DEF4AAB5D6CEB917C6FED0F8BB04E"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/process-evidence.json",
+      "sha256": "8AC0CDD0CC74E31C63E94C169C5504A99756B86BB80F36A73FF52B0DE7E61DC2"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/runner-result.json",
+      "sha256": "677425360A30D48074095BCDD0BFB9C1838D23FA49D362E1B55A3810B1287493"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/scope-baseline.json",
+      "sha256": "F408EEFF622E4F4C5F6BE9D9AC836102ECB08A4A9E0D3A0087663194307B1576"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/scope-verification.json",
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/session-new-diagnostic.identity.json",
+      "sha256": "FF43118E52AC82A4E9C55099248BE4B51D5C3477C00F62EAEE14B66AEB334FFB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/session-new-diagnostic.json",
+      "sha256": "28091EF73613CD088902751E20BAD36A60266FC6B4F39A05E7FF3A7FEC25A9D6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/gold_band_probe.py",
+      "sha256": "B68E0D61A1EC2EE5A52BAB6B6670DF5F88B4ABCA80B36D527772EF11A7B2C52F"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/harness/Cargo.lock",
+      "sha256": "5F7AEF89F5890A7AAFBDDFC38E990E5489E139761A9640E11F52517FDD03BBD6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/harness/Cargo.toml",
+      "sha256": "8FD88856BDE99C35404BF04079EA5C73AA3C7E74AF98E665C95849B9203EDFDB"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/harness/src/base.rs",
+      "sha256": "19950AF2A65D58DEAA92E2A9FC35F57CB28682FEA88D6CD6016DD3C13FB9BC29"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/harness/src/main.rs",
+      "sha256": "3949A36C18B387650E44C49A1C7677E472BE6CDD1EDFDEF45BD7C76C2CE00264"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/harness/src/transport.rs",
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/harness/tests/contracts.rs",
+      "sha256": "A6397CC0502C55785B66A26D5EC62497A96B5C063EC03930CED0134F3C90B660"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/implement.jsonl",
+      "sha256": "94A5476BE3ED41CE2568639B88017C5F388EF987DC683FDD8A4FFB2FE423DCE6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/implement.md",
+      "sha256": "5D53D38202CCE18BC59B98ADB8DE232A2D49727FBD399699B37C082B9CFA3F98"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/prd.md",
+      "sha256": "96CBD546408D53CD5E7F13CCF9F943A1ACF60E43349267C33A12F5B925165DEC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/review-context.md",
+      "sha256": "28A853E8FFD7DBBE6B485C30288CF9940A50D6585FBED37AB75A40127E37F244"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/review-target.json",
+      "sha256": "673C5C6469865F9BF3AEFC905A6D9E433A92311F3CD5178743B5271F2DD9C9BE"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/review.md",
+      "sha256": "98D3AE3F3C2EB39D736A48A78FBF5893DFA92D25C09158876EDB99269E777D84"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/review.sha256",
+      "sha256": "EE5103C74C8F3F9FB33B01D195DCF5637393D0701CC9D705C3A8EAED5A8E4CAC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/run_probe.py",
+      "sha256": "05D29F7900C7939747AD5083AB3654FE2A42CD61016E8C605496A19AE2C2C7D5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/task.json",
+      "sha256": "59B363B9C7B05BA77E11FED6F5A7D2C76AE6BA29D5E0333A242EA2DD877133B8"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/test_gold_band_probe.py",
+      "sha256": "DAB97EF948B795D0FE94BD3F28BE212159C8C4B71D3E06C52D05CFF4E874BA26"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/test_run_probe.py",
+      "sha256": "ACF098EA440DED46323FD25C03A48562B05ABB40C6261D0BC6D3F8894A7AAF60"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/verification.md",
+      "sha256": "BB31BCA345662BFCACCE37F9EB66D38FE1E31463F1B98AAC7AC2950008D83E5B"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/host_direct_probe.py",
+      "sha256": "FF48CF569C50041AECFE849DBE1A75C986A5620836FB498234A969898976CEA1"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/host_exact_probe.py",
+      "sha256": "0CFDA46CA0736795258506C930583FBA65D3DD96B5111E1A6B774BB764140807"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/implement.jsonl",
+      "sha256": "94A5476BE3ED41CE2568639B88017C5F388EF987DC683FDD8A4FFB2FE423DCE6"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/implement.md",
+      "sha256": "5D53D38202CCE18BC59B98ADB8DE232A2D49727FBD399699B37C082B9CFA3F98"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/path_resolver_probe.py",
+      "sha256": "AB1CD31EAA5C62AADAFEE0F3CB2A2427553FE4F44DD8577431BE339328BF9F33"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/prd.md",
+      "sha256": "96CBD546408D53CD5E7F13CCF9F943A1ACF60E43349267C33A12F5B925165DEC"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/review-context.md",
+      "sha256": "CCA2E613C97C17D1400D13E4BA7C7753C81EF156F27AD36FF1251F71E674FA1A"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/review-target.json",
+      "sha256": "7F06334BC5101ED90A1601131F3B014569EC407131A9C71EC1BCDE46B8273F13"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/review.md",
+      "sha256": "A6CDE9B868044C087793A27C81BF44EED0EE138362DA3DA9FB77EC4C89007281"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/review.sha256",
+      "sha256": "5A685BC5D2940F653AC7347ADFD959F748EF5F5F4544AACF64DBB1B2A24BFABE"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/run_host_cancel_permission.py",
+      "sha256": "F4A1DFEC5787F123781ECEC8511A4038408E5436DF5C88D9747EAC2EBD3B827D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/run_probe.py",
+      "sha256": "05D29F7900C7939747AD5083AB3654FE2A42CD61016E8C605496A19AE2C2C7D5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/task.json",
+      "sha256": "59B363B9C7B05BA77E11FED6F5A7D2C76AE6BA29D5E0333A242EA2DD877133B8"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/test_exact_launcher_probe.py",
+      "sha256": "5C14F6AE9B210A123FC4B038B438A286ECBF8379C6EEDA0B218701C0FFD20D6D"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/test_gold_band_probe.py",
+      "sha256": "DAB97EF948B795D0FE94BD3F28BE212159C8C4B71D3E06C52D05CFF4E874BA26"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/test_host_cancel_permission.py",
+      "sha256": "ECF31858A5B63AFCDDC131D70ACF9800C49DF6BD7866778CBC8C6FA6EEEFF9D5"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/test_path_resolver_probe.py",
+      "sha256": "0AA8C6BD86E869C8A175AB0B19E3700663F231A99A7CA684BC82F4F93965D247"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/test_run_probe.py",
+      "sha256": "ACF098EA440DED46323FD25C03A48562B05ABB40C6261D0BC6D3F8894A7AAF60"
+    },
+    {
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/verification.md",
+      "sha256": "613B4EB0F256804CB730EE3BDD20E9F399CE2DCC8C21935EDE4203183302B68F"
+    },
+    {
+      "path": "docs/agent-disconnection-recovery.md",
+      "sha256": "3841682FD4F89205C4CE3307F86C0385C901E0B07596CC12C17D5EAAF5B8F9CA"
+    },
+    {
+      "path": "docs/agent-quick-tunnel.md",
+      "sha256": "7A15891F198D5460914AC535D37337233BF9A06587CEC535734B226C3C8DC069"
+    },
+    {
+      "path": "docs/agent-tool-contract-gate.md",
+      "sha256": "4DDBC59679AEA2CABFCEB4FDFC173BE0E6D75A8406604350C514F50D06B29872"
+    },
+    {
+      "path": "docs/assets/serena-desktop-v0.3-project-lifecycle.png",
+      "sha256": "1F422CC53116D983DD555612F5A87AD362E92E3C43DF5DE0C2FB7DC5E67EB6F0"
+    },
+    {
+      "path": "docs/assets/serena-desktop-v0.3-project-lifecycle.prompt.md",
+      "sha256": "A972C19AD3622855F00303A179FBD310217A66BD0F1E0590973C29FF41775179"
+    },
+    {
+      "path": "docs/codex-agent-context-optimization.md",
+      "sha256": "B50C5FA54E7955B611856931A89EA67FD756D72B4C74893BC837AA1334F729FB"
+    },
+    {
+      "path": "docs/codex-agent-observe.md",
+      "sha256": "A2ED44970B308208FD1F2EE8929504DBA26BA97503A65ACB2179AFF3A41EC21B"
+    },
+    {
+      "path": "docs/codex-agent-runtime.md",
+      "sha256": "8A7DF9D1F81B5699D27C39AF7353609296255CF806F9AF68B68E80442966EB11"
+    },
+    {
+      "path": "docs/command-runtime-v0.1.md",
+      "sha256": "0F9F1F28054AF703AC63610069D54467DF3B5A1C616C0E661F886C6D412708D0"
+    },
+    {
+      "path": "docs/core-work-orchestration.md",
+      "sha256": "17CDEFE70A1CD8E234285269574A897525A398279CEB8C7E2B733570010FE85A"
+    },
+    {
+      "path": "docs/implementation-task-breakdown-agent-platform-v0.2-revision003.md",
+      "sha256": "A06E15BF1E9F28688F80EE4B348876CC6CD761D4AD2D3F9E0E45EF3C43E23ADA"
+    },
+    {
+      "path": "docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md",
+      "sha256": "7AF023D5E5A84E3106B12DB14AC44EB9B4BA6E003CD3FDC2027C2FE29176F334"
+    },
+    {
+      "path": "docs/implementation-v0.3.md",
+      "sha256": "065157B1634F4DDE2A7A2DF66BC82F62AAF12BD03E1EEEDEC63CBC43294F9ED1"
+    },
+    {
+      "path": "docs/macos-porting-checklist.md",
+      "sha256": "5CE0646531B3B61CA9B741A61C16AA59EA9216B41796A3FB28A825993A881DC1"
+    },
+    {
+      "path": "docs/remote-access-ui.md",
+      "sha256": "B50389B6B11562B76DFCF0D94F49B13988AB4003E3E98B812AB0BF22BD14C6D6"
+    },
+    {
+      "path": "docs/root-thread-title.md",
+      "sha256": "E7F702172BB508F30166A7513A15760D43303948CFF2AAA3E11FB24892C2827E"
+    },
+    {
+      "path": "docs/runtime-attempt-quarantine-decision.md",
+      "sha256": "990784EEBAB9EDF0AFD007C30839C723EE9C6226A0A9AB6D619EE582CAA5D2AF"
+    },
+    {
+      "path": "docs/runtime-persistence-decision.md",
+      "sha256": "C9A882E127EF2B6E7AFFC3F796F85569A688619118950F78BBA1CB6E1E391731"
+    },
+    {
+      "path": "docs/static/Square310x310Logo.png",
+      "sha256": "EC5AAA7E4B64456E5E05B0C049055357BEE77F169E3EBED993D46DA3AD71393C"
+    },
+    {
+      "path": "docs/static/chatgpt-1.png",
+      "sha256": "075EF6160236DBE632B54F7D117AB1F1553B55005D0D24909F1A56850EE15DBD"
+    },
+    {
+      "path": "docs/static/chatgpt-2.png",
+      "sha256": "CC748AD0AF0CAFCDE252B3D9DACBC9604756CE45FAC8ECA32BAAD60F3FD0D324"
+    },
+    {
+      "path": "docs/static/home-1.png",
+      "sha256": "E8505E41AA4EB0BE9DD5A57D9224C271100E3DD45C627F1D71F4C8ABFA39560B"
+    },
+    {
+      "path": "docs/static/home-2.png",
+      "sha256": "60532B72D13E67BEA01E524B346C634A2F90F7BE9D4B24AD4CA15329E4B590B8"
+    },
+    {
+      "path": "docs/static/home-3.png",
+      "sha256": "D87B3E7F0AF81E53DEBA59B7C238AB646300076222A1A8E982BAC12B2D20FEBA"
+    },
+    {
+      "path": "docs/static/home-4.png",
+      "sha256": "19B1AF4E079A8F1D9AAAD6192AA7C83E7ABC00FA58CCF5EB2BF1C2181BB516C1"
+    },
+    {
+      "path": "docs/static/home-5.png",
+      "sha256": "42F3793BCA0BF518C65DC557281841FDD0D665937EA228899FDC16919306D99D"
+    },
+    {
+      "path": "docs/technical-design-agent-platform-v0.2.md",
+      "sha256": "73F31FD083ACE803FCC28E7DB54AAE64840582590204C7B248E4053CE202EBB0"
+    },
+    {
+      "path": "docs/technical-design-multi-agent-provider-codebuddy-v0.1.md",
+      "sha256": "A80A5A6FA0B3D263B194F7D4604933A805475CA15761EEAE86C3C7029E0E6E15"
+    },
+    {
+      "path": "docs/technical-design-v0.1.md",
+      "sha256": "236701B44C4DC237B2A2E4615A2BED9A2FE80E8F78B43CA7D94EF2225E0AB745"
+    },
+    {
+      "path": "docs/technical-design-v0.2.md",
+      "sha256": "524007A1D96006D78DBA85B9BA36887E16B35819A0983AF42DE76695E504B0D3"
+    },
+    {
+      "path": "docs/technical-design-v0.3.md",
+      "sha256": "E34834E9161DD563E2233037618DBE333B03234AEFD5B0B6C8FAF429567E4093"
+    },
+    {
+      "path": "docs/ui/DESIGN.md",
+      "sha256": "819677D9B6F6837084A701F5F8E3FFB0ECB3B6A0BBA023B93CB1560E25199E5E"
+    },
+    {
+      "path": "docs/ui/README.md",
+      "sha256": "B65722BC1CE88A76EDFB8C39292A04EF7998543FEFD9569B54A7C5D67774F49D"
+    },
+    {
+      "path": "docs/ui/agent/detail/code.html",
+      "sha256": "D0F7C5E8F21E24B45F922A2E9B4E197B8648D77698FDC17A5D6ECD4936B46D5B"
+    },
+    {
+      "path": "docs/ui/agent/detail/screen.png",
+      "sha256": "76F1A755170A90B9748EFBA10B0C9FD8286C2F7D002D658C23B76D384EDB4F51"
+    },
+    {
+      "path": "docs/ui/agent/list/code.html",
+      "sha256": "9E372F724149298F9964DEC4E8B951A24B10FA1DF352E30BD603A87047C607A8"
+    },
+    {
+      "path": "docs/ui/agent/list/screen.png",
+      "sha256": "5843128596E33AACD6F728EF0AD2215DFDEFEBE0A5730D447103F6F78FFF16C7"
+    },
+    {
+      "path": "docs/ui/archive/agent-legacy/code.html",
+      "sha256": "1B5D9CCB0A81502FD9BF89DCA510C41AF1778AAE05E178C7E475E81087D5164B"
+    },
+    {
+      "path": "docs/ui/archive/agent-legacy/screen.png",
+      "sha256": "2B9AE8FF324E00FF6C68A3F1E86EB2952B4628793E3FBE1ED8965BB111413706"
+    },
+    {
+      "path": "docs/ui/components/gallery/code.html",
+      "sha256": "84538BAF2D9CABFE755F803A3CEC3E9B2137086A7DFBCBD32D10186002ABC07E"
+    },
+    {
+      "path": "docs/ui/components/gallery/screen.png",
+      "sha256": "5CCAF79134A8DC5892B2B1AFA8555D96A609730FA7E6F9B2C3D6FA7B3F9207D9"
+    },
+    {
+      "path": "docs/ui/home/code.html",
+      "sha256": "33AD66C79F1CE6CBB4CDC76EB6557423CCB08A792D178351E1F83112C766287F"
+    },
+    {
+      "path": "docs/ui/home/screen.png",
+      "sha256": "69E56A283B4F68AC1FF1295A1D2828B8AA5543B2EC71CEAA2EB3225ACEB91450"
+    },
+    {
+      "path": "docs/ui/logs/default/code.html",
+      "sha256": "C1B4AD709059EF6D683ED4BFCE2CE4881478C39220B1003985065890466B7A9D"
+    },
+    {
+      "path": "docs/ui/logs/default/screen.png",
+      "sha256": "6888C0E29987D1AC5F5F5713E78E7764D7878E068852653873B0761C338B9506"
+    },
+    {
+      "path": "docs/ui/logs/multi-select/code.html",
+      "sha256": "0BA82CA57076C42FF3CC8383B3380013EC3CB393AFDB0F8DA1F2D6D695361BC9"
+    },
+    {
+      "path": "docs/ui/logs/multi-select/screen.png",
+      "sha256": "8AC1EE9AF0910843EDC6F634EDA6281F8CBCC573BF503892FD424F7A1E6D6206"
+    },
+    {
+      "path": "docs/ui/remote-access/mcp-only/code.html",
+      "sha256": "AA702760C6EB1A474F2B7D3520B872E956F01445EF173764AEA472C7C38844D7"
+    },
+    {
+      "path": "docs/ui/remote-access/mcp-only/screen.png",
+      "sha256": "1408997ACE291AD28A233FFEC07DAE5848237758A2B5DE40830078C5D687218D"
+    },
+    {
+      "path": "docs/ui/remote-access/ngrok-connected/code.html",
+      "sha256": "866BB8BCCF8F5E9676364FFD99D36FFB23E5FF6751A51DCA878ACB35B0C1A0F1"
+    },
+    {
+      "path": "docs/ui/remote-access/ngrok-connected/screen.png",
+      "sha256": "2075A84FD0C31E59FD9F050A21AE2055678E89E267CBF37074A1D8945032B2AD"
+    },
+    {
+      "path": "docs/ui/remote-access/ngrok-ready/code.html",
+      "sha256": "12ED52991F61E0151D6C5A5CB441906180BF3130311EAF06062FC0A55A25BE10"
+    },
+    {
+      "path": "docs/ui/remote-access/ngrok-ready/screen.png",
+      "sha256": "C518F7E1BFB64B9F1889522F41D43C261BDD7609C7B0250D5562E775335C6FA4"
+    },
+    {
+      "path": "docs/ui/remote-access/quick-tunnel/code.html",
+      "sha256": "6F67EDB891814343970C3F3B128E9B6B5303C0C1D47D75FDE76DD114F660BFCB"
+    },
+    {
+      "path": "docs/ui/remote-access/quick-tunnel/screen.png",
+      "sha256": "D6FD3ADA54CA2281264DF5016F8443F30A84ABE8B294C14DB0F656A90BC4FF09"
+    },
+    {
+      "path": "docs/ui/remote-access/self-hosted-https/code.html",
+      "sha256": "35096DFF19BB87C6A3CDDD7CC7300C51B83D0345A9C92EB55A7206AF9099DEF1"
+    },
+    {
+      "path": "docs/ui/remote-access/self-hosted-https/screen.png",
+      "sha256": "A004B7496C7DAE9D5D1784DFC7A14DC65BA7EBA3C8093C7A145A05B9D11A3EF3"
+    },
+    {
+      "path": "docs/ui/settings/code.html",
+      "sha256": "3EC386AA14E2B09028B9A10430BDE7B7C2572F4BB7ACE248F1BFD6276265936E"
+    },
+    {
+      "path": "docs/ui/settings/screen.png",
+      "sha256": "B31562BE9509517AAED66EE0548CA2EE9BA6B361020F674DFFE827BB74660908"
+    },
+    {
+      "path": "docs/ui/status/code.html",
+      "sha256": "7AC819B7BA99CF12469B6A988E66E6103AFBBA328B0A49DC0DAF2A7B009A4F6F"
+    },
+    {
+      "path": "docs/ui/status/screen.png",
+      "sha256": "3E1B93A685B348D5758D71674A08348FF05DB00CEF6B35244E6ED4DE8600A38C"
+    },
+    {
+      "path": "docs/ui/stitch/design-tokens.md",
+      "sha256": "A627A25C92F07E4636259A5402CB373E38E82A161DEEF4170D54BDF9B394E683"
+    },
+    {
+      "path": "src-tauri/Cargo.lock",
+      "sha256": "25B6D9A535630AB93B3B13506D6910BDC96E30123EE1FD7E86F829CC13171C0D"
+    },
+    {
+      "path": "src-tauri/Cargo.toml",
+      "sha256": "AEC3C6FC28484A3171FF05BD2599ED67DF28E2FB0CBF8E95BB44B0761FD49645"
+    },
+    {
+      "path": "src-tauri/build.rs",
+      "sha256": "FF2ABEFADC921BE1DC6671BDFDF0072ADFC9DE7B332B8CABEF4306157D3CC761"
+    },
+    {
+      "path": "src-tauri/capabilities/default.json",
+      "sha256": "D116365AC80786DCE2A85AF3D9D53EBC14387C2D5B05A9835A70AB27F314CE49"
+    },
+    {
+      "path": "src-tauri/icons/107x107.png",
+      "sha256": "3DA9CFC7EF82811376849D14C8AEA30864159AC6DB6CA6FF004C49110D7E3B33"
+    },
+    {
+      "path": "src-tauri/icons/128x128.png",
+      "sha256": "8372EB11F288401986609D698BBA1B2B052695109D4171A31EEA8B75FFB6FF21"
+    },
+    {
+      "path": "src-tauri/icons/128x128@2x.png",
+      "sha256": "65ABDED6AA7D6F47629B183A3D558AD638F474D441C0FEBC8A7C69E6AB8A2A5E"
+    },
+    {
+      "path": "src-tauri/icons/142x142.png",
+      "sha256": "3B4166C767C500BAEB339A60151ACE31A504909A772DF01AA3D82DD67D1AC77B"
+    },
+    {
+      "path": "src-tauri/icons/150x150.png",
+      "sha256": "8FCC491A37B076B9606258BCC8EA3944FFB21EA254E7E3E5CB9BC59EB889D549"
+    },
+    {
+      "path": "src-tauri/icons/256x256.png",
+      "sha256": "65ABDED6AA7D6F47629B183A3D558AD638F474D441C0FEBC8A7C69E6AB8A2A5E"
+    },
+    {
+      "path": "src-tauri/icons/284x284.png",
+      "sha256": "80223266198795C92E137F53A7EFDF024122BEA9AC6EA94324FD2F69F8F2C2F5"
+    },
+    {
+      "path": "src-tauri/icons/30x30.png",
+      "sha256": "7DD16EBB19AFB61EA8243A378F9833EB85A1938CA784F85DAF261583E9AA5F97"
+    },
+    {
+      "path": "src-tauri/icons/310x310.png",
+      "sha256": "EC5AAA7E4B64456E5E05B0C049055357BEE77F169E3EBED993D46DA3AD71393C"
+    },
+    {
+      "path": "src-tauri/icons/32x32.png",
+      "sha256": "F2A9BAE244CA9C050709224D9F28067D024EE9B6EC66BE6E6E40751D3B2C1C11"
+    },
+    {
+      "path": "src-tauri/icons/44x44.png",
+      "sha256": "9AB5F55928F1254AA770A1C2550B27C70A4BE7E54D4803760D96D1BDCA63CEC6"
+    },
+    {
+      "path": "src-tauri/icons/512x512.png",
+      "sha256": "4DACEDE0AB615F1FA94E9DA8720FA87255CB9E04499060AF65B45416ADBEF167"
+    },
+    {
+      "path": "src-tauri/icons/71x71.png",
+      "sha256": "A920E7C8B2B5CF1991C506BD5CD57EB62D1B27BFCF89E9AD221B0830AE8A3343"
+    },
+    {
+      "path": "src-tauri/icons/89x89.png",
+      "sha256": "6308343F89A2575991C9155D5DD8FBFB52A1802806FFDB78283F7436092386B4"
+    },
+    {
+      "path": "src-tauri/icons/Square107x107Logo.png",
+      "sha256": "3DA9CFC7EF82811376849D14C8AEA30864159AC6DB6CA6FF004C49110D7E3B33"
+    },
+    {
+      "path": "src-tauri/icons/Square142x142Logo.png",
+      "sha256": "3B4166C767C500BAEB339A60151ACE31A504909A772DF01AA3D82DD67D1AC77B"
+    },
+    {
+      "path": "src-tauri/icons/Square150x150Logo.png",
+      "sha256": "8FCC491A37B076B9606258BCC8EA3944FFB21EA254E7E3E5CB9BC59EB889D549"
+    },
+    {
+      "path": "src-tauri/icons/Square284x284Logo.png",
+      "sha256": "80223266198795C92E137F53A7EFDF024122BEA9AC6EA94324FD2F69F8F2C2F5"
+    },
+    {
+      "path": "src-tauri/icons/Square30x30Logo.png",
+      "sha256": "7DD16EBB19AFB61EA8243A378F9833EB85A1938CA784F85DAF261583E9AA5F97"
+    },
+    {
+      "path": "src-tauri/icons/Square310x310Logo.png",
+      "sha256": "EC5AAA7E4B64456E5E05B0C049055357BEE77F169E3EBED993D46DA3AD71393C"
+    },
+    {
+      "path": "src-tauri/icons/Square44x44Logo.png",
+      "sha256": "9AB5F55928F1254AA770A1C2550B27C70A4BE7E54D4803760D96D1BDCA63CEC6"
+    },
+    {
+      "path": "src-tauri/icons/Square71x71Logo.png",
+      "sha256": "A920E7C8B2B5CF1991C506BD5CD57EB62D1B27BFCF89E9AD221B0830AE8A3343"
+    },
+    {
+      "path": "src-tauri/icons/Square89x89Logo.png",
+      "sha256": "6308343F89A2575991C9155D5DD8FBFB52A1802806FFDB78283F7436092386B4"
+    },
+    {
+      "path": "src-tauri/icons/StoreLogo.png",
+      "sha256": "7CC474FA3A6DEB2AFF4BC00AC678779CCAEE1268C4D2B4F0D39CC1F1C7E6385A"
+    },
+    {
+      "path": "src-tauri/icons/icon.icns",
+      "sha256": "7CB2BC167FD6B953F520AA98E6D7CB4B206448E8C7353BBC21DDD9AEC8880F53"
+    },
+    {
+      "path": "src-tauri/icons/icon.ico",
+      "sha256": "413757422EAD95B31AC0AD3CE479B07E5BA2D9D381A090D14FC086C5B75F3468"
+    },
+    {
+      "path": "src-tauri/icons/icon.png",
+      "sha256": "76080424B4AD20E90CB1650310573FC29F73CFD8B5CA9117FBBA32D775FA979E"
+    },
+    {
+      "path": "src-tauri/macos/Info.plist",
+      "sha256": "C9C0040ED380345E6889C9E886DDDAB0977DA8C602EA5377AD8EA23230B7BB6E"
+    },
+    {
+      "path": "src-tauri/src/agent/activity.rs",
+      "sha256": "0621E412522375DB9DBD7F82D3BF2AB5EFF2C8BEF4C8CAD31EE34BC197CFF10C"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/client.rs",
+      "sha256": "BA45A95AA993D87DDA71C98CBE8EEB400ACA5939AB542106751930F5D3177535"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/client_tests.rs",
+      "sha256": "EEB03DCB0E669C7BE89024D0B12B9857DBA1F2C6777BB3D7A7FD6BADA7A8A2B1"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/discovery.rs",
+      "sha256": "749B91C18EB5EC2891EAE526E9906EAA897296F1D6AFB00D1C577C0BDF443766"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/discovery/tests.rs",
+      "sha256": "FCEF2F373BEB22AE44C49C609F14794F904185B454FA6CA7FFF89AA4B09C7021"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/mod.rs",
+      "sha256": "8A017D184F6A31D00F39A6E17BDAF6E1ED7A9A50CF2FE822BB37E5DABC7E445C"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/protocol.rs",
+      "sha256": "DBE79A85BB23B0A16DF09C8856564BE0F6FEE551C6AB92DD51DD7A0CA191A7EA"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/provider.rs",
+      "sha256": "6882387B7DA77C4093CBA80D52D74A2EA7779D22AC7398C0277DAE693CA4ADBF"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/provider/tests.rs",
+      "sha256": "3C126A6F2D80B6B3123E21DEEFDA5AFDCF05AE4BD4D1CEC8FEABA7E23E86EFA1"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/recovery.rs",
+      "sha256": "7DBC931DD0E88664BCC1D360AEB0CCBBCAE2594220582AB35E599E3AC300C7AC"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/recovery/tests.rs",
+      "sha256": "E4B0067853E2687BE53B218380D8BB13FE928F33398872F326439B43673BD973"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/recovery_windows.rs",
+      "sha256": "4327E6333805CC1275CC7C82206FEE1C4767084F4A8D3F74C717AA7CE734AEFE"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/runtime.rs",
+      "sha256": "7D88790A2A353602993B4E1532209874AE8CA36326B6CD09598F4B984D67DF08"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/runtime_tests.rs",
+      "sha256": "460A69A6A1FABF29BA92BEBBD3C43B007526F2A033590E3D81001313B9322E13"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/store.rs",
+      "sha256": "13B7F4C62A4D662C74570D48F844F8611B5D17828074DF6083CB49F9D2490EFF"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/windows_launcher.rs",
+      "sha256": "C21F8CDB41AC6FDB840D7F15C16AE0C0FF711224FDCD21A4C149DAC57316F00A"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/windows_launcher/tests.rs",
+      "sha256": "15B5AA15DC43C42EF9BE295A6B02B337350896618335CD3AA11EF53AD4369993"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/app_server.rs",
+      "sha256": "A30249B5687A5ACE417794DB15B797F4698DC9347A29357D9BCED6518E739471"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/app_server/binding.rs",
+      "sha256": "A95FDF0F902FDA925B1579EF9FCD1B9888AFC59E58FE2207E4DADCDA6667CE2F"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/app_server/macos_managed.rs",
+      "sha256": "56F7A51BFBD7186D190B918F998D9B3FCDFD0791F3FF210A563C2E3253E733D9"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/app_server/managed.rs",
+      "sha256": "B51542AD3F9EB788DC326F023591A03377FD84F42830274EBD6C1864F8D14D89"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/app_server/recovery.rs",
+      "sha256": "C23D6286E11E763F1D4EEF8617105452EDF1AF3692FBB560CCAB70D47A0742E5"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/app_server/session.rs",
+      "sha256": "6951064A66CC05CCAA51116772F4C29B54BF0F4E82DCFE28CF08B779BCFC81C3"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/app_server/tests.rs",
+      "sha256": "E6C194F0BD4EC1374C07AF5C40C602C9AE0D8CF230B449632C054D3CCD2AD9D7"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/app_server/title.rs",
+      "sha256": "BB560B57BFA2C871DD754C9B086B1FA7C042DD5D7814567B7D47A0D59D1F315C"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/app_server/title/tests.rs",
+      "sha256": "B8EC1F7D2B3F7A351EF58753CEC3F008D183C115EA38E90E0FA220ECB3A90ECF"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/compatibility.rs",
+      "sha256": "B1715D275B40AF17DA563CE3CB86348B7B7C44B45BE842329C34ED93B203729F"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/discovery.rs",
+      "sha256": "34C06DABBDA1243106FB8FA1DB18E908148A35A7548D4EE67896F5D9C1B3EC05"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/macos_discovery.rs",
+      "sha256": "B09DD53014375C7F999BC7C5ED11ECAB45DB02743D05C56D2ECF26D24C65A37F"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/macos_launcher.rs",
+      "sha256": "15DD61841F272E5E566AA3F2307FD1B5A2DE09BD4A6B50F682113B3851A4480C"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/macos_launcher/tests.rs",
+      "sha256": "14A61C727AB99B71B8E118A5216F68E3975972BD1086E49CE02D32E456EC497B"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/macos_recovery.rs",
+      "sha256": "F074AA82134B636D3A001FA1CEF1718F0D8D73191871E3BA2AD36F2F4C0CC66D"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/macos_recovery/tests.rs",
+      "sha256": "EB1E77D886CCA97379D4706E0C8316E897CAC51CD52E129B448141D8D17D896E"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/macos_runtime.rs",
+      "sha256": "BBD2790DC527EE39D29CBE41B736F80520AF8EDAE50A88319648449306EDA130"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/macos_runtime/tests.rs",
+      "sha256": "A5AAB4C38D0E684A3A7B08FD60C4C36A466392195DA96E1FB01FACAF72C0EFD1"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/macos_runtime_adapter.rs",
+      "sha256": "F06299F59169CA1F106BA5FAA0FB11488123E520C244F748856AF8E21786698D"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/macos_runtime_store.rs",
+      "sha256": "5227B682DEAC02C783287FD2EA29DB76EDED5BECB0313BD8D076934C8D1A2704"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/mod.rs",
+      "sha256": "E3FFD32430AF5624420A99BE12BF94E1F11AF5D4555AF864D7CA2A72F0027859"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/platform_windows.rs",
+      "sha256": "FD4B67A832C1FE3F7E91DB2973118EE39F07ACB4218673332663258660D3FD3F"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/pool.rs",
+      "sha256": "FEEF1286B74FFCBE4E2CAD67DC476F06A688530939DE6570C1CA4481A971D4FA"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/protocol.rs",
+      "sha256": "1F0AA0A478D9DEEEEC3AFBFA24F52E0D446AE06640A1B130E7FE12394021F09D"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/provider.rs",
+      "sha256": "E41EC27AD9433F7EE3887ED07D47E76B8885A179173EF77A46F8B8F81A058D7B"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/provider/adapter_tests.rs",
+      "sha256": "A4EA1D453812BEC99319E056F2E31BA723DB1E4BD8AF1ACA45ED69E966240419"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/provider/cancellation_tests.rs",
+      "sha256": "B1B213BD5122FD54ED14A398486638526CF1BBF678A5203AF1531C62028296BC"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/provider/tests.rs",
+      "sha256": "11A1CB355FFA466D8F9C5AD173EEE8C286DC5A84FAA87468CC8C274FBEFD0076"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/runtime.rs",
+      "sha256": "3A13F4734310FFC045A41ED0AA97CC8F0CD39DA5CBC4293A4DFBA8F12D05C6D2"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/runtime/tests.rs",
+      "sha256": "F455184D5AC9943560676C75431FD28A9B275531B53EFA9F370BBD3555D5FC6B"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/unavailable/discovery.rs",
+      "sha256": "81254D720FA6131173290FF81D26FD5CA726A06A6289AD822863F8CF3911A747"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/unavailable/pool.rs",
+      "sha256": "451EB08B3704EC1821DC401B0F55FEB081486FF9B23E585AE8EC9752414DCB51"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/unavailable/provider.rs",
+      "sha256": "470B689B95884B5B2573291C74B5B939ADF047597F97F74A763E4728A6126B68"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/windows_launcher.rs",
+      "sha256": "BABA993C96F850673FF262E1FB7B3B970EDA60C6D705A9652C39E05A0E4ABD2F"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/windows_launcher/tests.rs",
+      "sha256": "4A4A9F4C361766F1CA5A3977B06E924118696792A40B05DA93EA783115A79924"
+    },
+    {
+      "path": "src-tauri/src/agent/coordinator.rs",
+      "sha256": "D3DDEB5BE6EFA7600CA875DEFAD7EF159CD26818ECDD3751AF3048CB61FECFA0"
+    },
+    {
+      "path": "src-tauri/src/agent/execution.rs",
+      "sha256": "566A05C286CDDDE8F5C4A65DAE164DA24161EFB4E2BD8850236FEF9927AC26B8"
+    },
+    {
+      "path": "src-tauri/src/agent/execution/state.rs",
+      "sha256": "AC52EF505D50C557B198BCA500DE3E63BC2C538C1CBD1BA9BFB5ACE4393A6C67"
+    },
+    {
+      "path": "src-tauri/src/agent/execution/tests.rs",
+      "sha256": "503A0FE76389AA8000A3B97FFCA55669B079C5517CE5111D0F6B01889792B35C"
+    },
+    {
+      "path": "src-tauri/src/agent/mod.rs",
+      "sha256": "EA7DAEE2874028E93D3AEAE4218016460D2CC7CEB5DBF2E17B4324C1EDFB73BC"
+    },
+    {
+      "path": "src-tauri/src/agent/notification.rs",
+      "sha256": "D7D869A42F619F0F39882A1910D09997F73208E1FE804FF432DA4D74886A2757"
+    },
+    {
+      "path": "src-tauri/src/agent/product.rs",
+      "sha256": "98086A5A00DC760BFB041834E80882D52785E5B78A42596AB51E7028D0374FCB"
+    },
+    {
+      "path": "src-tauri/src/agent/product/control.rs",
+      "sha256": "D293722D220C96DA439300EB84E8AB2CBC6DB4E2D507DD0586D1FB3183DBFB47"
+    },
+    {
+      "path": "src-tauri/src/agent/product/control_tests.rs",
+      "sha256": "85B932E683C70817337E85287EE1CD7147120D113837DBAD30A4F5D0F8DCCF06"
+    },
+    {
+      "path": "src-tauri/src/agent/product/fixtures/provider_catalog_codex.json",
+      "sha256": "0F70B8A3364C36288A5A2434FE5E4A6DB30FCC7BFA6139AA7BB5001E525A14F4"
+    },
+    {
+      "path": "src-tauri/src/agent/product/fixtures/provider_catalog_current_policy.json",
+      "sha256": "C85FCCAAE303D2BAB46A7E4DD92542E0518A0CEBF3BC4E1FAD00702212C67495"
+    },
+    {
+      "path": "src-tauri/src/agent/product/observe_tests.rs",
+      "sha256": "D270BE941F48B30763E4FD69A81F29A9E866D5449A513B1EA819DF0933D3A051"
+    },
+    {
+      "path": "src-tauri/src/agent/product/orchestration_tests.rs",
+      "sha256": "E2950F13A6DB3BD66F941143A0DF3198457F40756B37F76492CD443775116BE0"
+    },
+    {
+      "path": "src-tauri/src/agent/product/persistence_tests.rs",
+      "sha256": "08DBC5581EC21709467E296EC6ED01AA13BA4112D4C7995E37663D1A7BEF0972"
+    },
+    {
+      "path": "src-tauri/src/agent/product/provider_catalog_tests.rs",
+      "sha256": "4659874BED1CA470E03538C141DB7A6BC7118BEBF50A7DFB7621CF15553FAD56"
+    },
+    {
+      "path": "src-tauri/src/agent/product/provider_projection_tests.rs",
+      "sha256": "51E79081185E2836494DE54D6DCEB7398E9AA2FC82AE7AC1A2B761E997041FBE"
+    },
+    {
+      "path": "src-tauri/src/agent/product/restart_tests.rs",
+      "sha256": "A223F1A0E7511CC26459AA918B42809420848327EB2DB19F10DAA1A08E9E508F"
+    },
+    {
+      "path": "src-tauri/src/agent/product/role_projection_tests.rs",
+      "sha256": "38D5D775050F17DD22256F2B5A055742D03D50D38B2057ED6FFD06B7F20B3530"
+    },
+    {
+      "path": "src-tauri/src/agent/product/tests.rs",
+      "sha256": "DDF17D7FBC75DDB1E4781639BBE1A893EBDEE6BE0073281FAC93CECDE85984F8"
+    },
+    {
+      "path": "src-tauri/src/agent/product/usage_projection_tests.rs",
+      "sha256": "DAE3AF7D87E7CA601EAC82FE8B9D4C2F5F9CB15A4D3F4D307F0B233CEDEA4066"
+    },
+    {
+      "path": "src-tauri/src/agent/product/work_adapter.rs",
+      "sha256": "A96306B56D89B03F9DE24139E12B55D62A0CE20200262480AE3FB562556226CB"
+    },
+    {
+      "path": "src-tauri/src/agent/product/work_adapter_tests.rs",
+      "sha256": "5A58936424370F2E120037BF668B91D50962A78B98402381866454C5B44F71FD"
+    },
+    {
+      "path": "src-tauri/src/agent/product/work_context.rs",
+      "sha256": "C6934E7B583FADBD6C958D31B49D7555C1C05D7EF556B82C1F180C1300AFFF2A"
+    },
+    {
+      "path": "src-tauri/src/agent/product/work_context_tests.rs",
+      "sha256": "681F06D4529C13262B8CAB95DDBFE3BEE9179AAF0D04CB56F07E4B9CC86D512C"
+    },
+    {
+      "path": "src-tauri/src/agent/product/work_crash_tests.rs",
+      "sha256": "BEC15FA6C1E5905158660F64B814B4BEA84FBAD98B1720A8BFED07815DA5F234"
+    },
+    {
+      "path": "src-tauri/src/agent/product/workspace_write_tests.rs",
+      "sha256": "3E40B8B7B820F2C57A1BE2C1F246DA4992A9EF006D9B81143ACD64C55DCF860F"
+    },
+    {
+      "path": "src-tauri/src/agent/provider/control.rs",
+      "sha256": "20C5CCE0F12563A141440E81F9B77B805E6FA7634DE7D378976C3C58CDD37167"
+    },
+    {
+      "path": "src-tauri/src/agent/provider/mod.rs",
+      "sha256": "0B5869E47FAA24CB397B1920C8D406BEC1826F322020A7BAD440B91FE8BA9114"
+    },
+    {
+      "path": "src-tauri/src/agent/provider/port.rs",
+      "sha256": "6142F3552593100724F297D332F642792654B01DA36F1B2985866F8B23841325"
+    },
+    {
+      "path": "src-tauri/src/agent/provider/port/tests.rs",
+      "sha256": "27C48AF61DCAE832E59B6F812C8DA9C64A17009C773320AEBB203310BFF19B58"
+    },
+    {
+      "path": "src-tauri/src/agent/provider/registry.rs",
+      "sha256": "0A351C98D7F13BE114E7A782A6F8888810DDBA85FDAFB18854AFA4006D49B2E2"
+    },
+    {
+      "path": "src-tauri/src/agent/provider/registry/tests.rs",
+      "sha256": "3A835DFBBE3F729C6B791B19F8B9576B43EC2883F966C0343C115692EFDA19E4"
+    },
+    {
+      "path": "src-tauri/src/agent/provider/telemetry.rs",
+      "sha256": "4816ECA14E63D86C32A0BB6785FC6BC7D3A8F264679A267C6112C07099D1957B"
+    },
+    {
+      "path": "src-tauri/src/agent/provider/tests.rs",
+      "sha256": "13C4BD82D226523E30F68DFE4876762DD9468A1CBA35E74AF90934CC95D97C07"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v1.sql",
+      "sha256": "1CE0D1855B6C2E3B1F78B034B934D94EDBEF9876A0D816A6411560382A7D1938"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v10.sql",
+      "sha256": "C7DB9B69BB928EC877B5C6FBD43C4EFC76D992C3F30E93E155751D288ABC33F9"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v11.sql",
+      "sha256": "E62E8973CB3AE832A1799B8EEC28882BE04B06AB9145133195F629C2DAAE7648"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v12.sql",
+      "sha256": "CE03BD693CE91308A004CDB2FF84AD280F44F25041CDEC6D66599B34A19B65BE"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v13.sql",
+      "sha256": "D0D240AAFF30ED12023863FF265970039D9D3FE5AFD019CD0FDE03A8763C5A71"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v3.sql",
+      "sha256": "3EA41A7492579035239EDD23B42FCFDC9627D829DF307FBFE9F7B596957D9629"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v4.sql",
+      "sha256": "5D408AAB18983A4B86627B96A6FB96148B61FBAD64151E1934B8EE2735900B70"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v5.sql",
+      "sha256": "B9F9DBCB1D2A97FC47DA713BC37847FB4E41344EBF5866EF977548D8703E9D13"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v6.sql",
+      "sha256": "CD9C73EB8DE47F5CD73EECCA07560BA4855C721D4D9B9D47034278D24D2886C8"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v7.sql",
+      "sha256": "E631B85A1A757C27CA2DE4D2EAC74DBCFFA3C860713FC760EAAD9E67C8552938"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v8.sql",
+      "sha256": "6625440FF4EB0B1BA96808824C124B7DC045620FFE8122FA944AA78D23869A46"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v9.sql",
+      "sha256": "F2067A1B4C56FE724B614492472911CE865BBC73F29A69AD359B1C040C82C84F"
+    },
+    {
+      "path": "src-tauri/src/agent/store.rs",
+      "sha256": "17A65E1213825B99126F7446AFD5C07BD33225F304EB5DE2EA2A6AE916039D8E"
+    },
+    {
+      "path": "src-tauri/src/agent/store/codebuddy.rs",
+      "sha256": "658634F02DBC2B8BD673E03C2C621D1776770BB61D2F85B2FF09C4B1183B87F6"
+    },
+    {
+      "path": "src-tauri/src/agent/store/codebuddy_runtime.rs",
+      "sha256": "945F664199DE98E22BB46AAD0745B87AE344865428E1A92F524E5FC9418BC620"
+    },
+    {
+      "path": "src-tauri/src/agent/store/command_runs.rs",
+      "sha256": "C288A246CE1A841756F7DEAFD01C30F63972FA3F52A56DFEC4512230EAE6DF50"
+    },
+    {
+      "path": "src-tauri/src/agent/store/runtime_attempts.rs",
+      "sha256": "1E16A3C3FDB7288855A1C2E81BAD2B222C9CEA45D80F23F8D5AEE6AF98BD6D5B"
+    },
+    {
+      "path": "src-tauri/src/agent/store/runtime_store.rs",
+      "sha256": "0E518C33188E280531C4F7238FF86329819BB76C3BFA0DE82AC2B573D6D94EE3"
+    },
+    {
+      "path": "src-tauri/src/agent/store/tests.rs",
+      "sha256": "83B5300AFAEC109D23C379ACEA679D2694B8E6A802E11D20D5940C241C3E1F2B"
+    },
+    {
+      "path": "src-tauri/src/agent/store/tests/codebuddy.rs",
+      "sha256": "BDD0EA64F507616491491D036C65C56773F82BEFDDE35794EB2A33D07D32096B"
+    },
+    {
+      "path": "src-tauri/src/agent/store/tests/v11_fixture.rs",
+      "sha256": "7EE01321EDDB260AE9D7F6625939CB78E0D43DDEA8E042DE75CEA5FFD2CEFFDC"
+    },
+    {
+      "path": "src-tauri/src/agent/store/tests/v12_migration.rs",
+      "sha256": "A3EF99804C939FDE827A56D197D52AD8789AEF4501BB2DAD7BD3AE7687DE8D5A"
+    },
+    {
+      "path": "src-tauri/src/agent/store/tests/v13_migration.rs",
+      "sha256": "67FC4CF82A4C0E27332BA7F05A479FF82682EE291E06671CBD13D30FCD5332A3"
+    },
+    {
+      "path": "src-tauri/src/agent/store/tests/work_runs.rs",
+      "sha256": "3128FF88D55E8E3998A2EF921D0780A551443B006C4BB3506F0E4B3CA89036C0"
+    },
+    {
+      "path": "src-tauri/src/agent/store/transactions.rs",
+      "sha256": "A63A90F66E7A829D3EEE5E1325B02C89C26771D30C0AF4AFBD58C27B233D8505"
+    },
+    {
+      "path": "src-tauri/src/agent/store/transactions/product.rs",
+      "sha256": "DD6A0BF60548F420ED569A353D708DFFCF0CF9D5757D6CC84F03D8DC05A8623C"
+    },
+    {
+      "path": "src-tauri/src/agent/store/transactions/product/work.rs",
+      "sha256": "B578857D5805C325232E789AE0E096A17801F0CB04064AB1C0F75D8B77B46312"
+    },
+    {
+      "path": "src-tauri/src/agent/store/transactions/product/work/tests.rs",
+      "sha256": "2866B71FD3AFBB4DA8D72C1335FFE5E20BA21BFAC16C627B91DCBD8A718DC726"
+    },
+    {
+      "path": "src-tauri/src/agent/store/transactions/tests.rs",
+      "sha256": "EB8132045C478373F6606BE6F0C2AB9FD37A86EFC01D37796AB909F92D652697"
+    },
+    {
+      "path": "src-tauri/src/agent/store/usage.rs",
+      "sha256": "67E2D30AB6F8C46CE66B08BA34E9262518E5A6F2C8495740BC1616C4136F6B90"
+    },
+    {
+      "path": "src-tauri/src/agent/store/usage_tests.rs",
+      "sha256": "C90595FCE0E1D57460648E3E28B2DC33A2C6E6AE7656C39C90AE96980958A778"
+    },
+    {
+      "path": "src-tauri/src/agent/store/work_runs.rs",
+      "sha256": "663A35CD0254020C40EB0873D4669E1650BE60395A22CE84AAD44F68B6617BBD"
+    },
+    {
+      "path": "src-tauri/src/agent/store/work_runs/terminal.rs",
+      "sha256": "F66D78CC4567FA58F98460AC6E6413FCB7D8E22AE82DFDFCFC1AB949DD21BB36"
+    },
+    {
+      "path": "src-tauri/src/agent/task_manager.rs",
+      "sha256": "F0A4A197951B5C19FEE286C888D9487CF51D9BE70AE79963034D0BD16A2A5DAE"
+    },
+    {
+      "path": "src-tauri/src/agent/task_manager/automatic_recovery.rs",
+      "sha256": "03ED4FD01DE514F7D8CB184EA4C130FA05EC495B7F821D5A397AA2E84A150F88"
+    },
+    {
+      "path": "src-tauri/src/agent/task_manager/recovery.rs",
+      "sha256": "570C7D4CB7C368B180BCC4BA1E8BB5DB812671CDCC175CAA59CD91F76928F62D"
+    },
+    {
+      "path": "src-tauri/src/agent/task_manager/recovery/tests.rs",
+      "sha256": "F5F8B22F31302904B856CC0E8511C7FA9393605E03EEBF92429DB80F531D8007"
+    },
+    {
+      "path": "src-tauri/src/agent/task_manager/tests.rs",
+      "sha256": "655926819623707DFB3ADE3916B0344FF536074FE4988B58E3D3CDCE0ACE8EC2"
+    },
+    {
+      "path": "src-tauri/src/agent/telemetry_projector.rs",
+      "sha256": "DAEC729D75A3AB733B4C726EB51CB356D8BC0CFEADCA12A7CCDECE305609CC1E"
+    },
+    {
+      "path": "src-tauri/src/agent/telemetry_projector/tests.rs",
+      "sha256": "74B046F479DDF8F1D7AC39A3BBAA0CC7F950F47D47722FBF4AB69277C938724A"
+    },
+    {
+      "path": "src-tauri/src/agent/usage.rs",
+      "sha256": "F1EC46D875F01D7B5EB69AD25DE1EFD21B8463F5A93F5AA8F0706DCCD7703600"
+    },
+    {
+      "path": "src-tauri/src/agent/work.rs",
+      "sha256": "AB7A405D296FBA022E70993C82DA110556DB65957789DA54439FBB6E87F43F7E"
+    },
+    {
+      "path": "src-tauri/src/agent/work/terminal_tests.rs",
+      "sha256": "412B74DBFC7C15548D541791CECEA448BC206459CE4357442F419DE89050003C"
+    },
+    {
+      "path": "src-tauri/src/agent/work/tests.rs",
+      "sha256": "AAA286D69645FC23984E9D1491975872C578F406539452B043329D33FBB96621"
+    },
+    {
+      "path": "src-tauri/src/agent_notification.rs",
+      "sha256": "7D78C120C8886F991F3DD5FF84F107578675A90EA2E0FF1E5B4DAD71AE200008"
+    },
+    {
+      "path": "src-tauri/src/autostart.rs",
+      "sha256": "4B98C96457C175BAB00A8C2573112ADAF460FAAAEDF69A75DC22CCBDDEDEA564"
+    },
+    {
+      "path": "src-tauri/src/codegraph_capability.rs",
+      "sha256": "62C06BFB4EC7A280AE3CD1ADA80E72AAD38E796B95DACF4B3D72871071FB8DD8"
+    },
+    {
+      "path": "src-tauri/src/command/macos_launcher.rs",
+      "sha256": "2DDB7D4A2C432DC9E695DCCCC6F63BF09DAAFFD4AFFD3BF5086560F8C7278A33"
+    },
+    {
+      "path": "src-tauri/src/command/macos_tests.rs",
+      "sha256": "2435CA5AF54EF55EAFAE85AA3652910FAAE98DCFF76D44D5C91700D3BE74D2BA"
+    },
+    {
+      "path": "src-tauri/src/command/mod.rs",
+      "sha256": "C7CA7C51F374DA0AE2C0DB33D65418F6D31352CD092508D9A6C389D7AA7A74AE"
+    },
+    {
+      "path": "src-tauri/src/command/windows_launcher.rs",
+      "sha256": "2D64A0B0118D0C5C9ACDE4E24E9E358C6414A80359AC03994BE1B4B230E0E142"
+    },
+    {
+      "path": "src-tauri/src/commands.rs",
+      "sha256": "C3989090808B14C5FC58AC915FA1E6737287195120A7EAE871E9FEACB94552B5"
+    },
+    {
+      "path": "src-tauri/src/config.rs",
+      "sha256": "C0DDA8019DD0002C22E527175DE35C59780729278A1FF7A06921426CFA343A03"
+    },
+    {
+      "path": "src-tauri/src/discovery.rs",
+      "sha256": "7648C53E61F289A885B42CC77AFBE02F2350A89CDFA74F79D2AEE003B3A8DA07"
+    },
+    {
+      "path": "src-tauri/src/installer.rs",
+      "sha256": "135BDB3648ED23A3D14040BD2E2F9803AB8DBA8167EDA9252397A2812960A560"
+    },
+    {
+      "path": "src-tauri/src/lib.rs",
+      "sha256": "495140A1CBE6DF891F37D8A1582616680FD8C409998C0224B8308F2B7060A938"
+    },
+    {
+      "path": "src-tauri/src/load_error.html",
+      "sha256": "EEE6FF97B9E78E3491073BA310D42A17187E2CF848CF3D3040389D9C5F482236"
+    },
+    {
+      "path": "src-tauri/src/load_error.rs",
+      "sha256": "4FA8CC5008621E867047E67340F7E05C4A2496477A76CDFE425D1D7AB89B3341"
+    },
+    {
+      "path": "src-tauri/src/logs.rs",
+      "sha256": "853742D37323054F7FD8C8B7E20E7CBD02A60421D4AFD4EE4013063C473B3389"
+    },
+    {
+      "path": "src-tauri/src/macos_process.rs",
+      "sha256": "D9C996CA56A7A1FE225666A2CE17344D50FC0C373C409ECF8081D0B8BD39EDDB"
+    },
+    {
+      "path": "src-tauri/src/macos_termination.rs",
+      "sha256": "5748D0E5171DEDFC034CC0F0C563379AB150FB09FD0E37755DBA0D14E9D8B7A0"
+    },
+    {
+      "path": "src-tauri/src/macos_user_path.rs",
+      "sha256": "8C25F3F088D5B6E10DCBFF115E7187F601A84B07DE5CFFD11D61B95194436737"
+    },
+    {
+      "path": "src-tauri/src/main.rs",
+      "sha256": "988487B1E3FE31C5DCE612C4AC0DF63D6B2988CCD8B3A86C340D84CD3DD21D13"
+    },
+    {
+      "path": "src-tauri/src/mcp/capability_adapters.rs",
+      "sha256": "9436850933B65D68EF225B2013E23781937A39FF97F15371D0CBF5115891EC78"
+    },
+    {
+      "path": "src-tauri/src/mcp/codegraph.rs",
+      "sha256": "887FAF4ADEDB5A0988DD07507AA5F4511E4C9735D75DB936A211913CE4140A46"
+    },
+    {
+      "path": "src-tauri/src/mcp/codegraph_tests.rs",
+      "sha256": "DC891D8CBB84019056813AD496E446BD3F287BF841866E22B79B3BF6FBBE2108"
+    },
+    {
+      "path": "src-tauri/src/mcp/command.rs",
+      "sha256": "C73429B65D472F5C6931A8DBC60044623CC8D63CBDCE530AE9EBFB643315680B"
+    },
+    {
+      "path": "src-tauri/src/mcp/continuation_routing_tests.rs",
+      "sha256": "2F846B53437E2E7D761EAFA08647AFF206AE017B6B4F1F91A0AE8D39BD3BDAE5"
+    },
+    {
+      "path": "src-tauri/src/mcp/git.rs",
+      "sha256": "9EE78C0EDB7BCDC6F6716ECDA53AB8C7EE56AC625B01C681E7626A0C8308A7F3"
+    },
+    {
+      "path": "src-tauri/src/mcp/media.rs",
+      "sha256": "C0C0A117A998613527D47DF1D2A7FB751595E29C102A0E3E01E165F3380A621F"
+    },
+    {
+      "path": "src-tauri/src/mcp/media_tests.rs",
+      "sha256": "4B258B97E6DDFC15DA5A1BE396DA95450E0A4584EC5409965E4EE30B32806F7B"
+    },
+    {
+      "path": "src-tauri/src/mcp/mod.rs",
+      "sha256": "B7F27F08CB39D69A022FEEFE613C1C24D890A039A2F7F23C0401519079451020"
+    },
+    {
+      "path": "src-tauri/src/mcp/orchestration.rs",
+      "sha256": "F2C8BCD686ADFD1B6ED51D38A0CDAE27FB9E3AF9B1165EFB58CF1396EFDC5DB3"
+    },
+    {
+      "path": "src-tauri/src/mcp/orchestration/dto.rs",
+      "sha256": "FD03616FE7BE1A59891F9F81699F195CF15DF8063111CBE48FCE3C71BB2F6A9C"
+    },
+    {
+      "path": "src-tauri/src/mcp/orchestration_tests.rs",
+      "sha256": "759D5837C77A0E81C2A502BB633BD8227B30B652420F874B9532FBADB7941E31"
+    },
+    {
+      "path": "src-tauri/src/mcp/process.rs",
+      "sha256": "6F94404291C6DDFF9F338F264837F33E963712F3DDC75D0B3875A3CC247BF407"
+    },
+    {
+      "path": "src-tauri/src/mcp/projects.rs",
+      "sha256": "31A78CA5D879C8827A1253A3FBA670AB502B68CC8B6A52B047A44DDC7AB8ED10"
+    },
+    {
+      "path": "src-tauri/src/mcp/provider_query_tests.rs",
+      "sha256": "DF23EC0F3180ABBB4658CB4A9F632F66D4CD690ADAF5341D33FB4D870803F1CF"
+    },
+    {
+      "path": "src-tauri/src/mcp/registry.rs",
+      "sha256": "C89802BEAEEB2DCB1C07205033ACE37091E96AC41E1619CC09B126B64A747CC3"
+    },
+    {
+      "path": "src-tauri/src/mcp/serena.rs",
+      "sha256": "35ABB8695CA4F6A428D79EDD5F01018C77FE194A4FE6B7C144AE75523D52968F"
+    },
+    {
+      "path": "src-tauri/src/mcp/server.rs",
+      "sha256": "27A896841936F6618E6B865FD6537CD6E8BCAF6D2125AF1C94185E40F8688519"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_find.rs",
+      "sha256": "D3FD729BF3405B75730FCF757E8A6B1CD6A523BEBF46EB031470EC306BB22158"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_find_tests.rs",
+      "sha256": "432E9273A1BCF53E324A8B5209791AA1A6E05B7BA4F5259105974AD84C93FC00"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_list.rs",
+      "sha256": "574F68A48EE754EAF4B6D24E060C4EBC4BEA220941F315DBFEB2F2B40FAAB2CF"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_list_tests.rs",
+      "sha256": "C8278171746108DDF6C5FCD7D8B6677A4B0876BF3AA030B6199B6AB6D94F0343"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_read.rs",
+      "sha256": "04EE950536931AB2E9B9BCBF7D2F439A4FD93DFCBD6EB0FE75C5CCE2E19A94E6"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_read_support.rs",
+      "sha256": "9099749F3B259ECDABF234496F40BA5F8DF2A8C987F860850FAA1F47219870D3"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_read_tests.rs",
+      "sha256": "3E432D1787D605CB6B642483333BEC5350F3818B7C7183069CC437458043FB6C"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_search.rs",
+      "sha256": "633EBAA3294B71C7173C6FDEF7E78D79D2B7B529DF283E63304362F6BCB91EA1"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_search_tests.rs",
+      "sha256": "70C46F13C1E34E10AC1EAC7010616DA6839F4592DB21192B9EA2947BBE7C31F6"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_write_atomic_replace.rs",
+      "sha256": "0054C5F6BE2190B2B9170C5ACCABC2D77BE818D0F569F9170369AF99FFF9DDD6"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_write_commit.rs",
+      "sha256": "4B24784919BD35FB219616048C3BC465C14C3DEAF1444BFB69F666E866E8B959"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_write_content.rs",
+      "sha256": "5FB393F941E91748EA00BD89DF36346808B81A6EFCCB55B80782AF187FDCBB25"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_write_create.rs",
+      "sha256": "A9AFA1293D7C4DA720C32A129B89AA21D59C766F2906A6ACDCEAB742AA521858"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_write_delete.rs",
+      "sha256": "218DD0716C2C313FB727D38840406A765EBCA29AF2ED31722DCAF20873D2C5E8"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_write_domain.rs",
+      "sha256": "8F4D53ED37C1E494B559A7E9CB5A88018DEA23647F09006819ED55493DD4AEB3"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_write_file.rs",
+      "sha256": "FB6DC408BE0BBAA988148FDFBC451798011D147CAE5CA4E95446E98C8B674102"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_write_insert.rs",
+      "sha256": "254C50CC3D0E240BDB19679C3D957FE76C3634D88344B6FE17D42E70F63FCC1F"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_write_replace.rs",
+      "sha256": "B1334584A2277426F447EB6ECC11E4CD88A1D92402D0C48F4570E24249F88AFB"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_write_support.rs",
+      "sha256": "4F5109EC3AC69320921716F7646B7CB76089C1261B2A73B035BAE361B4A4C092"
+    },
+    {
+      "path": "src-tauri/src/mcp/source_write_text.rs",
+      "sha256": "65331982C57393022A9B4C51033659C8C6332FCDA03E4523323A0C648BAC2B8A"
+    },
+    {
+      "path": "src-tauri/src/mcp/start_routing_tests.rs",
+      "sha256": "7B31EE3EE71031485FA934F4230F619FD72AD590253DB108498324B0CFBD9A9B"
+    },
+    {
+      "path": "src-tauri/src/oauth/cimd.rs",
+      "sha256": "B2FD571C08B2831A44C61E3BE3C43AC058679A10537CC57DC271E7E59A25717E"
+    },
+    {
+      "path": "src-tauri/src/oauth/doh.rs",
+      "sha256": "9A0C9F4FFF59086213B4F597F96281C848EEC7EF340E4A50634B133A30B41B3D"
+    },
+    {
+      "path": "src-tauri/src/oauth/http.rs",
+      "sha256": "59D9CE91EA2049D1778B9E75BC2AF185F8B72430B1079A0F5779B3BEB89DCB8A"
+    },
+    {
+      "path": "src-tauri/src/oauth/http_tests.rs",
+      "sha256": "F1160A17684BEFF5C7B5A3A3CE2954229F0DC34C8E91278EA3C42F9783F4CB22"
+    },
+    {
+      "path": "src-tauri/src/oauth/mod.rs",
+      "sha256": "C499E097630D9F17639D2A1048279F178DF916C9F258BD903B3CE0F120AEFADD"
+    },
+    {
+      "path": "src-tauri/src/oauth/runtime.rs",
+      "sha256": "331EEBDE83E829FBB95D1DDEA06867959CE312A5FAB3CB86D316783DABE7562F"
+    },
+    {
+      "path": "src-tauri/src/oauth/runtime/persistence.rs",
+      "sha256": "3FB73A7F77E1E55A991BDBC5AFEBE08299C32CDC99D35EB26B7CF7AEE266A2EB"
+    },
+    {
+      "path": "src-tauri/src/oauth/runtime/tests.rs",
+      "sha256": "69F78845538623F268B81A70D2A24E0EB950096864A82DB3DB2DF1FD3B22FA30"
+    },
+    {
+      "path": "src-tauri/src/provider_policy_drain_tests.rs",
+      "sha256": "6DACC140E720BEF7A86A353E9521BC97845B7CAFBCC44676E1BC89CD0D0C93F8"
+    },
+    {
+      "path": "src-tauri/src/provider_policy_tests.rs",
+      "sha256": "7E8CB47CE870C930206E437BDB33AA528F0F6A59CFE4C946A298E59DC2883B45"
+    },
+    {
+      "path": "src-tauri/src/remote/boundary_tests.rs",
+      "sha256": "7C21E2A342A2BA283C1D9828D77C0945EAC9BCD29BD20F6F458A53340B5E6502"
+    },
+    {
+      "path": "src-tauri/src/remote/fixtures/cloudflared-2026.9.0.json",
+      "sha256": "C5F7E44102F7F6AE10771A709FC10962401D30AC8C5191CC8817E621297E65C2"
+    },
+    {
+      "path": "src-tauri/src/remote/host_crash_tests.rs",
+      "sha256": "D298C3A48C189C80EFE551EE9864A2C4EEF4A4C66FA97086EA94BBB012DF4DFA"
+    },
+    {
+      "path": "src-tauri/src/remote/manager.rs",
+      "sha256": "A2F093E04FF32BE39BE75856EB68BAFBD5ACDDD91C589F80F7441A35C0A7D812"
+    },
+    {
+      "path": "src-tauri/src/remote/manager_tests.rs",
+      "sha256": "D607D44E804E902A761D441263DE83FED73A10558E051B08BA5986A7F9794BAC"
+    },
+    {
+      "path": "src-tauri/src/remote/mod.rs",
+      "sha256": "B70A6FF01B1EA9BA6C65AAE19EB299C795FEA54461646761775B67E2E6298DA7"
+    },
+    {
+      "path": "src-tauri/src/remote/ngrok_store.rs",
+      "sha256": "FC28A045984B1B9E472BF4E8D35F6379F6F6CBFF11D024F5222D0F24C0ECB6F8"
+    },
+    {
+      "path": "src-tauri/src/remote/ngrok_tunnel.rs",
+      "sha256": "544F03050C698EB9974E5D5C05668D0CE3F0745AFA102C60CD701942C6EF28C7"
+    },
+    {
+      "path": "src-tauri/src/remote/probe_tests.rs",
+      "sha256": "1771170DB3B60AB9759E05E9AC5E3F5FF9627C48328F606DDF03E64E16770652"
+    },
+    {
+      "path": "src-tauri/src/remote/process.rs",
+      "sha256": "53E7E84B6EC78EA654D7FF6BD60EF0D9E4760AB17FC70CCAC9DC5B48317420F3"
+    },
+    {
+      "path": "src-tauri/src/remote/process_macos.rs",
+      "sha256": "CD8AFE0EFFAE44FA5B02983BFEFD83034C0541C7D93126ADED841968F62D1B26"
+    },
+    {
+      "path": "src-tauri/src/remote/process_windows.rs",
+      "sha256": "FD20A0D3DF4B2C8D9EFA7262A4A8EBCABF73794E0B6A0613C1F061385FFBA2F2"
+    },
+    {
+      "path": "src-tauri/src/remote/quick_tunnel.rs",
+      "sha256": "ACDB91CE7790EFD2119C9F9F0F46730E0DA9EB965770ED45780EB2D54D9F2291"
+    },
+    {
+      "path": "src-tauri/src/serena.rs",
+      "sha256": "9C7D2706EC9EF96CFDC62D8C7E669224857107E3442DCDEF1CB0265AC2C21823"
+    },
+    {
+      "path": "src-tauri/src/serena/remote_fixture.rs",
+      "sha256": "F709C601A8E5BF298B667E5529D67481E41BAD87AB8BAFB223482990FA66B947"
+    },
+    {
+      "path": "src-tauri/src/serena_capability.rs",
+      "sha256": "29695D39A78E742634F4E5342C10A0FE103265244089DC106C0F712676619285"
+    },
+    {
+      "path": "src-tauri/src/test_support.rs",
+      "sha256": "EC85545F9D9724E00832C231C7D5BD0F5C527DE76532833BC2C88641279C6BBE"
+    },
+    {
+      "path": "src-tauri/src/tray.rs",
+      "sha256": "DDC8805E191D7EF583F30425F4349D1A4B06AB6FBC64F8D6688FDBB482DE74BE"
+    },
+    {
+      "path": "src-tauri/src/workspace_capability.rs",
+      "sha256": "E52BF7D6EE1A8137B1ECA34A3B28729E40C13CD9998D92B3B8FF24C98B033F07"
+    },
+    {
+      "path": "src-tauri/src/workspace_capability/health.rs",
+      "sha256": "30A4ACE91C4CE455181F84E8E0AD1AC5908452380182DEEA8D8BFB7AC5A24FE6"
+    },
+    {
+      "path": "src-tauri/src/workspace_inspection.rs",
+      "sha256": "31A6D3F1647F0C142AB85FB308F1AD997966C44FD50AE820A2DD0FD69FAFF4B9"
+    },
+    {
+      "path": "src-tauri/src/workspace_path.rs",
+      "sha256": "5000E415DC9FAE0BB38641432433EEF5918B011EC8398E62557DA879C5980DF8"
+    },
+    {
+      "path": "src-tauri/src/workspace_picker.rs",
+      "sha256": "D8293CD7CBAFB42B13C00119D927A89AF73B712CA7970A5CBDEE697886EBDAAC"
+    },
+    {
+      "path": "src-tauri/src/workspace_registry.rs",
+      "sha256": "FF94DBD4CCDD16F1FA551BD4E1C85380082C2B233537B51E61679303BE31FD43"
+    },
+    {
+      "path": "src-tauri/src/workspace_resolver.rs",
+      "sha256": "43F52B3F7F74AE95CE210227CC42634263FB9DEFB7760146ADFA91F22D86000E"
+    },
+    {
+      "path": "src-tauri/tauri.conf.json",
+      "sha256": "6FD92F522D72DC554623D2B09A73F7FBCED307054F4338C14FD8211D22DA05C6"
+    },
+    {
+      "path": "src-tauri/tauri.macos.conf.json",
+      "sha256": "C09DA7153DBAF9B20D2C7B241939F61F92AB854BC111A9270EF886CD546329CC"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/agent_state_v11.sql",
+      "sha256": "BD9578A1BA0920DB795B71B4CE02B2B5C13C960264EA1FC932566E1DA72C35E3"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/agent_state_v12.sql",
+      "sha256": "98A09781E0E372DE37DB3B13645B7FC2D5F12E2D3348451F6A61CDDF2976C890"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/agent_state_v9.sql",
+      "sha256": "98D5F2F3346F86D2F1E235D19F5382175E9D69A38F633DE0A34074244BA3D565"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/codebuddy_acp_child.rs",
+      "sha256": "110F72450854094F9AB9F915F2FFB5C570F9D9D4709924CF96A4B400BE9102BB"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/codebuddy_early_update.jsonl",
+      "sha256": "EACB5E540C7CFE79A6FCE36B8466439A610CDF3926A13173CB1EB3C62D4CC2CB"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/codebuddy_initialize.json",
+      "sha256": "8D751AB183D24EBD5A5E7EDFBDBF8CCAE86E8EEA840977E3E48E8D0A6247916A"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/codebuddy_launcher_child.rs",
+      "sha256": "E17B14E2F408EE6CB7F9A6F3899366F873854BAE94068A2734D75472FF0B584B"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/codebuddy_recovery_child.rs",
+      "sha256": "541DCF7377D71C075B5DA71F6DD24243A15B035B80F4C20688022D56ADE75083"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/launcher_child.rs",
+      "sha256": "BFBF7A38F628A539BAE8FA6B7957021C033D768AE67D5873561A68D9714FEC26"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/macos_runtime_child.rs",
+      "sha256": "9996068CBBC2D305CD07148153EFD1698AE910933AEC9A9E58BCB27B6D010ACA"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/runtime_child.rs",
+      "sha256": "1D390DE17CB13094BD49FE5DFDCF2FAE1841761AE4EBDE0608CEA519F4E08E7F"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-autostart/Cargo.toml",
+      "sha256": "6C65B68D0A3B5B7EE30EFF8A1334F8EFD8624C27B894D979429665E4D05AFCFA"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-autostart/LICENSE_APACHE-2.0",
+      "sha256": "1EB85FC97224598DAD1852B5D6483BBCF0AA8608790DCC657A5A2A761AE9C8C6"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-autostart/LICENSE_MIT",
+      "sha256": "4F11AB0631FBB692369790E50616579407C117C6D4DF3DE99D399CF433A1AB31"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-autostart/README.serena-patch.md",
+      "sha256": "0295525CA7A58DF8C23876EC60A5213EEA350F80306DFE04C25938650F79015F"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-autostart/api-iife.js",
+      "sha256": "6EABB8886F57BB08074EE64BEE8D24762A5AF5F1AB7FA19AE9FEA57E5E387C5B"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-autostart/build.rs",
+      "sha256": "A4071242128C141AF1A7116508632BFE45EC877EE193F68EACD78940456CEFA9"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-autostart/permissions/autogenerated/commands/disable.toml",
+      "sha256": "C7B67190D58C8BEF627FE4DCC8AF9AAE6D81183CB4B9F42BC7D555FE1028A9B8"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-autostart/permissions/autogenerated/commands/enable.toml",
+      "sha256": "20C4601395580897F3C7FB9F4B0A35C5AC7B0D1E1003C81698B7A663CE93221A"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-autostart/permissions/autogenerated/commands/is_enabled.toml",
+      "sha256": "F8F1B604C5EE63A07A546CD290F349167BC96EF4757BD506114F03804B24A7B4"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-autostart/permissions/autogenerated/reference.md",
+      "sha256": "3FB3CE6520EEF3FA9091E8EC8BA9225B59D46C5FA431B2790E4422A8FE38470B"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-autostart/permissions/schemas/schema.json",
+      "sha256": "556EFA169AE47AFD101EB2FABA9A19BD87BACF62F19A39985C82B70E609457D8"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-autostart/src/lib.rs",
+      "sha256": "7C868E44D1A208A6A6F24BB7C02664CD778E6424093EEF696E4A5A4F2B985AE6"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-single-instance/Cargo.toml",
+      "sha256": "C3EB7AD690512A4A95F36E2EFA440A8E0123C640C90772A3D72E89871632DDAF"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-single-instance/LICENSE_APACHE-2.0",
+      "sha256": "1D5730B2B43C43EF191849D873D10259B69C8CFC8260865F8FFABF68FAFB6049"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-single-instance/LICENSE_MIT",
+      "sha256": "4CA0E5C912E192F3E1EE17954C7387E6B969D9F0D52A8ECA06F4449F9B7D262F"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-single-instance/README.serena-patch.md",
+      "sha256": "98B45297DA1599CB60B4B7A3CB6FE70A65C2D11B6B6D2107314D53F4CA0926BF"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-single-instance/src/lib.rs",
+      "sha256": "85EDEF281CC3E533F370BC5741B075ECFA980138B93657052E164E2D6CB44851"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-single-instance/src/platform_impl/linux.rs",
+      "sha256": "37F85AB6BA28948CE0C6D8FC463DF994E96511AF0788DAEEAF7516F55ABF8D3F"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-single-instance/src/platform_impl/macos.rs",
+      "sha256": "FD2A41265BB2473CDF2336AB9081BB6AFC9E0C91B6DF785755F609189EC35CC6"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-single-instance/src/platform_impl/windows.rs",
+      "sha256": "605C064078B885D183B2AE67F69CE13887770F7540B0DCDB3C134A213F02AAD5"
+    },
+    {
+      "path": "src-tauri/vendor/tauri-plugin-single-instance/src/semver_compat.rs",
+      "sha256": "3995EDD98D24E2BB95A789970DD9449A0B804593A8F310E42D3DF45276D0523F"
+    },
+    {
+      "path": "src/AgentPanel.test.mjs",
+      "sha256": "B2A77DDE0E8E15121984DA0D0E9E7FCB1197AC2858D3097CA2A85E300150E5B4"
+    },
+    {
+      "path": "src/AgentPanel.tsx",
+      "sha256": "0FE2DF61332E7F8EB6856E101A616614AEC68DEE32B294A86383491B58C2245E"
+    },
+    {
+      "path": "src/App.test.mjs",
+      "sha256": "7FA91B127327D1EB92D931C6AF639D7BADF7FA26ECDE547570732984306AD773"
+    },
+    {
+      "path": "src/App.tsx",
+      "sha256": "A572C5CB68F3B2BFBC218F36E5E464690592331CF462BFD4FC9C4B04AB1DACAF"
+    },
+    {
+      "path": "src/ExecutionDetails.tsx",
+      "sha256": "BC2DE5A193321D750917589612B6FBA4BB4BE02E4E8C33621843EC6AEE6198F2"
+    },
+    {
+      "path": "src/McpLogs.test.mjs",
+      "sha256": "6FED3B2E7A5E1C1CDFC499D730DA9DE34ABC33911D855942CC6B0937FC020B6C"
+    },
+    {
+      "path": "src/McpLogs.tsx",
+      "sha256": "2EA1E39BCA914B8DA9C534B9E2F4C4DDB59A1A31B9B9D541E656A023C6EDD226"
+    },
+    {
+      "path": "src/OAuthApproval.test.mjs",
+      "sha256": "5D7C8440B95522B93610B48312EBB2084FC675B68D1C82EB504614FB7B919622"
+    },
+    {
+      "path": "src/ProjectPanel.test.mjs",
+      "sha256": "81E7BDC7870E4AA13C1E0F6BAAF1F94631EC0C5554B008F1504B202F08861C5E"
+    },
+    {
+      "path": "src/ProjectPanel.tsx",
+      "sha256": "2986915A7F52AE754AF66FE54DA17FC77A6443681E200B22F1BF406884617ECC"
+    },
+    {
+      "path": "src/ProjectTaskNavigation.tsx",
+      "sha256": "AA8D76F551F62435A758A9484DDADF7C8EA82B9FF7CD9A7E1F9E3FFCA62C44F5"
+    },
+    {
+      "path": "src/RemoteAccessPage.tsx",
+      "sha256": "F7CE14A1BDE9BA0EDEE34CBDE77E4501C4166E2871F0F2BA160C47AB075C7401"
+    },
+    {
+      "path": "src/RemoteApprovalDialog.tsx",
+      "sha256": "0FF2015B0876D2EE176FDF80AA3A64019B4FEF766C1B5EBE41C67E6DD27154EB"
+    },
+    {
+      "path": "src/agentContract.test.mjs",
+      "sha256": "56B9A8A54A0AA22E03FE3949ED13F8321FDDB03E267E933BBE4A8A169642F43C"
+    },
+    {
+      "path": "src/agentPresentation.ts",
+      "sha256": "67DF837CA56ABEEC7FEDAA81228F45123FF25F081488FB15990971EEA8D4666C"
+    },
+    {
+      "path": "src/agentRequests.test.mjs",
+      "sha256": "84159158B966F850C45ABBC8A5BECFD979FD552C811CDF518705FC8A820460B2"
+    },
+    {
+      "path": "src/agentRequests.ts",
+      "sha256": "75E876637FBAD03DD2306CD3BD6AA4EE53B6EF80C1D4407F9B39A21A0BAFE65C"
+    },
+    {
+      "path": "src/api.ts",
+      "sha256": "EDB96873F6B2107D31151EC993D4B31EA8D100D540444356AABCBE0EB74892A1"
+    },
+    {
+      "path": "src/app/useAppController.ts",
+      "sha256": "DA76A5D5FB3E25D3D2148E9995A3D73D5443DF51E98DC5EA53872014CDFB5469"
+    },
+    {
+      "path": "src/appVersion.ts",
+      "sha256": "C7AA7F06DE4B797509B02F07C13508FC80DBB49C1980216A350337246AF9C9D9"
+    },
+    {
+      "path": "src/assets/fonts/AlibabaPuHuiTi-3-55-Regular.woff2",
+      "sha256": "1CB8418D80B01EC08CB6F2D64B6244AAAF1BB80DC35491B66DDBA16C5E24F444"
+    },
+    {
+      "path": "src/assets/fonts/AlibabaPuHuiTi-3-65-Medium.woff2",
+      "sha256": "628A0D5BE684BAE0E7A8E3AD15B7C4F623FD15B3375082624F778326E343467A"
+    },
+    {
+      "path": "src/assets/fonts/AlibabaPuHuiTi-3-75-SemiBold.woff2",
+      "sha256": "75E2BA042E1C8AD8CF3DD5BF26F25984FFECA6C4EBB86977C8F8E1ABEEB2652F"
+    },
+    {
+      "path": "src/assets/fonts/AlibabaPuHuiTi-3-85-Bold.woff2",
+      "sha256": "5947ECD5447C34865D036740F38AFBF4364B3CF7BB3D399ABA0F169B59C6EC35"
+    },
+    {
+      "path": "src/components/MarkdownContent.tsx",
+      "sha256": "5E8999DFA15B62212EE208B41836F1AEE84BAC2FD718460BF5F0174C65C26404"
+    },
+    {
+      "path": "src/components/TooltipHint.tsx",
+      "sha256": "D7E92A06918328D2C6E776C9FF303D788DEE0ADF6A921D5E1E4712574A0278AA"
+    },
+    {
+      "path": "src/components/ui/alert.tsx",
+      "sha256": "06A660B95F39686D352AD44D1CAA3F18A3744BF1615DAC6DF2D7FFFD712AA56D"
+    },
+    {
+      "path": "src/components/ui/badge.tsx",
+      "sha256": "8E6E54079294635AD5AC342590A238A45A078C6FB67FC1C4A069A4121EFCF143"
+    },
+    {
+      "path": "src/components/ui/button.tsx",
+      "sha256": "210C9F0F4639F235FB671A21324A0DB16A72702DEE1B1413314E06D0FB5FC4B5"
+    },
+    {
+      "path": "src/components/ui/collapsible.tsx",
+      "sha256": "0E2FE309166DFF7497F83F1BB7274B07C0955A6CE897B8BCC7FB3A95E58551BF"
+    },
+    {
+      "path": "src/components/ui/dialog.tsx",
+      "sha256": "469EEC2F2D23DD0F2A09AF1D67143BD44941FFAB1F7605CD3195A6B98443B615"
+    },
+    {
+      "path": "src/components/ui/field.tsx",
+      "sha256": "B323A04D8E1C666907A2CB424EB67969A6997EF0B26D0453EEF4942ED0D59FF7"
+    },
+    {
+      "path": "src/components/ui/input.tsx",
+      "sha256": "676AC5E67D5677550EFDD4853030517E9A4A703A70C6CEBAE51FBB2CC1367D51"
+    },
+    {
+      "path": "src/components/ui/label.tsx",
+      "sha256": "C1412B80E0826E56340B7A55D2CC70116C9E603F836013889B5EB33AF474BDC8"
+    },
+    {
+      "path": "src/components/ui/select.tsx",
+      "sha256": "8EB184E7C4FB60117F841EF202B666FA46BD29D12B6C1B0CC85B47EED9E3619D"
+    },
+    {
+      "path": "src/components/ui/separator.tsx",
+      "sha256": "F6EE2194DB063816084D70BA02FF16E4BC589C55DF19A010B0861DD8ACEE8C28"
+    },
+    {
+      "path": "src/components/ui/sonner.tsx",
+      "sha256": "E0A58411FC400893D74AA4B75944F9882CDFFC611E8A77FBE38822C480E7991A"
+    },
+    {
+      "path": "src/components/ui/spinner.tsx",
+      "sha256": "C4F2AACD575F9FE4F386670B6244E22B8B07D2516C772520BFAAC52268E81A38"
+    },
+    {
+      "path": "src/components/ui/switch.tsx",
+      "sha256": "74C45777B09862A037E9747DD1A938C1D199614B3E81B17F084F22A882BD38D4"
+    },
+    {
+      "path": "src/components/ui/tooltip.tsx",
+      "sha256": "5B7CAEA21D191E94035DCBE5D399822237B44F264E53C631AC49B2ABF3444FEF"
+    },
+    {
+      "path": "src/configFixtures.mjs",
+      "sha256": "EDF19848F9E550C014B404E53C6B0E5FB5343797333408527498B283481A78EA"
+    },
+    {
+      "path": "src/configModel.test.mjs",
+      "sha256": "A549E7FFD36F2A8E234372BC258FAADCCBDA4763BFC2DC1B796686A1D72839D4"
+    },
+    {
+      "path": "src/features/settings/SettingsPage.tsx",
+      "sha256": "D0227CD563AEAA43978FF4ECBDD66118D9F217666BBC3ECD8040F0A2CBB1F7F3"
+    },
+    {
+      "path": "src/features/status/StatusPage.tsx",
+      "sha256": "9CCD8A776DFF2D7660B37AE800F01E79FC381B45676D52F5CDA0905F42BF736E"
+    },
+    {
+      "path": "src/lib/utils.ts",
+      "sha256": "55BBDC94CEF3E0C8A8BBA386E94F97228DD2C967FE61466FC565378890550C08"
+    },
+    {
+      "path": "src/main.tsx",
+      "sha256": "AB557D98FF26A02EDB7F0B6DA69F7DEC510EE5FF8B0D50DCF9C72080E06BD211"
+    },
+    {
+      "path": "src/mcpLogPresentation.ts",
+      "sha256": "55EC7524B859DCD39FEA2C18D4DF0D63CC72609085434752BBCDC461BBBC3CFA"
+    },
+    {
+      "path": "src/p5GateEvidence.tsx",
+      "sha256": "923B6EAFFFDB183E96A14F834A481B46CBDEFE251744FAC4A824186086763107"
+    },
+    {
+      "path": "src/styles.css",
+      "sha256": "8C1467B03D1BDC1B27571B86FAA369466522980B8CF26E805768350EF7C90886"
+    },
+    {
+      "path": "src/types.ts",
+      "sha256": "D26B98B00EEBA53ECAEFC69A7EA87A2FF7ED471A23ED88D157674A8A60A92FF3"
+    },
+    {
+      "path": "src/useBroker.ts",
+      "sha256": "19D72EA0753E559725F08F22F5B50BE4C45C825C0B15BAF4BD3AF06EFAB54167"
+    },
+    {
+      "path": "src/useRemoteAccess.test.mjs",
+      "sha256": "F3378653144E6E02CA6991754EF2EEB3D661C12B01E183F9CBCE1CF8DF822160"
+    },
+    {
+      "path": "src/useRemoteAccess.ts",
+      "sha256": "6550790A16CBE867D40BA1A1483ADF71604A49F489FC7C84C28D5C93970CAEE8"
+    }
+  ]
+}

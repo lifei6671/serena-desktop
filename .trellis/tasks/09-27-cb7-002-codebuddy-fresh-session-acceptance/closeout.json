@@ -1,0 +1,20 @@
+{
+  "targetId": "70FFF7427843B5738161F2FA92249D527C3F59E8699A69327B5AB5674B2CB6D3",
+  "verdict": "APPROVED",
+  "reviewGate": "PASSED",
+  "reviewMode": "CHILD_AGENT",
+  "strategy": "FULL_SCOPE",
+  "coverage": "COMPLETE",
+  "freshness": "FRESH",
+  "sourceCount": 14,
+  "contextCount": 43,
+  "repairRounds": 1,
+  "remainingFindings": [],
+  "head": "5e2ff1e21999a8888b29af02e4dca2773d27efe5",
+  "staged": false,
+  "commitPush": false,
+  "codebuddyTests": "90 passed, 0 failed, 0 ignored",
+  "broadVerification": "PARTIAL_BASELINE_FAILURES",
+  "originalMcd": "RESOLVED_BY_HOST_DESIGN",
+  "tempCleanup": "BLOCKED_BY_AUTOMATIC_POLICY"
+}

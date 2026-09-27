@@ -1,9 +1,13 @@
-//! Windows 受管 process + initialize ownership；不包含持久化、恢复或产品 session。
+//! Windows 受管 process + initialize ownership；durable cleanup 使用 CB6-005 Job evidence。
 
 use super::{
     client::{Handshake, ManagedClient},
     protocol::{Failure, Limits, StderrTail},
     windows_launcher::{self, CreatedChild, LaunchError, LaunchRequest},
+};
+use crate::agent::{
+    coordinator::now,
+    store::{StateStore, codebuddy_runtime::CodeBuddyRuntimeUpdate},
 };
 use std::{
     os::windows::io::{AsRawHandle, OwnedHandle},
@@ -38,10 +42,40 @@ impl Drop for JobOwner {
     }
 }
 
+/// 持久化 owner 只在关闭 Job 后尝试证据，不释放 execution/claim。
+struct DurableRuntime {
+    store: StateStore,
+    id: String,
+    completed: bool,
+}
+impl DurableRuntime {
+    /// 不确定证据明确返回错误，并保留 Store 的恢复入口。
+    async fn cleanup(&mut self) -> Result<(), Failure> {
+        let result =
+            super::recovery::recover(&self.store, self.id.clone(), Duration::from_secs(10)).await;
+        self.completed = true;
+        result.map_err(|_| Failure::Cleanup)
+    }
+}
+impl Drop for DurableRuntime {
+    /// drop 无法 await，调度同一恢复逻辑；Job 由外层同步先关闭。
+    fn drop(&mut self) {
+        if self.completed {
+            return;
+        }
+        let store = self.store.clone();
+        let id = self.id.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = super::recovery::recover(&store, id, Duration::from_secs(10)).await;
+        });
+    }
+}
+
 /// Runtime 仅表示当前进程和握手资源，不表示可恢复/可执行的 Provider acceptance。
 pub(crate) struct Runtime {
     pub(crate) client: Option<ManagedClient>,
     owner: Arc<JobOwner>,
+    durable: Option<DurableRuntime>,
     monitor: Option<JoinHandle<()>>,
     stderr: Option<JoinHandle<()>>,
     _tail: Arc<Mutex<StderrTail>>,
@@ -66,15 +100,74 @@ impl Runtime {
         Self::from_child(child, limits).await
     }
 
+    /// 私有 ownership task 不受 caller 取消影响，禁止 launch 未结束就生成 destroyed 证据。
+    pub(crate) async fn start_persisted(
+        request: LaunchRequest,
+        limits: Limits,
+        store: StateStore,
+        runtime_id: String,
+    ) -> Result<(Self, Handshake), Failure> {
+        if request.runtime_instance_id() != runtime_id {
+            return Err(Failure::Launch);
+        }
+        tokio::spawn(async move {
+            let record = store
+                .runtime(runtime_id.clone())
+                .await
+                .map_err(|_| Failure::Cleanup)?
+                .ok_or(Failure::Cleanup)?;
+            if record.provider != "codebuddy"
+                || record.state != "preparing"
+                || record.job_policy_verified_at.is_some()
+                || !store
+                    .codebuddy_runtime_binding_valid(runtime_id.clone())
+                    .await
+                    .map_err(|_| Failure::Cleanup)?
+            {
+                return Err(Failure::Cleanup);
+            }
+            let mut durable = DurableRuntime {
+                store,
+                id: runtime_id,
+                completed: false,
+            };
+            let launched = tokio::task::spawn_blocking(move || windows_launcher::launch(&request))
+                .await
+                .map_err(|_| Failure::Launch)?;
+            let launched = match launched {
+                Ok(child) => child,
+                Err(error) => {
+                    cleanup_launch_error(error);
+                    // live policy 尚未验证时只能留下 unknown，不伪造 successful evidence。
+                    durable.cleanup().await?;
+                    return Err(Failure::Launch);
+                }
+            };
+            let token = launched.process_start_token();
+            Self::from_child_owned(launched.child, limits, Some((durable, token))).await
+        })
+        .await
+        .map_err(|_| Failure::Cleanup)?
+    }
+
     /// 接管 CreatedChild 后立刻建立 RAII Job owner，任何 await 之前 ownership 已闭合。
     async fn from_child(child: CreatedChild, limits: Limits) -> Result<(Self, Handshake), Failure> {
+        Self::from_child_owned(child, limits, None).await
+    }
+
+    /// 在持久化 await 前建立完整 Runtime owner，所有失败共用 shutdown 路径。
+    async fn from_child_owned(
+        child: CreatedChild,
+        limits: Limits,
+        persisted: Option<(DurableRuntime, String)>,
+    ) -> Result<(Self, Handshake), Failure> {
         let CreatedChild {
+            pid,
             stdin,
             stdout,
             stderr,
             process,
             job,
-            ..
         } = child;
         let owner = Arc::new(JobOwner {
             job: Mutex::new(Some(job)),
@@ -92,6 +185,46 @@ impl Runtime {
                 drain_tail.lock().unwrap().push(&buffer[..count]);
             }
         });
+        let (durable, start_token) = match persisted {
+            Some((durable, token)) => (Some(durable), Some(token)),
+            None => (None, None),
+        };
+        let mut runtime = Self {
+            client: None,
+            owner,
+            durable,
+            monitor: None,
+            stderr: Some(drain),
+            _tail: tail,
+        };
+        if let Some(durable) = &runtime.durable {
+            let saved = async {
+                durable
+                    .store
+                    .update_codebuddy_runtime(
+                        durable.id.clone(),
+                        CodeBuddyRuntimeUpdate::PolicyVerified,
+                        now(),
+                    )
+                    .await?;
+                durable
+                    .store
+                    .update_codebuddy_runtime(
+                        durable.id.clone(),
+                        CodeBuddyRuntimeUpdate::ProcessStarted {
+                            pid,
+                            start_token: start_token.unwrap(),
+                        },
+                        now(),
+                    )
+                    .await
+            }
+            .await;
+            if saved.is_err() {
+                runtime.shutdown().await?;
+                return Err(Failure::Cleanup);
+            }
+        }
         let client = ManagedClient::connect(
             tokio::fs::File::from_std(stdin).compat_write(),
             tokio::fs::File::from_std(stdout).compat(),
@@ -101,26 +234,36 @@ impl Runtime {
         let client = match client {
             Ok(client) => client,
             Err(error) => {
-                owner.terminate();
-                finish_task(drain).await?;
+                runtime.shutdown().await?;
                 return Err(error);
             }
         };
         let mut stopped = client.requests.shared.stop.subscribe();
-        let monitor_owner = owner.clone();
+        let monitor_owner = runtime.owner.clone();
         let monitor = tokio::spawn(async move {
             let _ = stopped.wait_for(|failure| failure.is_some()).await;
             monitor_owner.terminate();
         });
-        let runtime = Self {
-            client: Some(client),
-            owner,
-            monitor: Some(monitor),
-            stderr: Some(drain),
-            _tail: tail,
-        };
+        runtime.client = Some(client);
+        runtime.monitor = Some(monitor);
         match runtime.client.as_ref().unwrap().requests.initialize().await {
-            Ok(handshake) => Ok((runtime, handshake)),
+            Ok(handshake) => {
+                if let Some(durable) = &runtime.durable
+                    && durable
+                        .store
+                        .update_codebuddy_runtime(
+                            durable.id.clone(),
+                            CodeBuddyRuntimeUpdate::Initialized,
+                            now(),
+                        )
+                        .await
+                        .is_err()
+                {
+                    runtime.shutdown().await?;
+                    return Err(Failure::Cleanup);
+                }
+                Ok((runtime, handshake))
+            }
             Err(error) => {
                 runtime.shutdown().await?;
                 Err(error)
@@ -141,6 +284,9 @@ impl Runtime {
         if let Some(stderr) = self.stderr.take() {
             result = finish_task(stderr).await.and(result);
         }
+        if let Some(mut durable) = self.durable.take() {
+            result = durable.cleanup().await.and(result);
+        }
         result
     }
 }
@@ -157,7 +303,7 @@ async fn finish_task(mut task: JoinHandle<()>) -> Result<(), Failure> {
     }
 }
 impl Drop for Runtime {
-    /// drop 与显式 shutdown 共用内核 Job 收敛，不产生恢复证据。
+    /// drop 先同步关闭整 Job，再由 durable guard 尝试证据；不释放 Claim。
     fn drop(&mut self) {
         if let Some(client) = &self.client {
             client.requests.shared.fail(Failure::Closed);

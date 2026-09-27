@@ -1,0 +1,62 @@
+{
+  "targetId": "70FFF7427843B5738161F2FA92249D527C3F59E8699A69327B5AB5674B2CB6D3",
+  "baselineHead": "5e2ff1e21999a8888b29af02e4dca2773d27efe5",
+  "files": [
+    {
+      "path": "src-tauri/src/agent/codebuddy/client_tests.rs",
+      "sha256": "B14091652976D1FA85353BE1741FE0FA4CA2C9183396318D075BAB25C8D9171A"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/fresh.rs",
+      "sha256": "0E80C2B22F175C905333CE911779597209020BFED4F6BE05DCA4D0367E7898BB"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/fresh/boundary_tests.rs",
+      "sha256": "4AF805F3F076ABB62AE8E8691F17F402A7E5C101A9AF079B844699EA4FEFD222"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/fresh/tests.rs",
+      "sha256": "668C34B09FEF28D05A95FE71E547DD5B669CB8A15BE4CB90722C42B8DD48B539"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/mod.rs",
+      "sha256": "B87B439773FA04EA067C33402FC4C457D2F6D5C4A33E7FA280976CA2B6729AA6"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/protocol.rs",
+      "sha256": "C4FF7B1E4E63BC03FB2564FE6EF3B66E6FAAA4787FE66FA43BC4731046600A0A"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/provider.rs",
+      "sha256": "01B13136F0CEE32483D711B552782B872A35F4F247E26C7DB8CC0AE5946B4916"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/recovery.rs",
+      "sha256": "0F441A23481E2038E146D74D3E9025F33E209EBDF0ECE51FBC6BFEE1A36CC9B3"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/runtime_tests.rs",
+      "sha256": "FDDC4926FBA3FFA7D3BF84F2EAA45B32AA293C2447D703D2DA6F1D2CE2F13715"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/runtime.rs",
+      "sha256": "5592EDD98AA46B7A9AF7E142D57A79A7369B9C6F6563E218FCEBE3259D94E244"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/windows_launcher.rs",
+      "sha256": "89C53C4DF0A81C5E188D2D0489CA7F38FB0FD543B958F448625CE7519A937544"
+    },
+    {
+      "path": "src-tauri/src/agent/store/codebuddy_runtime.rs",
+      "sha256": "E56A25DA9F0C4E7ADC7C1EFBD871BE5D1F0874BED57EBE64A0CC4296E06A68D8"
+    },
+    {
+      "path": "src-tauri/src/agent/task_manager/tests.rs",
+      "sha256": "8BA0838F8F007F79A7E184EF84AE2702EECF79CDDC129562B3BAC2FF6CDA38BC"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/codebuddy_fresh_child.rs",
+      "sha256": "0317080A115CA4564536CB9130748E3CEB9BC7B627DFD8CD72F52D7A6A243F94"
+    }
+  ]
+}

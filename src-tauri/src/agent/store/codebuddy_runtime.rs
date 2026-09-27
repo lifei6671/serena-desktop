@@ -18,6 +18,34 @@ fn binding_valid(c: &Connection, id: &str) -> Result<bool, String> {
 }
 
 impl StateStore {
+    /// Fresh preparation 仅绑定已预留的 R1；不能借用 Dispatch 转换提前声明 prompt side effect。
+    #[cfg(windows)]
+    pub(crate) async fn bind_codebuddy_prepared_runtime(
+        &self,
+        execution_id: String,
+        expected_revision: i64,
+        runtime_id: String,
+        now: i64,
+    ) -> Result<(), String> {
+        self.write(move |tx| {
+            let row = execution_record(tx, &execution_id)
+                .map_err(|e| e.to_string())?.ok_or("EXECUTION_NOT_FOUND")?;
+            if row.provider != "codebuddy" || row.revision != expected_revision
+                || row.runtime_instance_id.is_some() || row.status != "dispatch_pending"
+                || row.dispatch_state != "not_dispatched" {
+                return Err("CODEBUDDY_PREPARATION_BINDING_CONFLICT".into());
+            }
+            transactions::owns_claim(tx, &execution_id)?;
+            let reserved: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM execution_runtime_attempts a JOIN runtime_instances r ON r.id=a.runtime_instance_id WHERE a.execution_id=?1 AND r.id=?2 AND r.provider='codebuddy' AND r.state='preparing')",
+                params![execution_id,runtime_id], |r| r.get(0)).map_err(|e|e.to_string())?;
+            if !reserved { return Err("CODEBUDDY_RUNTIME_RESERVATION_REQUIRED".into()); }
+            tx.execute("UPDATE executions SET runtime_instance_id=?2,revision=revision+1,updated_at=?3 WHERE id=?1 AND revision=?4",
+                params![execution_id,runtime_id,now,expected_revision]).map_err(|e|e.to_string())?;
+            Ok(())
+        }).await
+    }
+
     /// OS mutation 前检查原 execution/provider/R1 binding，orphan 同样适用。
     pub(crate) async fn codebuddy_runtime_binding_valid(&self, id: String) -> Result<bool, String> {
         let store = self.clone();

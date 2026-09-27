@@ -37,6 +37,26 @@ pub(crate) struct CodeBuddyProvider {
 }
 
 impl CodeBuddyProvider {
+    /// CB7-003 可消费的内部准备入口；当前 execute/admission 仍不调用它。
+    #[cfg(windows)]
+    #[allow(dead_code, reason = "CB7-003 才接完整 execute lifecycle")]
+    pub(crate) async fn prepare_fresh(
+        &self,
+        execution_id: String,
+        desired: super::fresh::DesiredConfiguration,
+    ) -> Result<super::fresh::PreparedFreshSession, super::protocol::Failure> {
+        super::fresh::prepare(
+            self.store.clone(),
+            self.owner.clone(),
+            execution_id,
+            self.resolved_launch_spec()
+                .ok_or(super::protocol::Failure::Launch)?,
+            desired,
+            super::protocol::Limits::default(),
+        )
+        .await
+    }
+
     /// 从一次无进程 discovery 构造 Provider，失败结果仍保留 registered skeleton。
     fn from_discovery(
         store: crate::agent::store::StateStore,
@@ -59,7 +79,7 @@ impl CodeBuddyProvider {
         }
     }
 
-    /// 返回本机 resolved LaunchSpec；当前任务不会消费它启动进程。
+    /// 返回本机 resolved LaunchSpec；内部 preparation 复用，公开 execute 仍保持关闭。
     pub(crate) fn resolved_launch_spec(&self) -> Option<&ResolvedLaunchSpec> {
         self.discovery
             .as_ref()

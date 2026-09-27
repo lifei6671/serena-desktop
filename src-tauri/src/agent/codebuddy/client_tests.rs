@@ -5,10 +5,185 @@ use agent_client_protocol::UntypedMessage;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, ReadHalf, WriteHalf};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
+/// CB7-002 Host 裁决：typed SDK 与极窄扩展 snapshot 共同完整保留真实目录。
+/// 仅 fake peer 回放 session/new response，不发送 prompt 或启动 Provider。
+#[tokio::test]
+async fn cb7_002_sdk_v1_preserves_host_catalog_with_extensions() {
+    use agent_client_protocol::schema::v1::NewSessionRequest;
+
+    let wire = include_str!(
+        "../../../../.trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/fresh-session.jsonl"
+    );
+    let host = wire
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .find(|row| row["message"]["result"]["models"].is_object())
+        .expect("frozen CB5-003 success response contains a models catalog");
+    let result = host["message"]["result"].clone();
+    assert!(
+        !result["models"]["availableModels"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let (client, mut peer) = pair(Limits::default()).await;
+    let requests = client.requests.clone();
+    let pending = tokio::spawn(async move {
+        requests
+            .request(NewSessionRequest::new(r"C:\fixture-workspace"))
+            .await
+    });
+    let request = peer.next().await;
+    assert_eq!(request["method"], "session/new");
+    assert_eq!(
+        request["params"],
+        json!({"cwd":r"C:\fixture-workspace", "mcpServers":[]})
+    );
+    peer.respond(&request, result.clone()).await;
+    let typed = pending.await.unwrap().unwrap();
+    let captured = serde_json::to_value(typed).unwrap();
+    assert_eq!(captured["sessionId"], result["sessionId"]);
+    assert_eq!(captured["modes"], result["modes"]);
+    assert_eq!(captured["configOptions"], result["configOptions"]);
+    // models 仅来自 exact request/session 关联的白名单扩展，不能从 typed config 推导。
+    assert!(captured.get("models").is_none());
+    assert!(captured.get("_meta").is_none());
+    let extensions = client
+        .requests
+        .shared
+        .take_session_new_extensions(captured["sessionId"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(extensions.models.as_ref(), Some(&result["models"]));
+    client.shutdown().await;
+}
+
 /// 内存双工 peer，测试始终读取真实 SDK 输出的 id。
 struct Peer {
     reader: BufReader<ReadHalf<DuplexStream>>,
     writer: WriteHalf<DuplexStream>,
+}
+
+/// 每个请求仍由 SDK 生成关联 id，假 peer 只回显它收到的 id。
+fn new_session(
+    requests: Requests,
+) -> JoinHandle<Result<agent_client_protocol::schema::v1::NewSessionResponse, Failure>> {
+    tokio::spawn(async move {
+        requests
+            .request(agent_client_protocol::schema::v1::NewSessionRequest::new(
+                r"C:\fixture",
+            ))
+            .await
+    })
+}
+
+#[tokio::test]
+/// 精确匹配、单槽上限、缺失身份、shutdown 和 frame bound 均经真实 GuardedRead。
+async fn session_new_extensions_fail_closed() {
+    for case in [
+        "wrong",
+        "duplicate",
+        "missing",
+        "empty",
+        "malformed",
+        "shutdown",
+        "bound",
+    ] {
+        let (client, mut peer) = pair(Limits {
+            frame_bytes: 1024,
+            ..Limits::default()
+        })
+        .await;
+        let state = client.requests.shared.clone();
+        let first = new_session(client.requests.clone());
+        let request = peer.next().await;
+        let result = match case {
+            "missing" => json!({"models":{}}),
+            "empty" => json!({"sessionId":"","models":{}}),
+            "malformed" => json!({"sessionId":"s","models":[]}),
+            "bound" => json!({"sessionId":"s","models":{"padding":"x".repeat(1500)}}),
+            _ => json!({"sessionId":"s","models":{"currentModelId":"m"}}),
+        };
+        peer.respond(&request, result).await;
+        let response = first.await.unwrap();
+        match case {
+            "missing" | "empty" | "malformed" | "bound" => {
+                assert!(matches!(
+                    response,
+                    Err(Failure::Malformed | Failure::FrameLimit)
+                ));
+            }
+            "wrong" => {
+                response.unwrap();
+                assert!(matches!(
+                    state.take_session_new_extensions("other"),
+                    Err(Failure::Malformed)
+                ));
+                assert_eq!(state.failure(), Some(Failure::Malformed));
+            }
+            "duplicate" => {
+                response.unwrap();
+                let second = new_session(client.requests.clone());
+                let request = peer.next().await;
+                peer.respond(&request, json!({"sessionId":"s2"})).await;
+                assert!(matches!(second.await.unwrap(), Err(Failure::Malformed)));
+            }
+            "shutdown" => {
+                response.unwrap();
+                state.fail(Failure::Closed);
+                assert!(matches!(
+                    state.take_session_new_extensions("s"),
+                    Err(Failure::Closed)
+                ));
+            }
+            _ => unreachable!(),
+        }
+        client.shutdown().await;
+    }
+}
+
+#[tokio::test]
+/// 其他 method、未知 id 和重复 response 不能抢占 session/new 扩展槽。
+async fn session_new_extensions_use_exact_sdk_id_and_method() {
+    let (client, mut peer) = pair(Limits::default()).await;
+    let unrelated = call(client.requests.clone(), "fixture/other");
+    let other_request = peer.next().await;
+    let pending = new_session(client.requests.clone());
+    let request = peer.next().await;
+    peer.respond(
+        &other_request,
+        json!({"sessionId":"other","models":{"wrong":true}}),
+    )
+    .await;
+    unrelated.await.unwrap().unwrap();
+    peer.send(json!({"jsonrpc":"2.0","id":"unknown","result":{"sessionId":"wrong","models":{}}}))
+        .await;
+    peer.respond(
+        &request,
+        json!({"sessionId":"exact","models":{"currentModelId":"m"}}),
+    )
+    .await;
+    pending.await.unwrap().unwrap();
+    let capture = client
+        .requests
+        .shared
+        .take_session_new_extensions("exact")
+        .unwrap();
+    assert_eq!(capture.models, Some(json!({"currentModelId":"m"})));
+    peer.respond(&request, json!({"sessionId":"wrong","models":{}}))
+        .await;
+    let barrier = call(client.requests.clone(), "fixture/barrier");
+    let request = peer.next().await;
+    peer.respond(&request, json!({})).await;
+    barrier.await.unwrap().unwrap();
+    assert_eq!(
+        client.requests.shared.diagnostics().unmatched_response_id,
+        2
+    );
+    assert!(matches!(
+        client.requests.shared.take_session_new_extensions("wrong"),
+        Err(Failure::Malformed)
+    ));
+    client.shutdown().await;
 }
 impl Peer {
     /// 等待 SDK request/response，测试不会把任意下一帧当成完成结果。

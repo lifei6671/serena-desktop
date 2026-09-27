@@ -29,6 +29,8 @@ pub(crate) enum Failure {
     Remote,
     Launch,
     Cleanup,
+    State,
+    Configuration,
 }
 
 impl Failure {
@@ -51,6 +53,8 @@ impl Failure {
             Self::Remote => "CODEBUDDY_ACP_REQUEST_FAILED",
             Self::Launch => "CODEBUDDY_ACP_LAUNCH_FAILED",
             Self::Cleanup => "CODEBUDDY_ACP_CLEANUP_TIMEOUT",
+            Self::State => "CODEBUDDY_PREPARATION_STATE_CONFLICT",
+            Self::Configuration => "CODEBUDDY_SESSION_CONFIGURATION_INVALID",
         }
     }
 
@@ -98,6 +102,12 @@ pub(crate) struct SessionFrame {
     expires: Instant,
 }
 
+/// 仅 session/new 的白名单扩展；不暴露任意 response 或 request payload。
+pub(crate) struct SessionNewExtensions {
+    session_id: String,
+    pub(crate) models: Option<Value>,
+}
+
 /// 固定计数诊断；未知与重复 response 共用稳定 UNMATCHED_RESPONSE_ID 分类。
 #[derive(Clone, Copy, Default, Debug)]
 pub(crate) struct Diagnostics {
@@ -113,6 +123,7 @@ struct State {
     bytes: usize,
     routes: HashSet<String>,
     diagnostics: Diagnostics,
+    session_new_extensions: Option<SessionNewExtensions>,
 }
 
 /// ByteStreams guard、SDK handler 与请求入口共享生命周期。
@@ -138,6 +149,7 @@ impl Shared {
                 bytes: 0,
                 routes: HashSet::new(),
                 diagnostics: Diagnostics::default(),
+                session_new_extensions: None,
             }),
         })
     }
@@ -154,6 +166,7 @@ impl Shared {
         });
         let mut state = self.state.lock().unwrap();
         state.pending.clear();
+        state.session_new_extensions = None;
         state.frames.clear();
         state.routes.clear();
         state.bytes = 0;
@@ -236,9 +249,47 @@ impl Shared {
                     return Err(Failure::Incompatible);
                 }
             }
+            if method == "session/new"
+                && let Some(result) = raw.get("result")
+            {
+                let session_id = result
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .filter(|id| !id.is_empty())
+                    .ok_or(Failure::Malformed)?;
+                if state.session_new_extensions.is_some()
+                    || result
+                        .get("models")
+                        .is_some_and(|models| !models.is_object())
+                {
+                    return Err(Failure::Malformed);
+                }
+                // 原 frame 已通过 GuardedRead 的 bytes 上限；最多持有一个未消费 snapshot。
+                state.session_new_extensions = Some(SessionNewExtensions {
+                    session_id: session_id.into(),
+                    models: result.get("models").cloned(),
+                });
+            }
         }
         state.inflight = true;
         Ok(true)
+    }
+
+    /// SDK 完成 typed response 后再次核对 exact session；不参与 SDK waiter 的完成。
+    pub(crate) fn take_session_new_extensions(
+        &self,
+        session_id: &str,
+    ) -> Result<SessionNewExtensions, Failure> {
+        if let Some(error) = self.failure() {
+            return Err(error);
+        }
+        let snapshot = self.state.lock().unwrap().session_new_extensions.take();
+        match snapshot {
+            Some(snapshot) if snapshot.session_id == session_id && !session_id.is_empty() => {
+                Ok(snapshot)
+            }
+            _ => Err(self.fail(Failure::Malformed)),
+        }
     }
 
     /// session/update 仅在 exact sessionId 下入队；没有 id 的其他通知只诊断。
