@@ -1,0 +1,10 @@
+# Design
+Authority: user request in prd.md, task breakdown CB7-003, technical design sections 15.3, 19.2, 21/21.1, 22; CB5 Host sanitized wire; CB6-004 typed OCC; CB7-002 PreparedFreshSession.
+Internal consuming primitive retains PreparedFreshSession/Runtime in terminal and uncertain failure outcomes. Frozen Execution.prompt only. Re-read generic/private ownership; exact execution/provider/R1/session/protocol and Prepared check; SDK typed PromptRequest preflight; durable MarkSent -> synchronous accepted -> one SDK request. Parallel bounded exact-route collector reads only exact conversation text agent chunks. Missing/malformed identity taints, foreign conversation drops. Final drain on response; freeze before durable terminal. SDK router and typed PromptResponse meta retain correlation. ExactProviderRequest then ObserveTerminal use successive OCC revisions. Errors after send intent become Uncertain with no retry. No public capabilities, lifecycle finalization, Activity, Usage, cancel, continuation, schema or real probe.
+Result contains only provider text payload and public stable outcome/completeness/diagnostic; private terminal metadata is separately retained with same runtime for CB7-005.
+
+## Cancellation of the local future
+The primitive uses one bounded ownership task with a local drop signal, following existing Runtime::start_persisted ownership. SQLite mutations run to completion before handling caller abandonment, avoiding a detached spawn_blocking commit racing a best-effort Drop reread. Abandonment sends no ACP cancellation, does not retry, and retains or drops the same Runtime through existing CB6-005 cleanup after private uncertainty handling. The returned PromptCompletion retains PreparedFreshSession plus result/error; private terminal metadata stays in the session private state.
+
+## Spec update judgment
+No new general repository spec is needed: this task implements the already frozen provider-private prompt and terminal contract. No backend spec directory is present. Task design records cancellation ownership details; canonical technical-design documents remain unchanged.

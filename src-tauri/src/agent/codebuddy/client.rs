@@ -53,19 +53,14 @@ impl Drop for RequestLifetime {
 }
 
 impl Requests {
-    /// 先限制 pending，再由官方 SDK 生成 id 和完成对应 response。
-    pub(crate) async fn request<R: JsonRpcRequest>(
-        &self,
-        request: R,
-    ) -> Result<R::Response, Failure> {
+    /// Prompt send-intent 前与实际 request 共用完整 typed payload 大小及 admission 检查。
+    pub(crate) fn preflight<R: JsonRpcRequest>(&self, request: &R) -> Result<(), Failure> {
         if let Some(error) = self.shared.failure() {
             return Err(error);
         }
-        let _slot = self
-            .slots
-            .try_acquire()
-            .map_err(|_| Failure::PendingLimit)?;
-        // 内部请求在进入 SDK 无界队列前先受 frame 预算约束。
+        if self.slots.available_permits() == 0 {
+            return Err(Failure::PendingLimit);
+        }
         let raw = request
             .to_untyped_message()
             .map_err(|_| Failure::Malformed)?;
@@ -77,6 +72,19 @@ impl Requests {
         if size > self.shared.limits.frame_bytes {
             return Err(Failure::FrameLimit);
         }
+        Ok(())
+    }
+
+    /// 先限制 pending，再由官方 SDK 生成 id 和完成对应 response。
+    pub(crate) async fn request<R: JsonRpcRequest>(
+        &self,
+        request: R,
+    ) -> Result<R::Response, Failure> {
+        self.preflight(&request)?;
+        let _slot = self
+            .slots
+            .try_acquire()
+            .map_err(|_| Failure::PendingLimit)?;
         let mut stopped = self.shared.stop.subscribe();
         let future = self.connection.send_request(request).block_task();
         let mut lifetime = RequestLifetime {

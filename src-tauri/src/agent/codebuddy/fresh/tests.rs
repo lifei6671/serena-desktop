@@ -41,7 +41,7 @@ fn build(directory: &Path) -> PathBuf {
 }
 
 /// 创建真实 provider=codebuddy 的 Execution/Claim；不用 SQL 伪造正常绑定。
-async fn fixture(
+pub(crate) async fn fixture(
     base: &Path,
     mode: &str,
     auto: bool,
@@ -94,7 +94,7 @@ fn depth(current: &str) -> Value {
 }
 
 /// 有界轮询只等待 fake peer 已记录的请求，不以固定 sleep 推断完成。
-async fn wait_wire(dir: &Path, count: usize) -> Vec<Value> {
+pub(crate) async fn wait_wire(dir: &Path, count: usize) -> Vec<Value> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(12);
     loop {
         let rows = wire(dir);
@@ -110,7 +110,7 @@ async fn wait_wire(dir: &Path, count: usize) -> Vec<Value> {
 }
 
 /// 日志是 fake peer 收到的 SDK wire，仅在本次 temp workspace 内。
-fn wire(dir: &Path) -> Vec<Value> {
+pub(crate) fn wire(dir: &Path) -> Vec<Value> {
     std::fs::read_to_string(dir.join("wire.jsonl"))
         .unwrap_or_default()
         .lines()
@@ -119,7 +119,7 @@ fn wire(dir: &Path) -> Vec<Value> {
 }
 
 /// 验证持久化 cleanup 完成后 Claim 仍由现有 startup/finalization authority 管理。
-async fn cleanup_evidence(store: &StateStore, id: &str) -> String {
+pub(crate) async fn cleanup_evidence(store: &StateStore, id: &str) -> String {
     let row = store.execution(id.into()).await.unwrap().unwrap();
     let runtime = row.runtime_instance_id.unwrap();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(12);

@@ -1,0 +1,67 @@
+{
+  "diffCheckExit": 0,
+  "baseline": "8499fef2378fdf18ec61ef6a472b2bc485491ed5",
+  "head": "8499fef2378fdf18ec61ef6a472b2bc485491ed5",
+  "files": [
+    {
+      "provenance": "CB7-003 implementation agent",
+      "sha256": "E0CA7B8CDB643F0AFB10BED70769687E826239FA66592D0EA7D66CE398242671",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/client.rs"
+    },
+    {
+      "provenance": "CB7-003 implementation agent",
+      "sha256": "B4B58A97D0FC7F8C12DB81699965A37EB9CA086562CE999872434763D8C2C407",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/fresh.rs"
+    },
+    {
+      "provenance": "CB7-003 implementation agent",
+      "sha256": "82E0558F3A8158DEDC66F726D26A5E972A60D483909AD6C4EBACD98AFF0E4D72",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/fresh/tests.rs"
+    },
+    {
+      "provenance": "CB7-003 implementation agent",
+      "sha256": "0E91EED1BA5B0622C281212A2E4CF04157860E8408906E79013CB13DC2DBB9DE",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/mod.rs"
+    },
+    {
+      "provenance": "CB7-003 implementation agent",
+      "sha256": "2E247E0C6FE1265DFAAA75D2F644B96A4D0033D3AEDFBA5E6B525C8EDA407C80",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/prompt.rs"
+    },
+    {
+      "provenance": "CB7-003 implementation agent",
+      "sha256": "4209D6C4B7BD655390543CB26006B78413A880FC683F6625155BC72C60CE3D1D",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/prompt/tests.rs"
+    },
+    {
+      "provenance": "CB7-003 implementation agent",
+      "sha256": "17B9602B489598F97B3DBC89CF77D8C799EF82A319EE784CCD54FF3D8FA07DCE",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/runtime.rs"
+    },
+    {
+      "provenance": "CB7-003 implementation agent",
+      "sha256": "2EC63ACF4BA1CCFDEF1B8C8051A4243D372645C853E585C1835E5CC3F5E43CE5",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/tests/fixtures/codebuddy_prompt_cancelled.jsonl"
+    },
+    {
+      "provenance": "CB7-003 implementation agent",
+      "sha256": "E2BCAAB5D52248217A2C96B8A3B67F8B7197D1454CA1E466BC67C6EBFA7316F4",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/tests/fixtures/codebuddy_prompt_child.rs"
+    },
+    {
+      "provenance": "CB7-003 implementation agent",
+      "sha256": "16D1B8618E91BA882BA57156A4476958748877EA46C04C6E859096CCAC60B6CD",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/tests/fixtures/codebuddy_prompt_end_turn.jsonl"
+    }
+  ]
+}

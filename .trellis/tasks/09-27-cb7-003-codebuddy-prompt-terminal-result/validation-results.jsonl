@@ -1,0 +1,6 @@
+{"name":"codebuddy","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exit":0,"command":"C:/Users/lifei/.cargo/bin/cargo.exe test --lib codebuddy -- --nocapture"}
+{"name":"task-manager","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exit":101,"command":"C:/Users/lifei/.cargo/bin/cargo.exe test --lib agent::task_manager -- --nocapture"}
+{"name":"codex","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exit":101,"command":"C:/Users/lifei/.cargo/bin/cargo.exe test --lib agent::codex -- --nocapture"}
+{"name":"fmt","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exit":0,"command":"C:/Users/lifei/.cargo/bin/cargo.exe fmt --all -- --check"}
+{"name":"check","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exit":0,"command":"C:/Users/lifei/.cargo/bin/cargo.exe check --lib --tests"}
+{"name":"clippy","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exit":101,"command":"C:/Users/lifei/.cargo/bin/cargo.exe clippy --lib --tests -- -D warnings"}

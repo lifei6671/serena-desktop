@@ -31,7 +31,7 @@ pub(crate) struct SessionCatalog {
 
 /// ACCEPTANCE_READY 持有整个受管 Runtime；任何未消费 drop 都由 Runtime 清理整 Job。
 pub(crate) struct PreparedFreshSession {
-    runtime: Runtime,
+    pub(super) runtime: Runtime,
     pub(crate) handshake: Handshake,
     pub(crate) private: PrivateState,
     pub(crate) catalog: SessionCatalog,
@@ -44,6 +44,26 @@ pub(crate) struct PreparedFreshSession {
 impl PreparedFreshSession {
     /// acceptance 前最后检查 transport；消费式边界不发送任何 prompt。
     pub(crate) fn accept(mut self, sink: &dyn ProviderAcceptanceSink) -> Result<Self, Failure> {
+        self.check_acceptance_ready()?;
+        self.mark_accepted(sink)?;
+        Ok(self)
+    }
+
+    /// 单次同步 acceptance；Prompt 调用方必须先完成 durable send-intent。
+    pub(super) fn mark_accepted(
+        &mut self,
+        sink: &dyn ProviderAcceptanceSink,
+    ) -> Result<(), Failure> {
+        if self.accepted {
+            return Err(Failure::State);
+        }
+        self.accepted = true;
+        sink.accepted();
+        Ok(())
+    }
+
+    /// Prompt send-intent 前复用准备校验，但 acceptance 必须等 durable MarkSent 后发生。
+    pub(super) fn check_acceptance_ready(&mut self) -> Result<(), Failure> {
         if self.accepted {
             return Err(Failure::State);
         }
@@ -60,9 +80,7 @@ impl PreparedFreshSession {
         self.catalog.confirm_desired(&self.desired)?;
         self.early_frames.extend(frames);
         check_replay_bound(&self.early_frames, shared.limits)?;
-        sink.accepted();
-        self.accepted = true;
-        Ok(self)
+        Ok(())
     }
 
     /// 显式退出同样走 Job evidence，绝不借 cleanup 释放 Execution/Claim。
@@ -561,4 +579,4 @@ fn current_equals(option: &SessionConfigOption, value: &SessionConfigOptionValue
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

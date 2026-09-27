@@ -7,9 +7,15 @@ pub(crate) mod discovery;
 #[cfg(windows)]
 #[allow(
     dead_code,
-    reason = "CB7-002 准备 primitive，CB7-003 才接 execute lifecycle"
+    reason = "CB7-002 准备 primitive，CB7-005 才接 execute lifecycle"
 )]
 pub(crate) mod fresh;
+#[cfg(windows)]
+#[allow(
+    dead_code,
+    reason = "CB7-003 内部 prompt primitive，CB7-005 才接生命周期"
+)]
+pub(crate) mod prompt;
 #[allow(dead_code, reason = "CB6-003 建立协议边界，CB7 才接产品执行")]
 pub(crate) mod protocol;
 pub(crate) mod provider;

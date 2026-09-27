@@ -82,6 +82,11 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    /// 返回当前实际受管 owner 的 durable R1，不能由调用方 private 快照替代。
+    pub(super) fn runtime_id(&self) -> Option<&str> {
+        self.durable.as_ref().map(|runtime| runtime.id.as_str())
+    }
+
     /// launcher 保留 first-runnable Job ownership，SDK 只获得已创建的 streams。
     pub(crate) async fn start(
         request: LaunchRequest,
