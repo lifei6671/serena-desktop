@@ -115,12 +115,19 @@ struct StartupRecoveryAuthority<'a> {
 
 impl StartupRecoveryAuthority<'_> {
     async fn recover_startup(&self) -> Result<Vec<RecoveryOutcome>, String> {
-        let claims = self.store.recover_claims(now()).await?;
+        let claims = self
+            .store
+            .recover_provider_claims("codex".into(), now())
+            .await?;
         let mut outcomes = Vec::new();
         let mut orphan_outcomes = Vec::new();
         // The single-instance Host has acquired startup ownership; no old Client
         // may be reused. Include idle runtimes which no longer have a Claim.
-        for runtime_id in self.store.orphan_runtimes(self.owner.to_owned()).await? {
+        for runtime_id in self
+            .store
+            .provider_orphan_runtimes(self.owner.to_owned(), "codex".into())
+            .await?
+        {
             let workspace = self
                 .store
                 .runtime_workspace(runtime_id.clone())

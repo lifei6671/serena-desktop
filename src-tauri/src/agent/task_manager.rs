@@ -426,7 +426,7 @@ impl AgentTaskManager {
             discovery,
         )?;
         // CodeBuddy discovery 失败只影响其自身 health，不能阻断 Desktop 或 Codex 注册。
-        register_codebuddy_provider(&mut registry)?;
+        register_codebuddy_provider(&mut registry, self.store.clone(), self.owner.clone())?;
         Ok(registry)
     }
     /// Product 只读复用唯一 Registry；Registry 初始化与派发语义保持原样。
@@ -464,6 +464,8 @@ impl AgentTaskManager {
             // CodeBuddy refresh 只重复无进程 discovery，不创建 ACP 或 Runtime。
             "codebuddy" => register_codebuddy_provider_with_discovery(
                 &mut refreshed,
+                self.store.clone(),
+                self.owner.clone(),
                 super::codebuddy::discover(),
             ),
             _ => {

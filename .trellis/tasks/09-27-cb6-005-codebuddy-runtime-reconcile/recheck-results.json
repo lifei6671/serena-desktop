@@ -1,0 +1,26 @@
+[
+  {
+    "name": "fmt",
+    "command": "cargo fmt --all -- --check",
+    "exitCode": 0,
+    "log": "recheck-fmt.log"
+  },
+  {
+    "name": "check",
+    "command": "cargo check --lib --tests",
+    "exitCode": 0,
+    "log": "recheck-check.log"
+  },
+  {
+    "name": "codebuddy",
+    "command": "cargo test --lib agent::codebuddy -- --nocapture",
+    "exitCode": 0,
+    "log": "recheck-codebuddy.log"
+  },
+  {
+    "name": "clippy",
+    "command": "cargo clippy --lib --tests -- -D warnings",
+    "exitCode": 101,
+    "log": "recheck-clippy.log"
+  }
+]

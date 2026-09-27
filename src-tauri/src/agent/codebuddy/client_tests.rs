@@ -92,9 +92,14 @@ async fn initialize_sanitized_fixture_and_missing_capability_keep_health_and_cap
         .unwrap(),
         json!({"protocolVersion":1}),
     ] {
+        let directory = tempfile::tempdir().unwrap();
         let mut registry = ProviderRegistry::new();
         register_codebuddy_provider_with_discovery(
             &mut registry,
+            crate::agent::store::StateStore::open(directory.path().into())
+                .await
+                .unwrap(),
+            "test-host".into(),
             Ok(DiscoveryResult::direct_for_test("C:/fixture/codebuddy.exe")),
         )
         .unwrap();
@@ -122,10 +127,10 @@ async fn initialize_sanitized_fixture_and_missing_capability_keep_health_and_cap
             !before.can_execute
                 && !before.can_continue
                 && !before.can_cancel
-                && !before.can_recover
                 && !before.activity
                 && !before.token_usage
         );
+        assert_eq!(before.can_recover, cfg!(windows));
         client.shutdown().await;
     }
 }

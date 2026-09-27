@@ -415,11 +415,14 @@ async fn recover_startup_with_timeouts(
     grace: Duration,
     kill_wait: Duration,
 ) -> Result<ProviderReconcileSummary, String> {
-    let claims = store.recover_claims(now()).await?;
+    let claims = store.recover_provider_claims("codex".into(), now()).await?;
     let mut items = Vec::new();
 
     // orphan Runtime 没有关联 Claim，只收口 containment，不改变无关 Execution。
-    for runtime_id in store.orphan_runtimes(owner.to_owned()).await? {
+    for runtime_id in store
+        .provider_orphan_runtimes(owner.to_owned(), "codex".into())
+        .await?
+    {
         let Some(runtime) = store.runtime(runtime_id.clone()).await? else {
             items.push(ProviderReconcileItem {
                 subject_id: runtime_id,

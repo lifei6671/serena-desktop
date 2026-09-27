@@ -150,6 +150,18 @@ fn private_ownership(
 }
 
 impl StateStore {
+    /// 区分真正缺失与已有私有行校验冲突；缺失绝不推造 Session。
+    pub(crate) async fn codebuddy_state_exists(&self, id: String) -> Result<bool, String> {
+        self.read(move |c| {
+            c.query_row(
+                "SELECT EXISTS(SELECT 1 FROM codebuddy_execution_state WHERE execution_id=?1)",
+                [id],
+                |r| r.get(0),
+            )
+        })
+        .await
+    }
+
     /// Adapter 创建入口；重复 create 明确 conflict，无 upsert。
     pub(crate) async fn create_codebuddy_state(
         &self,

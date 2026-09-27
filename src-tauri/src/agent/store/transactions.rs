@@ -437,15 +437,33 @@ impl StateStore {
 
     /// Classify durable Claims before publishing the startup Product service.
     pub async fn recover_claims(&self, now: i64) -> Result<Vec<ClaimRecovery>, String> {
+        self.recover_claims_scoped(None, now).await
+    }
+
+    /// Provider 启动恢复只选择所属 Claim；分类与释放仍复用相同 generic 事务。
+    pub(crate) async fn recover_provider_claims(
+        &self,
+        provider: String,
+        now: i64,
+    ) -> Result<Vec<ClaimRecovery>, String> {
+        self.recover_claims_scoped(Some(provider), now).await
+    }
+
+    /// 可选 Provider 仅限制选择，不改变任何 Claim authority。
+    async fn recover_claims_scoped(
+        &self,
+        provider: Option<String>,
+        now: i64,
+    ) -> Result<Vec<ClaimRecovery>, String> {
         self.write(move |tx| {
             // Claims are the authority for recovery, including legacy terminal rows.
             let mut statement = tx
                 .prepare(
-                    "SELECT execution_id FROM workspace_claims ORDER BY canonical_workspace_root",
+                    "SELECT w.execution_id FROM workspace_claims w WHERE (?1 IS NULL OR EXISTS (SELECT 1 FROM executions e WHERE e.id=w.execution_id AND e.provider=?1)) ORDER BY w.canonical_workspace_root",
                 )
                 .map_err(|e| e.to_string())?;
             let ids = statement
-                .query_map([], |r| r.get::<_, String>(0))
+                .query_map([provider], |r| r.get::<_, String>(0))
                 .map_err(|e| e.to_string())?
                 .collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(|e| e.to_string())?;
@@ -1267,8 +1285,17 @@ fn transition_execution(
     if release.is_some() {
         crash_checkpoint("before_terminal");
     }
-    let changed=tx.execute("UPDATE executions SET status=?2,dispatch_state=?3,runtime_instance_id=?4,revision=revision+1,updated_at=?5 WHERE id=?1 AND revision=?6 AND status=?7 AND dispatch_state=?8",
-        params![id,next.as_str(),dispatch.as_str(),runtime,now,revision,row.status.as_str(),row.dispatch.as_str()]).map_err(|e|e.to_string())?;
+    // 未改变的原 binding 不重复写 FK：即使旧 Runtime 行丢失，generic unknown 仍能保留 Claim。
+    // 真正的 Dispatch binding 与状态/CAS 保持在同一 IMMEDIATE 事务，失败整体回滚。
+    if runtime != row.runtime {
+        tx.execute(
+            "UPDATE executions SET runtime_instance_id=?2 WHERE id=?1 AND revision=?3",
+            params![id, runtime, revision],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let changed=tx.execute("UPDATE executions SET status=?2,dispatch_state=?3,revision=revision+1,updated_at=?4 WHERE id=?1 AND revision=?5 AND status=?6 AND dispatch_state=?7",
+        params![id,next.as_str(),dispatch.as_str(),now,revision,row.status.as_str(),row.dispatch.as_str()]).map_err(|e|e.to_string())?;
     if changed != 1 {
         return Err("EXECUTION_REVISION_CONFLICT".into());
     }

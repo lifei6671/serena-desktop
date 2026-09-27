@@ -2290,3 +2290,60 @@ fn manual_resolution_rejects_provider_identity_and_claim_inconsistencies() {
         );
     }
 }
+
+/// generic unknown 不重写损坏的原 FK；Claim 与绑定原值保留，绝不偷偷解绑。
+#[test]
+fn missing_original_runtime_can_be_marked_unknown_without_rebinding() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    fixture(&store, Status::Running, DispatchState::Dispatched);
+    {
+        let connection = store.connection.lock().unwrap();
+        connection.execute_batch("PRAGMA foreign_keys=OFF; DELETE FROM runtime_instances WHERE id='r'; PRAGMA foreign_keys=ON;").unwrap();
+    }
+    event(&store, Transition::Reconcile, 2).unwrap();
+    event(&store, Transition::MarkUnknown, 3).unwrap();
+    let row = status(&store);
+    assert_eq!(row.status, "unknown");
+    assert_eq!(row.runtime_instance_id.as_deref(), Some("r"));
+    assert!(
+        block(store.workspace_claim(row.canonical_workspace_root))
+            .unwrap()
+            .is_some()
+    );
+}
+
+/// generic Dispatch 仍在同一事务原子绑定 Runtime，并正常推进 revision。
+#[test]
+fn dispatch_atomically_persists_changed_runtime_binding() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    create_one(&store);
+    store.connection.lock().unwrap().execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES('r','host','running',1,1)",[]).unwrap();
+    event(
+        &store,
+        Transition::Dispatch {
+            to: DispatchState::Dispatching,
+            runtime_id: Some("r".into()),
+        },
+        2,
+    )
+    .unwrap();
+    let row = status(&store);
+    assert_eq!(row.runtime_instance_id.as_deref(), Some("r"));
+    assert_eq!(row.dispatch_state, "dispatching");
+    assert_eq!(row.revision, 1);
+    assert!(
+        event(
+            &store,
+            Transition::Dispatch {
+                to: DispatchState::Dispatching,
+                runtime_id: Some("missing".into())
+            },
+            3
+        )
+        .is_err()
+    );
+    assert_eq!(status(&store).runtime_instance_id.as_deref(), Some("r"));
+    assert_eq!(status(&store).revision, 1);
+}

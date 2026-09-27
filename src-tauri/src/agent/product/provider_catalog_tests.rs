@@ -135,8 +135,10 @@ async fn codex_available_enabled_json_fixture() {
             async { serde_json::to_value(service.provider_catalog(&supervisor).unwrap()).unwrap() },
         )
         .await;
-    let expected: Value =
+    let mut expected: Value =
         serde_json::from_str(include_str!("fixtures/provider_catalog_codex.json")).unwrap();
+    // CB6-005 只在有 native Windows Job recovery Gate 的平台声明恢复能力。
+    expected["providers"][0]["capabilities"]["canRecover"] = json!(cfg!(windows));
     assert_eq!(value, expected);
     assert!(durable_snapshot(directory.path()).iter().all(Vec::is_empty));
 }

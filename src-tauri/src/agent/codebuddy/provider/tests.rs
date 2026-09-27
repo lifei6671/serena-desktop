@@ -18,11 +18,17 @@ struct NoopTelemetry;
 impl AgentEventSink for NoopTelemetry {}
 
 /// missing CLI 仍注册 descriptor，但 Registry execution lookup 保持 unavailable。
-#[test]
-fn missing_cli_registers_unavailable_skeleton() {
+#[tokio::test]
+async fn missing_cli_registers_unavailable_skeleton() {
+    let (_directory, store) = authority().await;
     let mut registry = ProviderRegistry::new();
-    register_codebuddy_provider_with_discovery(&mut registry, Err(DiscoveryError::not_found(true)))
-        .unwrap();
+    register_codebuddy_provider_with_discovery(
+        &mut registry,
+        store.clone(),
+        "test-host".into(),
+        Err(DiscoveryError::not_found(true)),
+    )
+    .unwrap();
     let id = ProviderId::new("codebuddy".into()).unwrap();
     let provider = registry.get_registered(&id).unwrap();
     assert_eq!(provider.descriptor().display_name, "CodeBuddy");
@@ -37,7 +43,7 @@ fn missing_cli_registers_unavailable_skeleton() {
             can_execute: false,
             can_continue: false,
             can_cancel: false,
-            can_recover: false,
+            can_recover: cfg!(windows),
             activity: false,
             token_usage: false,
         }
@@ -45,11 +51,14 @@ fn missing_cli_registers_unavailable_skeleton() {
 }
 
 /// found CLI 只提升 Admission Health，不提前开放任何执行能力。
-#[test]
-fn found_cli_registers_available_capability_conservative_skeleton() {
+#[tokio::test]
+async fn found_cli_registers_available_capability_conservative_skeleton() {
+    let (_directory, store) = authority().await;
     let mut registry = ProviderRegistry::new();
     register_codebuddy_provider_with_discovery(
         &mut registry,
+        store.clone(),
+        "test-host".into(),
         Ok(DiscoveryResult::direct_for_test(
             "C:/resolved/codebuddy.exe",
         )),
@@ -61,16 +70,18 @@ fn found_cli_registers_available_capability_conservative_skeleton() {
     assert!(!capabilities.can_execute);
     assert!(!capabilities.can_continue);
     assert!(!capabilities.can_cancel);
-    assert!(!capabilities.can_recover);
+    assert_eq!(capabilities.can_recover, cfg!(windows));
     assert!(!capabilities.activity);
     assert!(!capabilities.token_usage);
 }
 
 /// resolved LaunchSpec 与 Release descriptor 分离，descriptor 不获得本机绝对路径。
-#[test]
-fn resolved_launch_spec_is_separate_from_default_descriptor() {
+#[tokio::test]
+async fn resolved_launch_spec_is_separate_from_default_descriptor() {
+    let (_directory, store) = authority().await;
     let discovery = DiscoveryResult::direct_for_test("C:/resolved/node.exe");
-    let provider = CodeBuddyProvider::from_discovery(Ok(discovery));
+    let provider =
+        CodeBuddyProvider::from_discovery(store.clone(), "test-host".into(), Ok(discovery));
     assert_eq!(DEFAULT_LAUNCH_DESCRIPTOR.command, "codebuddy");
     assert_eq!(DEFAULT_LAUNCH_DESCRIPTOR.args, ["--acp"]);
     assert_eq!(
@@ -83,23 +94,31 @@ fn resolved_launch_spec_is_separate_from_default_descriptor() {
 }
 
 /// base version 不能冒充 Provider 产品版本或 admission whitelist。
-#[test]
-fn descriptor_uses_only_product_version_metadata() {
+#[tokio::test]
+async fn descriptor_uses_only_product_version_metadata() {
+    let (_directory, store) = authority().await;
     let mut discovery = DiscoveryResult::direct_for_test("C:/resolved/codebuddy.exe");
     discovery.metadata.base_version = Some("1.106.1".into());
-    let provider = CodeBuddyProvider::from_discovery(Ok(discovery.clone()));
+    let provider =
+        CodeBuddyProvider::from_discovery(store.clone(), "test-host".into(), Ok(discovery.clone()));
     assert_eq!(provider.descriptor().version, None);
     discovery.metadata.product_version = Some("2.158.0".into());
-    let provider = CodeBuddyProvider::from_discovery(Ok(discovery));
+    let provider =
+        CodeBuddyProvider::from_discovery(store.clone(), "test-host".into(), Ok(discovery));
     assert_eq!(provider.descriptor().version.as_deref(), Some("2.158.0"));
 }
 
-/// 即使绕过 admission 直接调用 trait，所有生命周期入口也必须 fail closed。
+/// 绕过 admission 也不能 execute/cancel；startup 可独立恢复空的历史集合。
 #[tokio::test]
 async fn lifecycle_methods_never_start_unimplemented_behavior() {
-    let provider = CodeBuddyProvider::from_discovery(Ok(DiscoveryResult::direct_for_test(
-        "C:/resolved/codebuddy.exe",
-    )));
+    let (_directory, store) = authority().await;
+    let provider = CodeBuddyProvider::from_discovery(
+        store.clone(),
+        "test-host".into(),
+        Ok(DiscoveryResult::direct_for_test(
+            "C:/resolved/codebuddy.exe",
+        )),
+    );
     let execute = provider
         .execute(
             ProviderExecutionContext {
@@ -125,12 +144,21 @@ async fn lifecycle_methods_never_start_unimplemented_behavior() {
             .code,
         ProviderErrorCode::AgentProviderCapabilityUnsupported
     );
-    assert_eq!(
+    assert!(
         provider
             .startup_reconcile(ProviderStartupContext {})
             .await
-            .unwrap_err()
-            .code,
-        ProviderErrorCode::AgentProviderCapabilityUnsupported
+            .unwrap()
+            .items
+            .is_empty()
     );
+}
+
+/// 测试 Store 和临时目录具有同一测试生命周期。
+async fn authority() -> (tempfile::TempDir, crate::agent::store::StateStore) {
+    let directory = tempfile::tempdir().unwrap();
+    let store = crate::agent::store::StateStore::open(directory.path().into())
+        .await
+        .unwrap();
+    (directory, store)
 }

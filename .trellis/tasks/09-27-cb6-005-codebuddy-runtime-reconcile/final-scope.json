@@ -1,0 +1,8 @@
+{
+  "manifestSha256": "3D640DE7316FAC7F62875B4B1499CD20214185102AA0AC9B2AE7B930A15450E4",
+  "sourceFiles": 18,
+  "targetFresh": true,
+  "frozenBaselineUnchanged": true,
+  "head": "0d96524599189b541bbcb4fc9a961ee2456f8a19",
+  "stagedFiles": []
+}

@@ -23,6 +23,7 @@ const SCHEMA_V12: &str = include_str!("schema_v12.sql");
 const SCHEMA_V13: &str = include_str!("schema_v13.sql");
 
 mod codebuddy;
+pub(crate) mod codebuddy_runtime;
 mod command_runs;
 mod usage;
 #[cfg(test)]
@@ -255,12 +256,30 @@ impl StateStore {
     }
 
     pub(crate) async fn orphan_runtimes(&self, owner: String) -> Result<Vec<String>, String> {
+        self.orphan_runtimes_scoped(owner, None).await
+    }
+
+    /// Provider 分区只影响 orphan 选择，不改变 Runtime 的终止判据。
+    pub(crate) async fn provider_orphan_runtimes(
+        &self,
+        owner: String,
+        provider: String,
+    ) -> Result<Vec<String>, String> {
+        self.orphan_runtimes_scoped(owner, Some(provider)).await
+    }
+
+    /// 兼容既有全局查询，Provider adapter 使用带 scope 的入口。
+    async fn orphan_runtimes_scoped(
+        &self,
+        owner: String,
+        provider: Option<String>,
+    ) -> Result<Vec<String>, String> {
         self.read(move |c| {
             let mut statement = c.prepare("SELECT r.id FROM runtime_instances r
-                WHERE r.owner_host_instance_id != ?1 AND r.state != 'terminated'
+                WHERE r.owner_host_instance_id != ?1 AND r.state != 'terminated' AND (?2 IS NULL OR r.provider=?2)
                 AND NOT EXISTS (SELECT 1 FROM executions e JOIN workspace_claims w ON w.execution_id=e.id
                     WHERE e.runtime_instance_id=r.id)")?;
-            statement.query_map([owner], |r| r.get(0))?.collect()
+            statement.query_map(params![owner, provider], |r| r.get(0))?.collect()
         }).await
     }
 

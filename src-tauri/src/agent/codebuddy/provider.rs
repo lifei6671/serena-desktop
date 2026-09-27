@@ -1,4 +1,4 @@
-//! capability-conservative CodeBuddy Provider skeleton。
+//! CodeBuddy discovery 与历史 Runtime recovery；执行能力仍保持关闭。
 
 use std::sync::Arc;
 
@@ -28,21 +28,31 @@ pub(crate) const DEFAULT_LAUNCH_DESCRIPTOR: DefaultLaunchDescriptor = DefaultLau
     args: &["--acp"],
 };
 
-/// CB6-001 只注册 presence 与 Admission Health，不持有 Runtime 或 StateStore。
+/// Discovery 决定 Admission Health；独立 Store/Host authority 始终可恢复历史 Runtime。
 pub(crate) struct CodeBuddyProvider {
+    store: crate::agent::store::StateStore,
+    owner: String,
     discovery: Option<DiscoveryResult>,
     discovery_error: Option<DiscoveryError>,
 }
 
 impl CodeBuddyProvider {
     /// 从一次无进程 discovery 构造 Provider，失败结果仍保留 registered skeleton。
-    fn from_discovery(discovery: Result<DiscoveryResult, DiscoveryError>) -> Self {
+    fn from_discovery(
+        store: crate::agent::store::StateStore,
+        owner: String,
+        discovery: Result<DiscoveryResult, DiscoveryError>,
+    ) -> Self {
         match discovery {
             Ok(discovery) => Self {
+                store,
+                owner,
                 discovery: Some(discovery),
                 discovery_error: None,
             },
             Err(error) => Self {
+                store,
+                owner,
                 discovery: None,
                 discovery_error: Some(error),
             },
@@ -72,13 +82,17 @@ impl CodeBuddyProvider {
 /// 使用当前系统 resolver 注册 CodeBuddy；缺失不会阻断 Registry bootstrap。
 pub(crate) fn register_codebuddy_provider(
     registry: &mut ProviderRegistry,
+    store: crate::agent::store::StateStore,
+    owner: String,
 ) -> Result<(), ProviderError> {
-    register_codebuddy_provider_with_discovery(registry, super::discover())
+    register_codebuddy_provider_with_discovery(registry, store, owner, super::discover())
 }
 
 /// 将已冻结 discovery 结果注册为 Available/Unavailable Provider。
 pub(crate) fn register_codebuddy_provider_with_discovery(
     registry: &mut ProviderRegistry,
+    store: crate::agent::store::StateStore,
+    owner: String,
     discovery: Result<DiscoveryResult, DiscoveryError>,
 ) -> Result<(), ProviderError> {
     let health = if discovery.is_ok() {
@@ -87,12 +101,12 @@ pub(crate) fn register_codebuddy_provider_with_discovery(
         ProviderHealth::Unavailable
     };
     registry.register(
-        Arc::new(CodeBuddyProvider::from_discovery(discovery)),
+        Arc::new(CodeBuddyProvider::from_discovery(store, owner, discovery)),
         health,
     )
 }
 
-/// 构造统一的 capability unsupported 错误，避免 skeleton 进入任何生命周期路径。
+/// 未实现的 execute/cancel 保持稳定 capability unsupported，不创建新 Runtime。
 fn unsupported() -> ProviderError {
     ProviderError {
         code: ProviderErrorCode::AgentProviderCapabilityUnsupported,
@@ -112,13 +126,13 @@ impl AgentProvider for CodeBuddyProvider {
         }
     }
 
-    /// CB6-001 没有生产 ACP/Runtime 证据，所有能力保持 false。
+    /// CB6-005 native Windows Job/startup Gate 已通过；其余能力等待各自实现 Gate。
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             can_execute: false,
             can_continue: false,
             can_cancel: false,
-            can_recover: false,
+            can_recover: cfg!(windows),
             activity: false,
             token_usage: false,
         }
@@ -146,12 +160,18 @@ impl AgentProvider for CodeBuddyProvider {
         Box::pin(async { Err(unsupported()) })
     }
 
-    /// CB6-001 没有 Recovery，实现保持 fail closed 且不会访问 StateStore。
+    /// 恢复只依赖 durable ownership，与 CLI presence、enabled 和 admission health 无关。
     fn startup_reconcile<'a>(
         &'a self,
         _context: ProviderStartupContext,
     ) -> ProviderFuture<'a, Result<ProviderReconcileSummary, ProviderError>> {
-        Box::pin(async { Err(unsupported()) })
+        Box::pin(async {
+            super::recovery::startup(&self.store, &self.owner)
+                .await
+                .map_err(|_| ProviderError {
+                    code: ProviderErrorCode::AgentProviderOperationFailed,
+                })
+        })
     }
 }
 
