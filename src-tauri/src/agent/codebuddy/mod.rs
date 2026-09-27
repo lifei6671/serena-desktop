@@ -10,6 +10,11 @@ pub(crate) mod provider;
 #[cfg(windows)]
 #[allow(dead_code, reason = "CB6-003 仅 managed handshake，不接产品 session")]
 pub(crate) mod runtime;
+#[allow(
+    dead_code,
+    reason = "CB6-004 提供私有 durable store，后续卡才接 Adapter"
+)]
+pub(crate) mod store;
 #[cfg(windows)]
 #[allow(
     dead_code,

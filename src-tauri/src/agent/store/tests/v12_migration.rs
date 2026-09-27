@@ -79,7 +79,7 @@ fn frozen_v11_to_v12_preserves_every_historical_field() {
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        12
+        13
     );
     for (table, old) in tables.iter().zip(&before) {
         let after = rows_by_column(&connection, table);
@@ -261,7 +261,11 @@ fn v12_preserves_schema_objects_foreign_keys_and_safety_triggers() {
         .collect();
 
     migrate(&mut connection).unwrap();
-    assert_eq!(objects(&connection), before);
+    let added: Vec<_> = objects(&connection)
+        .into_iter()
+        .filter(|(_, name)| !name.starts_with("codebuddy_execution_"))
+        .collect();
+    assert_eq!(added, before);
     for (table, old) in child_tables.iter().zip(old_fks) {
         assert_eq!(foreign_keys(&connection, table), old, "{table}");
     }

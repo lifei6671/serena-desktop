@@ -158,6 +158,140 @@ async fn call(broker: &Broker, name: &str, args: Value) -> Value {
         .unwrap()
 }
 
+/// 私有 identity 落盘后，真实 MCP、Product 与 Work 只读投影保持逐值不变。
+#[tokio::test]
+async fn codebuddy_private_state_is_absent_from_public_projections() {
+    use crate::agent::{
+        codebuddy::store::{CodeBuddyStore, Mutation, Ownership, PromptRpcId},
+        store::transactions::product::{WorkExecutionContext, WorkspaceSnapshot},
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_string_lossy().into_owned();
+    let store = StateStore::open(dir.path().join("state")).await.unwrap();
+    store
+        .create_work_run(
+            "work".into(),
+            "W".into(),
+            root.clone(),
+            1,
+            "projection".into(),
+            None,
+            1,
+        )
+        .await
+        .unwrap();
+    store
+        .product_create_fresh_with_work(
+            "E".into(),
+            "work".into(),
+            "key".into(),
+            "projection".into(),
+            "W".into(),
+            Some(WorkspaceSnapshot {
+                id: "W".into(),
+                root,
+                generation: 1,
+            }),
+            Some(WorkExecutionContext {
+                work_run_id: "work".into(),
+                parent_execution_id: None,
+                delegation_context_json: None,
+            }),
+            1,
+        )
+        .await
+        .unwrap();
+    // 仅构造持久化 fixture，不启动 Runtime、不生成终止或 Claim 释放证据。
+    let db = rusqlite::Connection::open(dir.path().join("state/agent-state.db")).unwrap();
+    db.execute_batch(
+        "INSERT INTO runtime_instances (id,owner_host_instance_id,provider,state,created_at,updated_at)
+         VALUES ('private-runtime-sentinel','host','codebuddy','unknown',1,1);
+         UPDATE executions SET provider='codebuddy',runtime_instance_id='private-runtime-sentinel' WHERE id='E';",
+    ).unwrap();
+    drop(db);
+    let broker = fixture(dir.path());
+    let product = Arc::new(AgentProductService::new(store.clone()));
+    assert!(broker.product.set(product.clone()).is_ok());
+    let queries = [
+        (
+            "agent_query",
+            json!({"action":"get","executionId":"E","includeResult":true}),
+        ),
+        ("agent_query", json!({"action":"list","workRunId":"work"})),
+        (
+            "agent_query",
+            json!({"action":"observe","executionId":"E","waitMs":0}),
+        ),
+        ("work_query", json!({"action":"get","workRunId":"work"})),
+        ("work_query", json!({"action":"list"})),
+    ];
+    let mut before = Vec::new();
+    for (name, args) in &queries {
+        let response = call(&broker, name, args.clone()).await;
+        assert_eq!(response["ok"], true, "{response}");
+        before.push(response);
+    }
+    let local_args = json!({"action":"observe","executionId":"E","waitMs":0});
+    let local_before = product.operation(local_args.clone(), None).await;
+    assert_eq!(local_before["ok"], true);
+    let owner = Ownership {
+        execution_revision: store.execution("E".into()).await.unwrap().unwrap().revision,
+        runtime_instance_id: Some("private-runtime-sentinel".into()),
+    };
+    let private = CodeBuddyStore(store.clone());
+    let mut state = private.create("E".into(), owner.clone()).await.unwrap();
+    for mutation in [
+        Mutation::NegotiatedProtocol(1),
+        Mutation::ExactSession("private-session-sentinel".into()),
+        Mutation::ExactProviderRequest("private-provider-request-sentinel".into()),
+        Mutation::MarkSent {
+            rpc_id: Some(PromptRpcId::from_json("\"private-rpc-sentinel\"").unwrap()),
+        },
+    ] {
+        state = private
+            .mutate("E".into(), owner.clone(), state.revision, mutation)
+            .await
+            .unwrap();
+    }
+    assert_eq!(private.read("E".into()).await.unwrap(), state);
+    assert!(state.revision > 0);
+    let mut after = Vec::new();
+    for (name, args) in &queries {
+        after.push(call(&broker, name, args.clone()).await);
+    }
+    assert_eq!(after, before);
+    let local_after = product.operation(local_args, None).await;
+    assert_eq!(local_after, local_before);
+    after.push(local_after);
+    // 同时锁定字段名与真实私有值；公共 generic revision 允许存在，但不能随 private revision 改变。
+    for view in after {
+        let wire = serde_json::to_string(&view).unwrap();
+        for forbidden in [
+            "sessionId",
+            "session_id",
+            "conversationRequestId",
+            "conversation_request_id",
+            "providerRequestId",
+            "provider_request_id",
+            "promptRpcId",
+            "prompt_rpc_id",
+            "privateRevision",
+            "private_revision",
+            "private-runtime-sentinel",
+            "private-session-sentinel",
+            "private-provider-request-sentinel",
+            "private-rpc-sentinel",
+            state.conversation_request_id.as_str(),
+        ] {
+            assert!(
+                !wire.contains(forbidden),
+                "public projection leaked {forbidden}: {wire}"
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace_authority() {
     let dir = tempfile::tempdir().unwrap();

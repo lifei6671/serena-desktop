@@ -1,0 +1,76 @@
+{
+  "target_id": "9D4F32914CEC2D486D581C9DEB3AFE2FA3F715C8C4A5A24CBFEB9AD0E30CBB56",
+  "head": "b40d67b392669a087dcd4d6d4e59065c233f292b",
+  "files": [
+    {
+      "path": "src-tauri/src/agent/codebuddy/mod.rs",
+      "sha256": "B3FB4FC308F9DA5B15AB6CFACBFF171F5CA5A50E3E26FC0792D1231BA5E6A5E2",
+      "provenance": "inherited delivery-owned"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/store.rs",
+      "sha256": "13B7F4C62A4D662C74570D48F844F8611B5D17828074DF6083CB49F9D2490EFF",
+      "provenance": "inherited delivery-owned"
+    },
+    {
+      "path": "src-tauri/src/agent/provider/tests.rs",
+      "sha256": "13C4BD82D226523E30F68DFE4876762DD9468A1CBA35E74AF90934CC95D97C07",
+      "provenance": "closeout tests/necessary migration assertion"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v13.sql",
+      "sha256": "D0D240AAFF30ED12023863FF265970039D9D3FE5AFD019CD0FDE03A8763C5A71",
+      "provenance": "inherited delivery-owned"
+    },
+    {
+      "path": "src-tauri/src/agent/store.rs",
+      "sha256": "60AA78C606A933E7B0A6B2F2948BEC8B8FEE8D5EE93BF210002E7BE6884CBFBB",
+      "provenance": "inherited delivery-owned"
+    },
+    {
+      "path": "src-tauri/src/agent/store/codebuddy.rs",
+      "sha256": "D354E38C35F4E80121217115735C44E92BE396B001FB6BCC04DFFF367D5CF915",
+      "provenance": "inherited delivery-owned"
+    },
+    {
+      "path": "src-tauri/src/agent/store/tests.rs",
+      "sha256": "83B5300AFAEC109D23C379ACEA679D2694B8E6A802E11D20D5940C241C3E1F2B",
+      "provenance": "inherited delivery-owned"
+    },
+    {
+      "path": "src-tauri/src/agent/store/tests/codebuddy.rs",
+      "sha256": "BDD0EA64F507616491491D036C65C56773F82BEFDDE35794EB2A33D07D32096B",
+      "provenance": "closeout tests/necessary migration assertion"
+    },
+    {
+      "path": "src-tauri/src/agent/store/tests/v11_fixture.rs",
+      "sha256": "7EE01321EDDB260AE9D7F6625939CB78E0D43DDEA8E042DE75CEA5FFD2CEFFDC",
+      "provenance": "inherited delivery-owned"
+    },
+    {
+      "path": "src-tauri/src/agent/store/tests/v12_migration.rs",
+      "sha256": "A3EF99804C939FDE827A56D197D52AD8789AEF4501BB2DAD7BD3AE7687DE8D5A",
+      "provenance": "inherited delivery-owned"
+    },
+    {
+      "path": "src-tauri/src/agent/store/tests/v13_migration.rs",
+      "sha256": "67FC4CF82A4C0E27332BA7F05A479FF82682EE291E06671CBD13D30FCD5332A3",
+      "provenance": "closeout tests/necessary migration assertion"
+    },
+    {
+      "path": "src-tauri/src/agent/store/tests/work_runs.rs",
+      "sha256": "3128FF88D55E8E3998A2EF921D0780A551443B006C4BB3506F0E4B3CA89036C0",
+      "provenance": "closeout tests/necessary migration assertion"
+    },
+    {
+      "path": "src-tauri/src/mcp/orchestration_tests.rs",
+      "sha256": "759D5837C77A0E81C2A502BB633BD8227B30B652420F874B9532FBADB7941E31",
+      "provenance": "closeout tests/necessary migration assertion"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/agent_state_v12.sql",
+      "sha256": "98A09781E0E372DE37DB3B13645B7FC2D5F12E2D3348451F6A61CDDF2976C890",
+      "provenance": "inherited delivery-owned"
+    }
+  ]
+}

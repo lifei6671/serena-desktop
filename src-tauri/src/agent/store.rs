@@ -20,7 +20,9 @@ const SCHEMA_V9: &str = include_str!("schema_v9.sql");
 const SCHEMA_V10: &str = include_str!("schema_v10.sql");
 const SCHEMA_V11: &str = include_str!("schema_v11.sql");
 const SCHEMA_V12: &str = include_str!("schema_v12.sql");
+const SCHEMA_V13: &str = include_str!("schema_v13.sql");
 
+mod codebuddy;
 mod command_runs;
 mod usage;
 #[cfg(test)]
@@ -327,10 +329,10 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .map_err(|e| e.to_string())?;
-    if !(0..=12).contains(&version) {
+    if !(0..=13).contains(&version) {
         return Err(format!("unsupported agent state schema version: {version}"));
     }
-    if version == 12 {
+    if version == 13 {
         return check_foreign_keys(connection);
     }
     // SQLite 不能在事务内切换 foreign_keys；父表重建前关闭，提交前后均检查外键。
@@ -352,7 +354,7 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     check_foreign_keys(connection)
 }
 
-/// 所有历史 migration 与 v12 共用一个 IMMEDIATE 事务，失败时整体回滚。
+/// 所有历史 migration 与 v13 共用一个 IMMEDIATE 事务，失败时整体回滚。
 fn migrate_in_transaction(connection: &mut Connection) -> Result<(), String> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -379,7 +381,7 @@ fn migrate_in_transaction(connection: &mut Connection) -> Result<(), String> {
             }
             apply_migration(&transaction, 1, SCHEMA_V1).map_err(|e| e.to_string())?;
         }
-        1..=12 => {}
+        1..=13 => {}
         _ => return Err(format!("unsupported agent state schema version: {version}")),
     }
     if version < 2 {
@@ -419,6 +421,15 @@ fn migrate_in_transaction(connection: &mut Connection) -> Result<(), String> {
         check_foreign_keys(&transaction)?;
         transaction
             .pragma_update(None, "user_version", 12)
+            .map_err(|e| e.to_string())?;
+    }
+    if version < 13 {
+        transaction
+            .execute_batch(SCHEMA_V13)
+            .map_err(|e| e.to_string())?;
+        check_foreign_keys(&transaction)?;
+        transaction
+            .pragma_update(None, "user_version", 13)
             .map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())

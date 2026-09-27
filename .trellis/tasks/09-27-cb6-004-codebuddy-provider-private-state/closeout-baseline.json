@@ -1,0 +1,20 @@
+{
+  "thread_id": "01a0e201-7afd-7b00-9fd7-25dd3712f728",
+  "original_head": "b40d67b392669a087dcd4d6d4e59065c233f292b",
+  "original_delivery_baseline": "baseline.json",
+  "closeout_start_state": "dirty inherited implementation; preserve",
+  "platform": "native Windows",
+  "schema_v12_sha256": "CE03BD693CE91308A004CDB2FF84AD280F44F25041CDEC6D66599B34A19B65BE",
+  "status": [
+    " M src-tauri/src/agent/codebuddy/mod.rs",
+    " M src-tauri/src/agent/store.rs",
+    " M src-tauri/src/agent/store/tests.rs",
+    " M src-tauri/src/agent/store/tests/v11_fixture.rs",
+    " M src-tauri/src/agent/store/tests/v12_migration.rs",
+    "?? .trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/",
+    "?? src-tauri/src/agent/codebuddy/store.rs",
+    "?? src-tauri/src/agent/schema_v13.sql",
+    "?? src-tauri/src/agent/store/codebuddy.rs",
+    "?? src-tauri/tests/fixtures/agent_state_v12.sql"
+  ]
+}

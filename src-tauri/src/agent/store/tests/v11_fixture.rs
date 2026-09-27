@@ -400,7 +400,7 @@ fn frozen_v11_fixture_reopens_and_reads_without_rewriting_values() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            12
+            13
         );
         for (table, expected) in tables.iter().zip(&before) {
             let actual = table_rows(&connection, table);
