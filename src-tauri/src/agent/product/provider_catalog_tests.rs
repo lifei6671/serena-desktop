@@ -143,6 +143,113 @@ async fn codex_available_enabled_json_fixture() {
     assert!(durable_snapshot(directory.path()).iter().all(Vec::is_empty));
 }
 
+/// 真实 CodeBuddy 的平台能力快照覆盖 disabled、CLI 缺失以及 refresh 重建。
+#[tokio::test]
+async fn codebuddy_catalog_and_refresh_preserve_capability_truth() {
+    use crate::agent::codebuddy::{
+        TEST_DISCOVERY,
+        discovery::{DiscoveryError, DiscoveryResult, MetadataStatus},
+    };
+
+    for enabled in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = StateStore::open(directory.path().into()).await.unwrap();
+        let service = AgentProductService::new(store);
+        let mut config = ManagerConfig {
+            agent_enabled: true,
+            ..Default::default()
+        };
+        config
+            .agent_providers
+            .providers
+            .insert("codebuddy".into(), AgentProviderPolicy { enabled });
+        let supervisor = supervisor(directory.path(), &config);
+        let id = ProviderId::new("codebuddy".into()).unwrap();
+        let codex_id = ProviderId::new("codex".into()).unwrap();
+        let initial = TEST_DISCOVERY
+            .scope(Err(DiscoveryError::not_found(false)), async {
+                service.manager.registry().unwrap()
+            })
+            .await;
+        let codex = initial.get_registered(&codex_id).unwrap();
+        let codex_health = initial.health(&codex_id).unwrap();
+
+        // 同一 Registry 经 missing→found→found-without-version→missing，能力不随 health 改变。
+        for (found, version) in [
+            (false, None),
+            (true, Some("2.158.0")),
+            (true, None),
+            (false, None),
+        ] {
+            let discovery = if found {
+                let mut discovery =
+                    DiscoveryResult::direct_for_test("C:/resolved/build-deadbeef/codebuddy.exe");
+                discovery.metadata.product_version = version.map(str::to_owned);
+                discovery.metadata.base_version = Some("1.106.1".into());
+                discovery.metadata.package_version = Some("0.0.0-deadbeef".into());
+                discovery.metadata.status = MetadataStatus::Parsed;
+                Ok(discovery)
+            } else {
+                Err(DiscoveryError::not_found(false))
+            };
+            let before = service.manager.registry().unwrap();
+            let health = TEST_DISCOVERY
+                .scope(discovery, service.refresh_provider_health(id.clone()))
+                .await
+                .unwrap();
+            assert_eq!(
+                health,
+                if found {
+                    ProviderHealth::Available
+                } else {
+                    ProviderHealth::Unavailable
+                }
+            );
+            let registry = service.manager.registry().unwrap();
+            let registered = registry.get_registered(&id).unwrap();
+            assert!(!Arc::ptr_eq(
+                &before.get_registered(&id).unwrap(),
+                &registered
+            ));
+            assert_eq!(registered.descriptor().version.as_deref(), version);
+            // 刷新只替换目标 adapter，Codex 注册、descriptor、capability 与 health 保持原值。
+            assert!(Arc::ptr_eq(
+                &codex,
+                &registry.get_registered(&codex_id).unwrap()
+            ));
+            assert_eq!(registry.health(&codex_id).unwrap(), codex_health);
+            let catalog = service.provider_catalog(&supervisor).unwrap();
+            assert_eq!(catalog.providers.len(), 2);
+            let entry = catalog
+                .providers
+                .iter()
+                .find(|entry| entry.id == id)
+                .unwrap();
+            // 平台适配内联快照：Windows Job Gate 不外推到其他编译目标。
+            let mut expected = json!({
+                "id": "codebuddy",
+                "displayName": "CodeBuddy",
+                "enabled": enabled,
+                "health": if found { "available" } else { "unavailable" },
+                "availableForNewExecution": false,
+                "capabilities": {
+                    "canExecute": false,
+                    "canContinue": false,
+                    "canCancel": false,
+                    "canRecover": cfg!(windows),
+                    "activity": false,
+                    "tokenUsage": false
+                }
+            });
+            if let Some(version) = version {
+                expected["version"] = json!(version);
+            }
+            assert_eq!(serde_json::to_value(entry).unwrap(), expected);
+        }
+        assert!(durable_snapshot(directory.path()).iter().all(Vec::is_empty));
+    }
+}
+
 /// enabled、health、capability 和总开关独立决定可接收新执行的投影。
 #[tokio::test]
 async fn availability_matrix_preserves_independent_facts() {

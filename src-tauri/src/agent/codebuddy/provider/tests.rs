@@ -31,7 +31,14 @@ async fn missing_cli_registers_unavailable_skeleton() {
     .unwrap();
     let id = ProviderId::new("codebuddy".into()).unwrap();
     let provider = registry.get_registered(&id).unwrap();
-    assert_eq!(provider.descriptor().display_name, "CodeBuddy");
+    assert_eq!(
+        provider.descriptor(),
+        ProviderDescriptor {
+            id: id.clone(),
+            display_name: "CodeBuddy".into(),
+            version: None,
+        }
+    );
     assert_eq!(registry.health(&id).unwrap(), ProviderHealth::Unavailable);
     match registry.get(&id) {
         Err(error) => assert_eq!(error.code, ProviderErrorCode::AgentProviderUnavailable),
@@ -66,13 +73,30 @@ async fn found_cli_registers_available_capability_conservative_skeleton() {
     .unwrap();
     let id = ProviderId::new("codebuddy".into()).unwrap();
     assert_eq!(registry.health(&id).unwrap(), ProviderHealth::Available);
-    let capabilities = registry.capabilities(&id).unwrap();
-    assert!(!capabilities.can_execute);
-    assert!(!capabilities.can_continue);
-    assert!(!capabilities.can_cancel);
-    assert_eq!(capabilities.can_recover, cfg!(windows));
-    assert!(!capabilities.activity);
-    assert!(!capabilities.token_usage);
+    let registered = registry.get_registered(&id).unwrap();
+    assert!(Arc::ptr_eq(&registered, &registry.get(&id).unwrap()));
+    assert_eq!(
+        registered.capabilities(),
+        ProviderCapabilities {
+            can_execute: false,
+            can_continue: false,
+            can_cancel: false,
+            can_recover: cfg!(windows),
+            activity: false,
+            token_usage: false,
+        }
+    );
+    // Registry get 只检查 health；新执行还必须通过已有 capability admission。
+    use crate::agent::provider::control::{ProviderAdmissionCapability, ProviderAdmissionPolicy};
+    let policy = ProviderAdmissionPolicy::new(Default::default());
+    policy.set_enabled_for_test("codebuddy", true);
+    match policy.admit(&registry, &id, ProviderAdmissionCapability::Execute) {
+        Err(error) => assert_eq!(
+            error.code,
+            ProviderErrorCode::AgentProviderCapabilityUnsupported
+        ),
+        Ok(_) => panic!("CodeBuddy without execute implementation passed admission"),
+    }
 }
 
 /// resolved LaunchSpec 与 Release descriptor 分离，descriptor 不获得本机绝对路径。
@@ -93,19 +117,36 @@ async fn resolved_launch_spec_is_separate_from_default_descriptor() {
     assert!(provider.discovery_error().is_none());
 }
 
-/// base version 不能冒充 Provider 产品版本或 admission whitelist。
+/// base/package version 与路径中的 hash 不能冒充公开版本；只展示解析后的 product_version。
 #[tokio::test]
 async fn descriptor_uses_only_product_version_metadata() {
     let (_directory, store) = authority().await;
-    let mut discovery = DiscoveryResult::direct_for_test("C:/resolved/codebuddy.exe");
+    let mut discovery =
+        DiscoveryResult::direct_for_test("C:/resolved/build-deadbeef/codebuddy.exe");
     discovery.metadata.base_version = Some("1.106.1".into());
+    discovery.metadata.package_version = Some("0.0.0-deadbeef".into());
+    discovery.metadata.status = super::super::discovery::MetadataStatus::Parsed;
     let provider =
         CodeBuddyProvider::from_discovery(store.clone(), "test-host".into(), Ok(discovery.clone()));
-    assert_eq!(provider.descriptor().version, None);
+    assert_eq!(
+        provider.descriptor(),
+        ProviderDescriptor {
+            id: ProviderId::new("codebuddy".into()).unwrap(),
+            display_name: "CodeBuddy".into(),
+            version: None,
+        }
+    );
     discovery.metadata.product_version = Some("2.158.0".into());
     let provider =
         CodeBuddyProvider::from_discovery(store.clone(), "test-host".into(), Ok(discovery));
-    assert_eq!(provider.descriptor().version.as_deref(), Some("2.158.0"));
+    assert_eq!(
+        provider.descriptor(),
+        ProviderDescriptor {
+            id: ProviderId::new("codebuddy".into()).unwrap(),
+            display_name: "CodeBuddy".into(),
+            version: Some("2.158.0".into()),
+        }
+    );
 }
 
 /// 绕过 admission 也不能 execute/cancel；startup 可独立恢复空的历史集合。

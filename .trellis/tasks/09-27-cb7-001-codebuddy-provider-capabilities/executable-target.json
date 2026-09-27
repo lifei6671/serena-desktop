@@ -1,0 +1,13 @@
+{
+  "head": "ecd6c078451b8d1616723722b98cb4c2b7549bb2",
+  "files": [
+    {
+      "path": "src-tauri/src/agent/codebuddy/provider/tests.rs",
+      "sha256": "3C126A6F2D80B6B3123E21DEEFDA5AFDCF05AE4BD4D1CEC8FEABA7E23E86EFA1"
+    },
+    {
+      "path": "src-tauri/src/agent/product/provider_catalog_tests.rs",
+      "sha256": "4659874BED1CA470E03538C141DB7A6BC7118BEBF50A7DFB7621CF15553FAD56"
+    }
+  ]
+}

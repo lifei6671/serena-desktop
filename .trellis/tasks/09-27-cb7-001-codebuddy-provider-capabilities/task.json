@@ -1,0 +1,29 @@
+{
+  "id": "cb7-001-codebuddy-provider-capabilities",
+  "name": "cb7-001-codebuddy-provider-capabilities",
+  "title": "CB7-001 CodeBuddyProvider Descriptor / Capabilities",
+  "description": "冻结 CodeBuddy descriptor、平台 capability 矩阵和 Registry/Product/refresh 投影回归；不实现 execute。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-09-27",
+  "completedAt": "2026-09-27",
+  "branch": "feat/codebuddy",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "src-tauri/src/agent/codebuddy/provider/tests.rs",
+    "src-tauri/src/agent/product/provider_catalog_tests.rs"
+  ],
+  "notes": "CB7-001 completed: production no-op, exact platform-adapted descriptor/capability/catalog regressions; 23 native Windows tests PASS, fmt/check/diff PASS, only frozen Clippy baseline FAIL; independent read-only FULL_SCOPE review PASSED. Non-Windows execution unavailable/not run. No commit/push or CB7-002.",
+  "meta": {}
+}

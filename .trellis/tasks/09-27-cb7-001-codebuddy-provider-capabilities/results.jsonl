@@ -1,0 +1,9 @@
+{"exitCode":0,"command":"cargo test --lib agent::codebuddy::provider::tests -- --nocapture"}
+{"command":"cargo test --lib agent::provider::registry::tests -- --nocapture","exitCode":0}
+{"command":"cargo test --lib agent::provider::control::tests -- --nocapture","exitCode":0}
+{"command":"cargo test --lib agent::product::provider_catalog_tests -- --nocapture","exitCode":0}
+{"command":"cargo test --lib agent::product::provider_projection_tests -- --nocapture","exitCode":0}
+{"command":"cargo test --lib disabled_missing_cli_refresh_retains_recovery_authority -- --nocapture","exitCode":0}
+{"command":"cargo check --lib --tests","exitCode":0}
+{"exitCode":101,"command":"cargo clippy --lib --tests -- -D warnings"}
+{"command":"cargo test --lib agent::product::tests::provider_projection_tests -- --nocapture","exitCode":0}
