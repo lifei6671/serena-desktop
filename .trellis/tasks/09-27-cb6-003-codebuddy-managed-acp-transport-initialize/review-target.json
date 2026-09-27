@@ -1,0 +1,49 @@
+{
+  "targetType": "blocked-handoff-documents-only",
+  "baseline": "a9eee0b495b74dc5247771e1fe671b0c53cb6c5f",
+  "reviewContext": "User CB6-003 contract and task PRD; no production implementation, dependency unavailable; audit cannot approve delivery",
+  "files": [
+    {
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/baseline-head.txt",
+      "sha256": "54287a5a5f430d1912565cf6a038eca6616c5c3a3e43470444adb1ad9b785233"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/baseline.md",
+      "sha256": "74e3357fe86a7e8deebffc97b6373182d71fcd241981fbc3dcf220e7f9faaacf"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/check.jsonl",
+      "sha256": "567e55763c9ae34665afcea8b3a40a373a277395fa6f102e3e077577368bf3ae"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/design.md",
+      "sha256": "14c974e83d4af0d911814417919f1d2f096dbb59942f9cf1586e28cf5a67b34b"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/implement.jsonl",
+      "sha256": "567e55763c9ae34665afcea8b3a40a373a277395fa6f102e3e077577368bf3ae"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/implement.md",
+      "sha256": "324c0dfde98eab4b36a5b67caa1d6746d2a3131951bbcd6e203b0192cd6079dd"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/prd.md",
+      "sha256": "fd06f2176cd0dbc28cb9f8c00ad39f8f808d05b50605dbfe57b3fc22ddc45a77"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/research/dependency-environment.md",
+      "sha256": "55f6e327abb41da45fc1b12c9cbd38ff483e471b1cb184bf049abc5df35c447a"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/task.json",
+      "sha256": "0498d0b4f9400b1232254db0125790acf5b87b4551faeaf8e2e5985643f90482"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/verification.md",
+      "sha256": "d976f4283006a493744ebde37452280dc9356c3802a9ffa69de63666b220fc93"
+    }
+  ],
+  "targetHash": "8717cb769aaefbb6fd2173687522a1043324e7cb65fb9a1d3a56b90a0e9a8393",
+  "executableTarget": "NONE"
+}

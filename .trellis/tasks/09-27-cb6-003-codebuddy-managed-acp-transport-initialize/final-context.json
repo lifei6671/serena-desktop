@@ -1,0 +1,29 @@
+{
+  "files": [
+    {
+      "sha256": "8626b21626191a099b854e7b93dfe854700f205a5845ac532b62649157b7dd32",
+      "path": "AGENTS.md"
+    },
+    {
+      "sha256": "6d5a695867fa77fb061f628d8b70384dea289521bcb1d502f2629fa86306455e",
+      "path": ".trellis/workflow.md"
+    },
+    {
+      "sha256": "9718e187626f2e43ea9c5ac9723682b35793730bf6a99efc0ce03260ae1f32b9",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/prd.md"
+    },
+    {
+      "sha256": "1bb25fea320334fdf1866ba75dd58226fddc4012fdb151d6ad6dd6eefa59de36",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/review-context.md"
+    },
+    {
+      "sha256": "9720b769736d3b863c72f267c0786591bcafcaf6e651ef956ac66d2cf37fa570",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/verification.md"
+    },
+    {
+      "sha256": "3361ec6793746be5c005d8061b96c7f4b2294d73781ec69a0a0310d5f1cef6e1",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/research/sdk-and-fixtures.md"
+    }
+  ],
+  "note": "Material review context at final freeze; final administrative status is recorded separately"
+}

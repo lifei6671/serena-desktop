@@ -1,0 +1,53 @@
+{
+  "targetType": "delivery-owned-executable-files",
+  "hashAlgorithm": "SHA256 of UTF8 path+space+sha256 in frozen manifest.files order (PowerShell culture-sort), joined LF without trailing LF",
+  "reviewContext": "review-context.md, prd.md, verification.md, research/sdk-and-fixtures.md; all result logs",
+  "files": [
+    {
+      "path": "src-tauri/Cargo.lock",
+      "sha256": "25b6d9a535630ab93b3b13506d6910bdc96e30123ee1fd7e86f829cc13171c0d"
+    },
+    {
+      "path": "src-tauri/Cargo.toml",
+      "sha256": "aec3c6fc28484a3171ff05bd2599ed67df28e2fb0cbf8e95bb44b0761fd49645"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/client_tests.rs",
+      "sha256": "613e1b0e91d18f4fcad3a9de4f76b2998f7f0e75ecd14d15f6232f36e835aa63"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/client.rs",
+      "sha256": "ba45a95aa993d87dda71c98cbe8eeb400aca5939ab542106751930f5d3177535"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/mod.rs",
+      "sha256": "77d1202c9ce00d7c07d4af916fac0b248946bc8c9d68384eec468669e603e7f9"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/protocol.rs",
+      "sha256": "dbe79a85bb23b0a16df09c8856564be0f6fee551c6ab92dd51dd7a0ca191a7ea"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/runtime_tests.rs",
+      "sha256": "460a69a6a1fabf29ba92bebbd3c43b007526f2a033590e3d81001313b9322e13"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/runtime.rs",
+      "sha256": "7d88790a2a353602993b4e1532209874ae8ca36326b6cd09598f4b984d67df08"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/codebuddy_acp_child.rs",
+      "sha256": "110f72450854094f9ab9f915f2ffb5c570f9d9d4709924cf96a4b400be9102bb"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/codebuddy_early_update.jsonl",
+      "sha256": "eacb5e540c7cfe79a6fce36b8466439a610cdf3926a13173cb1eb3c62d4cc2cb"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/codebuddy_initialize.json",
+      "sha256": "8d751ab183d24ebd5a5e7edfbdbf8ccae86e8eea840977e3e48e8d0a6247916a"
+    }
+  ],
+  "baseline": "a9eee0b495b74dc5247771e1fe671b0c53cb6c5f",
+  "targetHash": "31af4422666f37851c87c8927a0aedf2ce84a4e2b4616d4c230070255b516128"
+}

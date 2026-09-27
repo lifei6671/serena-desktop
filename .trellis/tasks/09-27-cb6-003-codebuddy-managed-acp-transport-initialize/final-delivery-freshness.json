@@ -1,0 +1,18 @@
+{
+  "deliveryComplete": true,
+  "coverage": "COMPLETE",
+  "head": "a9eee0b495b74dc5247771e1fe671b0c53cb6c5f",
+  "executableFileCount": 11,
+  "targetHash": "31af4422666f37851c87c8927a0aedf2ce84a4e2b4616d4c230070255b516128",
+  "scope": "PASS",
+  "review": "PASSED",
+  "staged": "EMPTY",
+  "materialContextCount": 6,
+  "freshness": "FRESH",
+  "findings": {
+    "P2": 0,
+    "P0": 0,
+    "P1": 0
+  },
+  "diffCheck": "PASS"
+}
