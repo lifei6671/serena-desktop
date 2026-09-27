@@ -1414,21 +1414,36 @@ stdio NDJSON
 
 ACP 当前稳定协议版本为 v1；协议版本必须通过 initialize.protocolVersion 协商，不能通过 SDK 版本猜测。
 
-## 14.1 启动命令
+## 14.1 Product LaunchSpec
 
-首版目标命令：
+Product LaunchSpec 首选解析为可由 Job-at-Creation 直接托管的真实绝对 executable + argv；例如已安装 npm CLI 可解析为绝对 node.exe + 已安装 CodeBuddy CLI script + --acp。路径来自本机 discovery，不把 Host 的 NVM、npm cache 或 CodeBuddy 安装目录写成 provider-specific hardcode。
+
+Discovery 可以识别 .cmd/.bat wrapper，但它们不等于最终 executable。若只能取得 wrapper，CB6-002 必须解析/托管真正 executable，或证明整棵进程树从创建时就在 Job 内；不得只管 shell wrapper 而漏出真正 node 子进程。若最终 LaunchSpec 为 node.exe + script，node.exe 从第一个可运行时刻就必须属于 Job。
+
+Windows 使用绝对 executable + argv quoting，不要求产品通过 shell string。Gold Band 的 cmd+npx 是参考/诊断对照，不是 Serena Runtime 安全实现或强制下载依赖。无法证明 first-runnable Job ownership 时 fail-closed。
+
+若 Catalog 保留 bare command，Release 拥有默认 launch descriptor；Catalog launch spec 与本机 resolved executable/argv 分离，用户配置不持久化内置 command/args authority。首版仍不自动安装或升级 Agent。
+
+### 14.1.1 Workspace Authority 与 External Process Path
+
+canonical_workspace_root 继续是 StateStore / Claim / Execution 的唯一 Workspace Authority，数据库身份和内部 WorkspaceLease Authority 不变。只在 Windows Provider 外部进程边界投影：
 
 ~~~text
-<absolute-codebuddy-path>
-    --acp
-    --permission-mode auto
+local verbatim: \\?\C:\... → C:\...
+verbatim UNC: \\?\UNC\server\share\... → \\server\share\...
 ~~~
 
-具体参数在 Contract Probe 后冻结。
+若 Provider/launcher 不支持 UNC cwd，fail-closed，不自动映射网络盘。首版 local workspace 的 external process current_dir 与 ACP session/new.cwd 必须使用同一普通 Win32 path；使用前按既有 Workspace identity 规则验证该投影与 frozen canonical root 指向同一 workspace，不能只比较显示字符串，也不能把 UI/display path 反向升级为 Authority。不匹配、无法验证或 cwd 不支持时拒绝启动/请求。
 
-禁止经过 cmd.exe、PowerShell 或 shell command string。
+Host 已确认 Registry canonical root 当前为 Windows verbatim path，cmd.exe 不能直接使用该扩展路径作为 cwd。Serena 的 src-tauri/src/mcp/serena.rs 已有仅在 CLI 边界投影、内部保持 canonical 的先例；本节把该边界定义为 Provider contract，不改变 Workspace 身份。
 
-Windows 使用绝对 executable path + argv quoting。
+### 14.1.2 Provider Child Environment
+
+CodeBuddy 是 Provider Runtime，不复用通用 CommandRun 的最小环境模型。Windows Provider launch 使用可审计的 user-process environment projection：以 SerenaDesktop Host 当前用户环境为基线复制，仅用 resolver 计算出的 PATH 覆盖子进程 PATH；若使用 CreateProcessW，这意味着构造完整 Unicode environment block，而不是继续传 `lpEnvironment=null`。其语义目标与现有 Codex Runtime 的 Host 环境继承一致，但实现上必须允许刷新 Agent discovery 所需 PATH。通用 Command launcher 的最小受控 environment block 也不能直接移植到 Provider。
+
+Discovery 与 launch 使用一致的 PATH projection，来源优先级为 explicit provider PATH > current desktop process PATH > HKCU Environment Path > HKLM Session Manager Environment Path > safe common dirs。展开 %VAR%，按 Windows 大小写不敏感规则去重，保留首次出现顺序；只解析 .exe/.com/.cmd/.bat，拒绝 .ps1 和无扩展 Unix shim。已安装 CLI script 可以作为 node.exe 的 argv，不作为无扩展 executable 启动。bare npx 在 Windows 解析为 npx.cmd，但不触发自动下载。
+
+诊断只记录 resolved executable、path source、是否命中 registry source 等必要 provenance；不得记录完整 env/PATH、token 或 credential。不硬编码 npm cache、NVM 或 CodeBuddy 私有环境。Projection 只作用于本次 Provider 子进程，不修改用户全局环境。
 
 ## 14.2 CodeBuddy 安装边界
 
@@ -1447,7 +1462,7 @@ Windows 使用绝对 executable path + argv quoting。
 
 ~~~text
 1. 本地 Provider 配置的显式 CodeBuddy Code executable path（若后续 UI 提供）
-2. where.exe codebuddy
+2. 按 §14.1.2 刷新桌面用户 PATH，解析 codebuddy 的已安装入口及真实 executable + argv
 3. 可选诊断：where.exe buddycn / CodeBuddy CN IDE 安装目录
 4. ACP CLI unavailable
 ~~~
@@ -1456,7 +1471,7 @@ Windows 使用绝对 executable path + argv quoting。
 
 若检测到 CodeBuddy CN IDE 但没有 `codebuddy`，Product/UI 可以提示“CodeBuddy IDE 已安装，但 CodeBuddy Code ACP CLI 未安装或不在 PATH”；不得尝试接入 IDE 内部未公开的 window / Extension Host ACP bridge。
 
-第一版可以只实现 `where.exe codebuddy`，自定义 path 作为后续便利功能。
+第一版必须处理桌面进程 PATH 陈旧的 discovery/launch 一致性；仅执行 where.exe codebuddy 不足以满足 §14.1.2。无进程 discovery 不启动 ACP，也不通过 npx 安装缺失的 CLI。
 
 ### 14.2.1 Version Contract
 
@@ -1535,6 +1550,8 @@ official ACP Client
 ~~~text
 initialize
 session/new
+session/set_mode
+session/set_config_option
 session/prompt
 session/update
 session/cancel
@@ -1543,6 +1560,14 @@ session/request_permission
 ~~~
 
 该 fallback 不演化为通用 ACP SDK，不支持未冻结 extension。
+
+## 14.4 Transport Dispatcher Contract
+
+无论采用官方 SDK 还是最小 client，pendingRequests 必须按 JSON-RPC id 匹配 response；request、response、notification 解耦，禁止 request() 假设“下一帧就是本请求 response”。乱序 response、未知/重复 id、EOF 和 timeout 都不得错误完成另一个 pending request。
+
+session/update 独立按 sessionId 路由。它可能早于 session/new response；route 尚未建立的 early session frames 必须有界缓存，在 exact Session identity 持久化且 route 注册后按顺序补发。错误 Session 不得串线；Runtime 关闭时清理缓存。队列条数、累计 bytes、单帧大小、缓存生命周期、请求 timeout 与 stderr drain 都必须有界；溢出/超时明确诊断并按受影响操作失败收敛，不无界增长或静默丢失必要配置帧。
+
+server request baseline 为 session/request_permission，按 §18 fail-closed 处理；未来若宣告 elicitation capability，必须处理 elicitation/create。未支持且带 id 的 server request 返回 -32601；无 id notification 仅诊断/忽略。不得照搬参考 Probe 的 capability advertisement 来宣告产品尚未实现的能力。
 
 ---
 
@@ -1563,13 +1588,18 @@ Job-at-creation
     ↓
 ACP initialize
     ↓
-protocol / capability verification
+verify protocolVersion / capture capabilities
     ↓
 session/new(
-    cwd = E1.canonical_workspace_root
+    cwd = verified external Win32 projection of E1.canonical_workspace_root,
+    mcpServers = configured servers (empty list when none)
 )
     ↓
-persist exact session identity
+persist exact sessionId + capture returned models/modes/configOptions
+    ↓
+register session route / replay bounded early frames
+    ↓
+apply advertised mode/config via typed session/set_mode / session/set_config_option
     ↓
 ProviderAcceptanceSink.accepted()
     ↓
@@ -1606,7 +1636,7 @@ CB5-003 对 Fresh Execute 已取得一手证据：
 ~~~text
 initialize(protocolVersion = 1)
     ↓
-session/new(cwd = canonical temp workspace)
+session/new(cwd = external process path of the same canonical temp workspace)
     ↓
 exact sessionId
     ↓
@@ -1618,6 +1648,12 @@ PromptResponse(stopReason = end_turn)
 ~~~
 
 read-only 场景完整 Workspace delta 为 0；isolated-write 场景只产生预期的 output.txt。由此证明 Fresh Execute wire、exact Session identity、Prompt terminal convergence 与 Workspace isolation 均可成立。
+
+当前 CB5-003 Fresh Execute PASS 按 Host 已确认结论保持；其 task-local verification 顶部仍是较早 nested runner BLOCKED 快照，不代表当前 Gate（来源分层见 §28.0）。本次不改该历史文件；CB5-004 的 cancel/permission 真实证据独立证明其合同，不替代 CB5-003 Fresh Execute 证据。
+
+顺序冻结为 spawn Runtime → initialize → verify protocolVersion → minimal session/new(cwd,mcpServers) → persist sessionId / capture catalogs → 按实际目录应用配置 → ProviderAcceptance → session/prompt。所需配置未 advertise 或应用失败时不得 acceptance/prompt，也不猜参数或静默降级。
+
+禁止 session/new 前通过 --permission-mode、--tools、--settings 预注入执行配置。CodeBuddy supportsSystemPrompt=false，session/new 不添加 systemPrompt meta；未来稳定系统上下文如有需要，必须另行设计 Contract，不得偷偷放入 session/new。
 
 `session/new` 曾观察到过瞬时 HTTP 500，但同一 CLI / 登录态随后由 Host 与完整 Probe 均成功创建 Session。该 500 **不得升级为稳定 Provider incompatibility**。同时因为 `session/new` 是可能产生 Session 的有副作用请求，收到 5xx / EOF / timeout 后无法证明服务端没有创建 Session，生产实现必须遵守：
 
@@ -1769,17 +1805,7 @@ session/request_permission
 
 CodeBuddy 自身也有独立 Permission Mode。
 
-首版启动建议：
-
-~~~text
---permission-mode auto
-~~~
-
-理由：
-
-- 比 bypassPermissions 更适合作为普通桌面环境默认值；
-- 尽量减少人工审批；
-- 仍保留 CodeBuddy 自身安全判定。
+首版不在启动 CLI 参数中预设 permission mode。若产品默认选择 auto，必须先完成 minimal session/new，确认返回的 modes/configOptions 实际 advertise 该选项，再发送匹配目录字段的 typed ACP session/set_mode / session/set_config_option，并在成功后进入 ProviderAcceptance。不能预设 option id 或把 auto 当成所有版本的必备能力。
 
 ## 18.1 未解决 Permission 的默认行为
 
@@ -1829,7 +1855,7 @@ CODEBUDDY_IS_SANDBOX=1
 
 这些能力只适合隔离沙箱，不适合作为普通用户桌面默认安全模型。
 
-如果后续真实使用证明 auto 打断过多，再单独设计 CodeBuddy Provider 权限设置。
+后续若需扩展 Provider 权限设置，单独设计；不得绕过返回目录或 permission fail-closed 契约。
 
 ---
 
@@ -2407,6 +2433,24 @@ Product 层不得出现新的 provider == "codebuddy" 业务分支；Provider-sp
 
 # 28. CodeBuddy Contract Probe
 
+## 28.0 当前证据分层与有效 Gate（2026-09-27）
+
+| 来源 | 已确认事实 | 证明边界 |
+|---|---|---|
+| Gold Band source / installed-runtime observation（Host 提供的参考证据） | Gold Band 0.17.2 正在运行；~/.gold-band/logs/runtime.log 在 09:16～09:27 多次 codebuddy-code session/new status=ok，含 SerenaDesktop 工作区；实际进程树为 cmd.exe /e:ON /v:OFF /d /c → C:\nvm4w\nodejs\npx.cmd -y @tencent-ai/codebuddy-code@2.158.0 --acp → node.exe / npm npx-cli → CodeBuddy 2.158.0 --acp | 参考产品可用性，不是 Serena Runtime / Job safety 证明 |
+| Gold Band source / installed-runtime observation（Host 提供的参考证据） | PATH 合并配置/桌面进程/HKCU/HKLM/公共目录，Windows 去重及 npx.cmd 映射；内置 settings 不持久化 command/args，由 Catalog 注入；available=true，16 models / 8 modes / 5 configOptions；supportsSystemPrompt=false；minimal new 后用 set_mode/set_config_option；id dispatcher + early frames | 目录数量是该次观察，不是产品固定数量/能力白名单；不复制 Gold Band 代码 |
+| Serena Host Contract Probe（直接证据） | [exact launcher wire](../.trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-exact-launcher-proof/wire-result.json)：标准用户环境、普通 Win32 cwd 下 initialize v1 / session/new PASS，非空 sessionId；sequence 4 config_option_update 早于 sequence 5 response | 未发送 prompt，workspace delta=0；Job-at-creation / tree containment 均未证明 |
+| Serena Host Contract Probe（直接证据） | [direct CodeBuddy wire](../.trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-direct-codebuddy-proof/wire-result.json)：绝对 node.exe + 本地已安装 CLI script + --acp，不依赖 npx，同样 PASS | 未发送 prompt，workspace delta=0；不证明 Cancel / Permission 或生产 Runtime |
+| Serena 产品设计决定（由证据推导，尚待实现验证） | §14.1 的 path/env/LaunchSpec 分层、§14.4 dispatcher、§15.1 post-new configuration 顺序 | 由 CB6/CB7 实现与 Gate 验证，不能把参考实现或 Host probe 当成产品实现 PASS |
+
+有效状态：CB5-003 Fresh Execute PASS 保持；[CB5-003 历史 verification](../.trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/verification.md) 仍记录旧 runner BLOCKED，当前结论以 Host 已确认 PASS 为准。[CB5-004 verification](../.trellis/tasks/09-26-cb5-004-cancel-permission-contract/verification.md) 的 Fresh Session prerequisite 已由两条 Host 路径 PASS；Host 真实 cancel-before / cancel-after / permission-deny 现均 **PASS，CB5-004 contract-test PASS**。CB5-005 未开始，CB5-004 依赖已满足，后续由 Host 决定。nested Agent 的 HTTP500 / EOF / NPM_EPERM 保留为 superseded diagnostic history，不再作为 Fresh Session 不兼容证据，不回填具体故障根因。
+
+Host 真实 CB5-004 一手合同见 [acceptance.json](../.trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/acceptance.json)：before prompt 6 → cancel 29 → exact terminal 30 / cancelled，activity correlation 与最终零 delta 成立；after catalog auto → typed set_mode 6 / ACK 10 → prompt 11，实际 marker exact bytes/hash 后 cancel 43 → terminal 47 / cancelled，唯一 delta 为保留的 before-cancel.txt，取消不回滚；permission default Always Ask，request 91（id=0）→ typed RejectOnce/广告 ID reject response 92 → exact terminal 96 / cancelled，无 session/cancel，deny 前后零 delta。
+
+本次 CodeBuddy 2.158.0 广告 options 为 allow_always / allow_once / reject_once（对应 ID allow_always / allow / reject）；这是固定版本本次观察，不是跨版本白名单。生产只按实际 advertised typed kind/ID 处理。Permission deny 是 Client decision，不能视为 terminal；本次 cancelled 来自 exact prompt response。
+
+这些证据不提升生产 capability：`canCancel` 只有 CB5-004 contract PASS 与 CB8-001 implementation PASS 同时满足才可 advertise，当前不能仅凭 probe 打开。Runtime Evidence / Claim fail-closed 与 Phase 6/7 冻结边界不变；task-local cleanup 不证明 Windows Job-at-creation/tree containment，cancel/deny 不授权 Claim release。本轮仅证据与文档收口，停止等待 Host Gate。
+
 在写 Provider 正常执行路径前，先建立：
 
 ~~~text
@@ -2458,7 +2502,8 @@ session persistence behavior
 
 ~~~text
 initialize
-session/new(cwd)
+session/new(projected cwd, mcpServers)
+capture returned catalogs / apply advertised mode and config
 session/prompt
 terminal
 ~~~
@@ -2512,7 +2557,7 @@ after terminal before persist
 
 验证：
 
-- --permission-mode auto；
+- session/new 后实际 advertise 的 permission mode（若选择 auto，先确认目录再发送 typed ACP config request）；
 - ACP permission request wire；
 - deny / cancelled option；
 - non-interactive behavior；
@@ -2824,6 +2869,8 @@ existing task UI has no regression
 
 ## CB-005 — CodeBuddy ACP Contract Probe
 
+当前有效 Gate 见 §28.0：CB5-003 Fresh Execute PASS；CB5-004 Fresh Session prerequisite / Cancel / Permission 均 Host 真实 PASS；CB5-005 未开始，依赖已满足但后续由 Host 决定。不得用旧 runner 失败重新阻断 Fresh Session。
+
 内容：
 
 - 固定被测 binary identity 与诊断 metadata；
@@ -2854,8 +2901,10 @@ evidence files reproducible and sanitized
 内容：
 
 - CodeBuddy Job-at-creation；
+- external cwd identity projection + Provider user-process environment / resolved LaunchSpec（§14.1）；
 - pipes；
 - ACP managed transport；
+- JSON-RPC id dispatcher / bounded early session frames（§14.4）；
 - initialize；
 - Job termination；
 - startup reconcile；
@@ -2880,7 +2929,10 @@ canRecover may become true only after startup_reconcile + Job Recovery Gate PASS
 
 ~~~text
 Start
-ACP session/new
+managed spawn / initialize / protocolVersion verification
+ACP session/new(projected cwd, mcpServers)
+persist sessionId / capture catalogs / apply advertised mode and config
+ProviderAcceptance
 Prompt
 Activity
 Terminal

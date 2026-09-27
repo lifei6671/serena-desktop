@@ -780,6 +780,10 @@ Can run in parallel with: None
 
 # Phase 5 — CB-005 CodeBuddy ACP Contract Probe
 
+2026-09-27 有效 Gate：CB5-003 Fresh Execute **PASS 保持**；CB5-004 Fresh Session prerequisite **Host 双路径 PASS**，Cancel / Permission 三场景 **Host 真实 PASS**；CB5-005 **未开始**，CB5-004 依赖已满足，后续仍由 Host 决定。来源分层与直接 wire 链接见 [技术方案 §28.0](technical-design-multi-agent-provider-codebuddy-v0.1.md#280-当前证据分层与有效-gate2026-09-27)。
+
+Gold Band source / installed-runtime observation 是参考证据，Serena Host Contract Probe 是直接证据，CB6/CB7 中的 LaunchSpec/path/env/dispatcher/lifecycle 是推导出的产品设计决定，尚待实现与验收。旧 nested runner 的 HTTP500 / EOF / NPM_EPERM 是 superseded diagnostic history，不再阻断或否定 Fresh Session，Cancel / Permission 现已真实 PASS，同样不重开 session/new 不兼容疑问。保留历史 evidence，不提升生产 capability，不自动进入后续卡片。
+
 ## CB5-001 — CodeBuddy Binary / Version / Hash Probe
 
 Phase: Phase 5  
@@ -833,11 +837,11 @@ Blocked by: ACP initialize PASS
 Allowed scope: 临时 Workspace + Probe harness。  
 Forbidden scope: 修改真实项目。  
 Contract references: 设计 §15、§19、§21、§28.1。  
-Implementation requirements: exact session id、cwd、request identity、terminal stop reason、update ordering；检查是否需要 conversationRequestId。  
+Implementation requirements: exact session id、同一 frozen Workspace 的 external cwd projection、request identity、terminal stop reason、update ordering；检查是否需要 conversationRequestId；后续探针配置遵守设计 §15.1 的 minimal new → returned catalogs → typed mode/config 顺序，不使用启动参数预注入。
 Non-goals: Continue。  
 Tests required: read-only prompt、isolated write prompt、terminal/error、activity update。  
 Evidence required: fresh-session.jsonl + sanitized summary。  
-Acceptance criteria: canExecute 所需 wire 全部一手证明。  
+Acceptance criteria: Fresh Execute wire PASS 保持（Host 已确认）；task-local verification 顶部旧 BLOCKED 是历史 runner 快照，见设计 §28.0；不以 CB5-004 的 cancel/permission probe 替代本卡执行证据。生产 canExecute 仍需 CB7-005 implementation Gate。
 Rollback / failure behavior: 缺少 exact identity → canExecute 不得开放。  
 Risk: high  
 Estimated blast radius: small  
@@ -850,15 +854,15 @@ Type: contract-test (E)
 Goal: 固定 session/cancel 和 session/request_permission 的真实收敛语义。  
 Why now: Cancel 与 Permission 都涉及已发生副作用后的安全终态。  
 Dependencies: CB5-003 (H)  
-Blocked by: 可稳定触发长任务/权限请求  
+Blocked by: None — Fresh Session prerequisite 与 Host 真实 cancel-before / cancel-after / permission-deny 均 PASS
 Allowed scope: 临时 Workspace + Probe harness。  
 Forbidden scope: bypassPermissions 默认、真实用户项目破坏性命令。  
 Contract references: 设计 §18、§22、§28.3～§28.5。  
-Implementation requirements: cancel terminal 是否必达、timeout、permission options、deny 后是否有 terminal、已有副作用场景。  
+Implementation requirements: cancel terminal 是否必达、timeout、permission options、deny 后是否有 terminal、已有副作用场景；复用已证明的 Host 标准用户环境、ordinary Win32 cwd 和 installed executable LaunchSpec；先 minimal session/new，捕获目录，再用 typed session/set_mode / session/set_config_option 设置实际 advertise 的选项。禁止 new 前通过 --permission-mode/--tools/--settings 预注入；不把 runner 环境失败归类为 Fresh Session 不兼容。
 Non-goals: 自动批准。  
 Tests required: cancel before/after side effect、permission deny、permission response malformed。  
-Evidence required: cancellation.jsonl、permission.jsonl。  
-Acceptance criteria: canCancel 与 permission fail-closed 路径有证据。  
+Evidence required: cancellation.jsonl、permission.jsonl；[当前 verification](../.trellis/tasks/09-26-cb5-004-cancel-permission-contract/verification.md) 保留 Host exact/direct fresh-session proof、三场景真实 result/wire、[acceptance](../.trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/acceptance.json) 及历史失败。
+Acceptance criteria: **Host 真实 PASS**：before cancel 29 / exact terminal 30 cancelled 且最终零 delta；after 实际 marker bytes/hash 后 cancel 43 / terminal 47 cancelled，marker 保留且唯一 delta；permission request 91 / typed RejectOnce 选择广告 ID reject response 92 / exact terminal 96 cancelled，无 session/cancel，manifest 零 delta。三场景 cleanup 成功，不证明 Job ownership，不自动释放 Claim，也不直接提升生产 canCancel。Options 仅为固定版本观察，按 typed kind/advertised ID 处理，不跨版本写死。
 Rollback / failure behavior: 无 terminal 时只能依赖后续 Runtime termination，不伪造 cancelled。  
 Risk: high  
 Estimated blast radius: small  
@@ -870,7 +874,8 @@ Phase: Phase 5
 Type: contract-test + DCR (E)  
 Goal: 冻结所有可选高级能力和 Provider-private persistence 所需真实字段。  
 Why now: Runtime/Store 实现不能猜 session recovery 和 usage 语义。  
-Dependencies: CB5-004 (H)  
+Dependencies: CB5-004 (H，已 PASS)
+Status: NOT_STARTED — 依赖已满足，后续是否启动由 Host 决定；本轮不执行。
 Blocked by: CodeBuddy 实际能力  
 Allowed scope: Probe harness、evidence docs、临时 Workspace。  
 Forbidden scope: 直接改 Provider capabilities=true。  
@@ -909,7 +914,7 @@ Dependencies: CB5-005 (H)
 Blocked by: CB5-005 ACP contract evidence
 Allowed scope: agent/codebuddy/discovery.rs、provider registration bootstrap、Registry tests。  
 Forbidden scope: execute/session、自动安装、绕过 ACP compatibility gate。
-Contract references: 设计 §6.1、§14.2.1（ACP-first compatibility）。
+Contract references: 设计 §6.1、§14.1～§14.2.1（LaunchSpec / user PATH / ACP-first compatibility）。
 Implementation requirements:
 - `codebuddy` / explicit canonical CodeBuddy Code ACP CLI discovery；
 - `buddycn` / CodeBuddy CN IDE 仅允许作为诊断提示，不得注册为 ACP Provider executable；
@@ -918,10 +923,14 @@ Implementation requirements:
 - deterministic missing entry → Unavailable；
 - ACP protocol incompatibility 由受管 initialize Contract Gate 判定；
 - execution-local error不在此层。
+- Windows desktop user PATH refresh：explicit provider PATH > current desktop process PATH > HKCU Path > HKLM Path > safe common dirs；展开 %VAR%、case-insensitive dedupe；discovery/launch 使用一致 projection；
+- 只解析 .exe/.com/.cmd/.bat，拒绝 .ps1 / 无扩展 Unix shim；wrapper 可解析成真实 node.exe + installed CLI script argv，不能把脚本自身当 executable；
+- 输出 resolved LaunchSpec 与 PATH source provenance，和 Release-owned Catalog 默认 launch descriptor 分离；用户配置不持久化内置 command/args authority；
+- 不自动安装/升级、不依赖 npx 下载链、不硬编码 npm cache/NVM/CodeBuddy 私有目录，不记录完整 env/token/credential。
 Non-goals: ACP initialize。  
 Tests required: missing ACP CLI、found `codebuddy` ACP CLI、IDE-only (`buddycn`) 不得误注册、metadata missing/malformed 不阻断 ACP CLI discovery、cached deterministic ACP incompatibility（若本卡接入该证据）。
-Evidence required: focused tests。  
-Acceptance criteria: Desktop 在 CodeBuddy 缺失时仍正常启动；Codex 不受影响。  
+Evidence required: focused tests；增加 stale desktop PATH + registry refresh、来源优先级、变量展开/大小写去重、扩展名过滤、npm wrapper→真实 executable/argv、resolved spec 与 descriptor 分离及诊断脱敏 fixtures。
+Acceptance criteria: Desktop 在 CodeBuddy 缺失时仍正常启动；Codex 不受影响；得到可审计 resolved LaunchSpec，discovery/toggle/query 不启动 ACP。
 Rollback / failure behavior: CodeBuddy entry 缺失或已有确定性 ACP 不兼容证据时 unavailable；未知产品版本不作为失败条件。
 Risk: medium  
 Estimated blast radius: small  
@@ -931,18 +940,26 @@ Can run in parallel with: None
 
 Phase: Phase 6  
 Type: implementation  
-Goal: 为 CodeBuddy 建立与现有安全模型同级的 Windows Process ownership。  
+Goal: 为 CodeBuddy 建立与现有安全模型同级的 Windows Process ownership，并冻结 External Process Path + Provider Child Environment 公共 primitive。
 Why now: ACP 不能先于 Runtime containment。  
 Dependencies: CB6-001 (H)  
 Blocked by: Windows  
-Allowed scope: agent/codebuddy/windows_launcher.rs 或安全抽取的共享低层 launcher、tests。  
-Forbidden scope: spawn 后 AssignProcessToJobObject、shell launcher、修改 Codex 安全语义。  
-Contract references: 设计 §13、§23.1、§31.7～§31.9。  
-Implementation requirements: PROC_THREAD_ATTRIBUTE_JOB_LIST、KILL_ON_JOB_CLOSE、no breakaway、non-inheritable Job、explicit stdio handle list、absolute path/argv。  
+Allowed scope: agent/codebuddy/windows_launcher.rs 或安全抽取的共享低层 launcher/path/environment primitive、tests；不改变 Workspace 数据库身份。
+Forbidden scope: spawn 后 AssignProcessToJobObject、未证明整棵进程树 first-runnable ownership 的 shell wrapper、修改 Codex 安全语义、复用 CommandRun 最小环境。
+Contract references: 设计 §13、§14.1～§14.1.2、§23.1、§31.7～§31.9。
+Implementation requirements:
+
+- PROC_THREAD_ATTRIBUTE_JOB_LIST、KILL_ON_JOB_CLOSE、no breakaway、non-inheritable Job、explicit stdio handle list、absolute executable/argv；
+- 本卡合并窄公共 primitive，不另建 CB6-001A；依赖 CB6-001 resolved LaunchSpec/PATH projection，产物供 CB6-003 transport 与 CB7-002 Fresh Start 使用；
+- local verbatim root → ordinary Win32 path；verbatim UNC → ordinary UNC，不支持 UNC cwd 则 fail-closed，禁止自动映射网络盘；
+- 验证 projected path 与 frozen canonical root 同一 Workspace identity；process current_dir 与后续 session/new.cwd 共用该结果；内部 StateStore/Claim/Execution canonical Authority 不变，display path 不得反向作为 Authority；
+- Provider user-process environment 以 SerenaDesktop Host 当前用户环境为基线复制，仅覆盖 CB6-001 resolver 计算出的 PATH；Windows CreateProcessW 因此需要完整 Unicode environment block，不能同时声称 `lpEnvironment=null` 与 PATH refresh。保持与 Codex Host 环境继承相同的用户语义，但不改变全局环境、不保存完整 env/凭据；
+- npm wrapper 必须解析/托管真实 executable 或证明整树从创建即属于 Job；若为 node.exe + script，node.exe 从第一可运行时刻就在 Job，不能只管 wrapper 而漏出 node。
+
 Non-goals: ACP parsing。  
-Tests required: membership from first runnable instant、child process containment、handle inheritance、terminate job、policy validation。  
+Tests required: membership from first runnable instant、真实 node + script child containment、wrapper tree 不可证明时拒绝、handle inheritance、terminate job、policy validation；local verbatim/ordinary identity 等价、UNC supported/unsupported、identity mismatch 拒绝；Host 环境继承语义 + refreshed PATH 接线/脱敏、Codex 回归。
 Evidence required: Windows launcher tests。  
-Acceptance criteria: 无 Job escape window。  
+Acceptance criteria: 无 Job escape window；path/env/LaunchSpec contract 通过，canonical Authority 不变；Gold Band cmd+npx 参考与 Host session/new PASS 均不能替代本卡 Windows Job evidence。
 Rollback / failure behavior: launcher uncertainty → no process published，Runtime unknown/quarantined as applicable。  
 Risk: high  
 Estimated blast radius: medium  
@@ -958,12 +975,12 @@ Dependencies: CB6-002 (H)
 Blocked by: CB5-002 SDK/fallback decision  
 Allowed scope: codebuddy/client.rs、protocol.rs、runtime.rs focused tests。  
 Forbidden scope: session/prompt、Workspace writes。  
-Contract references: 设计 §14.3、§15。  
-Implementation requirements: initialize protocolVersion/capabilities exact validation；deterministic incompatible 才 mark global Unavailable；stdio EOF/timeout 只作为 execution-local failure。  
-Non-goals: Session。  
-Tests required: initialize success、major mismatch、missing capability、EOF、timeout、invalid NDJSON。  
+Contract references: 设计 §14.3～§14.4、§15。
+Implementation requirements: initialize protocolVersion/capabilities exact validation；deterministic incompatible 才 mark global Unavailable；stdio EOF/timeout 只作为 execution-local failure；pendingRequests by JSON-RPC id，request/response/notification 解耦；sessionId 路由与 bounded early session frames 在 route 注册后补发；queue count/bytes/frame size/timeout/stderr 有界；session/request_permission baseline，未来宣告 elicitation 才处理 elicitation/create，未支持带 id request 返回 -32601，无 id notification 诊断/忽略。
+Non-goals: 真实 Session 创建/配置与 prompt（本卡只以 fixture 测 early routing，接线由 CB7-002 完成）。
+Tests required: initialize success、major mismatch、missing capability、EOF、timeout、invalid NDJSON；乱序/未知/重复 response id、notification 插入 response 前、session/new response 前 config_option_update、route 注册后有序补发/错误 session 隔离、overflow/frame size/bytes/timeout/stderr bounds、unsupported server request -32601、无 id notification 不回 response。
 Evidence required: focused tests tied to Probe fixture。  
-Acceptance criteria: Contract Health 分类符合 §6.1。  
+Acceptance criteria: Contract Health 分类符合 §6.1；Host exact launcher 的 early config_option_update 顺序成为回归 fixture；request() 不以“下一帧”完成 pending request。
 Rollback / failure behavior: 协议失败终止受管 Job。  
 Risk: high  
 Estimated blast radius: medium  
@@ -1032,7 +1049,7 @@ Blocked by: None
 Allowed scope: agent/codebuddy/provider.rs、Registry tests。  
 Forbidden scope: 提前 canContinue/tokenUsage=true。  
 Contract references: 设计 §7 capability rule、§33。  
-Implementation requirements: display/version；canExecute 初始按 CB5/7 Gate；canCancel 根据 CB5-004；canRecover 根据 CB6-005；activity根据实现；continue/usage false。  
+Implementation requirements: display/version；canExecute 初始按 CB5/7 Gate；canCancel 需 CB5-004 Cancel evidence（现已 PASS）与 CB8-001 implementation 同时 PASS；后者未 PASS 前仍 false；canRecover 根据 CB6-005；activity根据实现；continue/usage false。
 Non-goals: execute body。  
 Tests required: exact capability combinations。  
 Evidence required: descriptor snapshot。  
@@ -1046,23 +1063,26 @@ Can run in parallel with: None
 
 Phase: Phase 7  
 Type: implementation  
-Goal: Start 创建受管 Runtime，初始化 ACP，session/new 绑定 frozen canonical root，并建立 acceptance boundary。  
+Goal: Start 创建受管 Runtime，初始化 ACP，以与 frozen canonical root 同一 identity 的 external cwd 创建 Session，完成目录驱动配置后建立 acceptance boundary。
 Why now: 这是 Provider side-effect 前最关键边界。  
 Dependencies: CB7-001 (H)  
 Blocked by: None  
 Allowed scope: codebuddy/provider/runtime/client/store、focused TaskManager tests。  
 Forbidden scope: Continue、Usage。  
-Contract references: 设计 §15.1、§17。  
+Contract references: 设计 §14.1.1～§14.1.2、§14.4、§15.1、§17～§18。
 Implementation requirements:
-- cwd 只来自 Execution canonical_workspace_root；
-- private session identity durable 后再 acceptance；
+- cwd 只从 Execution canonical_workspace_root 经 CB6-002 投影与 identity validation 得到，不把 canonical verbatim root 原样传给外部进程；current_dir 与 session/new.cwd 相同；
+- spawn → initialize → verify protocolVersion → minimal session/new(cwd,mcpServers) → persist sessionId + capture returned models/modes/configOptions → register route / replay early frames → typed session/set_mode / session/set_config_option → acceptance → prompt；
+- 仅按真实目录应用所需配置；auto 若为产品默认，必须先确认 advertise，不猜 option id；配置缺失/失败不得 acceptance/prompt；
+- supportsSystemPrompt=false，不添加 systemPrompt meta；禁止 new 前用 --permission-mode/--tools/--settings 预注入；稳定系统上下文另行设计；
+- private session identity durable 且所需 mode/config 成功后再 acceptance；
 - acceptance 必须早于 session/prompt side-effect boundary且满足 Probe 证据；
 - no client fs/terminal capabilities；
 - workspace/provider/runtime identity exact。
 Non-goals: terminal/result。  
-Tests required: wrong cwd、session identity mismatch、acceptance ordering、initialize failure no acceptance。  
+Tests required: wrong/projected cwd、session identity mismatch、early frame routing、acceptance ordering、initialize failure no acceptance；目录捕获、advertised auto/config typed request、missing option/config failure no acceptance/no prompt、new 无 systemPrompt meta/启动无配置预注入、配置阶段 crash 与 unknown session/new 不自动重放。
 Evidence required: ordering test trace。  
-Acceptance criteria: session/new 前后 crash window 可分类。  
+Acceptance criteria: session/new 前后及配置阶段 crash window 可分类；projected cwd identity 与 post-new configuration ordering 均通过，未改变 Runtime Evidence / Claim fail-closed。
 Rollback / failure behavior: acceptance 前失败 → rejection，不 dispatch。  
 Risk: high  
 Estimated blast radius: medium  
@@ -1156,7 +1176,7 @@ Implementation requirements: persisted cancel intent first；exact session cance
 Non-goals: Continue。  
 Tests required: cancel before side effect、during write、terminal arrives、timeout、provider unavailable但 registered。  
 Evidence required: cancellation matrix。  
-Acceptance criteria: canCancel=true 仅在本任务 PASS。  
+Acceptance criteria: canCancel=true 仅在 CB5-004 contract PASS（已满足）与本任务 CB8-001 implementation PASS 同时满足后 advertise。
 Rollback / failure behavior: timeout → terminate/reconcile，不伪造 cancelled。  
 Risk: high  
 Estimated blast radius: medium  
@@ -1169,7 +1189,7 @@ Type: implementation
 Goal: 实现 session/request_permission 的首版 fail-closed client response。  
 Why now: 真实 CodeBuddy 任务可能在正常流程触发权限请求。  
 Dependencies: CB8-001 (H)  
-Blocked by: CB5-004 Permission contract  
+Blocked by: CB5-004 Permission contract 已 PASS；仍按本卡其它实现依赖推进
 Allowed scope: codebuddy client/provider/activity/runtime tests。  
 Forbidden scope: auto approve、permanent allow、Remote approval UI。  
 Contract references: 设计 §18。  
@@ -1491,9 +1511,9 @@ tokenUsage = false
 | Phase 2 | Local Human Policy 有唯一 Authority | Remote routing |
 | Phase 3 | MCP Start/Continue 契约闭合 | UI 与真实 Provider 接入 |
 | Phase 4 | Agent 管理 UX 可用 | CodeBuddy Contract Probe 后产品化 |
-| Phase 5 | CodeBuddy ACP 一手证据 | CodeBuddy Runtime |
-| Phase 6 | Job ownership / startup reconcile 安全 | workspace_write Fresh Start |
-| Phase 7 | Fresh Start + atomic release | Cancel/Continue/Recovery |
+| Phase 5 | CB5-003 Fresh Execute PASS；CB5-004 Fresh Session / Cancel / Permission Host 真实 PASS；CB5-005 未开始，依赖已满足，后续由 Host 决定 | 完成所需 Contract Gate 并经 Host 放行后进入 Runtime，不因旧 runner 失败重开 Fresh Session |
+| Phase 6 | resolved LaunchSpec / refreshed user PATH / external cwd identity / Provider env / id dispatcher / early frames + Job ownership / startup reconcile 安全 | workspace_write Fresh Start |
+| Phase 7 | projected cwd + session/new 后目录配置、acceptance 顺序 + Fresh Start / atomic release | Cancel/Continue/Recovery |
 | Phase 8 | 异常与继续路径闭合 | 可选 Usage |
 | Phase 9 | Usage 安全或明确 unsupported | 全量回归 |
 | Phase 10 | 自动 + 人工 + ChatGPT E2E PASS | Design Freeze / release |
