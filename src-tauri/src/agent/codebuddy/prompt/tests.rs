@@ -535,7 +535,8 @@ async fn permission_is_not_terminal_and_typed_responses_persist() {
             dir.path(),
             "permission.jsonl",
             &[
-                json!({"jsonrpc":"2.0","id":"permission","method":"session/request_permission","params":{}}),
+                json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session.private.session_id,"update":{"sessionUpdate":"tool_call","toolCallId":"permission-tool","title":"private command","status":"pending","_meta":{CONVERSATION:session.private.conversation_request_id}}}}),
+                json!({"jsonrpc":"2.0","id":"permission","method":"session/request_permission","params":{"sessionId":session.private.session_id,"toolCall":{"toolCallId":"permission-tool"},"options":[{"optionId":"deny-from-request","name":"deny","kind":"reject_once"}]}}),
             ],
         );
         let task = tokio::spawn(prompt(
@@ -547,7 +548,7 @@ async fn permission_is_not_terminal_and_typed_responses_persist() {
         let rows = wait_wire(dir.path(), 4).await;
         assert_eq!(
             rows[3]["result"],
-            json!({"outcome":{"outcome":"cancelled"}})
+            json!({"outcome":{"outcome":"selected","optionId":"deny-from-request"}})
         );
         let private = CodeBuddyStore(store.clone())
             .read(id.clone())

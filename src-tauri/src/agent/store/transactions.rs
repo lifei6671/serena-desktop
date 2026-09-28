@@ -1,7 +1,8 @@
 //! All business mutations use BEGIN IMMEDIATE and the same transition core.
 use super::*;
 use crate::agent::activity::{
-    ActivityPhase, ProgressPhase, ToolCategory, derive_activity_revision, derive_summary_code,
+    ActivityPhase, PROVIDER_PERMISSION_DENIED, ProgressPhase, ToolCategory,
+    derive_activity_revision, resolve_summary_code,
 };
 use crate::agent::execution::state::*;
 use serde_json::{Value, json};
@@ -185,6 +186,31 @@ impl StateStore {
             .await
     }
 
+    /// exact permission 同一事务保存固定诊断及真实 Activity current/history；不写终态证据。
+    pub(crate) async fn project_codebuddy_permission_denied(
+        &self,
+        id: String,
+        identity: (String, String, String),
+        observed_at: i64,
+    ) -> Result<(), String> {
+        self.write(move |tx| {
+            let row = execution_record(tx, &id).map_err(|e| e.to_string())?.ok_or("EXECUTION_NOT_FOUND")?;
+            let (runtime, session, conversation) = identity;
+            let exact: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM codebuddy_execution_state WHERE execution_id=?1 AND runtime_instance_id=?2 AND session_id=?3 AND conversation_request_id=?4 AND prompt_state='sent')",
+                params![id,runtime,session,conversation], |r| r.get(0)).map_err(|e| e.to_string())?;
+            if !exact || row.provider != "codebuddy" || row.runtime_instance_id.as_deref() != Some(&runtime)
+                || row.provider_terminal_status.is_some() {
+                return Err("EXECUTION_PROTOCOL_IDENTITY_MISMATCH".into());
+            }
+            owns_claim(tx, &id)?;
+            // 低优先级 hint 不覆盖已有故障，也不写任何 terminal/release 列。
+            tx.execute("UPDATE executions SET error_code='CODEBUDDY_PERMISSION_DENIED',error_message='Provider permission denied',revision=revision+1,updated_at=?2 WHERE id=?1 AND (error_code IS NULL OR error_code='CODEBUDDY_PERMISSION_DENIED')",
+                params![id,observed_at]).map_err(|e| e.to_string())?;
+            project_activity_semantics(tx, &id, progress_phase(row.status.as_str(), row.dispatch_state.as_str())?,
+                Some(ActivityPhase::Provider), None, observed_at, ActivityUpdate::PermissionDenied)
+        }).await
+    }
+
     async fn project_execution_activity_inner(
         &self,
         id: String,
@@ -224,7 +250,7 @@ impl StateStore {
                 Some(phase),
                 tool_category,
                 observed_at,
-                true,
+                ActivityUpdate::Observed,
             )
         })
         .await
@@ -800,6 +826,13 @@ fn progress_phase(status: &str, dispatch: &str) -> Result<ProgressPhase, String>
 }
 
 /// 在既有事务内投影 Activity；只有语义变化才写 current sequence 与 history。
+enum ActivityUpdate {
+    Observed,
+    PermissionDenied,
+    Lifecycle,
+}
+
+/// 普通新活动重置摘要；生命周期保留底层安全语义并应用终结优先级。
 fn project_activity_semantics(
     tx: &Transaction<'_>,
     id: &str,
@@ -807,16 +840,21 @@ fn project_activity_semantics(
     phase: Option<ActivityPhase>,
     tool_category: Option<ToolCategory>,
     observed_at: i64,
-    refresh_heartbeat: bool,
+    update: ActivityUpdate,
 ) -> Result<(), String> {
     let current = load_activity_state(tx, id)?;
+    let explicit = match update {
+        ActivityUpdate::Observed => None,
+        ActivityUpdate::PermissionDenied => Some(PROVIDER_PERMISSION_DENIED),
+        ActivityUpdate::Lifecycle => current.summary_code.as_deref(),
+    };
     let summary_code =
-        derive_summary_code(progress, phase, tool_category).map_err(str::to_owned)?;
+        resolve_summary_code(progress, phase, tool_category, explicit).map_err(str::to_owned)?;
     let semantic_change = current.phase != phase
         || current.tool_category != tool_category
         || current.summary_code.as_deref() != summary_code;
     if !semantic_change {
-        if refresh_heartbeat {
+        if !matches!(update, ActivityUpdate::Lifecycle) {
             tx.execute(
                 "UPDATE executions SET last_activity_at=CASE
                      WHEN last_activity_at IS NULL OR last_activity_at < ?2 THEN ?2
@@ -883,7 +921,7 @@ fn project_lifecycle_activity_semantics(
         current.phase,
         current.tool_category,
         observed_at,
-        false,
+        ActivityUpdate::Lifecycle,
     )
 }
 

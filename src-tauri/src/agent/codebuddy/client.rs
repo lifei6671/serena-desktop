@@ -6,7 +6,10 @@ use agent_client_protocol::{
     JsonRpcRequest,
     schema::{
         ProtocolVersion,
-        v1::{CancelNotification, InitializeRequest, InitializeResponse},
+        v1::{
+            CancelNotification, InitializeRequest, InitializeResponse, RequestPermissionRequest,
+            RequestPermissionResponse,
+        },
     },
 };
 use futures::io::{AsyncRead, AsyncWrite};
@@ -309,9 +312,27 @@ impl HandleDispatchFrom<Agent> for Dispatcher {
     ) -> Result<Handled<Dispatch>, agent_client_protocol::Error> {
         let result = match message {
             Dispatch::Request(request, responder) => {
-                // permission baseline 永远取消，不宣告文件系统、terminal 或 elicitation 能力。
+                // 官方 typed request/response 与 SDK responder 保持 exact id；失败关闭原 Runtime。
                 if request.method() == "session/request_permission" {
-                    responder.respond(json!({"outcome":{"outcome":"cancelled"}}))
+                    let decision = serde_json::from_value::<RequestPermissionRequest>(
+                        request.params().clone(),
+                    )
+                    .map_err(|_| Failure::Malformed)
+                    .and_then(|request| {
+                        self.0.permission_response(
+                            &request,
+                            serde_json::to_value(responder.id()).map_err(|_| Failure::Malformed)?,
+                        )
+                    });
+                    match decision {
+                        Ok(response) => responder
+                            .cast::<RequestPermissionResponse>()
+                            .respond(response),
+                        Err(error) => {
+                            self.0.fail(error);
+                            return Err(agent_client_protocol::Error::invalid_params());
+                        }
+                    }
                 } else {
                     responder.respond_with_error(agent_client_protocol::Error::method_not_found())
                 }
@@ -629,12 +650,16 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for GuardedWrite<W> {
         match Pin::new(&mut this.inner).poll_flush(cx) {
             Poll::Ready(Ok(())) => {
                 if this.response {
+                    if let Err(error) = this.shared.permission_flushed() {
+                        return Poll::Ready(Err(io_failure(&this.shared, error)));
+                    }
                     this.shared.acknowledge();
                 }
                 // 整 frame 已真实写入且 inner.flush 成功，才发布 SDK exact id。
                 if this.complete
                     && let Some((id, sender)) = this.flushed_prompt.take()
                 {
+                    this.shared.activate_permission();
                     let _ = sender.send(id);
                 }
                 if this.complete

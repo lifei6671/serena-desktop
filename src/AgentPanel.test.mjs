@@ -41,6 +41,7 @@ const { AgentPanel } = await import('./AgentPanel.tsx');
 const { api } = await import('./api.ts');
 const { agentRequests } = await import('./agentRequests.ts');
 const { showExecutionIssueSection, showExecutionDiagnostic } = await import('./agentPresentation.ts');
+const { activityLabel } = await import('./agentPresentation.ts');
 const { toast } = await import('sonner');
 const notifications = [];
 toast.success = text => notifications.push(['success', text]);
@@ -1465,3 +1466,17 @@ for (const diagnosticCode of [undefined, null, 'CODEBUDDY_VERSION_UNSUPPORTED', 
     }
   });
 }
+
+// 正常执行不展示诊断区时，明确的安全 Activity 仍须可见，且不依赖 Provider ID。
+test('permission denied is a visible running activity without diagnostic', async () => {
+  const value = row({ status: 'running', attention: 'none', dispatchState: 'dispatched',
+    provider: { id: 'arbitrary', displayName: 'Worker' },
+    progress: { phase: 'running', activityPhase: 'provider', toolCategory: null, summaryCode: 'provider.permission_denied' } });
+  assert.equal(activityLabel(value), 'Provider 权限未获批准');
+  await mount([value]); await openTask();
+  assert.match(document.querySelector('.agent-detail-info-card').textContent, /当前活动Provider 权限未获批准/);
+  assert.equal(showExecutionDiagnostic(value), false);
+  assert.equal(activityLabel(row({progress: {summaryCode: 'provider.processing'}})), 'Agent 处理中');
+  assert.equal(activityLabel(row({progress: {summaryCode: 'execution.finalizing'}})), '正在整理结果');
+  assert.equal(activityLabel(row({progress: {summaryCode: 'execution.reconciling'}})), '正在恢复执行状态');
+});

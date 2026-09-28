@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::activity::derive_summary_code;
 use crate::agent::provider::{
     ProviderCancelContext, ProviderCapabilities, ProviderError, ProviderExecutionContext,
     ProviderRunResult, ProviderStartupContext,

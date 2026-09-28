@@ -12,6 +12,462 @@ use std::{
 };
 
 struct Sink(PathBuf);
+
+#[tokio::test]
+/// user cancel 已物理发送后到来的 permission 仍只选 typed deny，不生成第二次 cancel。
+async fn native_permission_after_user_cancel_remains_denied() {
+    use crate::agent::provider::ProviderCancelContext;
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    let (control, _workspace, store, provider) = setup(&binary, "permission-cancel-first").await;
+    let provider = Arc::new(provider);
+    let running = provider.clone();
+    let sink = Arc::new(Sink(control.path().into()));
+    let telemetry = Arc::new(
+        crate::agent::telemetry_projector::ExecutionTelemetryProjector::new(
+            store.clone(),
+            "e".into(),
+        ),
+    );
+    let task = tokio::spawn(async move {
+        running
+            .execute(
+                ProviderExecutionContext {
+                    execution_id: "e".into(),
+                },
+                sink,
+                telemetry,
+            )
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !control.path().join("permission-ready").exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    provider
+        .cancel(ProviderCancelContext {
+            execution_id: "e".into(),
+        })
+        .await
+        .unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.outcome, ProviderOutcome::Cancelled);
+    assert!(control.path().join("cancel.json").exists());
+    assert!(control.path().join("permission-response.json").exists());
+    let row = store.execution("e".into()).await.unwrap().unwrap();
+    assert_eq!(row.provider_terminal_status.as_deref(), Some("cancelled"));
+    assert_eq!(row.release_evidence_state, "complete");
+}
+
+/// 测试委托真实安全投影，同时捕获闭集事件；不以事件替代 Runtime evidence。
+struct PermissionTelemetry {
+    projector: crate::agent::telemetry_projector::ExecutionTelemetryProjector,
+    events: Arc<std::sync::Mutex<Vec<crate::agent::provider::telemetry::AgentActivityEvent>>>,
+}
+impl AgentEventSink for PermissionTelemetry {
+    /// 捕获固定语义并交给真实 projector，保持与生产同一事务路径。
+    fn publish(
+        &self,
+        event: crate::agent::provider::telemetry::AgentTelemetryEvent,
+    ) -> crate::agent::provider::port::ProviderFuture<'_, ()> {
+        Box::pin(async move {
+            self.projector.publish(event.clone()).await;
+            if let crate::agent::provider::telemetry::AgentTelemetryEvent::Activity(activity) =
+                event
+            {
+                assert!(!format!("{activity:?}").contains("private"));
+                self.events.lock().unwrap().push(activity);
+            }
+        })
+    }
+}
+
+#[tokio::test]
+/// native before/after side effect、即时 cancelled/end_turn/EOF 与不兼容 options：只有真实 terminal 决定结果。
+async fn native_permission_terminal_and_cleanup_matrix() {
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    for mode in [
+        "permission-read",
+        "permission-write",
+        "permission-end-turn",
+        "permission-eof",
+        "permission-no-reject",
+        "permission-malformed",
+        "permission-timeout",
+    ] {
+        for evidence_fault in [false, true] {
+            if evidence_fault && mode != "permission-eof" {
+                continue;
+            }
+            let (control, workspace, store, provider) = setup(&binary, mode).await;
+            // 真实 SQLite 诊断写入轨迹证明即刻 terminal/EOF 也不丢弃 deny，且诊断无终态权限。
+            let db = rusqlite::Connection::open(control.path().join("agent-state.db")).unwrap();
+            db.execute_batch("CREATE TABLE permission_trace(message TEXT,terminal TEXT,evidence TEXT,claims INTEGER); CREATE TRIGGER permission_trace AFTER UPDATE OF error_code ON executions WHEN NEW.error_code='CODEBUDDY_PERMISSION_DENIED' AND OLD.error_code IS NOT NEW.error_code BEGIN INSERT INTO permission_trace VALUES(NEW.error_message,NEW.provider_terminal_status,NEW.release_evidence_state,(SELECT count(*) FROM workspace_claims)); END;").unwrap();
+            if evidence_fault {
+                rusqlite::Connection::open(control.path().join("agent-state.db")).unwrap().execute_batch("CREATE TRIGGER fail_evidence BEFORE UPDATE OF termination_evidence_state ON runtime_instances WHEN NEW.termination_evidence_state='complete' BEGIN SELECT RAISE(ABORT,'evidence fault'); END;").unwrap();
+            }
+            let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let telemetry = Arc::new(PermissionTelemetry {
+                projector: crate::agent::telemetry_projector::ExecutionTelemetryProjector::new(
+                    store.clone(),
+                    "e".into(),
+                ),
+                events: events.clone(),
+            });
+            let result = tokio::time::timeout(
+                std::time::Duration::from_secs(25),
+                provider.execute(
+                    ProviderExecutionContext {
+                        execution_id: "e".into(),
+                    },
+                    Arc::new(Sink(control.path().into())),
+                    telemetry,
+                ),
+            )
+            .await
+            .unwrap();
+            let row = store.execution("e".into()).await.unwrap().unwrap();
+            let terminal = match mode {
+                "permission-read" | "permission-write" => Some("cancelled"),
+                "permission-end-turn" => Some("completed"),
+                _ => None,
+            };
+            assert_eq!(row.provider_terminal_status.as_deref(), terminal, "{mode}");
+            assert_eq!(
+                row.status,
+                if evidence_fault {
+                    "unknown"
+                } else {
+                    terminal.unwrap_or("interrupted")
+                },
+                "{mode}"
+            );
+            if let Some(terminal) = terminal {
+                assert_eq!(
+                    result.unwrap().outcome,
+                    if terminal == "completed" {
+                        ProviderOutcome::Completed
+                    } else {
+                        ProviderOutcome::Cancelled
+                    }
+                );
+            }
+            assert_eq!(
+                store
+                    .workspace_claim(row.canonical_workspace_root)
+                    .await
+                    .unwrap()
+                    .is_some(),
+                evidence_fault
+            );
+            let runtime = store
+                .runtime(row.runtime_instance_id.unwrap())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                runtime.termination_evidence_state == "complete",
+                !evidence_fault
+            );
+            assert_eq!(row.release_evidence_state == "complete", !evidence_fault);
+            assert!(row.interrupt_requested_at.is_none());
+            assert!(!control.path().join("cancel.json").exists());
+            let valid = !matches!(mode, "permission-no-reject" | "permission-malformed");
+            let history = store
+                .execution_activity_history("e".into(), None, Some(100))
+                .await
+                .unwrap();
+            assert_eq!(
+                history
+                    .events
+                    .iter()
+                    .filter(
+                        |event| event.summary_code.as_deref() == Some("provider.permission_denied")
+                    )
+                    .count(),
+                usize::from(valid)
+            );
+            assert_eq!(
+                control.path().join("permission-response.json").exists(),
+                valid,
+                "{mode}"
+            );
+            let events = events.lock().unwrap();
+            assert_eq!(
+                events
+                    .iter()
+                    .filter(|event| event.phase() == crate::agent::activity::ActivityPhase::Provider)
+                    .count(),
+                0,
+                "permission Activity is written directly, not a plain processing sink event: {mode}"
+            );
+            let trace: Vec<(String, Option<String>, String, i64)> = db
+                .prepare("SELECT * FROM permission_trace")
+                .unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            assert_eq!(trace.len(), usize::from(valid), "{mode}");
+            for (message, terminal, evidence, claims) in trace {
+                assert_eq!(message, "Provider permission denied");
+                assert!(terminal.is_none());
+                assert_ne!(evidence, "complete");
+                assert_eq!(claims, 1);
+            }
+            if mode == "permission-write" {
+                assert_eq!(
+                    std::fs::read(workspace.path().join("marker.txt")).unwrap(),
+                    b"CB8_PERMISSION_WRITE\n"
+                );
+                assert_eq!(std::fs::read_dir(workspace.path()).unwrap().count(), 1);
+            } else {
+                assert_eq!(std::fs::read_dir(workspace.path()).unwrap().count(), 0);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+/// native deny 与 user cancel 独立，live Job 时 Activity 不写 terminal/release，错误 identity 不投影。
+async fn native_permission_cancel_race_and_safe_projection() {
+    use crate::agent::provider::ProviderCancelContext;
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    let (control, workspace, store, provider) = setup(&binary, "permission-cancel").await;
+    let provider = Arc::new(provider);
+    let running = provider.clone();
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let telemetry = Arc::new(PermissionTelemetry {
+        projector: crate::agent::telemetry_projector::ExecutionTelemetryProjector::new(
+            store.clone(),
+            "e".into(),
+        ),
+        events: events.clone(),
+    });
+    let sink = Arc::new(Sink(control.path().into()));
+    let task = tokio::spawn(async move {
+        running
+            .execute(
+                ProviderExecutionContext {
+                    execution_id: "e".into(),
+                },
+                sink,
+                telemetry,
+            )
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let row = store.execution("e".into()).await.unwrap().unwrap();
+            if row.error_code.as_deref() == Some("CODEBUDDY_PERMISSION_DENIED")
+                && row.activity_summary_code.as_deref() == Some("provider.permission_denied")
+            {
+                break;
+            }
+            assert!(!task.is_finished());
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let row = store.execution("e".into()).await.unwrap().unwrap();
+    assert_eq!(
+        row.error_message.as_deref(),
+        Some("Provider permission denied")
+    );
+    assert!(row.provider_terminal_status.is_none());
+    assert_ne!(row.release_evidence_state, "complete");
+    assert!(row.interrupt_requested_at.is_none());
+    assert!(
+        store
+            .workspace_claim(row.canonical_workspace_root.clone())
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let private = store.read_codebuddy_state("e".into()).await.unwrap();
+    // MCP 与桌面共用的 Product operation 必须在 Running 期间投影真实拒绝摘要。
+    let service = crate::agent::product::AgentProductService::new(store.clone());
+    let view = service
+        .operation(
+            json!({"action":"observe","executionId":"e","waitMs":0}),
+            None,
+        )
+        .await;
+    assert_eq!(view["ok"], true, "{view}");
+    assert_eq!(
+        view["data"]["progress"]["summaryCode"],
+        "provider.permission_denied"
+    );
+    assert_eq!(view["data"]["progress"]["activityPhase"], "provider");
+    assert!(view["data"]["progress"]["toolCategory"].is_null());
+    assert!(view["data"].get("ownsClaim").is_none());
+    assert!(view["data"]["providerTerminalStatus"].is_null());
+    let history = store
+        .execution_activity_history("e".into(), None, Some(100))
+        .await
+        .unwrap();
+    let denied = history.events.last().unwrap();
+    assert_eq!(
+        denied.summary_code.as_deref(),
+        Some("provider.permission_denied")
+    );
+    assert_eq!(denied.activity_revision, view["data"]["activityRevision"]);
+    assert!(!view.to_string().contains("private command"));
+    for identity in [
+        (
+            "wrong-runtime".into(),
+            private.session_id.clone().unwrap(),
+            private.conversation_request_id.clone(),
+        ),
+        (
+            private.runtime_instance_id.clone().unwrap(),
+            "wrong-session".into(),
+            private.conversation_request_id.clone(),
+        ),
+        (
+            private.runtime_instance_id.clone().unwrap(),
+            private.session_id.clone().unwrap(),
+            "wrong-prompt".into(),
+        ),
+    ] {
+        assert!(
+            store
+                .project_codebuddy_permission_denied("e".into(), identity.clone(), now())
+                .await
+                .is_err()
+        );
+        // 私有事件已在旧 context flush 后才遇到 durable identity 变化：不得向普通 sink 发 Activity。
+        let shared = crate::agent::codebuddy::protocol::Shared::new(Default::default());
+        let (_lease, mut pending) = shared
+            .register_permission(
+                identity.0,
+                "e".into(),
+                identity.1.clone(),
+                identity.2.clone(),
+                None,
+            )
+            .unwrap();
+        shared.activate_permission();
+        shared.notification("session/update".into(), json!({"sessionId":identity.1,"update":{"sessionUpdate":"tool_call","toolCallId":"t","title":"private command","status":"pending","_meta":{"codebuddy.ai/conversationRequestId":identity.2}}})).unwrap();
+        shared.permission_response(&serde_json::from_value(json!({"sessionId":identity.1,"toolCall":{"toolCallId":"t"},"options":[{"kind":"reject_once","optionId":"advertised","name":"Deny"}]})).unwrap(), json!(0)).unwrap();
+        shared.permission_flushed().unwrap();
+        let before = events.lock().unwrap().len();
+        pending.try_recv().unwrap().project(&store).await;
+        assert_eq!(events.lock().unwrap().len(), before);
+    }
+    assert_eq!(
+        store.execution("e".into()).await.unwrap().unwrap().revision,
+        row.revision
+    );
+    // 真实 wire 新 ToolCall 在 deny 后才能产生，序号过滤不得抑制它。
+    std::fs::write(control.path().join("next-activity"), "").unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while store
+            .execution("e".into())
+            .await
+            .unwrap()
+            .unwrap()
+            .activity_summary_code
+            .as_deref()
+            != Some("tool.read")
+        {
+            assert!(!task.is_finished());
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let ordered = store
+        .execution_activity_history("e".into(), None, Some(100))
+        .await
+        .unwrap();
+    assert_eq!(
+        ordered
+            .events
+            .iter()
+            .rev()
+            .take(2)
+            .map(|event| event.summary_code.as_deref())
+            .collect::<Vec<_>>(),
+        vec![Some("tool.read"), Some("provider.permission_denied")]
+    );
+    // 后续真正的新普通活动重置 processing，但历史中的 deny 不能被覆盖。
+    store
+        .project_execution_activity(
+            "e".into(),
+            crate::agent::activity::ActivityPhase::Provider,
+            None,
+            now(),
+        )
+        .await
+        .unwrap();
+    let next = service
+        .operation(
+            json!({"action":"observe","executionId":"e","waitMs":0}),
+            None,
+        )
+        .await;
+    assert_eq!(
+        next["data"]["progress"]["summaryCode"],
+        "provider.processing"
+    );
+    assert_ne!(
+        next["data"]["activityRevision"],
+        view["data"]["activityRevision"]
+    );
+    let history = store
+        .execution_activity_history("e".into(), None, Some(100))
+        .await
+        .unwrap();
+    assert_eq!(
+        history
+            .events
+            .iter()
+            .rev()
+            .take(2)
+            .map(|event| event.summary_code.as_deref())
+            .collect::<Vec<_>>(),
+        vec![Some("provider.processing"), Some("tool.read")]
+    );
+    provider
+        .cancel(ProviderCancelContext {
+            execution_id: "e".into(),
+        })
+        .await
+        .unwrap();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.outcome, ProviderOutcome::Cancelled);
+    assert!(control.path().join("cancel.json").exists());
+    assert!(control.path().join("permission-response.json").exists());
+    let final_row = store.execution("e".into()).await.unwrap().unwrap();
+    assert_eq!(
+        final_row.provider_terminal_status.as_deref(),
+        Some("cancelled")
+    );
+    assert_eq!(final_row.release_evidence_state, "complete");
+    assert!(
+        store
+            .workspace_claim(final_row.canonical_workspace_root)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(std::fs::read_dir(workspace.path()).unwrap().count(), 0);
+}
 impl ProviderAcceptanceSink for Sink {
     /// acceptance 必须在 private Sent 后、generic Dispatching 与物理 Prompt 前。
     fn accepted(&self) {

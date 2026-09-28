@@ -6,6 +6,8 @@ pub const ACTIVITY_QUIET_AFTER_MS: i64 = 30_000;
 pub const ACTIVITY_PROLONGED_AFTER_MS: i64 = 120_000;
 /// 表示无法从非法 Activity 组合安全派生摘要的稳定错误码。
 pub const AGENT_ACTIVITY_CONTRACT_ERROR: &str = "AGENT_ACTIVITY_CONTRACT_ERROR";
+/// 仅由已验证权限决策显式写入的闭集 Activity 语义。
+pub const PROVIDER_PERMISSION_DENIED: &str = "provider.permission_denied";
 
 /// 表示执行进度，用于在 Activity 映射前固定终结中间态的优先级。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
@@ -134,6 +136,30 @@ pub const fn derive_summary_code(
     }
 }
 
+/// 接受显式持久化的安全语义；终结中间态优先，非法 phase/category 组合仍拒绝。
+pub fn resolve_summary_code(
+    progress: ProgressPhase,
+    phase: Option<ActivityPhase>,
+    category: Option<ToolCategory>,
+    explicit: Option<&str>,
+) -> Result<Option<&'static str>, &'static str> {
+    let ordinary = derive_summary_code(progress, phase, category)?;
+    if matches!(
+        progress,
+        ProgressPhase::Finalizing | ProgressPhase::Reconciling
+    ) {
+        return Ok(ordinary);
+    }
+    if explicit == Some(PROVIDER_PERMISSION_DENIED) {
+        return if phase == Some(ActivityPhase::Provider) && category.is_none() {
+            Ok(Some(PROVIDER_PERMISSION_DENIED))
+        } else {
+            Err(AGENT_ACTIVITY_CONTRACT_ERROR)
+        };
+    }
+    Ok(ordinary)
+}
+
 /// 按固定 JSON 数组与 SHA-256 派生 Activity Revision v2，只编码语义元组。
 pub fn derive_activity_revision(
     execution_id: &str,
@@ -159,6 +185,58 @@ pub fn derive_activity_revision(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    /// 显式拒绝是闭集 Provider 语义；终结优先，普通事件不会继承拒绝。
+    fn permission_denied_summary_is_closed_and_respects_priority() {
+        assert_eq!(
+            resolve_summary_code(
+                ProgressPhase::Running,
+                Some(ActivityPhase::Provider),
+                None,
+                Some(PROVIDER_PERMISSION_DENIED)
+            ),
+            Ok(Some(PROVIDER_PERMISSION_DENIED))
+        );
+        assert_eq!(
+            resolve_summary_code(
+                ProgressPhase::Running,
+                Some(ActivityPhase::Provider),
+                None,
+                None
+            ),
+            Ok(Some("provider.processing"))
+        );
+        for (phase, category) in [
+            (Some(ActivityPhase::Tool), Some(ToolCategory::Read)),
+            (None, None),
+            (Some(ActivityPhase::Provider), Some(ToolCategory::Read)),
+        ] {
+            assert_eq!(
+                resolve_summary_code(
+                    ProgressPhase::Running,
+                    phase,
+                    category,
+                    Some(PROVIDER_PERMISSION_DENIED)
+                ),
+                Err(AGENT_ACTIVITY_CONTRACT_ERROR)
+            );
+        }
+        for (phase, expected) in [
+            (ProgressPhase::Finalizing, "execution.finalizing"),
+            (ProgressPhase::Reconciling, "execution.reconciling"),
+        ] {
+            assert_eq!(
+                resolve_summary_code(
+                    phase,
+                    Some(ActivityPhase::Provider),
+                    None,
+                    Some(PROVIDER_PERMISSION_DENIED)
+                ),
+                Ok(Some(expected))
+            );
+        }
+    }
 
     /// 验证静默等级的既有边界保持不变。
     #[test]

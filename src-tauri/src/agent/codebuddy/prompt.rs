@@ -142,7 +142,12 @@ pub(super) async fn run(
             .map_err(|_| Failure::State)?;
         let mut flush = requests
             .observe_prompt_flush(session_id.clone(), current.conversation_request_id.clone())?;
+        // permit 来自上方 durable exact owner 核验；guard 在所有返回路径撤销上下文。
+        let (_permission, mut permission_events) = requests.shared.register_permission(
+            current.runtime_instance_id.clone().ok_or(Failure::State)?, row.id.clone(),
+            session_id.clone(), current.conversation_request_id.clone(), current.provider_request_id.clone())?;
         let mut flushed = false;
+        let mut activity_after = 0;
         let mut activity = ActivityMapper::new(
             row.id.clone(),
             session_id.clone(),
@@ -167,6 +172,7 @@ pub(super) async fn run(
                 requests.shared.limits.queue_bytes,
             );
             let mut publishing: Option<ProviderFuture<'_, ()>> = None;
+            let mut permission_publication: Option<ProviderFuture<'_, ()>> = None;
             let request = requests.request(request);
             tokio::pin!(request);
             // durable Store 读取作为独立 future，不能阻塞 exact response 或绝对 deadline。
@@ -181,9 +187,9 @@ pub(super) async fn run(
                 .min(Duration::from_millis(10))
                 .max(Duration::from_micros(1));
             let mut tick = tokio::time::interval(interval);
-            loop {
+            let prompt_result = async { loop {
                 // 单一在途 publish 与有界 FIFO，不阻塞 request/timeout，也不创建后台任务。
-                if publishing.is_none()
+                if publishing.is_none() && permission_publication.is_none()
                     && let Some(event) = queue.pop_front()
                 {
                     publishing = Some(telemetry.publish(event));
@@ -222,6 +228,25 @@ pub(super) async fn run(
                         dispatch_flushed(&store, &row.id).await?;
                         flushed = true;
                     }
+                    Some(event) = permission_events.recv(), if permission_publication.is_none() => {
+                        // 已收到的旧 Activity 不得在 deny 后延迟覆盖；正文仍交 collector 完整消费。
+                        activity_after = event.activity_sequence;
+                        queue.clear();
+                        let previous = publishing.take();
+                        let store = &store;
+                        let timeout = requests.shared.limits.request_timeout;
+                        permission_publication = Some(Box::pin(async move {
+                            let _ = tokio::time::timeout(timeout, async {
+                                // 已提交的 SQLite 副作用不能靠 drop 撤销，先等待旧 publication 完成再写 deny。
+                                if let Some(previous) = previous { previous.await; }
+                                event.project(store).await;
+                            }).await;
+                        }));
+                    }
+                    _ = async { match permission_publication.as_mut() {
+                        Some(future) => future.await,
+                        None => std::future::pending().await,
+                    }} => { permission_publication = None; }
                     observed = &mut intent, if !intent_seen => {
                         observed?;
                         intent_seen = true;
@@ -265,6 +290,7 @@ pub(super) async fn run(
                         let frames = requests.shared.take_session(&session_id)?;
                         for frame in &frames {
                             if let Some(event) = activity.map(frame)
+                                && frame.sequence > activity_after
                                 && queue.len() < requests.shared.limits.queue_count
                             {
                                 queue.push_back(AgentTelemetryEvent::Activity(event));
@@ -282,7 +308,18 @@ pub(super) async fn run(
                     cancel_started = true;
                     cancel_send = Some(Box::pin(requests.cancel_session(session_id.clone())));
                 }
-            }
+            }}.await;
+            // terminal、EOF、timeout 均先有界交付已物理提交的安全决策，不能因 biased select 丢弃。
+            let _ = tokio::time::timeout(requests.shared.limits.request_timeout, async {
+                if let Some(publication) = permission_publication.take() { publication.await; }
+                while let Ok(event) = permission_events.try_recv() {
+                    activity_after = event.activity_sequence;
+                    queue.clear();
+                    if let Some(previous) = publishing.take() { previous.await; }
+                    event.project(&store).await;
+                }
+            }).await;
+            prompt_result.map(|(response, _, frames)| (response, publishing.is_some(), frames))
         }?;
         // SDK exact response 到达后做最后一次 drain；此后不再修改正文快照。
         publish_final_activity(
@@ -290,6 +327,7 @@ pub(super) async fn run(
             &frames,
             telemetry.as_ref(),
             publication_pending,
+            activity_after,
         );
         drop(activity);
         collector.drain(
@@ -461,6 +499,7 @@ fn publish_final_activity(
     frames: &[SessionFrame],
     telemetry: &dyn AgentEventSink,
     publication_pending: bool,
+    activity_after: u64,
 ) {
     // 已有在途发布可能仍在写 Store，不再提交后续事件，避免终态边界发生逆序覆盖。
     if publication_pending {
@@ -468,6 +507,7 @@ fn publish_final_activity(
     }
     for frame in frames {
         if let Some(event) = activity.map(frame)
+            && frame.sequence > activity_after
             && telemetry
                 .publish(AgentTelemetryEvent::Activity(event))
                 .now_or_never()

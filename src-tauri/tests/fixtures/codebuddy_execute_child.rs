@@ -17,7 +17,33 @@ fn main() {
     let mut pending_prompt: Option<Value> = None;
     for line in io::stdin().lock().lines() {
         let raw: Value = serde_json::from_str(&line.unwrap()).unwrap();
-        match raw["method"].as_str().unwrap() {
+        match raw["method"].as_str().unwrap_or("permission-response") {
+            "permission-response" => {
+                assert_eq!(raw, json!({"jsonrpc":"2.0","id":0,"result":{"outcome":{"outcome":"selected","optionId":"advertised-deny-id"}}}));
+                assert!(!control.join("permission-response.json").exists());
+                fs::write(control.join("permission-response.json"), raw.to_string()).unwrap();
+                let mode = fs::read_to_string(control.join("mode")).unwrap();
+                // deny 仅是 client 决策；此刻原 Job/Claim 必须仍活着，无 terminal/release。
+                let (terminal, evidence, claims): (Option<String>, String, i64) = db.query_row("SELECT provider_terminal_status,release_evidence_state,(SELECT count(*) FROM workspace_claims) FROM executions", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+                assert!(terminal.is_none());
+                assert_ne!(evidence, "complete");
+                assert_eq!(claims, 1);
+                // 测试握手保证后续 Activity 真正发生在父进程已观察 deny 之后。
+                if mode == "permission-cancel" {
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                    while !control.join("next-activity").exists() {
+                        assert!(std::time::Instant::now() < deadline);
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    let conversation = &pending_prompt.as_ref().unwrap()["params"]["_meta"]["codebuddy.ai/conversationRequestId"];
+                    println!("{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"exact-session","update":{"sessionUpdate":"tool_call","toolCallId":"new-tool","title":"private new command","kind":"read","status":"pending","_meta":{"codebuddy.ai/conversationRequestId":conversation}}}}));
+                    io::stdout().flush().unwrap();
+                }
+                if mode == "permission-eof" { return; }
+                if mode == "permission-timeout" || mode == "permission-gated" || mode == "permission-cancel" { continue; }
+                let prompt = pending_prompt.take().unwrap();
+                reply(&prompt["id"], json!({"stopReason":if mode == "permission-end-turn" { "end_turn" } else { "cancelled" },"_meta":{"codebuddy.ai/conversationRequestId":prompt["params"]["_meta"]["codebuddy.ai/conversationRequestId"]}}));
+            }
             "initialize" => reply(&raw["id"], json!({"protocolVersion":1})),
             "session/new" => {
                 if fs::read_to_string(control.join("mode")).unwrap() == "closed-input" {
@@ -57,6 +83,24 @@ fn main() {
                 assert_eq!(intent, "sent");
                 fs::write(control.join("prompt.json"), raw.to_string()).unwrap();
                 let mode = fs::read_to_string(control.join("mode")).unwrap();
+                if mode.starts_with("permission-") {
+                    if mode == "permission-cancel-first" {
+                        pending_prompt = Some(raw);
+                        fs::write(control.join("permission-ready"), "").unwrap();
+                        continue;
+                    }
+                    if mode == "permission-write" { fs::write("marker.txt", b"CB8_PERMISSION_WRITE\n").unwrap(); }
+                    let conversation = &raw["params"]["_meta"]["codebuddy.ai/conversationRequestId"];
+                    println!("{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"exact-session","update":{"sessionUpdate":"tool_call","toolCallId":"permission-tool","title":"private command","kind":"execute","status":"pending","_meta":{"codebuddy.ai/conversationRequestId":conversation}}}}));
+                    let options = if mode == "permission-no-reject" { json!([{"optionId":"allow","kind":"allow_always","name":"private label"}]) }
+                        else if mode == "permission-malformed" { json!([{"optionId":42,"kind":"reject_once","name":"private label"}]) }
+                        else { json!([{"optionId":"allow","kind":"allow_once","name":"private label"},{"optionId":"advertised-deny-id","kind":"reject_once","name":"private label"}]) };
+                    println!("{}", json!({"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"exact-session","toolCall":{"toolCallId":"permission-tool","rawInput":{"command":"private command","env":"private env","argv":["private argv"]}},"options":options}}));
+                    io::stdout().flush().unwrap();
+                    pending_prompt = Some(raw);
+                    fs::write(control.join("permission-ready"), "").unwrap();
+                    continue;
+                }
                 if mode.starts_with("cancel-") {
                     if mode == "cancel-write" { fs::write("marker.txt", b"CB8_WRITE\n").unwrap(); }
                     if mode == "cancel-pipe" {
@@ -113,6 +157,13 @@ fn main() {
                 assert!(!control.join("cancel.json").exists());
                 fs::write(control.join("cancel.json"), raw.to_string()).unwrap();
                 let mode = fs::read_to_string(control.join("mode")).unwrap();
+                if mode == "permission-cancel-first" {
+                    let conversation = &pending_prompt.as_ref().unwrap()["params"]["_meta"]["codebuddy.ai/conversationRequestId"];
+                    println!("{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"exact-session","update":{"sessionUpdate":"tool_call","toolCallId":"permission-tool","title":"private command","status":"pending","_meta":{"codebuddy.ai/conversationRequestId":conversation}}}}));
+                    println!("{}", json!({"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":{"sessionId":"exact-session","toolCall":{"toolCallId":"permission-tool"},"options":[{"optionId":"advertised-deny-id","name":"Deny","kind":"reject_once"}]}}));
+                    io::stdout().flush().unwrap();
+                    continue;
+                }
                 if mode == "cancel-timeout" { continue; }
                 let prompt = pending_prompt.take().expect("prompt before cancel");
                 reply(&prompt["id"], json!({"stopReason":if mode == "cancel-end-turn" { "end_turn" } else { "cancelled" },"_meta":{"codebuddy.ai/conversationRequestId":prompt["params"]["_meta"]["codebuddy.ai/conversationRequestId"]}}));

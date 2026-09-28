@@ -86,6 +86,7 @@ export function activityLabel(row: ActivityDisplaySource) {
   const summaryLabels: Record<string, string> = {
     "execution.finalizing": "正在整理结果", "execution.reconciling": "正在恢复执行状态",
     "provider.processing": "Agent 处理中", "tool.read": "正在读取", "tool.edit": "正在修改文件",
+    "provider.permission_denied": "Provider 权限未获批准",
     "tool.command": "正在执行命令", "tool.build": "正在构建", "tool.test": "正在测试", "tool.other": "正在调用工具",
   };
   const summary = progress.summaryCode === null ? undefined : summaryLabels[progress.summaryCode];

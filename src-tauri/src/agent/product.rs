@@ -3,7 +3,7 @@ pub use super::activity::ProgressPhase;
 use super::{
     activity::{
         AGENT_ACTIVITY_CONTRACT_ERROR, ActivityPhase, ActivitySilence, ToolCategory,
-        derive_activity_revision, derive_summary_code,
+        derive_activity_revision, resolve_summary_code,
     },
     coordinator::now,
     execution::AgentTaskRole,
@@ -1116,8 +1116,13 @@ impl AgentProductService {
                 _ => return Err("Invalid persisted execution activity".into()),
             }
             // Product 只投影已由 Store 写入的 Activity 摘要；不一致时拒绝伪造新语义。
-            let expected_summary_code =
-                derive_summary_code(phase, activity_phase, tool_category).map_err(str::to_owned)?;
+            let expected_summary_code = resolve_summary_code(
+                phase,
+                activity_phase,
+                tool_category,
+                r.activity_summary_code.as_deref(),
+            )
+            .map_err(str::to_owned)?;
             if r.activity_summary_code.as_deref() != expected_summary_code {
                 return Err(AGENT_ACTIVITY_CONTRACT_ERROR.into());
             }
@@ -1169,7 +1174,7 @@ impl AgentProductService {
                 error_code: r.error_code.as_ref().map(|code| match code.as_str() {
                     "CODEX_TURN_ERROR" => code.clone(),
                     "CODEX_PROVIDER_FAILURE" => code.clone(),
-                    "CODEX_PERMISSION_DENIED" => code.clone(),
+                    "CODEX_PERMISSION_DENIED" | "CODEBUDDY_PERMISSION_DENIED" => code.clone(),
                     _ => "EXECUTION_DIAGNOSTIC".into(),
                 }),
                 error_message: execution_diagnostic_message(r),
@@ -1244,6 +1249,7 @@ fn execution_diagnostic_message(row: &super::store::ExecutionRecord) -> Option<S
             "CODEX_RPC_TIMEOUT" => "CODEX_RPC_TIMEOUT: App Server request timed out.".into(),
             _ => "Codex Provider failed; raw details withheld.".into(),
         },
+        "CODEBUDDY_PERMISSION_DENIED" => "Provider permission denied.".into(),
         "CODEX_PERMISSION_DENIED" => {
             let category = match raw {
                 "command" => "command",

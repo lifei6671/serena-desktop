@@ -474,6 +474,30 @@ async fn write_and_flush_closed_pipe_keep_first_failure_and_health_local() {
             assert!(writer.flush().await.is_err());
             assert!(receiver.try_recv().is_err());
             assert_eq!(shared.failure(), Some(expected));
+            // permission typed response 同样不能把 enqueue/完整 write 当作成功决策。
+            let shared = Shared::new(Limits::default());
+            let (_lease, mut events) = shared
+                .register_permission("r".into(), "e".into(), "s".into(), "c".into(), None)
+                .unwrap();
+            shared.activate_permission();
+            known_permission_tool(&shared);
+            let response = shared
+                .permission_response(
+                    &serde_json::from_value(permission_params()).unwrap(),
+                    json!(0),
+                )
+                .unwrap();
+            let mut writer = GuardedWrite::new(ErrorWriter { kind, on_flush }, shared.clone());
+            writer
+                .write_all(
+                    format!("{}\n", json!({"jsonrpc":"2.0","id":0,"result":response})).as_bytes(),
+                )
+                .await
+                .unwrap();
+            assert!(writer.flush().await.is_err());
+            assert!(writer.flush().await.is_err());
+            assert!(events.try_recv().is_err());
+            assert_eq!(shared.failure(), Some(expected));
             assert_eq!(shared.fail(Failure::Incompatible), expected);
             assert_eq!(expected.health_change(), None);
             // Cancel 的 observer 同样不能把 enqueue 或完整 write 误认成 inner.flush 成功。
@@ -819,10 +843,6 @@ async fn server_request_permission_and_notification_baseline() {
     let error = peer.next().await;
     assert_eq!(error["id"], 42);
     assert_eq!(error["error"]["code"], -32601);
-    peer.send(json!({"jsonrpc":"2.0","method":"session/request_permission","id":"permission","params":{}})).await;
-    let denied = peer.next().await;
-    assert_eq!(denied["id"], "permission");
-    assert_eq!(denied["result"]["outcome"]["outcome"], "cancelled");
     peer.send(json!({"jsonrpc":"2.0","method":"unknown","params":{}}))
         .await;
     let mut line = String::new();
@@ -832,6 +852,268 @@ async fn server_request_permission_and_notification_baseline() {
             .is_err()
     );
     client.shutdown().await;
+}
+
+/// 合法请求使用任意 advertised optionId；标签/工具文本不能流入安全事件。
+fn permission_params() -> Value {
+    json!({"sessionId":"s","toolCall":{"toolCallId":"tool","title":"private command"},"options":[
+        {"optionId":"allow","name":"private allow","kind":"allow_once"},
+        {"optionId":"dynamic-denial","name":"private deny","kind":"reject_once"},
+        {"optionId":"always","name":"private always","kind":"allow_always"}]})
+}
+
+/// 初始工具属于 exact active Prompt，身份由 typed notification 注册。
+fn known_permission_tool(shared: &Shared) {
+    shared.notification("session/update".into(), json!({"sessionId":"s","update":{
+        "sessionUpdate":"tool_call","toolCallId":"tool","title":"private command","status":"pending",
+        "_meta":{"codebuddy.ai/conversationRequestId":"c"}}})).unwrap();
+}
+
+#[tokio::test]
+/// SDK responder 保留 number/string exact id；物理 deny 不是 prompt terminal，也不触发 cancel。
+async fn permission_sdk_typed_exact_ids_and_safe_handoff() {
+    for id in [json!(0), json!("permission")] {
+        let (client, mut peer) = pair(Limits::default()).await;
+        let shared = &client.requests.shared;
+        let (_lease, mut events) = shared
+            .register_permission("r".into(), "e".into(), "s".into(), "c".into(), None)
+            .unwrap();
+        shared.activate_permission();
+        known_permission_tool(shared);
+        peer.send(json!({"jsonrpc":"2.0","id":id,"method":"session/request_permission","params":permission_params()})).await;
+        assert_eq!(
+            peer.next().await,
+            json!({"jsonrpc":"2.0","id":id,"result":{"outcome":{"outcome":"selected","optionId":"dynamic-denial"}}})
+        );
+        let event = events.recv().await.unwrap();
+        assert_eq!(event.execution, "e");
+        assert_eq!(event.identity, ("r".into(), "s".into(), "c".into()));
+        assert!(!shared.prompt_response_received());
+        assert!(!client.requests.cancel.lock().unwrap().used);
+        client.shutdown().await;
+    }
+}
+
+#[test]
+/// option 顺序、标签与 ID 无关；任意 advertised RejectOnce 才能被选择。
+fn permission_option_order_and_unique_reject_kind() {
+    for order in [[0, 1, 2], [2, 0, 1], [1, 2, 0]] {
+        let shared = Shared::new(Limits::default());
+        let (_lease, _events) = shared
+            .register_permission("r".into(), "e".into(), "s".into(), "c".into(), None)
+            .unwrap();
+        shared.activate_permission();
+        known_permission_tool(&shared);
+        let mut params = permission_params();
+        params["options"] = Value::Array(
+            order
+                .into_iter()
+                .map(|index| params["options"][index].clone())
+                .collect(),
+        );
+        let response = shared
+            .permission_response(&serde_json::from_value(params).unwrap(), json!(0))
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(response).unwrap(),
+            json!({"outcome":{"outcome":"selected","optionId":"dynamic-denial"}})
+        );
+    }
+}
+
+#[test]
+/// conversation 与已知 provider request 双重绑定；其它 Runtime 的工具上下文不能复用。
+fn permission_tool_identity_metadata_and_runtime_isolation() {
+    for case in [
+        "exact",
+        "missing-conversation",
+        "wrong-conversation",
+        "wrong-request",
+        "missing-request",
+        "permission-request-conflict",
+        "request-completed",
+        "other-runtime",
+    ] {
+        let shared = Shared::new(Limits::default());
+        let (_lease, _events) = shared
+            .register_permission(
+                "r".into(),
+                "e".into(),
+                "s".into(),
+                "c".into(),
+                Some("provider-request".into()),
+            )
+            .unwrap();
+        shared.activate_permission();
+        let mut tool = json!({"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"tool","title":"private command","status":"pending","_meta":{"codebuddy.ai/conversationRequestId":"c","codebuddy.ai/requestId":"provider-request"}}});
+        match case {
+            "missing-conversation" => {
+                tool["update"]["_meta"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("codebuddy.ai/conversationRequestId");
+            }
+            "wrong-conversation" => {
+                tool["update"]["_meta"]["codebuddy.ai/conversationRequestId"] = json!("other")
+            }
+            "missing-request" => {
+                tool["update"]["_meta"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("codebuddy.ai/requestId");
+            }
+            "wrong-request" => tool["update"]["_meta"]["codebuddy.ai/requestId"] = json!("other"),
+            _ => {}
+        }
+        if case == "other-runtime" {
+            let other = Shared::new(Limits::default());
+            let (_lease, _events) = other
+                .register_permission(
+                    "other-runtime".into(),
+                    "e".into(),
+                    "s".into(),
+                    "c".into(),
+                    None,
+                )
+                .unwrap();
+            other.activate_permission();
+            other.notification("session/update".into(), tool).unwrap();
+        } else {
+            shared.notification("session/update".into(), tool).unwrap();
+        }
+        let mut request = permission_params();
+        if case == "permission-request-conflict" {
+            request["_meta"] = json!({"codebuddy.ai/requestId":"wrong"});
+        }
+        if case == "request-completed" {
+            request["toolCall"]["status"] = json!("completed");
+        }
+        let result =
+            shared.permission_response(&serde_json::from_value(request).unwrap(), json!(0));
+        assert_eq!(result.is_ok(), case == "exact", "{case}");
+    }
+}
+
+#[tokio::test]
+/// malformed 与不属于当前 owner/Prompt/tool 的请求不发送任何 permission response。
+async fn permission_identity_and_options_fail_closed() {
+    for case in [
+        "before",
+        "wrong-session",
+        "unknown-tool",
+        "missing-tool",
+        "late",
+        "stale",
+        "no-reject",
+        "duplicate-reject",
+        "duplicate-id",
+        "malformed",
+        "conflicting-meta",
+        "completed-tool",
+        "completed-tool-snapshot",
+        "empty-option-id",
+        "missing-option-name",
+        "unknown-option-kind",
+    ] {
+        let (client, mut peer) = pair(Limits::default()).await;
+        let shared = &client.requests.shared;
+        let (lease, mut events) = shared
+            .register_permission("r".into(), "e".into(), "s".into(), "c".into(), None)
+            .unwrap();
+        if case != "before" {
+            shared.activate_permission();
+        }
+        known_permission_tool(shared);
+        let mut params = permission_params();
+        match case {
+            "wrong-session" => params["sessionId"] = json!("wrong"),
+            "unknown-tool" => params["toolCall"]["toolCallId"] = json!("unknown"),
+            "missing-tool" => { params["toolCall"].as_object_mut().unwrap().remove("toolCallId"); },
+            "late" => {
+                shared.outgoing(&json!({"method":"session/prompt","id":1,"params":{"sessionId":"s","_meta":{"codebuddy.ai/conversationRequestId":"c"}}})).unwrap();
+                shared.incoming(&json!({"jsonrpc":"2.0","id":1,"result":{"stopReason":"cancelled"}})).unwrap();
+                shared.acknowledge();
+            },
+            "no-reject" => { params["options"].as_array_mut().unwrap().remove(1); },
+            "duplicate-reject" => { let mut other = params["options"][1].clone(); other["optionId"] = json!("other"); params["options"].as_array_mut().unwrap().push(other); },
+            "duplicate-id" => params["options"][1]["optionId"] = json!("allow"),
+            "malformed" => params["options"][1]["kind"] = json!(123),
+            "empty-option-id" => params["options"][1]["optionId"] = json!(""),
+            "missing-option-name" => { params["options"][1].as_object_mut().unwrap().remove("name"); },
+            "unknown-option-kind" => params["options"][1]["kind"] = json!("future-kind"),
+            "conflicting-meta" => params["_meta"] = json!({"codebuddy.ai/conversationRequestId":"wrong"}),
+            "completed-tool" => shared.notification("session/update".into(), json!({"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"tool","status":"completed"}})).unwrap(),
+            "completed-tool-snapshot" => shared.notification("session/update".into(), json!({"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"tool","title":"private command","status":"completed","_meta":{"codebuddy.ai/conversationRequestId":"c"}}})).unwrap(),
+            _ => {},
+        }
+        if case == "stale" {
+            drop(lease);
+        }
+        peer.send(
+            json!({"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":params}),
+        )
+        .await;
+        let observed = failure(shared).await;
+        assert!(
+            matches!(
+                observed,
+                Failure::State | Failure::Malformed | Failure::Incompatible
+            ),
+            "{case}: {observed:?}"
+        );
+        assert!(events.try_recv().is_err());
+        let mut line = String::new();
+        assert_eq!(
+            peer.reader.read_line(&mut line).await.unwrap(),
+            0,
+            "{case}: {line}"
+        );
+        client.shutdown().await;
+    }
+}
+
+#[tokio::test]
+/// inner flush 成功前保持 read window；失败/超时不交付事件、绝不重试。
+async fn permission_physical_flush_failure_and_deadline() {
+    use futures::io::AsyncWriteExt;
+    for fail in [false, true] {
+        let shared = Shared::new(Limits {
+            request_timeout: Duration::from_millis(20),
+            ..Limits::default()
+        });
+        let (_lease, mut events) = shared
+            .register_permission("r".into(), "e".into(), "s".into(), "c".into(), None)
+            .unwrap();
+        shared.activate_permission();
+        known_permission_tool(&shared);
+        let request = json!({"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":permission_params()});
+        shared.incoming(&request).unwrap();
+        let response = shared
+            .permission_response(
+                &serde_json::from_value(request["params"].clone()).unwrap(),
+                json!(0),
+            )
+            .unwrap();
+        let bytes = format!("{}\n", json!({"jsonrpc":"2.0","id":0,"result":response}));
+        let mut writer = GuardedWrite::new(futures::io::Cursor::new(Vec::new()), shared.clone());
+        writer.write_all(bytes.as_bytes()).await.unwrap();
+        assert!(shared.waiting_for_dispatch());
+        assert!(events.try_recv().is_err());
+        assert!(writer.inner.get_ref().is_empty());
+        if fail {
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            assert_eq!(shared.check_expiry(), Err(Failure::Timeout));
+            assert!(writer.flush().await.is_err());
+            assert!(writer.inner.get_ref().is_empty());
+            assert!(events.try_recv().is_err());
+        } else {
+            writer.flush().await.unwrap();
+            assert!(!shared.waiting_for_dispatch());
+            assert!(events.try_recv().is_ok());
+            writer.flush().await.unwrap();
+            assert!(events.try_recv().is_err());
+        }
+    }
 }
 
 #[test]
@@ -1021,6 +1303,40 @@ async fn cancel_blocked_pipe_times_out_and_clears_permit() {
     assert!(client.requests.cancel.lock().unwrap().permit.is_none());
     assert!(client.requests.cancel_session("s".into()).await.is_err());
     client.shutdown().await;
+}
+
+/// Dispatcher 已 enqueue 但真实写入阻塞时，由原 driver maintenance 有界关闭，不重试响应。
+#[tokio::test]
+async fn permission_blocked_pipe_closes_original_client_without_safe_event() {
+    let (outgoing, mut unread) = tokio::io::duplex(1);
+    let (mut peer, incoming) = tokio::io::duplex(4096);
+    let client = ManagedClient::connect(
+        outgoing.compat_write(),
+        incoming.compat(),
+        Limits {
+            request_timeout: Duration::from_millis(30),
+            ..Limits::default()
+        },
+    )
+    .await
+    .unwrap();
+    let shared = client.requests.shared.clone();
+    let (_lease, mut events) = shared
+        .register_permission("r".into(), "e".into(), "s".into(), "c".into(), None)
+        .unwrap();
+    shared.activate_permission();
+    known_permission_tool(&shared);
+    peer.write_all(format!("{}\n", json!({"jsonrpc":"2.0","id":0,"method":"session/request_permission","params":permission_params()})).as_bytes()).await.unwrap();
+    assert_eq!(failure(&shared).await, Failure::Timeout);
+    assert!(events.try_recv().is_err());
+    assert!(!shared.prompt_response_received());
+    assert!(!client.requests.cancel.lock().unwrap().used);
+    client.shutdown().await;
+    let mut bytes = Vec::new();
+    tokio::io::AsyncReadExt::read_to_end(&mut unread, &mut bytes)
+        .await
+        .unwrap();
+    assert_eq!(bytes.len(), 1);
 }
 
 /// CB8：response 已过 exact read guard、owner 尚未被调度时，已 enqueue cancel 也不能写 pipe。

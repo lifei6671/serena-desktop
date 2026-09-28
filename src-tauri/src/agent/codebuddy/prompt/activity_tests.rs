@@ -417,7 +417,7 @@ fn final_activity_batch() -> (ActivityMapper, Vec<SessionFrame>) {
 fn final_activity_stops_after_first_irreversible_pending_submission() {
     let (mut mapper, frames) = final_activity_batch();
     let sink = SubmittedSink::default();
-    publish_final_activity(&mut mapper, &frames, &sink, false);
+    publish_final_activity(&mut mapper, &frames, &sink, false, 0);
     assert_eq!(sink.submitted.lock().unwrap().len(), 1);
     sink.finish_in_reverse();
     assert_eq!(
@@ -442,7 +442,7 @@ fn final_activity_skips_when_previous_submission_survives_drop() {
             .now_or_never()
             .is_none()
     );
-    publish_final_activity(&mut mapper, &frames[1..], &sink, true);
+    publish_final_activity(&mut mapper, &frames[1..], &sink, true, 0);
     assert_eq!(*sink.submitted.lock().unwrap(), vec![previous.clone()]);
     sink.finish_in_reverse();
     assert_eq!(*sink.projected.lock().unwrap(), Some(previous));
@@ -453,10 +453,26 @@ fn final_activity_skips_when_previous_submission_survives_drop() {
 fn final_activity_ready_sink_keeps_ordered_snapshot() {
     let (mut mapper, frames) = final_activity_batch();
     let sink = Recording::default();
-    publish_final_activity(&mut mapper, &frames, &sink, false);
+    publish_final_activity(&mut mapper, &frames, &sink, false, 0);
     let recorded = sink.0.lock().unwrap();
     assert_eq!(recorded.len(), 3);
     assert_eq!(recorded[0]["tool_category"], "read");
     assert_eq!(recorded[1]["phase"], "provider");
     assert_eq!(recorded[2]["phase"], "provider");
+}
+
+#[test]
+/// 单调序号严格排除 deny 之前与边界上的排队帧，同时允许后续真实新 Activity。
+fn permission_activity_cutoff_preserves_new_notifications() {
+    let (mut mapper, frames) = final_activity_batch();
+    assert!(
+        frames
+            .windows(2)
+            .all(|pair| pair[0].sequence < pair[1].sequence)
+    );
+    let sink = Recording::default();
+    publish_final_activity(&mut mapper, &frames, &sink, false, frames[1].sequence);
+    let recorded = sink.0.lock().unwrap();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0]["phase"], "provider");
 }

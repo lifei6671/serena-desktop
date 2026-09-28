@@ -9,6 +9,9 @@ use std::{
     time::Duration,
 };
 use tokio::{sync::watch, time::Instant};
+#[path = "permission.rs"]
+mod permission;
+use permission::PermissionContext;
 
 /// 本卡所有失败均为稳定码；只有精确版本不兼容可影响 Registry health。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,6 +98,8 @@ impl Default for Limits {
 
 /// 只在 Provider 私有边界保存的 session 通知；不派生 Debug 避免原文日志。
 pub(crate) struct SessionFrame {
+    /// 原 Shared 的单调到达顺序，只用于私有 Activity 排序。
+    pub(crate) sequence: u64,
     pub(crate) session_id: String,
     pub(crate) method: String,
     pub(crate) params: Value,
@@ -125,6 +130,8 @@ struct State {
     diagnostics: Diagnostics,
     session_new_extensions: Option<SessionNewExtensions>,
     prompt_response_received: bool,
+    permission: Option<PermissionContext>,
+    notification_sequence: u64,
 }
 
 /// ByteStreams guard、SDK handler 与请求入口共享生命周期。
@@ -152,6 +159,8 @@ impl Shared {
                 diagnostics: Diagnostics::default(),
                 session_new_extensions: None,
                 prompt_response_received: false,
+                permission: None,
+                notification_sequence: 0,
             }),
         })
     }
@@ -173,6 +182,7 @@ impl Shared {
         state.routes.clear();
         state.bytes = 0;
         state.inflight = false;
+        state.permission = None;
         drop(state);
         self.reader.wake();
         self.failure().unwrap()
@@ -203,6 +213,16 @@ impl Shared {
     pub(crate) fn outgoing(&self, raw: &Value) -> Result<(), Failure> {
         if let Some(error) = self.failure() {
             return Err(error);
+        }
+        if raw.get("method").is_none()
+            && let Some(context) = &self.state.lock().unwrap().permission
+        {
+            context.validate_response(raw)?;
+        }
+        if raw["method"] == "session/prompt"
+            && let Some(context) = &self.state.lock().unwrap().permission
+        {
+            context.validate_prompt(raw)?;
         }
         if let (Some(method), Some(id)) = (raw.get("method").and_then(Value::as_str), raw.get("id"))
         {
@@ -246,6 +266,7 @@ impl Shared {
             };
             if method == "session/prompt" {
                 state.prompt_response_received = true;
+                state.permission = None;
             }
             if method == "initialize"
                 && let Some(result) = raw.get("result")
@@ -324,6 +345,9 @@ impl Shared {
             .len()
             + method.len();
         let mut state = self.state.lock().unwrap();
+        if let Some(context) = &mut state.permission {
+            context.notification(&params, self.limits.queue_count)?;
+        }
         if state.frames.len() >= self.limits.queue_count {
             return Err(Failure::QueueCount);
         }
@@ -331,7 +355,13 @@ impl Shared {
             return Err(Failure::QueueBytes);
         }
         state.bytes += bytes;
+        state.notification_sequence = state
+            .notification_sequence
+            .checked_add(1)
+            .ok_or(Failure::State)?;
+        let sequence = state.notification_sequence;
         state.frames.push_back(SessionFrame {
+            sequence,
             session_id,
             method,
             params,
@@ -381,13 +411,19 @@ impl Shared {
         if let Some(error) = self.failure() {
             return Err(error);
         }
-        let expired = self
-            .state
-            .lock()
-            .unwrap()
+        let state = self.state.lock().unwrap();
+        let permission_expired = state
+            .permission
+            .as_ref()
+            .is_some_and(PermissionContext::expired);
+        let expired = state
             .frames
             .front()
             .is_some_and(|frame| frame.expires <= Instant::now());
+        drop(state);
+        if permission_expired {
+            return Err(self.fail(Failure::Timeout));
+        }
         if expired {
             Err(self.fail(Failure::QueueExpired))
         } else {

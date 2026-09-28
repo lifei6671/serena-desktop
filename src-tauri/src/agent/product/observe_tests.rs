@@ -1101,6 +1101,10 @@ async fn diagnostic_projection_never_exposes_raw_provider_payload() {
             json!({"error":{"message":"secret","codexErrorInfo":"secret"}}).to_string(),
         ),
         ("CODEX_PERMISSION_DENIED", "command".into()),
+        (
+            "CODEBUDDY_PERMISSION_DENIED",
+            "private command secret argv env source".into(),
+        ),
         ("secret", "raw stdout stderr secret".into()),
     ] {
         store
@@ -1302,4 +1306,33 @@ async fn persisted_activity_contract_and_result_priority_fail_closed() {
         )
         .await;
     assert_eq!(terminal["data"]["wakeReason"], "terminal");
+}
+
+#[tokio::test]
+/// 显式拒绝摘要只允许 provider/none，未知或非法持久化组合必须关闭投影。
+async fn permission_denied_activity_contract_is_explicit() {
+    let (dir, _store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    for (phase, category, summary, valid) in [
+        ("provider", None, "provider.permission_denied", true),
+        ("provider", None, "provider.processing", true),
+        ("tool", Some("read"), "provider.permission_denied", false),
+        ("provider", None, "provider.unknown", false),
+    ] {
+        db.execute("UPDATE executions SET status='running',dispatch_state='dispatched',last_activity_at=1,activity_phase=?1,tool_category=?2,activity_summary_code=?3 WHERE id='e'",rusqlite::params![phase, category, summary]).unwrap();
+        let view = service
+            .checked_operation(
+                json!({"action":"observe","executionId":"e","waitMs":0}),
+                None,
+            )
+            .await;
+        if valid {
+            assert_eq!(view["data"]["progress"]["summaryCode"], summary, "{view}");
+        } else {
+            assert_eq!(
+                view["error"]["code"], "AGENT_ACTIVITY_CONTRACT_ERROR",
+                "{view}"
+            );
+        }
+    }
 }
