@@ -1878,7 +1878,7 @@ async fn codebuddy_missing_cli_keeps_execute_unaccepted_and_runtime_absent() {
         ProviderCapabilities {
             can_execute: cfg!(windows),
             can_continue: false,
-            can_cancel: false,
+            can_cancel: cfg!(windows),
             can_recover: cfg!(windows),
             activity: cfg!(windows),
             token_usage: false,
@@ -1920,4 +1920,72 @@ async fn codebuddy_missing_cli_keeps_execute_unaccepted_and_runtime_absent() {
         "SELECT (SELECT COUNT(*) FROM runtime_instances), (SELECT COUNT(*) FROM execution_runtime_attempts), (SELECT COUNT(*) FROM codebuddy_execution_state)",
         [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).unwrap();
     assert_eq!(counts, (0, 0, 0));
+}
+
+/// CB8：真实 registered CodeBuddy 缺 CLI / disabled 时仍能取消历史 row，且不创建 Runtime。
+#[cfg(windows)]
+#[tokio::test]
+async fn codebuddy_cancel_history_ignores_disabled_unavailable_health() {
+    use crate::agent::codebuddy::{
+        discovery::DiscoveryError, provider::register_codebuddy_provider_with_discovery,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let mut manager = AgentTaskManager::new(store.clone(), "must-not-launch.exe".into());
+    let mut registry = ProviderRegistry::new();
+    register_codebuddy_provider_with_discovery(
+        &mut registry,
+        store.clone(),
+        "host".into(),
+        Err(DiscoveryError::not_found(false)),
+    )
+    .unwrap();
+    manager.use_registry(registry);
+    manager.set_provider_enabled_for_test("codebuddy", false);
+    for attempted in [false, true] {
+        let mut request = input(
+            directory.path(),
+            if attempted { "prepared" } else { "pristine" },
+        );
+        request.provider = ProviderId::new("codebuddy".into()).unwrap();
+        let created = manager.create(request.clone()).await.unwrap();
+        if attempted {
+            store
+                .reserve_runtime_attempt(
+                    created.execution_id.clone(),
+                    "original".into(),
+                    crate::agent::coordinator::now(),
+                )
+                .await
+                .unwrap();
+        }
+        let row = manager.cancel(&created.execution_id).await.unwrap();
+        assert_eq!(
+            row.status,
+            if attempted {
+                "dispatch_pending"
+            } else {
+                "cancelled"
+            }
+        );
+        assert_eq!(
+            store
+                .workspace_claim(row.canonical_workspace_root.clone())
+                .await
+                .unwrap()
+                .is_some(),
+            attempted
+        );
+        if attempted {
+            assert!(row.interrupt_requested_at.is_some());
+        }
+        let repeated = manager.cancel(&created.execution_id).await.unwrap();
+        assert_eq!(repeated.interrupt_requested_at, row.interrupt_requested_at);
+        assert!(manager.execute(request).await.is_err());
+    }
+    let db = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
+    let runtimes: i64 = db
+        .query_row("SELECT count(*) FROM runtime_instances", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(runtimes, 0);
 }

@@ -124,6 +124,7 @@ struct State {
     routes: HashSet<String>,
     diagnostics: Diagnostics,
     session_new_extensions: Option<SessionNewExtensions>,
+    prompt_response_received: bool,
 }
 
 /// ByteStreams guard、SDK handler 与请求入口共享生命周期。
@@ -150,6 +151,7 @@ impl Shared {
                 routes: HashSet::new(),
                 diagnostics: Diagnostics::default(),
                 session_new_extensions: None,
+                prompt_response_received: false,
             }),
         })
     }
@@ -179,6 +181,11 @@ impl Shared {
     /// 读取首个稳定失败，调用方不再接纳新请求或 session frame。
     pub(crate) fn failure(&self) -> Option<Failure> {
         *self.stop.borrow()
+    }
+
+    /// 仅 SDK exact pending id 的响应关闭 cancel wire 窗口，不推导 Provider outcome。
+    pub(crate) fn prompt_response_received(&self) -> bool {
+        self.state.lock().unwrap().prompt_response_received
     }
 
     /// SDK 完成 notification/response dispatch 或 server reply flush 后再允许下一帧。
@@ -237,6 +244,9 @@ impl Shared {
                     state.diagnostics.unmatched_response_id.saturating_add(1);
                 return Ok(false);
             };
+            if method == "session/prompt" {
+                state.prompt_response_received = true;
+            }
             if method == "initialize"
                 && let Some(result) = raw.get("result")
             {

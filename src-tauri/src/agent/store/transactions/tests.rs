@@ -2529,3 +2529,79 @@ fn staged_finalization_faults_rollback_and_same_evidence_retry() {
         assert!(block(s.workspace_claim("root".into())).unwrap().is_none());
     }
 }
+
+/// CB8 provider-neutral：Codex 真正未派发可本地释放，有 Runtime/attempt 时只能保留 intent。
+#[test]
+fn request_cancel_distinguishes_pristine_from_runtime_attempt() {
+    for kind in ["pristine", "bound", "attempt"] {
+        let dir = tempfile::tempdir().unwrap();
+        let s = open(dir.path());
+        if kind == "bound" {
+            fixture(&s, Status::DispatchPending, DispatchState::NotDispatched);
+        } else {
+            create_one(&s);
+            if kind == "attempt" {
+                block(s.reserve_runtime_attempt("e".into(), "r".into(), 2)).unwrap();
+            }
+        }
+        let row = block(s.request_cancel("e".into(), 3)).unwrap();
+        assert_eq!(row.provider, "codex");
+        assert_eq!(
+            row.status,
+            if kind == "pristine" {
+                "cancelled"
+            } else {
+                "dispatch_pending"
+            }
+        );
+        assert_eq!(
+            block(s.workspace_claim("root".into())).unwrap().is_some(),
+            kind != "pristine"
+        );
+        if kind != "pristine" {
+            assert_eq!(row.interrupt_requested_at, Some(3));
+        }
+        let repeated = block(s.request_cancel("e".into(), 4)).unwrap();
+        assert_eq!(repeated.interrupt_requested_at, row.interrupt_requested_at);
+        assert_eq!(repeated.revision, row.revision);
+    }
+}
+
+/// CB8：dispatch/Running cancel 幂等且 ACK 不释放，已有 terminal 不被 cancel 改写。
+#[test]
+fn request_cancel_inflight_and_terminal_preservation() {
+    for (state, dispatch) in [
+        (Status::DispatchPending, DispatchState::Dispatching),
+        (Status::DispatchPending, DispatchState::Dispatched),
+        (Status::Running, DispatchState::Dispatched),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let s = open(dir.path());
+        fixture(&s, state, dispatch);
+        let row = block(s.request_cancel("e".into(), 3)).unwrap();
+        assert_eq!(row.interrupt_requested_at, Some(3));
+        assert_eq!(
+            block(s.request_cancel("e".into(), 4))
+                .unwrap()
+                .interrupt_requested_at,
+            Some(3)
+        );
+        assert!(block(s.workspace_claim("root".into())).unwrap().is_some());
+        if state == Status::Running {
+            event(&s, Transition::InterruptAck, 5).unwrap();
+            assert!(block(s.workspace_claim("root".into())).unwrap().is_some());
+        }
+        event(
+            &s,
+            Transition::ProviderTerminal {
+                runtime_id: "r".into(),
+                status: Status::Completed,
+            },
+            6,
+        )
+        .unwrap();
+        let before = execution_snapshot(&s);
+        block(s.request_cancel("e".into(), 7)).unwrap();
+        assert_eq!(execution_snapshot(&s), before);
+    }
+}

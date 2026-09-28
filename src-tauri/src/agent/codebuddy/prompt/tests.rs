@@ -201,7 +201,8 @@ async fn exact_wire_order_terminal_result_and_late_freeze() {
         completed.session.private.provider_request_id.as_deref(),
         Some("independent-provider-request")
     );
-    assert_eq!(completed.session.private.revision, revision + 3);
+    // MarkSent 一次，provider request identity 与 terminal 合并为一次原子提交。
+    assert_eq!(completed.session.private.revision, revision + 2);
     assert_eq!(
         completed.session.runtime.runtime_id(),
         Some(runtime.as_str())
@@ -697,5 +698,140 @@ async fn occ_conflicts_fail_closed_without_terminal_overwrite() {
             assert!(current.terminal_stop_reason.is_none());
         }
         completed.session.shutdown().await.unwrap();
+    }
+}
+
+/// CB8：exact response 已到达、terminal 事务前首次 cancel 不能丢失正文或自然终态。
+#[tokio::test]
+async fn cancel_between_exact_response_and_atomic_terminal_preserves_result() {
+    use crate::agent::{
+        codebuddy::{discovery::DiscoveryError, provider::CodeBuddyProvider},
+        execution::state::{ResultCompleteness, Status},
+        provider::{ProviderCancelContext, port::AgentProvider},
+    };
+    let bin = tempfile::tempdir().unwrap();
+    let base = build(bin.path());
+    for has_provider_id in [false, true] {
+        let (dir, store, session, sink) = setup(&base, Limits::default()).await;
+        let id = session.private.execution_id.clone();
+        let conversation = session.private.conversation_request_id.clone();
+        if !has_provider_id {
+            std::fs::write(
+                dir.path().join("response.json"),
+                json!({"stopReason":"end_turn","_meta":{CONVERSATION:conversation}}).to_string(),
+            )
+            .unwrap();
+        }
+        write_frames(
+            dir.path(),
+            "updates.jsonl",
+            &[chunk(
+                "exact-session",
+                &conversation,
+                "agent_message_chunk",
+                "retained exact text",
+            )],
+        );
+        let ready = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let scope = (ready.clone(), release.clone());
+        let state = store.clone();
+        let (keep, cancelled) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(BEFORE_TERMINAL_COMMIT.scope(
+            scope,
+            run(session, state, sink, Arc::new(NoopTelemetry), cancelled),
+        ));
+        tokio::time::timeout(Duration::from_secs(5), ready.notified())
+            .await
+            .unwrap();
+        let before = store.execution(id.clone()).await.unwrap().unwrap();
+        let private_before = CodeBuddyStore(store.clone())
+            .read(id.clone())
+            .await
+            .unwrap();
+        let provider = CodeBuddyProvider::from_discovery(
+            store.clone(),
+            "host".into(),
+            Err(DiscoveryError::not_found(false)),
+        );
+        provider
+            .cancel(ProviderCancelContext {
+                execution_id: id.clone(),
+            })
+            .await
+            .unwrap();
+        let cancelled = store.execution(id.clone()).await.unwrap().unwrap();
+        assert!(cancelled.revision > before.revision);
+        assert_eq!(cancelled.status, "cancel_requested");
+        assert_eq!(
+            CodeBuddyStore(store.clone())
+                .read(id.clone())
+                .await
+                .unwrap(),
+            private_before
+        );
+        release.notify_one();
+        let completed = task.await.unwrap();
+        drop(keep);
+        let result = completed.result.as_ref().unwrap();
+        assert_eq!(result.outcome, ProviderOutcome::Completed);
+        assert_eq!(result.result, Some(json!({"text":"retained exact text"})));
+        assert_eq!(
+            completed.session.private.terminal_stop_reason,
+            Some(StopReason::EndTurn)
+        );
+        assert_eq!(
+            completed.session.private.provider_request_id.as_deref(),
+            has_provider_id.then_some("independent-provider-request")
+        );
+        assert!(
+            !wire(dir.path())
+                .iter()
+                .any(|frame| frame["method"] == "session/cancel")
+        );
+        assert!(
+            store
+                .workspace_claim(before.canonical_workspace_root.clone())
+                .await
+                .unwrap()
+                .is_some()
+        );
+        store
+            .provider_event(
+                id.clone(),
+                Transition::ProviderTerminalResult {
+                    runtime_id: before.runtime_instance_id.unwrap(),
+                    status: Status::Completed,
+                    result: result.result.clone(),
+                    completeness: ResultCompleteness::Complete,
+                },
+                now(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            store
+                .workspace_claim(before.canonical_workspace_root.clone())
+                .await
+                .unwrap()
+                .is_some()
+        );
+        completed.session.shutdown().await.unwrap();
+        crate::agent::codebuddy::recovery::reconcile_execution(&store, &id, false)
+            .await
+            .unwrap();
+        let done = store.execution(id).await.unwrap().unwrap();
+        assert_eq!(done.status, "completed");
+        assert_eq!(
+            done.final_result_json.as_deref(),
+            Some("{\"text\":\"retained exact text\"}")
+        );
+        assert!(
+            store
+                .workspace_claim(before.canonical_workspace_root)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 }

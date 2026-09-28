@@ -112,6 +112,11 @@ impl StateStore {
                 .ok_or("EXECUTION_NOT_FOUND")?;
             let mutation = if row.status == "dispatch_pending"
                 && row.dispatch_state == "not_dispatched"
+                && row.runtime_instance_id.is_none()
+                && row.provider_terminal_status.is_none()
+                // Runtime prepare 也可能产生副作用，必须由原 owner 清理后提交证据。
+                && !super::runtime_attempts::runtime_attempt_exists(tx, &id)
+                    .map_err(|e| e.to_string())?
             {
                 Some(Mutation::CancelBeforeDispatch)
             } else if row.provider_terminal_status.is_none()
@@ -1152,10 +1157,8 @@ fn transition_execution(
             match event {
                 Transition::Running => next = Status::Running,
                 Transition::RequestCancel => {
-                    // A dispatched request with no Turn yet keeps its cancellation intent.
-                    if row.status == Status::DispatchPending
-                        && row.dispatch != DispatchState::NotDispatched
-                    {
+                    // 尚未 Running 时只持久化 intent，包括已经 prepare 的 Runtime。
+                    if row.status == Status::DispatchPending {
                     } else {
                         next = Status::CancelRequested;
                     }

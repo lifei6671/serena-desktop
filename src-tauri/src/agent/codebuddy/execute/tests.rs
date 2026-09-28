@@ -277,6 +277,14 @@ async fn native_staged_live_job_startup_preserves_terminal_and_result() {
     .await
     .unwrap();
     let result = completion.result.unwrap();
+    // exact natural terminal 已到达后才提交用户意图：不得追加 cancel wire 或改成 Cancelled。
+    provider
+        .cancel(crate::agent::provider::ProviderCancelContext {
+            execution_id: "e".into(),
+        })
+        .await
+        .unwrap();
+    assert!(!control.path().join("cancel.json").exists());
     let runtime = completion
         .session
         .private
@@ -547,5 +555,609 @@ async fn native_disable_after_acceptance_preserves_owned_execute() {
     match policy.admit(&registry, &id, ProviderAdmissionCapability::Execute) {
         Err(error) => assert_eq!(error.code, ProviderErrorCode::AgentProviderDisabled),
         Ok(_) => panic!("disabled provider admitted new execution"),
+    }
+}
+
+/// CB8 native：同一 owner 收到重复 durable intent 只发一次，真实写入不回滚。
+#[tokio::test]
+async fn native_cancel_exact_terminal_and_workspace_matrix() {
+    use crate::agent::provider::ProviderCancelContext;
+    use crate::agent::provider::{
+        ProviderId,
+        control::{ProviderAdmissionCapability, ProviderAdmissionPolicy},
+        registry::ProviderRegistry,
+    };
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    for mode in ["cancel-read", "cancel-write", "cancel-end-turn"] {
+        let (control, workspace, store, provider) = setup(&binary, mode).await;
+        let provider = Arc::new(provider);
+        let running = provider.clone();
+        let sink = Arc::new(Sink(control.path().into()));
+        let task = tokio::spawn(async move {
+            running
+                .execute(
+                    ProviderExecutionContext {
+                        execution_id: "e".into(),
+                    },
+                    sink,
+                    Arc::new(SlowTelemetry),
+                )
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while !control.path().join("cancel-ready").exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        // acceptance 后 disable 且 discovery unavailable：历史 control 仍通过 registered adapter。
+        let mut registry = ProviderRegistry::new();
+        crate::agent::codebuddy::provider::register_codebuddy_provider_with_discovery(
+            &mut registry,
+            store.clone(),
+            "host".into(),
+            Err(crate::agent::codebuddy::discovery::DiscoveryError::not_found(false)),
+        )
+        .unwrap();
+        let id = ProviderId::new("codebuddy".into()).unwrap();
+        let policy = ProviderAdmissionPolicy::new(Default::default());
+        policy.set_enabled_for_test("codebuddy", false);
+        assert!(
+            policy
+                .admit(&registry, &id, ProviderAdmissionCapability::Execute)
+                .is_err()
+        );
+        let control_provider = registry.get_registered(&id).unwrap();
+        control_provider
+            .cancel(ProviderCancelContext {
+                execution_id: "e".into(),
+            })
+            .await
+            .unwrap();
+        control_provider
+            .cancel(ProviderCancelContext {
+                execution_id: "e".into(),
+            })
+            .await
+            .unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            result.outcome,
+            if mode == "cancel-end-turn" {
+                ProviderOutcome::Completed
+            } else {
+                ProviderOutcome::Cancelled
+            }
+        );
+        let row = store.execution("e".into()).await.unwrap().unwrap();
+        assert_eq!(
+            row.status,
+            if mode == "cancel-end-turn" {
+                "completed"
+            } else {
+                "cancelled"
+            }
+        );
+        assert_eq!(
+            row.release_evidence_kind.as_deref(),
+            Some("runtime_terminated")
+        );
+        assert!(row.interrupt_requested_at.is_some());
+        assert!(control.path().join("cancel.json").exists());
+        assert!(
+            store
+                .workspace_claim(row.canonical_workspace_root)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let private = crate::agent::codebuddy::store::CodeBuddyStore(store.clone())
+            .read("e".into())
+            .await
+            .unwrap();
+        assert_eq!(
+            private.prompt_state,
+            crate::agent::codebuddy::store::PromptState::TerminalObserved
+        );
+        if mode == "cancel-write" {
+            assert_eq!(
+                std::fs::read(workspace.path().join("marker.txt")).unwrap(),
+                b"CB8_WRITE\n"
+            );
+            assert_eq!(std::fs::read_dir(workspace.path()).unwrap().count(), 1);
+        } else {
+            assert_eq!(std::fs::read_dir(workspace.path()).unwrap().count(), 0);
+        }
+        // 已冻结 exact terminal 后的重复 cancel 不产生新的通知或更改结果。
+        provider
+            .cancel(ProviderCancelContext {
+                execution_id: "e".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            store.execution("e".into()).await.unwrap().unwrap().status,
+            row.status
+        );
+    }
+}
+
+/// CB8 native：未准备没有 child；准备后的 cancel 不发送 Prompt，也不伪造 Cancelled。
+#[tokio::test]
+async fn native_cancel_before_prompt_retains_evidence_authority() {
+    use crate::agent::provider::ProviderCancelContext;
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    for prepared in [false, true] {
+        for evidence_fault in [false, true] {
+            let (control, workspace, store, provider) = setup(&binary, "read").await;
+            let session = if prepared {
+                Some(
+                    provider
+                        .prepare_fresh("e".into(), DesiredConfiguration::default())
+                        .await
+                        .unwrap(),
+                )
+            } else {
+                None
+            };
+            provider
+                .cancel(ProviderCancelContext {
+                    execution_id: "e".into(),
+                })
+                .await
+                .unwrap();
+            if let Some(session) = session {
+                let before = store.execution("e".into()).await.unwrap().unwrap();
+                assert_eq!(before.status, "dispatch_pending");
+                assert!(before.interrupt_requested_at.is_some());
+                assert!(
+                    store
+                        .workspace_claim(before.canonical_workspace_root)
+                        .await
+                        .unwrap()
+                        .is_some()
+                );
+                if evidence_fault {
+                    rusqlite::Connection::open(control.path().join("agent-state.db")).unwrap().execute_batch("CREATE TRIGGER fail_evidence BEFORE UPDATE OF termination_evidence_state ON runtime_instances WHEN NEW.termination_evidence_state='complete' BEGIN SELECT RAISE(ABORT,'evidence fault'); END;").unwrap();
+                }
+                let (_keep, cancelled) = oneshot::channel();
+                let completion = crate::agent::codebuddy::prompt::run(
+                    session,
+                    store.clone(),
+                    Arc::new(Sink(control.path().into())),
+                    Arc::new(SlowTelemetry),
+                    cancelled,
+                )
+                .await;
+                assert!(completion.result.is_err());
+                let _ = completion.session.shutdown().await;
+                let result =
+                    crate::agent::codebuddy::recovery::reconcile_execution(&store, "e", false)
+                        .await;
+                if result.is_err() {
+                    crate::agent::codebuddy::recovery::mark_unknown(&store, "e")
+                        .await
+                        .unwrap();
+                }
+            } else {
+                assert!(
+                    provider
+                        .execute(
+                            ProviderExecutionContext {
+                                execution_id: "e".into()
+                            },
+                            Arc::new(Sink(control.path().into())),
+                            Arc::new(SlowTelemetry)
+                        )
+                        .await
+                        .is_err()
+                );
+            }
+            let row = store.execution("e".into()).await.unwrap().unwrap();
+            assert_eq!(
+                row.status,
+                if !prepared {
+                    "cancelled"
+                } else if evidence_fault {
+                    "unknown"
+                } else {
+                    "interrupted"
+                }
+            );
+            assert_eq!(
+                store
+                    .workspace_claim(row.canonical_workspace_root)
+                    .await
+                    .unwrap()
+                    .is_some(),
+                prepared && evidence_fault
+            );
+            assert!(!control.path().join("prompt.json").exists());
+            assert!(!control.path().join("cancel.json").exists());
+            assert_eq!(std::fs::read_dir(workspace.path()).unwrap().count(), 0);
+        }
+    }
+}
+
+/// CB8 native：绝对 cancel deadline 与 pipe 失败都只能收敛 Interrupted；cancel 不释放 Claim。
+#[tokio::test]
+async fn native_cancel_timeout_pipe_failure_and_staged_claim() {
+    use crate::agent::codebuddy::{fresh, protocol::Limits};
+    use crate::agent::provider::ProviderCancelContext;
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    for mode in ["cancel-timeout", "cancel-pipe", "cancel-read"] {
+        let (control, _workspace, store, provider) = setup(&binary, mode).await;
+        let session = fresh::prepare(
+            store.clone(),
+            "host".into(),
+            "e".into(),
+            provider.resolved_launch_spec().unwrap(),
+            DesiredConfiguration::default(),
+            Limits {
+                request_timeout: std::time::Duration::from_secs(2),
+                ..Limits::default()
+            },
+        )
+        .await
+        .unwrap();
+        let (keep, cancelled) = oneshot::channel();
+        let state = store.clone();
+        let sink = Arc::new(Sink(control.path().into()));
+        let task = tokio::spawn(async move {
+            crate::agent::codebuddy::prompt::run(
+                session,
+                state,
+                sink,
+                Arc::new(SlowTelemetry),
+                cancelled,
+            )
+            .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while !control.path().join("cancel-ready").exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        provider
+            .cancel(ProviderCancelContext {
+                execution_id: "e".into(),
+            })
+            .await
+            .unwrap();
+        let completion = tokio::time::timeout(std::time::Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
+        drop(keep);
+        let row = store.execution("e".into()).await.unwrap().unwrap();
+        assert!(
+            store
+                .workspace_claim(row.canonical_workspace_root.clone())
+                .await
+                .unwrap()
+                .is_some()
+        );
+        if mode == "cancel-read" {
+            assert_eq!(
+                completion.result.as_ref().unwrap().outcome,
+                ProviderOutcome::Cancelled
+            );
+            store
+                .provider_event(
+                    "e".into(),
+                    Transition::ProviderTerminalResult {
+                        runtime_id: row.runtime_instance_id.clone().unwrap(),
+                        status: Status::Cancelled,
+                        result: completion.result.as_ref().unwrap().result.clone(),
+                        completeness: ResultCompleteness::Complete,
+                    },
+                    now(),
+                )
+                .await
+                .unwrap();
+            let staged = store.execution("e".into()).await.unwrap().unwrap();
+            assert_eq!(staged.status, "finalizing");
+            assert!(
+                store
+                    .workspace_claim(staged.canonical_workspace_root)
+                    .await
+                    .unwrap()
+                    .is_some()
+            );
+            let runtime = store
+                .runtime(row.runtime_instance_id.clone().unwrap())
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(active_job_processes(runtime.job_name.as_deref().unwrap()) > 0);
+        } else {
+            assert!(completion.result.is_err());
+            assert!(row.provider_terminal_status.is_none());
+            assert!(row.interrupt_timeout_at.is_some());
+            assert_eq!(
+                row.interrupt_diagnostic.as_deref(),
+                Some(if mode == "cancel-timeout" {
+                    "CODEBUDDY_CANCEL_TIMEOUT"
+                } else {
+                    "CODEBUDDY_CANCEL_SEND_FAILED"
+                })
+            );
+            assert_eq!(
+                control.path().join("cancel.json").exists(),
+                mode == "cancel-timeout"
+            );
+        }
+        completion.session.shutdown().await.unwrap();
+        crate::agent::codebuddy::recovery::reconcile_execution(&store, "e", false)
+            .await
+            .unwrap();
+        let done = store.execution("e".into()).await.unwrap().unwrap();
+        assert_eq!(
+            done.status,
+            if mode == "cancel-read" {
+                "cancelled"
+            } else {
+                "interrupted"
+            }
+        );
+        assert!(
+            store
+                .workspace_claim(done.canonical_workspace_root)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+}
+
+/// CB8：exact Cancelled 已暂存但 Job evidence 失败时 Unknown + Claim；startup 后才释放。
+#[tokio::test]
+async fn native_cancel_terminal_evidence_failure_and_startup() {
+    use crate::agent::provider::ProviderCancelContext;
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    let (control, _workspace, store, provider) = setup(&binary, "cancel-read").await;
+    let db = rusqlite::Connection::open(control.path().join("agent-state.db")).unwrap();
+    db.execute_batch("CREATE TRIGGER fail_evidence BEFORE UPDATE OF termination_evidence_state ON runtime_instances WHEN NEW.termination_evidence_state='complete' BEGIN SELECT RAISE(ABORT,'evidence fault'); END;").unwrap();
+    let provider = Arc::new(provider);
+    let running = provider.clone();
+    let sink = Arc::new(Sink(control.path().into()));
+    let task = tokio::spawn(async move {
+        running
+            .execute(
+                ProviderExecutionContext {
+                    execution_id: "e".into(),
+                },
+                sink,
+                Arc::new(SlowTelemetry),
+            )
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !control.path().join("cancel-ready").exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    provider
+        .cancel(ProviderCancelContext {
+            execution_id: "e".into(),
+        })
+        .await
+        .unwrap();
+    assert!(task.await.unwrap().is_err());
+    let row = store.execution("e".into()).await.unwrap().unwrap();
+    assert_eq!(row.status, "unknown");
+    assert_eq!(row.provider_terminal_status.as_deref(), Some("cancelled"));
+    assert!(
+        store
+            .workspace_claim(row.canonical_workspace_root.clone())
+            .await
+            .unwrap()
+            .is_some()
+    );
+    db.execute_batch("DROP TRIGGER fail_evidence").unwrap();
+    provider
+        .startup_reconcile(ProviderStartupContext {})
+        .await
+        .unwrap();
+    let done = store.execution("e".into()).await.unwrap().unwrap();
+    assert_eq!(done.status, "cancelled");
+    assert_eq!(done.final_result_json, row.final_result_json);
+    assert!(
+        store
+            .workspace_claim(done.canonical_workspace_root)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+/// CB8：acceptance 后立即持久化 cancel，Prompt 必须先 flush；flush 失败时没有 cancel wire。
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn native_cancel_accepted_before_prompt_flush() {
+    use crate::agent::provider::ProviderCancelContext;
+    struct PausedAcceptance {
+        sink: Sink,
+        ready: Arc<tokio::sync::Notify>,
+        release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+    impl ProviderAcceptanceSink for PausedAcceptance {
+        /// 仅测试同步边界，用握手而非 sleep 排定 durable cancel 在物理 Prompt 之前。
+        fn accepted(&self) {
+            self.sink.accepted();
+            self.ready.notify_one();
+            self.release
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+        }
+    }
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    for mode in ["cancel-read", "closed-input"] {
+        let (control, _workspace, store, provider) = setup(&binary, mode).await;
+        let provider = Arc::new(provider);
+        let ready = Arc::new(tokio::sync::Notify::new());
+        let (release, receiver) = std::sync::mpsc::channel();
+        let sink = Arc::new(PausedAcceptance {
+            sink: Sink(control.path().into()),
+            ready: ready.clone(),
+            release: std::sync::Mutex::new(receiver),
+        });
+        let executing = provider.clone();
+        let task = tokio::spawn(async move {
+            executing
+                .execute(
+                    ProviderExecutionContext {
+                        execution_id: "e".into(),
+                    },
+                    sink,
+                    Arc::new(SlowTelemetry),
+                )
+                .await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), ready.notified())
+            .await
+            .unwrap();
+        provider
+            .cancel(ProviderCancelContext {
+                execution_id: "e".into(),
+            })
+            .await
+            .unwrap();
+        assert!(!control.path().join("prompt.json").exists());
+        assert!(!control.path().join("cancel.json").exists());
+        let row = store.execution("e".into()).await.unwrap().unwrap();
+        assert!(row.interrupt_requested_at.is_some());
+        assert!(
+            store
+                .workspace_claim(row.canonical_workspace_root)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        release.send(()).unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), task)
+            .await
+            .unwrap()
+            .unwrap();
+        let row = store.execution("e".into()).await.unwrap().unwrap();
+        if mode == "cancel-read" {
+            assert_eq!(result.unwrap().outcome, ProviderOutcome::Cancelled);
+            assert!(row.interrupt_ack_at.is_some());
+            assert!(control.path().join("cancel.json").exists());
+        } else {
+            assert!(result.is_err());
+            assert_eq!(row.status, "interrupted");
+            assert!(row.provider_terminal_status.is_none());
+            assert!(!control.path().join("cancel.json").exists());
+        }
+    }
+}
+
+/// CB8 native crash-window：intent / 已发送但无 terminal 的恢复均只能 Interrupted。
+#[tokio::test]
+async fn native_cancel_startup_after_intent_or_send() {
+    use crate::agent::provider::ProviderCancelContext;
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    for sent in [false, true] {
+        let (control, _workspace, store, provider) = setup(&binary, "cancel-timeout").await;
+        let session = provider
+            .prepare_fresh("e".into(), DesiredConfiguration::default())
+            .await
+            .unwrap();
+        let (keep, cancelled) = oneshot::channel();
+        let mut prepared = Some(session);
+        let task = if sent {
+            let session = prepared.take().unwrap();
+            let state = store.clone();
+            let sink = Arc::new(Sink(control.path().into()));
+            Some(tokio::spawn(async move {
+                crate::agent::codebuddy::prompt::run(
+                    session,
+                    state,
+                    sink,
+                    Arc::new(SlowTelemetry),
+                    cancelled,
+                )
+                .await
+            }))
+        } else {
+            None
+        };
+        if sent {
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                while !control.path().join("cancel-ready").exists() {
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+        provider
+            .cancel(ProviderCancelContext {
+                execution_id: "e".into(),
+            })
+            .await
+            .unwrap();
+        if sent {
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                while store
+                    .execution("e".into())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .interrupt_ack_at
+                    .is_none()
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .unwrap();
+            assert!(control.path().join("cancel.json").exists());
+        }
+        let missing = CodeBuddyProvider::from_discovery(
+            store.clone(),
+            "new-host".into(),
+            Err(crate::agent::codebuddy::discovery::DiscoveryError::not_found(false)),
+        );
+        missing
+            .startup_reconcile(ProviderStartupContext {})
+            .await
+            .unwrap();
+        let row = store.execution("e".into()).await.unwrap().unwrap();
+        assert_eq!(row.status, "interrupted");
+        assert!(row.provider_terminal_status.is_none());
+        assert!(
+            store
+                .workspace_claim(row.canonical_workspace_root)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        if let Some(task) = task {
+            let completion = task.await.unwrap();
+            assert!(completion.result.is_err());
+            let _ = completion.session.shutdown().await;
+        }
+        if let Some(session) = prepared {
+            let _ = session.shutdown().await;
+        }
+        drop(keep);
     }
 }

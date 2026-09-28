@@ -113,6 +113,24 @@ pub(crate) enum Mutation {
 pub(crate) struct CodeBuddyStore(pub(crate) StateStore);
 
 impl CodeBuddyStore {
+    /// 只合并 exact response 的私有观测；不写 generic terminal，也不释放 Claim。
+    pub(crate) async fn observe_prompt_response(
+        &self,
+        expected: PrivateState,
+        provider_request_id: Option<String>,
+        stop_reason: StopReason,
+        observed_at: i64,
+    ) -> Result<PrivateState, String> {
+        self.0
+            .commit_codebuddy_prompt_response(
+                expected,
+                provider_request_id,
+                stop_reason,
+                observed_at,
+            )
+            .await
+    }
+
     /// 原子预留 UUIDv7 Prompt identity；重复创建明确 conflict，不覆盖旧 identity。
     pub(crate) async fn create(
         &self,

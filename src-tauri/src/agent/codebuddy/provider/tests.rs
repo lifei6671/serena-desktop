@@ -49,7 +49,7 @@ async fn missing_cli_registers_unavailable_skeleton() {
         ProviderCapabilities {
             can_execute: cfg!(windows),
             can_continue: false,
-            can_cancel: false,
+            can_cancel: cfg!(windows),
             can_recover: cfg!(windows),
             activity: cfg!(windows),
             token_usage: false,
@@ -80,7 +80,7 @@ async fn found_cli_registers_available_platform_capabilities() {
         ProviderCapabilities {
             can_execute: cfg!(windows),
             can_continue: false,
-            can_cancel: false,
+            can_cancel: cfg!(windows),
             can_recover: cfg!(windows),
             activity: cfg!(windows),
             token_usage: false,
@@ -189,7 +189,11 @@ async fn lifecycle_methods_never_start_unimplemented_behavior() {
             .await
             .unwrap_err()
             .code,
-        ProviderErrorCode::AgentProviderCapabilityUnsupported
+        if cfg!(windows) {
+            ProviderErrorCode::AgentProviderOperationFailed
+        } else {
+            ProviderErrorCode::AgentProviderCapabilityUnsupported
+        }
     );
     assert!(
         provider
@@ -208,4 +212,82 @@ async fn authority() -> (tempfile::TempDir, crate::agent::store::StateStore) {
         .await
         .unwrap();
     (directory, store)
+}
+
+/// CB8：历史 control 与 CLI health 无关；直调错误 provider 的 Execution 必须拒绝。
+#[cfg(windows)]
+#[tokio::test]
+async fn cancel_unavailable_registered_history_and_wrong_provider() {
+    use crate::agent::execution::{CreateExecutionInput, canonicalize_request};
+    let (_dir, store) = authority().await;
+    let mut registry = ProviderRegistry::new();
+    register_codebuddy_provider_with_discovery(
+        &mut registry,
+        store.clone(),
+        "host".into(),
+        Err(DiscoveryError::not_found(false)),
+    )
+    .unwrap();
+    let provider = registry
+        .get_registered(&ProviderId::new("codebuddy".into()).unwrap())
+        .unwrap();
+    for id in ["codebuddy", "codex"] {
+        let input: CreateExecutionInput = serde_json::from_value(serde_json::json!({"agent_id":id,"request_key":id,"prompt":"test","execution_profile":{},"workspace_id":id,"canonical_workspace_root":id,"mode":"read_only","provider":id})).unwrap();
+        store
+            .create_execution(id.into(), canonicalize_request(input).unwrap(), 1)
+            .await
+            .unwrap();
+    }
+    assert!(
+        provider
+            .cancel(ProviderCancelContext {
+                execution_id: "codex".into()
+            })
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        store
+            .execution("codex".into())
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        "dispatch_pending"
+    );
+    store
+        .reserve_runtime_attempt("codebuddy".into(), "original".into(), 2)
+        .await
+        .unwrap();
+    provider
+        .cancel(ProviderCancelContext {
+            execution_id: "codebuddy".into(),
+        })
+        .await
+        .unwrap();
+    let row = store.execution("codebuddy".into()).await.unwrap().unwrap();
+    assert!(row.interrupt_requested_at.is_some());
+    assert_eq!(row.status, "dispatch_pending");
+    assert!(
+        store
+            .workspace_claim("codebuddy".into())
+            .await
+            .unwrap()
+            .is_some()
+    );
+    provider
+        .cancel(ProviderCancelContext {
+            execution_id: "codebuddy".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .execution("codebuddy".into())
+            .await
+            .unwrap()
+            .unwrap()
+            .revision,
+        row.revision
+    );
 }

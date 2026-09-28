@@ -126,7 +126,8 @@ pub(crate) fn register_codebuddy_provider_with_discovery(
     )
 }
 
-/// Cancel 尚未实现，保持稳定 capability unsupported。
+/// 非 Windows 平台没有受管 Cancel runtime 能力。
+#[cfg(not(windows))]
 fn unsupported() -> ProviderError {
     ProviderError {
         code: ProviderErrorCode::AgentProviderCapabilityUnsupported,
@@ -146,12 +147,12 @@ impl AgentProvider for CodeBuddyProvider {
         }
     }
 
-    /// Windows Fresh/Activity/Job recovery 已通过 Gate；其他平台与未实现能力保持关闭。
+    /// Windows Fresh/Activity/Job recovery/Cancel 已通过 Gate；其他平台与未实现能力保持关闭。
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             can_execute: cfg!(windows),
             can_continue: false,
-            can_cancel: false,
+            can_cancel: cfg!(windows),
             can_recover: cfg!(windows),
             activity: cfg!(windows),
             token_usage: false,
@@ -203,12 +204,38 @@ impl AgentProvider for CodeBuddyProvider {
         }
     }
 
-    /// CB6-001 没有 Cancel 实现，直接返回稳定公共错误。
+    /// 只提交 durable intent；原 Prompt owner 负责 exact session 通知及 Runtime 收敛。
     fn cancel<'a>(
         &'a self,
-        _context: ProviderCancelContext,
+        context: ProviderCancelContext,
     ) -> ProviderFuture<'a, Result<(), ProviderError>> {
-        Box::pin(async { Err(unsupported()) })
+        #[cfg(windows)]
+        {
+            Box::pin(async move {
+                let failed = || ProviderError {
+                    code: ProviderErrorCode::AgentProviderOperationFailed,
+                };
+                let row = self
+                    .store
+                    .execution(context.execution_id.clone())
+                    .await
+                    .map_err(|_| failed())?
+                    .ok_or_else(failed)?;
+                if row.provider != "codebuddy" {
+                    return Err(failed());
+                }
+                self.store
+                    .request_cancel(context.execution_id, crate::agent::coordinator::now())
+                    .await
+                    .map_err(|_| failed())?;
+                Ok(())
+            })
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = context;
+            Box::pin(async { Err(unsupported()) })
+        }
     }
 
     /// 恢复只依赖 durable ownership，与 CLI presence、enabled 和 admission health 无关。

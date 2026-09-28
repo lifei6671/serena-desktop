@@ -298,7 +298,8 @@ async fn initialize_sanitized_fixture_and_missing_capability_keep_health_and_cap
         );
         assert_eq!(registry.health(&id).unwrap(), ProviderHealth::Available);
         assert_eq!(registry.capabilities(&id).unwrap(), before);
-        assert!(!before.can_continue && !before.can_cancel && !before.token_usage);
+        assert!(!before.can_continue && !before.token_usage);
+        assert_eq!(before.can_cancel, cfg!(windows));
         assert_eq!(before.can_recover, cfg!(windows));
         assert_eq!(before.can_execute, cfg!(windows));
         assert_eq!(before.activity, cfg!(windows));
@@ -475,6 +476,26 @@ async fn write_and_flush_closed_pipe_keep_first_failure_and_health_local() {
             assert_eq!(shared.failure(), Some(expected));
             assert_eq!(shared.fail(Failure::Incompatible), expected);
             assert_eq!(expected.health_change(), None);
+            // Cancel 的 observer 同样不能把 enqueue 或完整 write 误认成 inner.flush 成功。
+            let shared = Shared::new(Limits::default());
+            let (sender, mut receiver) = oneshot::channel();
+            let slot = Arc::new(Mutex::new(CancelSlot {
+                used: true,
+                permit: Some(("s".into(), sender)),
+                flushed_at: None,
+            }));
+            let mut writer = GuardedWrite::with_cancel(
+                ErrorWriter { kind, on_flush },
+                shared.clone(),
+                Arc::new(Mutex::new(None)),
+                slot.clone(),
+            );
+            writer.write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"session/cancel\",\"params\":{\"sessionId\":\"s\"}}\n").await.unwrap();
+            assert!(writer.flush().await.is_err());
+            assert!(receiver.try_recv().is_err());
+            assert!(slot.lock().unwrap().flushed_at.is_none());
+            assert!(slot.lock().unwrap().permit.is_none());
+            assert_eq!(shared.failure(), Some(expected));
         }
     }
 }
@@ -907,4 +928,129 @@ async fn sdk_prompt_flush_id_matches_wire_without_completing_waiter() {
     peer.respond(&wire, json!({"stopReason":"end_turn"})).await;
     assert!(task.await.unwrap().is_ok());
     client.shutdown().await;
+}
+
+/// CB8：官方 SDK 只发 exact sessionId，一次 flush 后拒绝再次授权。
+#[tokio::test]
+async fn cancel_sdk_exact_wire_once() {
+    let (client, mut peer) = pair(Limits::default()).await;
+    let requests = client.requests.clone();
+    let task = tokio::spawn(async move { requests.cancel_session("exact".into()).await });
+    assert_eq!(
+        peer.next().await,
+        json!({"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"exact"}})
+    );
+    task.await.unwrap().unwrap();
+    assert_eq!(
+        client.requests.cancel_session("exact".into()).await,
+        Err(Failure::Closed)
+    );
+    let slot = client.requests.cancel.clone();
+    client.shutdown().await;
+    assert!(slot.lock().unwrap().permit.is_none());
+}
+
+/// CB8：permit 不能授权错误会话、其它 notification 或附加私有字段。
+#[tokio::test]
+async fn cancel_guard_permit_and_physical_flush() {
+    use futures::io::AsyncWriteExt;
+    for (method, params, permitted, succeeds) in [
+        ("session/cancel", json!({"sessionId":"s"}), true, true),
+        ("session/cancel", json!({"sessionId":"wrong"}), true, false),
+        ("session/cancel", json!({"sessionId":"s"}), false, false),
+        ("other", json!({"sessionId":"s"}), true, false),
+        (
+            "session/cancel",
+            json!({"sessionId":"s","conversationId":"private"}),
+            true,
+            false,
+        ),
+    ] {
+        let shared = Shared::new(Limits::default());
+        let (sender, mut receiver) = oneshot::channel();
+        let slot = Arc::new(Mutex::new(CancelSlot {
+            used: permitted,
+            permit: if permitted {
+                Some(("s".into(), sender))
+            } else {
+                None
+            },
+            flushed_at: None,
+        }));
+        let mut writer = GuardedWrite::with_cancel(
+            futures::io::Cursor::new(Vec::new()),
+            shared,
+            Arc::new(Mutex::new(None)),
+            slot,
+        );
+        let frame = format!(
+            "{}\n",
+            json!({"jsonrpc":"2.0","method":method,"params":params})
+        );
+        assert_eq!(writer.write_all(frame.as_bytes()).await.is_ok(), succeeds);
+        assert!(writer.inner.get_ref().is_empty());
+        assert!(receiver.try_recv().is_err());
+        if succeeds {
+            writer.flush().await.unwrap();
+            receiver.await.unwrap();
+            assert_eq!(writer.inner.get_ref(), frame.as_bytes());
+            assert!(writer.write_all(frame.as_bytes()).await.is_err());
+        }
+    }
+}
+
+/// CB8：阻塞真实写入有固定上限，失败后单槽 authority 被清理且不重试。
+#[tokio::test]
+async fn cancel_blocked_pipe_times_out_and_clears_permit() {
+    let (outgoing, _unread) = tokio::io::duplex(1);
+    let (_held, incoming) = tokio::io::duplex(1);
+    let client = ManagedClient::connect(
+        outgoing.compat_write(),
+        incoming.compat(),
+        Limits {
+            request_timeout: Duration::from_millis(30),
+            ..Limits::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        client.requests.cancel_session("s".into()).await,
+        Err(Failure::Timeout)
+    );
+    assert!(client.requests.cancel.lock().unwrap().permit.is_none());
+    assert!(client.requests.cancel_session("s".into()).await.is_err());
+    client.shutdown().await;
+}
+
+/// CB8：response 已过 exact read guard、owner 尚未被调度时，已 enqueue cancel 也不能写 pipe。
+#[tokio::test]
+async fn cancel_guard_suppresses_wire_after_exact_prompt_response() {
+    use futures::io::AsyncWriteExt;
+    let shared = Shared::new(Limits::default());
+    shared
+        .outgoing(&json!({"jsonrpc":"2.0","id":7,"method":"session/prompt","params":{}}))
+        .unwrap();
+    let (sender, receiver) = oneshot::channel();
+    let slot = Arc::new(Mutex::new(CancelSlot {
+        used: true,
+        permit: Some(("s".into(), sender)),
+        flushed_at: None,
+    }));
+    let mut writer = GuardedWrite::with_cancel(
+        futures::io::Cursor::new(Vec::new()),
+        shared.clone(),
+        Arc::new(Mutex::new(None)),
+        slot,
+    );
+    writer.write_all(b"{\"jsonrpc\":\"2.0\",\"method\":\"session/cancel\",\"params\":{\"sessionId\":\"s\"}}\n").await.unwrap();
+    assert!(
+        shared
+            .incoming(&json!({"jsonrpc":"2.0","id":7,"result":{"stopReason":"end_turn"}}))
+            .unwrap()
+    );
+    writer.flush().await.unwrap();
+    assert!(writer.inner.get_ref().is_empty());
+    assert!(receiver.await.is_err());
+    assert!(shared.failure().is_none());
 }

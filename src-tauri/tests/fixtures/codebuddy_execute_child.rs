@@ -14,6 +14,7 @@ fn reply(id: &Value, result: Value) {
 fn main() {
     let control: PathBuf = std::env::current_exe().unwrap().parent().unwrap().into();
     let db = rusqlite::Connection::open(control.join("agent-state.db")).unwrap();
+    let mut pending_prompt: Option<Value> = None;
     for line in io::stdin().lock().lines() {
         let raw: Value = serde_json::from_str(&line.unwrap()).unwrap();
         match raw["method"].as_str().unwrap() {
@@ -56,6 +57,32 @@ fn main() {
                 assert_eq!(intent, "sent");
                 fs::write(control.join("prompt.json"), raw.to_string()).unwrap();
                 let mode = fs::read_to_string(control.join("mode")).unwrap();
+                if mode.starts_with("cancel-") {
+                    if mode == "cancel-write" { fs::write("marker.txt", b"CB8_WRITE\n").unwrap(); }
+                    if mode == "cancel-pipe" {
+                        // 只关闭真实 stdin pipe，stdout 保持打开让 owner 的 cancel write 失败。
+                        #[link(name = "kernel32")]
+                        unsafe extern "system" {
+                            fn GetStdHandle(which: u32) -> *mut std::ffi::c_void;
+                            fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
+                        }
+                        #[link(name = "ucrt")]
+                        unsafe extern "C" { fn _close(fd: i32) -> i32; fn _get_osfhandle(fd: i32) -> isize; }
+                        // 测试进程独占标准输入；关闭 CRT/Win32 两种所有权来源。
+                        unsafe {
+                            let handle = GetStdHandle(-10i32 as u32);
+                            let crt = _get_osfhandle(0);
+                            if crt != -1 { assert_eq!(_close(0), 0); }
+                            if crt != handle as isize { assert_ne!(CloseHandle(handle), 0); }
+                        }
+                        fs::write(control.join("cancel-ready"), "").unwrap();
+                        std::thread::sleep(std::time::Duration::from_secs(30));
+                        return;
+                    }
+                    pending_prompt = Some(raw);
+                    fs::write(control.join("cancel-ready"), "").unwrap();
+                    continue;
+                }
                 if mode == "eof" {
                     return;
                 }
@@ -80,6 +107,15 @@ fn main() {
                     &raw["id"],
                     json!({"stopReason":"end_turn","_meta":{"codebuddy.ai/conversationRequestId":conversation}}),
                 );
+            }
+            "session/cancel" => {
+                assert_eq!(raw, json!({"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"exact-session"}}));
+                assert!(!control.join("cancel.json").exists());
+                fs::write(control.join("cancel.json"), raw.to_string()).unwrap();
+                let mode = fs::read_to_string(control.join("mode")).unwrap();
+                if mode == "cancel-timeout" { continue; }
+                let prompt = pending_prompt.take().expect("prompt before cancel");
+                reply(&prompt["id"], json!({"stopReason":if mode == "cancel-end-turn" { "end_turn" } else { "cancelled" },"_meta":{"codebuddy.ai/conversationRequestId":prompt["params"]["_meta"]["codebuddy.ai/conversationRequestId"]}}));
             }
             _ => panic!("unexpected request"),
         }

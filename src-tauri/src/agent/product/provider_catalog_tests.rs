@@ -137,10 +137,11 @@ async fn codex_available_enabled_json_fixture() {
         .await;
     let mut expected: Value =
         serde_json::from_str(include_str!("fixtures/provider_catalog_codex.json")).unwrap();
-    // Fresh Execute、Activity 与 Job recovery 仅在通过 native Windows Gate 的平台声明。
+    // Fresh Execute、Activity、Cancel 与 Job recovery 仅在通过 native Windows Gate 的平台声明。
     expected["providers"][0]["capabilities"]["canExecute"] = json!(cfg!(windows));
     expected["providers"][0]["capabilities"]["activity"] = json!(cfg!(windows));
     expected["providers"][0]["capabilities"]["canRecover"] = json!(cfg!(windows));
+    expected["providers"][0]["capabilities"]["canCancel"] = json!(cfg!(windows));
     assert_eq!(value, expected);
     assert!(durable_snapshot(directory.path()).iter().all(Vec::is_empty));
 }
@@ -237,7 +238,7 @@ async fn codebuddy_catalog_and_refresh_preserve_capability_truth() {
                 "capabilities": {
                     "canExecute": cfg!(windows),
                     "canContinue": false,
-                    "canCancel": false,
+                    "canCancel": cfg!(windows),
                     "canRecover": cfg!(windows),
                     "activity": cfg!(windows),
                     "tokenUsage": false

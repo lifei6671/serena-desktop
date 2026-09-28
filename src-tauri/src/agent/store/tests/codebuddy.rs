@@ -688,3 +688,111 @@ async fn missing_and_corrupt_private_state_fail_closed() {
         .await;
     }
 }
+
+/// CB8：原子 response 提交仅容忍同一 owner 的 generic cancel；private OCC/Runtime/terminal/SQL 失败仍回滚。
+#[tokio::test]
+async fn atomic_prompt_response_cancel_and_conflict_matrix() {
+    use crate::agent::execution::state::{Status, Transition};
+    for fault in [
+        "cancel",
+        "private",
+        "runtime",
+        "private_terminal",
+        "generic_terminal",
+        "reconciling",
+        "sql",
+    ] {
+        let (_dir, store) = fixture(true).await;
+        let prepared = ready(&store).await;
+        let mut expected = store
+            .mutate(
+                "e1".into(),
+                owner(true),
+                prepared.revision,
+                Mutation::MarkSent { rpc_id: None },
+            )
+            .await
+            .unwrap();
+        store
+            .0
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE executions SET status='running',dispatch_state='dispatched' WHERE id='e1'",
+                [],
+            )
+            .unwrap();
+        match fault {
+            "cancel" => {
+                store.0.request_cancel("e1".into(), 400).await.unwrap();
+            }
+            "private" => {
+                expected.session_id = Some("stale-session".into());
+            }
+            "runtime" => {
+                // R1 在数据库中不可重绑；注入错误调用方快照而不移除安全 trigger。
+                expected.runtime_instance_id = Some("r2".into());
+            }
+            "private_terminal" => {
+                store
+                    .mutate(
+                        "e1".into(),
+                        owner(true),
+                        expected.revision,
+                        terminal(&expected),
+                    )
+                    .await
+                    .unwrap();
+            }
+            "generic_terminal" => {
+                store
+                    .0
+                    .provider_event(
+                        "e1".into(),
+                        Transition::ProviderTerminal {
+                            runtime_id: "r1".into(),
+                            status: Status::Completed,
+                        },
+                        400,
+                    )
+                    .await
+                    .unwrap();
+            }
+            "reconciling" => {
+                store
+                    .0
+                    .provider_event("e1".into(), Transition::Reconcile, 400)
+                    .await
+                    .unwrap();
+            }
+            "sql" => {
+                store.0.connection.lock().unwrap().execute_batch("CREATE TRIGGER reject_terminal BEFORE UPDATE ON codebuddy_execution_state WHEN NEW.prompt_state='terminal_observed' BEGIN SELECT RAISE(ABORT,'terminal fault'); END;").unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let before = snapshot(&store, ALL);
+        let authority = snapshot(&store, AUTHORITY);
+        let result = store
+            .observe_prompt_response(
+                expected,
+                Some("exact-provider-request".into()),
+                StopReason::EndTurn,
+                456,
+            )
+            .await;
+        if fault == "cancel" {
+            let state = result.unwrap();
+            assert_eq!(state.prompt_state, PromptState::TerminalObserved);
+            assert_eq!(state.terminal_stop_reason, Some(StopReason::EndTurn));
+            assert_eq!(
+                state.provider_request_id.as_deref(),
+                Some("exact-provider-request")
+            );
+            assert_eq!(snapshot(&store, AUTHORITY), authority);
+        } else {
+            assert!(result.is_err(), "{fault}");
+            assert_eq!(snapshot(&store, ALL), before, "{fault}");
+        }
+    }
+}

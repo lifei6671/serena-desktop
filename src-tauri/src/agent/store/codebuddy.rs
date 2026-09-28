@@ -150,6 +150,50 @@ fn private_ownership(
 }
 
 impl StateStore {
+    /// exact response 在同一事务内读取 generic ownership 并冻结 private terminal。
+    /// 用户 cancel 只改变 generic revision，不能使已收到的可靠终态失效；private OCC 仍严格保留。
+    pub(crate) async fn commit_codebuddy_prompt_response(
+        &self,
+        expected: PrivateState,
+        provider_request_id: Option<String>,
+        stop_reason: agent_client_protocol::schema::v1::StopReason,
+        observed_at: i64,
+    ) -> Result<PrivateState, String> {
+        self.write(move |tx| {
+            let id = &expected.execution_id;
+            let row = execution_record(tx, id).map_err(|e| e.to_string())?.ok_or("EXECUTION_NOT_FOUND")?;
+            let binding = ownership(tx, id, None)?;
+            let mut s = load(tx, id).map_err(|e| e.to_string())?;
+            validate(&s)?;
+            private_ownership(tx, &s, &binding, false)?;
+            if s != expected || s.prompt_state != PromptState::Sent
+                || binding.is_none() || row.dispatch_state != "dispatched"
+                || !matches!(row.status.as_str(), "running" | "cancel_requested" | "cancelling")
+                || row.provider_terminal_status.is_some()
+            {
+                return Err("CodeBuddy exact response ownership conflict".into());
+            }
+            if let Some(id) = provider_request_id {
+                apply(&mut s, Mutation::ExactProviderRequest(id), binding.clone(), observed_at)?;
+            }
+            apply(&mut s, Mutation::ObserveTerminal {
+                session_id: expected.session_id.ok_or("CodeBuddy session required")?,
+                conversation_request_id: expected.conversation_request_id,
+                stop_reason, observed_at,
+            }, binding, observed_at)?;
+            validate(&s)?;
+            let revision = s.revision.checked_add(1).ok_or("CodeBuddy revision overflow")?;
+            // provider request identity 与 terminal 同一提交，无两次写入之间的 cancel/OCC 窗口。
+            let changed = tx.execute("UPDATE codebuddy_execution_state SET provider_request_id=?2,
+                provider_request_id_source=?3,prompt_state='terminal_observed',terminal_stop_reason=?4,
+                terminal_observed_at=?5,revision=?6,updated_at=?5 WHERE execution_id=?1 AND revision=?7",
+                params![id,s.provider_request_id,s.provider_request_id_source,encode(&stop_reason)?,observed_at,revision,s.revision]
+            ).map_err(|e| e.to_string())?;
+            if changed != 1 { return Err("CodeBuddy private response revision conflict".into()); }
+            load(tx, id).map_err(|e| e.to_string())
+        }).await
+    }
+
     /// 区分真正缺失与已有私有行校验冲突；缺失绝不推造 Session。
     pub(crate) async fn codebuddy_state_exists(&self, id: String) -> Result<bool, String> {
         self.read(move |c| {

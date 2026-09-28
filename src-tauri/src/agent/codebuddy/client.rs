@@ -6,7 +6,7 @@ use agent_client_protocol::{
     JsonRpcRequest,
     schema::{
         ProtocolVersion,
-        v1::{InitializeRequest, InitializeResponse},
+        v1::{CancelNotification, InitializeRequest, InitializeResponse},
     },
 };
 use futures::io::{AsyncRead, AsyncWrite};
@@ -37,6 +37,15 @@ pub(crate) struct Requests {
     pub(crate) shared: Arc<Shared>,
     slots: Arc<Semaphore>,
     prompt_flush: Arc<Mutex<Option<PromptFlush>>>,
+    cancel: Arc<Mutex<CancelSlot>>,
+}
+
+/// 每个原始 client 最多授权一次 cancel；消费后不可重新注册。
+#[derive(Default)]
+struct CancelSlot {
+    used: bool,
+    permit: Option<(String, oneshot::Sender<tokio::time::Instant>)>,
+    flushed_at: Option<tokio::time::Instant>,
 }
 
 /// 单个 fresh Prompt 的 exact 身份与有界一次性物理 flush 观察者。
@@ -61,6 +70,59 @@ impl Drop for RequestLifetime {
 }
 
 impl Requests {
+    /// terminal 分支可读取已经发生的物理证据，绝不轮询/启动尚未发送的 notification。
+    pub(crate) fn cancel_flushed_at(&self) -> Option<tokio::time::Instant> {
+        self.cancel.lock().ok().and_then(|slot| slot.flushed_at)
+    }
+    /// SDK enqueue 不代表 ACK；只有 exact 通知的物理 flush 完成才能返回。
+    pub(crate) async fn cancel_session(
+        &self,
+        session: String,
+    ) -> Result<tokio::time::Instant, Failure> {
+        if let Some(error) = self.shared.failure() {
+            return Err(error);
+        }
+        let (sender, receiver) = oneshot::channel();
+        {
+            let mut slot = self.cancel.lock().map_err(|_| Failure::State)?;
+            if slot.used {
+                return Err(Failure::Closed);
+            }
+            slot.used = true;
+            slot.permit = Some((session.clone(), sender));
+        }
+        let mut lifetime = RequestLifetime {
+            shared: self.shared.clone(),
+            completed: false,
+        };
+        let mut stopped = self.shared.stop.subscribe();
+        let result = match self
+            .connection
+            .send_notification(CancelNotification::new(session))
+        {
+            Err(_) => Err(Failure::Io),
+            Ok(()) => tokio::select! {
+                biased;
+                observed = async {
+                    match receiver.await {
+                        // exact response 已先到达输入 guard：取消不再发送，等待原 request 消费它。
+                        Err(_) if self.shared.prompt_response_received() => std::future::pending().await,
+                        observed => observed.map_err(|_| Failure::Io),
+                    }
+                } => observed,
+                _ = stopped.wait_for(|value| value.is_some()) => Err(self.shared.failure().unwrap_or(Failure::Closed)),
+                _ = tokio::time::sleep(self.shared.limits.request_timeout) => Err(Failure::Timeout),
+            },
+        };
+        self.cancel
+            .lock()
+            .map_err(|_| Failure::State)?
+            .permit
+            .take();
+        lifetime.completed = true;
+        result.map_err(|error| self.shared.fail(error))
+    }
+
     /// 在 SDK 编码前注册 exact Prompt；id 仍完全由 SDK 生成。
     pub(crate) fn observe_prompt_flush(
         &self,
@@ -113,6 +175,11 @@ impl Requests {
             .try_acquire()
             .map_err(|_| Failure::PendingLimit)?;
         let mut stopped = self.shared.stop.subscribe();
+        let is_prompt = request
+            .to_untyped_message()
+            .map_err(|_| Failure::Malformed)?
+            .method()
+            == "session/prompt";
         let future = self.connection.send_request(request).block_task();
         let mut lifetime = RequestLifetime {
             shared: self.shared.clone(),
@@ -121,7 +188,12 @@ impl Requests {
         let result = tokio::select! {
             biased;
             _ = stopped.wait_for(|value| value.is_some()) => Err(self.shared.failure().unwrap_or(Failure::Closed)),
-            _ = tokio::time::sleep(self.shared.limits.request_timeout) => Err(self.shared.fail(Failure::Timeout)),
+            _ = async {
+                tokio::time::sleep(self.shared.limits.request_timeout).await;
+                // cancel 已开始后由 owner 的 send/physical-flush deadline 接管，不能沿用旧 Prompt 起点。
+                let cancelling = self.cancel.lock().map(|slot| slot.used).unwrap_or(false);
+                if is_prompt && cancelling { std::future::pending::<()>().await; }
+            } => Err(self.shared.fail(Failure::Timeout)),
             response = future => response.map_err(|_| self.shared.failure().unwrap_or(Failure::Remote)),
         };
         lifetime.completed = true;
@@ -165,6 +237,8 @@ impl ManagedClient {
         let state = shared.clone();
         let prompt_flush = Arc::new(Mutex::new(None));
         let driver_flush = prompt_flush.clone();
+        let cancel = Arc::new(Mutex::new(CancelSlot::default()));
+        let driver_cancel = cancel.clone();
         let driver = tokio::spawn(async move {
             let mut stopped = state.stop.subscribe();
             let maintenance = async {
@@ -176,7 +250,7 @@ impl ManagedClient {
             let sdk = Client.builder().name("codebuddy-managed")
                 .with_handler(Dispatcher(state.clone()))
                 .on_close({ let state = state.clone(); async move |_cx| { state.fail(Failure::Eof); Ok(()) } })
-                .connect_with(ByteStreams::new(GuardedWrite::with_prompt_flush(outgoing, state.clone(), driver_flush), GuardedRead::new(incoming, state.clone())),
+                .connect_with(ByteStreams::new(GuardedWrite::with_cancel(outgoing, state.clone(), driver_flush, driver_cancel.clone()), GuardedRead::new(incoming, state.clone())),
                     async move |connection| {
                         ready_tx.send(connection).map_err(|_| agent_client_protocol::Error::internal_error())?;
                         std::future::pending::<Result<(), agent_client_protocol::Error>>().await
@@ -188,6 +262,7 @@ impl ManagedClient {
                 result = sdk => { state.fail(if result.is_ok() { Failure::Eof } else { Failure::Io }); },
             }
             state.fail(Failure::Closed);
+            driver_cancel.lock().unwrap().permit.take();
         }.with_subscriber(tracing::subscriber::NoSubscriber::default()));
         match ready_rx.await {
             Ok(connection) => Ok(Self {
@@ -196,6 +271,7 @@ impl ManagedClient {
                     shared,
                     slots: Arc::new(Semaphore::new(limits.pending)),
                     prompt_flush,
+                    cancel,
                 },
                 driver: Some(driver),
             }),
@@ -402,6 +478,8 @@ struct GuardedWrite<W> {
     response: bool,
     prompt_flush: Arc<Mutex<Option<PromptFlush>>>,
     flushed_prompt: Option<(Value, oneshot::Sender<Value>)>,
+    cancel: Arc<Mutex<CancelSlot>>,
+    flushed_cancel: Option<oneshot::Sender<tokio::time::Instant>>,
 }
 impl<W> GuardedWrite<W> {
     /// 仅缓冲一条正在写出的 SDK frame。
@@ -415,11 +493,28 @@ impl<W> GuardedWrite<W> {
         shared: Arc<Shared>,
         prompt_flush: Arc<Mutex<Option<PromptFlush>>>,
     ) -> Self {
+        Self::with_cancel(
+            inner,
+            shared,
+            prompt_flush,
+            Arc::new(Mutex::new(CancelSlot::default())),
+        )
+    }
+
+    /// 单槽 cancel authority 与原 client 共用，未授权 notification 仍全部拒绝。
+    fn with_cancel(
+        inner: W,
+        shared: Arc<Shared>,
+        prompt_flush: Arc<Mutex<Option<PromptFlush>>>,
+        cancel: Arc<Mutex<CancelSlot>>,
+    ) -> Self {
         Self {
             inner,
             shared,
             prompt_flush,
             flushed_prompt: None,
+            cancel,
+            flushed_cancel: None,
             frame: Vec::new(),
             offset: 0,
             complete: false,
@@ -458,9 +553,25 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for GuardedWrite<W> {
                 Ok(raw) => raw,
                 Err(_) => return Poll::Ready(Err(io_failure(&this.shared, Failure::Malformed))),
             };
-            // 本卡不发送 notification（包括 SDK 的 drop-time cancel）。
+            // 只允许单槽 exact cancel；SDK drop-time 或其它 notification 没有额外 authority。
+            if raw["method"] == "session/cancel" && raw.get("id").is_some() {
+                return Poll::Ready(Err(io_failure(&this.shared, Failure::Malformed)));
+            }
             if raw.get("method").is_some() && raw.get("id").is_none() {
-                return Poll::Ready(Err(io_failure(&this.shared, Failure::Closed)));
+                let mut slot = this
+                    .cancel
+                    .lock()
+                    .map_err(|_| io_failure(&this.shared, Failure::State))?;
+                let Some((session, _)) = slot.permit.as_ref() else {
+                    return Poll::Ready(Err(io_failure(&this.shared, Failure::Closed)));
+                };
+                if raw["method"] != "session/cancel"
+                    || raw["params"] != json!({"sessionId":session})
+                    || raw.as_object().is_none_or(|frame| frame.len() != 3)
+                {
+                    return Poll::Ready(Err(io_failure(&this.shared, Failure::Malformed)));
+                }
+                this.flushed_cancel = Some(slot.permit.take().expect("checked permit").1);
             }
             if let Err(error) = this.shared.outgoing(&raw) {
                 return Poll::Ready(Err(io_failure(&this.shared, error)));
@@ -494,6 +605,15 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for GuardedWrite<W> {
         if let Some(error) = this.shared.failure() {
             return Poll::Ready(Err(io_failure(&this.shared, error)));
         }
+        // exact Prompt response 可以先到达 read guard、稍后才唤醒 owner；这个窗口也不得发 late cancel。
+        if this.flushed_cancel.is_some() && this.shared.prompt_response_received() {
+            this.flushed_cancel.take();
+            this.frame.clear();
+            this.offset = 0;
+            this.complete = false;
+            this.response = false;
+            return Poll::Ready(Ok(()));
+        }
         while this.offset < this.frame.len() {
             match Pin::new(&mut this.inner).poll_write(cx, &this.frame[this.offset..]) {
                 Poll::Ready(Err(error)) => {
@@ -516,6 +636,16 @@ impl<W: AsyncWrite + Unpin> AsyncWrite for GuardedWrite<W> {
                     && let Some((id, sender)) = this.flushed_prompt.take()
                 {
                     let _ = sender.send(id);
+                }
+                if this.complete
+                    && let Some(sender) = this.flushed_cancel.take()
+                {
+                    let at = tokio::time::Instant::now();
+                    this.cancel
+                        .lock()
+                        .map_err(|_| io_failure(&this.shared, Failure::State))?
+                        .flushed_at = Some(at);
+                    let _ = sender.send(at);
                 }
                 this.frame.clear();
                 this.offset = 0;

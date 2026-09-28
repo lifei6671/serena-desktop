@@ -24,13 +24,19 @@ use tokio::sync::oneshot;
 const CONVERSATION: &str = "codebuddy.ai/conversationRequestId";
 const PROVIDER_REQUEST: &str = "codebuddy.ai/requestId";
 
+#[cfg(test)]
+tokio::task_local! {
+    /// 确定性测试屏障：exact response 已冻结、私有事务尚未提交。
+    pub(super) static BEFORE_TERMINAL_COMMIT: (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>);
+}
+
 /// terminal 与失败均保留原 Runtime；private 中的 terminal 元数据不进入公共 result。
 pub(crate) struct PromptCompletion {
     pub(crate) session: PreparedFreshSession,
     pub(crate) result: Result<ProviderRunResult, Failure>,
 }
 
-/// 消费准备对象；取消等待只发本地放弃信号，不实现 ACP session/cancel。
+/// 消费准备对象；caller drop 是本地放弃，用户取消则由原 owner 观察 durable intent。
 pub(crate) async fn prompt(
     session: PreparedFreshSession,
     store: StateStore,
@@ -79,10 +85,12 @@ pub(super) async fn run(
             || row.provider != "codebuddy"
             || row.status != "dispatch_pending"
             || row.dispatch_state != "not_dispatched"
+            || row.interrupt_requested_at.is_some()
+            || row.provider_terminal_status.is_some()
         {
             return Err(Failure::State);
         }
-        let mut owner = Ownership {
+        let owner = Ownership {
             execution_revision: row.revision,
             runtime_instance_id: row.runtime_instance_id,
         };
@@ -142,7 +150,7 @@ pub(super) async fn run(
             current.provider_request_id.clone(),
             requests.shared.limits.queue_count,
         );
-        let (response, publication_pending) = {
+        let (response, publication_pending, frames) = {
             let mut queue = VecDeque::new();
             // early 帧同样经过 exact identity；接受完成前不调用 telemetry。
             for frame in &early_frames {
@@ -161,6 +169,13 @@ pub(super) async fn run(
             let mut publishing: Option<ProviderFuture<'_, ()>> = None;
             let request = requests.request(request);
             tokio::pin!(request);
+            // durable Store 读取作为独立 future，不能阻塞 exact response 或绝对 deadline。
+            let intent = wait_cancel_intent(&store, &session.private);
+            tokio::pin!(intent);
+            let mut intent_seen = false;
+            let mut cancel_send: Option<ProviderFuture<'_, Result<tokio::time::Instant, Failure>>> = None;
+            let mut cancel_started = false;
+            let mut cancel_deadline = None;
             // 轮询间隔小于 queue TTL；每次释放 exact route 的 count/bytes 预算。
             let interval = (requests.shared.limits.queue_ttl / 4)
                 .min(Duration::from_millis(10))
@@ -176,21 +191,72 @@ pub(super) async fn run(
                 tokio::select! {
                     biased;
                     _ = &mut cancelled => break Err(Failure::Closed),
-                    observation = &mut flush, if !flushed => {
-                        observation.map_err(|_| Failure::Io)?;
-                        dispatch_flushed(&store, &row.id).await?;
-                        flushed = true;
-                    }
                     response = &mut request => {
-                        let response = response?;
-                        // 极早响应不能替代 flush 证据；仍必须取得真实 observer 再推进状态。
+                        let response = match response {
+                            Ok(response) => response,
+                            Err(error) => {
+                                if cancel_started {
+                                    interrupt_failed(&store, &row.id, if error == Failure::Timeout {
+                                        "CODEBUDDY_CANCEL_TIMEOUT"
+                                    } else { "CODEBUDDY_CANCEL_SEND_FAILED" }).await?;
+                                }
+                                break Err(error);
+                            }
+                        };
+                        // exact response 优先于尚未发送的 cancel，绝不追加 late notification。
                         if !flushed {
                             tokio::time::timeout(requests.shared.limits.request_timeout, &mut flush)
                                 .await.map_err(|_| Failure::Timeout)?.map_err(|_| Failure::Io)?;
                             dispatch_flushed(&store, &row.id).await?;
                         }
-                        break Ok((response, publishing.is_some()));
+                        // 先冻结 exact response 的 collector 输入，再 drop 在途 cancel（会关闭 transport）。
+                        let frames = requests.shared.take_session(&session_id)?;
+                        if cancel_deadline.is_none() && requests.cancel_flushed_at().is_some() {
+                            store.provider_event(row.id.clone(), Transition::InterruptAck, now())
+                                .await.map_err(|_| Failure::State)?;
+                        }
+                        break Ok((response, publishing.is_some(), frames));
                     },
+                    observation = &mut flush, if !flushed => {
+                        observation.map_err(|_| Failure::Io)?;
+                        dispatch_flushed(&store, &row.id).await?;
+                        flushed = true;
+                    }
+                    observed = &mut intent, if !intent_seen => {
+                        observed?;
+                        intent_seen = true;
+                    }
+                    // 从真实 flush 时刻计时，不被 activity 或 Store 调度延长。
+                    _ = async {
+                        match cancel_deadline {
+                            Some(deadline) => tokio::time::sleep_until(deadline).await,
+                            None => std::future::pending().await,
+                        }
+                    } => {
+                        interrupt_failed(&store, &row.id, "CODEBUDDY_CANCEL_TIMEOUT").await?;
+                        break Err(Failure::Timeout);
+                    }
+                    sent = async {
+                        match cancel_send.as_mut() {
+                            Some(future) => future.await,
+                            None => std::future::pending().await,
+                        }
+                    } => {
+                        cancel_send = None;
+                        match sent {
+                            Ok(at) => {
+                                cancel_deadline = Some(at + requests.shared.limits.request_timeout);
+                                store.provider_event(row.id.clone(), Transition::InterruptAck, now())
+                                    .await.map_err(|_| Failure::State)?;
+                            }
+                            Err(error) => {
+                                interrupt_failed(&store, &row.id, if error == Failure::Timeout {
+                                    "CODEBUDDY_CANCEL_TIMEOUT"
+                                } else { "CODEBUDDY_CANCEL_SEND_FAILED" }).await?;
+                                break Err(error);
+                            }
+                        }
+                    }
                     _ = async { match publishing.as_mut() {
                         Some(future) => future.await,
                         None => std::future::pending().await,
@@ -208,10 +274,17 @@ pub(super) async fn run(
                             &current.conversation_request_id, requests.shared.limits.queue_bytes);
                     }
                 }
+                if intent_seen && flushed && !cancel_started {
+                    // intent 可能先于 prompt flush，发送前重新核对 durable exact ownership。
+                    wait_cancel_intent(&store, &session.private).await?;
+                    // Running 后重新提交幂等 intent，使通用状态由 CancelRequested 接受 ACK。
+                    store.request_cancel(row.id.clone(), now()).await.map_err(|_| Failure::State)?;
+                    cancel_started = true;
+                    cancel_send = Some(Box::pin(requests.cancel_session(session_id.clone())));
+                }
             }
         }?;
         // SDK exact response 到达后做最后一次 drain；此后不再修改正文快照。
-        let frames = requests.shared.take_session(&session_id)?;
         publish_final_activity(
             &mut activity,
             &frames,
@@ -232,37 +305,20 @@ pub(super) async fn run(
             return Err(Failure::Malformed);
         }
         let result = collector.finish(row.id.clone(), response.stop_reason)?;
-        let generic = store
-            .execution(row.id.clone())
-            .await
-            .map_err(|_| Failure::State)?
-            .ok_or(Failure::State)?;
-        owner.execution_revision = generic.revision;
-        if let Some(value) = meta.get(PROVIDER_REQUEST) {
-            let id = value.as_str().ok_or(Failure::Malformed)?;
-            if !id.is_empty() {
-                session.private = private_store
-                    .mutate(
-                        row.id.clone(),
-                        owner.clone(),
-                        session.private.revision,
-                        Mutation::ExactProviderRequest(id.into()),
-                    )
-                    .await
-                    .map_err(|_| Failure::State)?;
-            }
+        let provider_request_id = meta.get(PROVIDER_REQUEST)
+            .map(|value| value.as_str().ok_or(Failure::Malformed))
+            .transpose()?.filter(|id| !id.is_empty()).map(str::to_owned);
+        #[cfg(test)]
+        if let Ok((ready, release)) = BEFORE_TERMINAL_COMMIT.try_with(Clone::clone) {
+            ready.notify_one();
+            release.notified().await;
         }
         session.private = private_store
-            .mutate(
-                row.id,
-                owner,
-                session.private.revision,
-                Mutation::ObserveTerminal {
-                    session_id,
-                    conversation_request_id: current.conversation_request_id,
-                    stop_reason: response.stop_reason,
-                    observed_at: now(),
-                },
+            .observe_prompt_response(
+                session.private.clone(),
+                provider_request_id,
+                response.stop_reason,
+                now(),
             )
             .await
             .map_err(|_| Failure::State)?;
@@ -331,6 +387,53 @@ pub(super) async fn run(
         result
     };
     PromptCompletion { session, result }
+}
+
+/// 每次都验证原 Runtime 与完整 private identity；陈旧 owner 不获得通知 authority。
+async fn wait_cancel_intent(
+    store: &StateStore,
+    expected: &super::store::PrivateState,
+) -> Result<(), Failure> {
+    let mut tick = tokio::time::interval(Duration::from_millis(100));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tick.tick().await;
+        let row = store
+            .execution(expected.execution_id.clone())
+            .await
+            .map_err(|_| Failure::State)?
+            .ok_or(Failure::State)?;
+        let private = CodeBuddyStore(store.clone())
+            .read(expected.execution_id.clone())
+            .await
+            .map_err(|_| Failure::State)?;
+        if row.id != expected.execution_id
+            || row.provider != "codebuddy"
+            || row.runtime_instance_id != expected.runtime_instance_id
+            || row.runtime_instance_id.is_none()
+            || private != *expected
+            || row.provider_terminal_status.is_some()
+        {
+            return Err(Failure::State);
+        }
+        if row.interrupt_requested_at.is_some() {
+            return Ok(());
+        }
+    }
+}
+
+/// 通知失败只提交 interrupt 诊断；Runtime owner 仍须终止 Job 并收集证据。
+async fn interrupt_failed(store: &StateStore, id: &str, diagnostic: &str) -> Result<(), Failure> {
+    store
+        .provider_event(
+            id.into(),
+            Transition::InterruptTimeout {
+                diagnostic: diagnostic.into(),
+            },
+            now(),
+        )
+        .await
+        .map_err(|_| Failure::State)
 }
 
 /// 只有 GuardedWrite 的 exact flush observation 可以推进 generic dispatch evidence。
