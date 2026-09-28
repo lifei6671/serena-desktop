@@ -42,7 +42,7 @@ pub(super) async fn run(
             Some(source_execution_id) => {
                 super::continued::prepare_owned(
                     store.clone(),
-                    owner,
+                    owner.clone(),
                     id.clone(),
                     source_execution_id,
                     &resolved,
@@ -55,7 +55,7 @@ pub(super) async fn run(
             None => {
                 super::fresh::prepare_owned(
                     store.clone(),
-                    owner,
+                    owner.clone(),
                     id.clone(),
                     &resolved,
                     DesiredConfiguration::default(),
@@ -112,7 +112,15 @@ pub(super) async fn run(
         .await?
         .ok_or("EXECUTION_NOT_FOUND".to_owned())?;
     if row.runtime_instance_id.as_deref() == Some(attempt_id.as_str()) {
-        if let Err(error) = super::recovery::reconcile_execution(&store, &id, false).await {
+        if let Err(error) = super::recovery::reconcile_execution_with_launch(
+            &store,
+            &id,
+            false,
+            &owner,
+            Some(&resolved),
+        )
+        .await
+        {
             super::recovery::mark_unknown(&store, &id).await?;
             return Err(ProviderExecutionFailure::State(error));
         }

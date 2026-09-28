@@ -3,6 +3,7 @@
 use crate::agent::store::StateStore;
 use agent_client_protocol::schema::v1::{RequestId, StopReason};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// 原始 JSON scalar 保留 SDK string/i64 类型；Null 不具备精确请求身份。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -120,6 +121,45 @@ pub(crate) enum Mutation {
 pub(crate) struct CodeBuddyStore(pub(crate) StateStore);
 
 impl CodeBuddyStore {
+    /// R1 proof 已完成后，原子登记 recovery attempt、R2 runtime 与 private inspection provenance。
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "R1/R2 durable identities stay explicit"
+    )]
+    pub(crate) async fn begin_result_inspection(
+        &self,
+        expected: PrivateState,
+        ownership: Ownership,
+        recovery_runtime_instance_id: String,
+        owner: String,
+        session: u32,
+        executable: String,
+    ) -> Result<PrivateState, String> {
+        self.0
+            .begin_codebuddy_result_inspection(
+                expected,
+                ownership,
+                recovery_runtime_instance_id,
+                owner,
+                session,
+                executable,
+            )
+            .await
+    }
+
+    /// R2 proof 已完成后，原子冻结 inspection outcome 与 generic partial/unknown result。
+    pub(crate) async fn finish_result_inspection(
+        &self,
+        expected: PrivateState,
+        ownership: Ownership,
+        outcome: InspectionOutcome,
+        result: Option<Value>,
+    ) -> Result<PrivateState, String> {
+        self.0
+            .finish_codebuddy_result_inspection(expected, ownership, outcome, result)
+            .await
+    }
+
     /// 只读取可作为 Continue source 的 exact private identity；缺失或不合格返回 None。
     pub(crate) async fn continuation_source(
         &self,

@@ -712,3 +712,753 @@ async fn typed_runtime_updates_reject_invalid_transition_and_other_provider() {
         );
     }
 }
+
+/// 构建只接受 initialize/session/load 的 native peer；所有请求证据写在 Workspace 外。
+fn build_result_recovery_peer(directory: &std::path::Path) -> std::path::PathBuf {
+    use std::os::windows::process::CommandExt;
+    let deps = std::env::current_exe()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .to_owned();
+    let library = std::fs::read_dir(&deps)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("libserde_json-")
+                && entry
+                    .path()
+                    .extension()
+                    .is_some_and(|value| value == "rlib")
+        })
+        .max_by_key(|entry| entry.metadata().unwrap().modified().unwrap())
+        .expect("built serde_json")
+        .path();
+    let binary = directory.join("result-recovery-peer.exe");
+    let output = std::process::Command::new("rustc")
+        .args([
+            "--edition=2024",
+            "--crate-name",
+            "codebuddy_result_recovery_child",
+        ])
+        .arg(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/codebuddy_result_recovery_child.rs"),
+        )
+        .arg("-L")
+        .arg(format!("dependency={}", deps.display()))
+        .arg("--extern")
+        .arg(format!("serde_json={}", library.display()))
+        .arg("-o")
+        .arg(&binary)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    binary
+}
+
+/// 单个 crash window 使用独立真实 SQLite、Workspace、R1 与 native R2 peer。
+async fn result_recovery_fixture(
+    binary: &std::path::Path,
+    window: &str,
+    mode: &str,
+) -> (
+    tempfile::TempDir,
+    tempfile::TempDir,
+    StateStore,
+    String,
+    super::super::discovery::DiscoveryResult,
+) {
+    use crate::agent::{
+        codebuddy::store::{CodeBuddyStore, Mutation, Ownership},
+        execution::state::{ResultCompleteness, Status, Transition},
+        execution::{CreateExecutionInput, canonicalize_request},
+    };
+    let control = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let store = StateStore::open(control.path().into()).await.unwrap();
+    let root = crate::config::canonicalize_workspace_root(workspace.path()).unwrap();
+    let input: CreateExecutionInput = serde_json::from_value(serde_json::json!({
+        "agent_id":"a","request_key":"k","prompt":"fixed crash fixture",
+        "execution_profile":{},"workspace_id":"w","canonical_workspace_root":root,
+        "mode":"workspace_write","provider":"codebuddy"
+    }))
+    .unwrap();
+    store
+        .create_execution("e".into(), canonicalize_request(input).unwrap(), 1)
+        .await
+        .unwrap();
+    let r1 = "cb8-r1".to_owned();
+    store
+        .prepare_codebuddy_runtime(
+            r1.clone(),
+            "old-host".into(),
+            windows::session().unwrap(),
+            "old-codebuddy.exe".into(),
+            2,
+        )
+        .await
+        .unwrap();
+    store
+        .update_codebuddy_runtime(r1.clone(), CodeBuddyRuntimeUpdate::PolicyVerified, 3)
+        .await
+        .unwrap();
+    store
+        .update_codebuddy_runtime(
+            r1.clone(),
+            CodeBuddyRuntimeUpdate::ProcessStarted {
+                pid: 0,
+                start_token: "diagnostic-only".into(),
+            },
+            4,
+        )
+        .await
+        .unwrap();
+    store
+        .update_codebuddy_runtime(r1.clone(), CodeBuddyRuntimeUpdate::Initialized, 5)
+        .await
+        .unwrap();
+    let db = Connection::open(control.path().join("agent-state.db")).unwrap();
+    let (status, dispatch) = match window {
+        "prepared" => ("dispatch_pending", "not_dispatched"),
+        "preflush" => ("dispatch_pending", "dispatching"),
+        _ => ("running", "dispatched"),
+    };
+    db.execute(
+        "UPDATE executions SET runtime_instance_id=?2,status=?3,dispatch_state=?4 WHERE id=?1",
+        params!["e", r1, status, dispatch],
+    )
+    .unwrap();
+    let private_store = CodeBuddyStore(store.clone());
+    let ownership = Ownership {
+        execution_revision: 0,
+        runtime_instance_id: Some(r1.clone()),
+    };
+    let mut private = private_store
+        .create("e".into(), ownership.clone())
+        .await
+        .unwrap();
+    private = private_store
+        .mutate(
+            "e".into(),
+            ownership.clone(),
+            private.revision,
+            Mutation::NegotiatedProtocol(1),
+        )
+        .await
+        .unwrap();
+    private = private_store
+        .mutate(
+            "e".into(),
+            ownership.clone(),
+            private.revision,
+            Mutation::ExactSession("exact-session".into()),
+        )
+        .await
+        .unwrap();
+    if window != "prepared" {
+        private = private_store
+            .mutate(
+                "e".into(),
+                ownership.clone(),
+                private.revision,
+                Mutation::MarkSent { rpc_id: None },
+            )
+            .await
+            .unwrap();
+    }
+    if matches!(window, "terminal" | "staged") {
+        private = private_store
+            .mutate(
+                "e".into(),
+                ownership,
+                private.revision,
+                Mutation::ObserveTerminal {
+                    session_id: "exact-session".into(),
+                    conversation_request_id: private.conversation_request_id.clone(),
+                    stop_reason: agent_client_protocol::schema::v1::StopReason::EndTurn,
+                    observed_at: 6,
+                },
+            )
+            .await
+            .unwrap();
+    }
+    if window == "staged" {
+        store
+            .provider_event(
+                "e".into(),
+                Transition::ProviderTerminalResult {
+                    runtime_id: r1.clone(),
+                    status: Status::Completed,
+                    result: Some(serde_json::json!({"text":"original exact"})),
+                    completeness: ResultCompleteness::Complete,
+                },
+                7,
+            )
+            .await
+            .unwrap();
+    }
+    std::fs::write(control.path().join("mode"), mode).unwrap();
+    std::fs::write(
+        control.path().join("conversation"),
+        &private.conversation_request_id,
+    )
+    .unwrap();
+    let peer = control.path().join("peer.exe");
+    std::fs::copy(binary, &peer).unwrap();
+    let discovery = super::super::discovery::DiscoveryResult::direct_for_test(peer);
+    (control, workspace, store, r1, discovery)
+}
+
+/// 读取 fake peer 原始 method 序列；文件不存在表示 R2 从未启动。
+fn recovery_methods(control: &std::path::Path) -> Vec<String> {
+    let path = control.join("requests.jsonl");
+    if !path.exists() {
+        return Vec::new();
+    }
+    std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<serde_json::Value>(line).unwrap()["method"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect()
+}
+
+/// 通过 CB8-003 的 typed mutation 形成 same-runtime continuation partial provenance。
+async fn mark_same_runtime_continuation_partial(
+    store: &StateStore,
+    r1: &str,
+) -> crate::agent::codebuddy::store::PrivateState {
+    use crate::agent::codebuddy::store::{CodeBuddyStore, Mutation, RecoveryState};
+    let row = store.execution("e".into()).await.unwrap().unwrap();
+    let ownership = Ownership {
+        execution_revision: row.revision,
+        runtime_instance_id: Some(r1.to_owned()),
+    };
+    let private_store = CodeBuddyStore(store.clone());
+    let mut private = store.read_codebuddy_state("e".into()).await.unwrap();
+    private = private_store
+        .mutate(
+            "e".into(),
+            ownership.clone(),
+            private.revision,
+            Mutation::BeginContinuationLoad {
+                session_id: "exact-session".into(),
+                recovery_runtime_instance_id: r1.to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    private = private_store
+        .mutate(
+            "e".into(),
+            ownership,
+            private.revision,
+            Mutation::FinishContinuationLoad,
+        )
+        .await
+        .unwrap();
+    assert_eq!(private.recovery_state, RecoveryState::Partial);
+    assert_eq!(private.recovery_runtime_instance_id.as_deref(), Some(r1));
+    assert_eq!(private.runtime_instance_id.as_deref(), Some(r1));
+    private
+}
+
+/// CB8-003 same-runtime partial 只描述 child continuation；crash 后必须新建 external R2。
+#[tokio::test]
+async fn continued_child_same_runtime_partial_crash_starts_external_result_recovery() {
+    fn fail_r2(runtime: RuntimeRecord, timeout: Duration) -> Result<TerminationEvidence, String> {
+        if runtime.id.starts_with("codebuddy-recovery-") {
+            Err("injected external R2 evidence failure".into())
+        } else {
+            observe(runtime, timeout)
+        }
+    }
+
+    let build_dir = tempfile::tempdir().unwrap();
+    let binary = build_result_recovery_peer(build_dir.path());
+
+    // exact replay：R1 recovery proof 后覆盖 same-runtime provenance，并只创建一个 external R2。
+    let (control, _workspace, store, r1, discovery) =
+        result_recovery_fixture(&binary, "sent", "exact").await;
+    mark_same_runtime_continuation_partial(&store, &r1).await;
+    assert!(!approved_runtime(&store, &r1).await.unwrap());
+    let report = startup_with_launch(&store, "new-host", Some(&discovery.launch_spec))
+        .await
+        .unwrap();
+    assert_eq!(report.items[0].kind, Kind::ExecutionInterrupted);
+    let row = store.execution("e".into()).await.unwrap().unwrap();
+    assert_eq!(row.status, "interrupted");
+    assert_eq!(row.result_completeness, "partial");
+    assert_eq!(row.runtime_instance_id.as_deref(), Some(r1.as_str()));
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(row.final_result_json.as_deref().unwrap())
+            .unwrap(),
+        serde_json::json!({"text":"recovered partial"})
+    );
+    let private = store.read_codebuddy_state("e".into()).await.unwrap();
+    let r2 = private.recovery_runtime_instance_id.clone().unwrap();
+    assert_ne!(r2, r1);
+    assert_eq!(
+        private.recovery_state,
+        crate::agent::codebuddy::store::RecoveryState::Partial
+    );
+    assert!(approved_runtime(&store, &r1).await.unwrap());
+    assert!(approved_runtime(&store, &r2).await.unwrap());
+    assert_eq!(
+        recovery_methods(control.path()),
+        ["initialize", "session/load"]
+    );
+    assert!(!control.path().join("forbidden-method").exists());
+    assert!(
+        store
+            .workspace_claim(row.canonical_workspace_root.clone())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let database = Connection::open(control.path().join("agent-state.db")).unwrap();
+    assert_eq!(
+        database
+            .query_row(
+                "SELECT count(*) FROM execution_runtime_attempts WHERE execution_id='e'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        database
+            .query_row(
+                "SELECT runtime_instance_id FROM execution_runtime_attempts WHERE execution_id='e'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        r2
+    );
+    let before = (
+        row.revision,
+        recovery_methods(control.path()),
+        database
+            .query_row(
+                "SELECT count(*) FROM execution_runtime_attempts WHERE execution_id='e'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+    );
+    drop(database);
+    let second = startup_with_launch(&store, "new-host", Some(&discovery.launch_spec))
+        .await
+        .unwrap();
+    assert!(second.items.is_empty());
+    assert_eq!(
+        store.execution("e".into()).await.unwrap().unwrap().revision,
+        before.0
+    );
+    assert_eq!(recovery_methods(control.path()), before.1);
+    assert_eq!(
+        Connection::open(control.path().join("agent-state.db"))
+            .unwrap()
+            .query_row(
+                "SELECT count(*) FROM execution_runtime_attempts WHERE execution_id='e'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        before.2
+    );
+
+    // external R2 evidence失败：same-runtime partial 不能授权 release，Claim 必须保留。
+    let (control, _workspace, store, r1, discovery) =
+        result_recovery_fixture(&binary, "sent", "exact").await;
+    mark_same_runtime_continuation_partial(&store, &r1).await;
+    let report = TEST_OBSERVER
+        .scope(
+            fail_r2,
+            startup_with_launch(&store, "new-host", Some(&discovery.launch_spec)),
+        )
+        .await
+        .unwrap();
+    assert_eq!(report.items[0].kind, Kind::ExecutionUnknown);
+    assert_unknown(&store, "e").await;
+    let row = store.execution("e".into()).await.unwrap().unwrap();
+    assert_eq!(row.runtime_instance_id.as_deref(), Some(r1.as_str()));
+    let private = store.read_codebuddy_state("e".into()).await.unwrap();
+    let r2 = private.recovery_runtime_instance_id.as_deref().unwrap();
+    assert_ne!(r2, r1);
+    assert_eq!(
+        private.recovery_state,
+        crate::agent::codebuddy::store::RecoveryState::Inspecting
+    );
+    assert!(approved_runtime(&store, &r1).await.unwrap());
+    assert!(!approved_runtime(&store, r2).await.unwrap());
+    assert_eq!(
+        recovery_methods(control.path()),
+        ["initialize", "session/load"]
+    );
+    assert_eq!(
+        Connection::open(control.path().join("agent-state.db"))
+            .unwrap()
+            .query_row(
+                "SELECT count(*) FROM execution_runtime_attempts WHERE execution_id='e'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+}
+
+/// A-D crash matrix：真实 pre-prompt generic 状态也必须先证明 R1，partial 不冒充 complete。
+#[tokio::test]
+async fn crash_result_recovery_matrix_and_restart_twice_are_safe() {
+    use sha2::{Digest, Sha256};
+    let build_dir = tempfile::tempdir().unwrap();
+    let binary = build_result_recovery_peer(build_dir.path());
+    for (window, mode, expected_status, expected_completeness, r2_started) in [
+        ("prepared", "empty", "interrupted", "unknown", false),
+        ("preflush", "empty", "interrupted", "unknown", true),
+        ("sent", "empty", "interrupted", "unknown", true),
+        ("sent", "exact", "interrupted", "partial", true),
+        ("terminal", "exact", "interrupted", "partial", true),
+        ("staged", "empty", "completed", "complete", false),
+    ] {
+        let (control, workspace, store, r1, discovery) =
+            result_recovery_fixture(&binary, window, mode).await;
+        let marker = workspace.path().join("marker.txt");
+        std::fs::write(&marker, b"CB8_SIDE_EFFECT\n").unwrap();
+        let marker_before = Sha256::digest(std::fs::read(&marker).unwrap());
+        let report = startup_with_launch(&store, "new-host", Some(&discovery.launch_spec))
+            .await
+            .unwrap();
+        assert_eq!(
+            report.items[0].kind,
+            if expected_status == "interrupted" {
+                Kind::ExecutionInterrupted
+            } else {
+                Kind::ExecutionReleased
+            },
+            "{window}/{mode}"
+        );
+        let row = store.execution("e".into()).await.unwrap().unwrap();
+        assert_eq!(row.status, expected_status, "{window}/{mode}");
+        assert_eq!(
+            row.result_completeness, expected_completeness,
+            "{window}/{mode}"
+        );
+        assert_eq!(row.runtime_instance_id.as_deref(), Some(r1.as_str()));
+        assert_eq!(row.release_evidence_state, "complete");
+        assert!(
+            store
+                .workspace_claim(row.canonical_workspace_root.clone())
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            Sha256::digest(std::fs::read(&marker).unwrap()),
+            marker_before,
+            "R2 must not modify the side-effect marker"
+        );
+        let private = store.read_codebuddy_state("e".into()).await.unwrap();
+        if r2_started {
+            let r2 = private.recovery_runtime_instance_id.as_deref().unwrap();
+            assert_ne!(r2, r1);
+            assert!(approved_runtime(&store, r2).await.unwrap());
+            assert_eq!(
+                recovery_methods(control.path()),
+                ["initialize", "session/load"]
+            );
+        } else {
+            assert!(recovery_methods(control.path()).is_empty());
+        }
+        if expected_completeness == "partial" {
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(
+                    row.final_result_json.as_deref().unwrap()
+                )
+                .unwrap(),
+                serde_json::json!({"text":"recovered partial"})
+            );
+        }
+        if expected_completeness == "complete" {
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(
+                    row.final_result_json.as_deref().unwrap()
+                )
+                .unwrap(),
+                serde_json::json!({"text":"original exact"})
+            );
+        }
+        let before = (
+            row.revision,
+            recovery_methods(control.path()),
+            Connection::open(control.path().join("agent-state.db"))
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM execution_runtime_attempts",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+        );
+        let second = startup_with_launch(&store, "new-host", Some(&discovery.launch_spec))
+            .await
+            .unwrap();
+        assert!(second.items.is_empty(), "{window}/{mode}");
+        let after = store.execution("e".into()).await.unwrap().unwrap();
+        assert_eq!(after.revision, before.0);
+        assert_eq!(recovery_methods(control.path()), before.1);
+        assert_eq!(
+            Connection::open(control.path().join("agent-state.db"))
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM execution_runtime_attempts",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            before.2
+        );
+    }
+}
+
+/// R1 proof 缺失时不得创建 R2；R2 load/identity 失败但安全终止时释放为 interrupted unknown。
+#[tokio::test]
+async fn evidence_and_replay_failure_matrix_fails_closed() {
+    let build_dir = tempfile::tempdir().unwrap();
+    let binary = build_result_recovery_peer(build_dir.path());
+    let (control, _workspace, store, _r1, discovery) =
+        result_recovery_fixture(&binary, "sent", "exact").await;
+    Connection::open(control.path().join("agent-state.db"))
+        .unwrap()
+        .execute(
+            "UPDATE runtime_instances SET job_policy_verified_at=NULL WHERE id='cb8-r1'",
+            [],
+        )
+        .unwrap();
+    let report = startup_with_launch(&store, "new-host", Some(&discovery.launch_spec))
+        .await
+        .unwrap();
+    assert_eq!(report.items[0].kind, Kind::ExecutionUnknown);
+    assert!(recovery_methods(control.path()).is_empty());
+    assert_unknown(&store, "e").await;
+    let before = store.execution("e".into()).await.unwrap().unwrap();
+    let before_attempts: i64 = Connection::open(control.path().join("agent-state.db"))
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM execution_runtime_attempts",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let second = startup_with_launch(&store, "new-host", Some(&discovery.launch_spec))
+        .await
+        .unwrap();
+    assert_eq!(second.items[0].kind, Kind::ExecutionUnknown);
+    assert_unknown(&store, "e").await;
+    assert!(recovery_methods(control.path()).is_empty());
+    assert_eq!(
+        store.execution("e".into()).await.unwrap().unwrap().revision,
+        before.revision
+    );
+    assert_eq!(
+        Connection::open(control.path().join("agent-state.db"))
+            .unwrap()
+            .query_row(
+                "SELECT count(*) FROM execution_runtime_attempts",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        before_attempts
+    );
+
+    for mode in [
+        "empty",
+        "foreign",
+        "wrong-session",
+        "load-error",
+        "load-mismatch",
+        "no-capability",
+    ] {
+        let (control, _workspace, store, r1, discovery) =
+            result_recovery_fixture(&binary, "sent", mode).await;
+        let report = startup_with_launch(&store, "new-host", Some(&discovery.launch_spec))
+            .await
+            .unwrap();
+        assert_eq!(report.items[0].kind, Kind::ExecutionInterrupted, "{mode}");
+        let row = store.execution("e".into()).await.unwrap().unwrap();
+        assert_eq!(row.status, "interrupted", "{mode}");
+        assert_eq!(row.result_completeness, "unknown", "{mode}");
+        assert!(row.final_result_json.is_none(), "{mode}");
+        let private = store.read_codebuddy_state("e".into()).await.unwrap();
+        let r2 = private.recovery_runtime_instance_id.as_deref().unwrap();
+        assert_ne!(r2, r1);
+        assert!(approved_runtime(&store, r2).await.unwrap());
+        assert!(
+            recovery_methods(control.path())
+                .iter()
+                .all(|method| matches!(method.as_str(), "initialize" | "session/load"))
+        );
+    }
+}
+
+/// 注入 R2 Job proof 失败时 Claim 必须保留；下一次取得 approved evidence 后只收敛原 R2。
+#[tokio::test]
+async fn r2_termination_failure_retains_claim_then_resumes_without_new_runtime() {
+    fn fail_r2(runtime: RuntimeRecord, timeout: Duration) -> Result<TerminationEvidence, String> {
+        if runtime.id.starts_with("codebuddy-recovery-") {
+            Err("injected R2 evidence failure".into())
+        } else {
+            observe(runtime, timeout)
+        }
+    }
+    let build_dir = tempfile::tempdir().unwrap();
+    let binary = build_result_recovery_peer(build_dir.path());
+    let (control, _workspace, store, r1, discovery) =
+        result_recovery_fixture(&binary, "sent", "exact").await;
+    let first = TEST_OBSERVER
+        .scope(
+            fail_r2,
+            startup_with_launch(&store, "new-host", Some(&discovery.launch_spec)),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.items[0].kind, Kind::ExecutionUnknown);
+    assert_unknown(&store, "e").await;
+    let private = store.read_codebuddy_state("e".into()).await.unwrap();
+    let r2 = private.recovery_runtime_instance_id.clone().unwrap();
+    assert_ne!(r2, r1);
+    assert_eq!(
+        private.recovery_state,
+        crate::agent::codebuddy::store::RecoveryState::Inspecting
+    );
+    assert!(!approved_runtime(&store, &r2).await.unwrap());
+    let before_methods = recovery_methods(control.path());
+    let before_attempts: i64 = Connection::open(control.path().join("agent-state.db"))
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM execution_runtime_attempts",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let second = startup_with_launch(&store, "new-host", Some(&discovery.launch_spec))
+        .await
+        .unwrap();
+    assert_eq!(second.items[0].kind, Kind::ExecutionInterrupted);
+    let row = store.execution("e".into()).await.unwrap().unwrap();
+    assert_eq!(row.status, "interrupted");
+    assert_eq!(row.result_completeness, "unknown");
+    assert!(approved_runtime(&store, &r2).await.unwrap());
+    assert_eq!(recovery_methods(control.path()), before_methods);
+    assert_eq!(
+        Connection::open(control.path().join("agent-state.db"))
+            .unwrap()
+            .query_row(
+                "SELECT count(*) FROM execution_runtime_attempts",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        before_attempts
+    );
+}
+
+/// private provenance 损坏时，下一 Host 的 orphan scan 必须独立收敛 R2，但不得绕过原 Claim。
+#[tokio::test]
+async fn orphan_r2_is_recovered_without_releasing_unknown_execution() {
+    fn fail_r2(runtime: RuntimeRecord, timeout: Duration) -> Result<TerminationEvidence, String> {
+        if runtime.id.starts_with("codebuddy-recovery-") {
+            Err("injected R2 evidence failure".into())
+        } else {
+            observe(runtime, timeout)
+        }
+    }
+    let build_dir = tempfile::tempdir().unwrap();
+    let binary = build_result_recovery_peer(build_dir.path());
+    let (control, _workspace, store, _r1, discovery) =
+        result_recovery_fixture(&binary, "sent", "exact").await;
+    TEST_OBSERVER
+        .scope(
+            fail_r2,
+            startup_with_launch(&store, "first-host", Some(&discovery.launch_spec)),
+        )
+        .await
+        .unwrap();
+    let private = store.read_codebuddy_state("e".into()).await.unwrap();
+    let r2 = private.recovery_runtime_instance_id.clone().unwrap();
+    let before_methods = recovery_methods(control.path());
+    let before_attempts: i64 = Connection::open(control.path().join("agent-state.db"))
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM execution_runtime_attempts",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    // 模拟 private provenance 无法读取；R2 只能由既有 provider orphan runtime scan 收敛。
+    Connection::open(control.path().join("agent-state.db"))
+        .unwrap()
+        .execute(
+            "DELETE FROM codebuddy_execution_state WHERE execution_id='e'",
+            [],
+        )
+        .unwrap();
+    let report = startup_with_launch(&store, "second-host", Some(&discovery.launch_spec))
+        .await
+        .unwrap();
+    assert!(
+        report
+            .items
+            .iter()
+            .any(|item| item.subject_id == "e" && item.kind == Kind::ExecutionUnknown)
+    );
+    assert!(
+        report
+            .items
+            .iter()
+            .any(|item| { item.subject_id == r2 && item.kind == Kind::OrphanResourceRecovered })
+    );
+    assert_unknown(&store, "e").await;
+    assert!(approved_runtime(&store, &r2).await.unwrap());
+    assert_eq!(recovery_methods(control.path()), before_methods);
+    assert_eq!(
+        Connection::open(control.path().join("agent-state.db"))
+            .unwrap()
+            .query_row(
+                "SELECT count(*) FROM execution_runtime_attempts",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        before_attempts
+    );
+    let revision = store.execution("e".into()).await.unwrap().unwrap().revision;
+    let second = startup_with_launch(&store, "second-host", Some(&discovery.launch_spec))
+        .await
+        .unwrap();
+    assert_eq!(second.items.len(), 1);
+    assert_eq!(second.items[0].kind, Kind::ExecutionUnknown);
+    assert_eq!(
+        store.execution("e".into()).await.unwrap().unwrap().revision,
+        revision
+    );
+    assert_eq!(recovery_methods(control.path()), before_methods);
+}

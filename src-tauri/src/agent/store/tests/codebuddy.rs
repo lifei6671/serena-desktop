@@ -482,7 +482,7 @@ async fn rpc_id_scalar_type_survives_restart() {
     }
 }
 
-/// Continue load 只在 exact S1 已绑定且 durable Sent 后记录，并保持同一 child Runtime authority。
+/// Continue load 保持同一 child Runtime authority，后续 Result Recovery 则切换到独立 R2。
 #[tokio::test]
 async fn continuation_load_reuses_v13_fields_without_terminal_or_release() {
     let (_directory, store) = fixture(true).await;
@@ -552,6 +552,21 @@ async fn continuation_load_reuses_v13_fields_without_terminal_or_release() {
     assert!(state.terminal_stop_reason.is_none());
     assert_eq!(snapshot(&store, AUTHORITY), authority);
     assert_eq!(store.read("e1".into()).await.unwrap(), state);
+    state = store
+        .mutate(
+            "e1".into(),
+            owner(true),
+            state.revision,
+            Mutation::BeginInspection {
+                recovery_runtime_instance_id: "r2".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(state.recovery_state, RecoveryState::Inspecting);
+    assert_eq!(state.runtime_instance_id.as_deref(), Some("r1"));
+    assert_eq!(state.recovery_runtime_instance_id.as_deref(), Some("r2"));
+    assert_eq!(snapshot(&store, AUTHORITY), authority);
 }
 
 /// child private create 不接收 source 参数，因此非空 provider/RPC connection identity 也不能被复制。

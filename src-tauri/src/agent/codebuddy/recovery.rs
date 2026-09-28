@@ -14,6 +14,8 @@ use crate::agent::{
 };
 use std::time::Duration;
 
+use super::discovery::ResolvedLaunchSpec;
+
 /// 字段不公开，生产代码只能通过本模块的受验证 Job observation 获得此证据。
 pub(crate) struct TerminationEvidence {
     original: RuntimeRecord,
@@ -71,6 +73,23 @@ fn complete(r: &RuntimeRecord) -> bool {
             r.termination_evidence_type.as_deref(),
             Some("job_active_processes_zero" | "managed_job_destroyed")
         )
+}
+
+/// 每次授权动作前重读 durable Runtime，并重新验证当前 Windows Session 与完整 Job identity。
+pub(super) async fn approved_runtime(store: &StateStore, id: &str) -> Result<bool, String> {
+    let durable = store.runtime(id.to_owned()).await?;
+    #[cfg(windows)]
+    {
+        Ok(durable.as_ref().is_some_and(|runtime| {
+            complete(runtime)
+                && current_session().is_ok_and(|session| valid_identity(runtime, session).is_ok())
+        }))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = durable;
+        Ok(false)
+    }
 }
 
 /// 旧 Job 收敛和 durable evidence 提交完成后才返回成功；失败尝试记录 unknown。
@@ -146,6 +165,15 @@ pub(crate) async fn startup(
     store: &StateStore,
     owner: &str,
 ) -> Result<ProviderReconcileSummary, String> {
+    startup_with_launch(store, owner, None).await
+}
+
+/// registered Provider 可提供 frozen LaunchSpec；缺失只降低 Result Recovery，不阻止历史 R1 收敛。
+pub(crate) async fn startup_with_launch(
+    store: &StateStore,
+    owner: &str,
+    resolved: Option<&ResolvedLaunchSpec>,
+) -> Result<ProviderReconcileSummary, String> {
     let claims = store
         .recover_provider_claims("codebuddy".into(), now())
         .await?;
@@ -168,7 +196,7 @@ pub(crate) async fn startup(
         let kind = if let Some(kind) = early {
             kind
         } else {
-            reconcile_execution(store, &id, true).await?
+            reconcile_execution_with_launch(store, &id, true, owner, resolved).await?
         };
         items.push(ProviderReconcileItem {
             subject_id: id,
@@ -200,6 +228,17 @@ pub(super) async fn reconcile_execution(
     store: &StateStore,
     id: &str,
     recover_runtime: bool,
+) -> Result<Kind, String> {
+    reconcile_execution_with_launch(store, id, recover_runtime, "", None).await
+}
+
+/// Result Recovery 只消费调用方已经冻结的 registered LaunchSpec，不读取当前 admission policy。
+pub(super) async fn reconcile_execution_with_launch(
+    store: &StateStore,
+    id: &str,
+    recover_runtime: bool,
+    owner: &str,
+    resolved: Option<&ResolvedLaunchSpec>,
 ) -> Result<Kind, String> {
     let row = store
         .execution(id.into())
@@ -250,13 +289,7 @@ pub(super) async fn reconcile_execution(
         Ok(())
     };
     let durable = store.runtime(runtime_id.clone()).await?;
-    #[cfg(windows)]
-    let approved = durable.as_ref().is_some_and(|durable| {
-        complete(durable)
-            && current_session().is_ok_and(|session| valid_identity(durable, session).is_ok())
-    });
-    #[cfg(not(windows))]
-    let approved = false;
+    let approved = approved_runtime(store, &runtime_id).await?;
     if !private_valid || recovered.is_err() || !approved {
         mark_unknown(store, id).await?;
         return Ok(Kind::ExecutionUnknown);
@@ -267,7 +300,7 @@ pub(super) async fn reconcile_execution(
             .provider_event(
                 id.into(),
                 Transition::ResumeRecovery(RecoveryBasis::RuntimeTermination {
-                    runtime_id,
+                    runtime_id: runtime_id.clone(),
                     evidence_at: evidence
                         .termination_evidence_at
                         .ok_or("RUNTIME_EVIDENCE_REQUIRED")?,
@@ -299,6 +332,39 @@ pub(super) async fn reconcile_execution(
             .await?
             .ok_or("EXECUTION_NOT_FOUND")?;
     }
+    #[cfg(windows)]
+    let recovered_result = if staged {
+        None
+    } else {
+        let private = store.read_codebuddy_state(id.into()).await?;
+        match super::result_recovery::inspect(store, owner, &row, private, resolved).await {
+            Ok(result) => Some(result),
+            Err(_) => {
+                mark_unknown(store, id).await?;
+                return Ok(Kind::ExecutionUnknown);
+            }
+        }
+    };
+    #[cfg(not(windows))]
+    let recovered_result: Option<()> = None;
+    // inspection 可能原子推进 generic revision/result，finalize 必须重新读取最新快照。
+    row = store
+        .execution(id.into())
+        .await?
+        .ok_or("EXECUTION_NOT_FOUND")?;
+    // Claim release 前再次断言 R1 与任何已启动 R2 都有 complete approved Job evidence。
+    if !approved_runtime(store, &runtime_id).await? {
+        mark_unknown(store, id).await?;
+        return Ok(Kind::ExecutionUnknown);
+    }
+    let final_private = store.read_codebuddy_state(id.into()).await?;
+    if let Some(r2) = final_private.recovery_runtime_instance_id.as_deref()
+        && r2 != runtime_id
+        && !approved_runtime(store, r2).await?
+    {
+        mark_unknown(store, id).await?;
+        return Ok(Kind::ExecutionUnknown);
+    }
     let (terminal, result, completeness) = if staged {
         let terminal = serde_json::from_value(serde_json::Value::String(
             row.provider_terminal_status
@@ -320,9 +386,20 @@ pub(super) async fn reconcile_execution(
         };
         (terminal, result, completeness)
     } else {
-        (Status::Interrupted, None, ResultCompleteness::Unknown)
+        #[cfg(windows)]
+        let (result, completeness) = match recovered_result {
+            Some(super::result_recovery::RecoveredResult::Partial(result)) => {
+                (Some(result), ResultCompleteness::Partial)
+            }
+            Some(super::result_recovery::RecoveredResult::Unknown) | None => {
+                (None, ResultCompleteness::Unknown)
+            }
+        };
+        #[cfg(not(windows))]
+        let (result, completeness) = (None, ResultCompleteness::Unknown);
+        (Status::Interrupted, result, completeness)
     };
-    // 只使用现有 provider-neutral release 事务，不创建 R2 或恢复 Provider 结果。
+    // R1/R2 双 evidence 已复核后，仍只使用 provider-neutral 原子 release 事务。
     store
         .finalize_and_release_execution(
             id.into(),

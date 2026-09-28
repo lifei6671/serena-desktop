@@ -106,8 +106,8 @@ pub(crate) struct SessionFrame {
     pub(crate) session_id: String,
     pub(crate) method: String,
     pub(crate) params: Value,
-    bytes: usize,
-    expires: Instant,
+    pub(super) bytes: usize,
+    pub(super) expires: Instant,
 }
 
 /// 仅 session/new 的白名单扩展；不暴露任意 response 或 request payload。
@@ -491,6 +491,27 @@ impl Shared {
 
     /// load response 后到 acceptance 前只允许 exact-S1 尾帧；允许为空并由调用方隔离历史。
     pub(crate) fn take_continuation_tail(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<SessionFrame>, Failure> {
+        self.check_expiry()?;
+        let mut state = self.state.lock().unwrap();
+        if !state.routes.contains(session_id)
+            || state
+                .frames
+                .iter()
+                .any(|frame| frame.session_id != session_id)
+        {
+            drop(state);
+            return Err(self.fail(Failure::Continuation));
+        }
+        let frames = state.frames.drain(..).collect::<Vec<_>>();
+        state.bytes = 0;
+        Ok(frames)
+    }
+
+    /// Result Recovery 只读取 exact Session 的历史；允许空历史，但任何 foreign Session 都使检查失效。
+    pub(crate) fn take_result_recovery_replay(
         &self,
         session_id: &str,
     ) -> Result<Vec<SessionFrame>, Failure> {

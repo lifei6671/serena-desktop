@@ -161,6 +161,187 @@ fn private_ownership(
 }
 
 impl StateStore {
+    /// 单一 IMMEDIATE 事务保证 R2 attempt/runtime/private provenance 不出现可重试的中间状态。
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "durable R1/R2 identity tuple is intentional"
+    )]
+    pub(crate) async fn begin_codebuddy_result_inspection(
+        &self,
+        expected: PrivateState,
+        expected_ownership: Ownership,
+        recovery_runtime_instance_id: String,
+        owner: String,
+        session: u32,
+        executable: String,
+    ) -> Result<PrivateState, String> {
+        if recovery_runtime_instance_id.is_empty()
+            || recovery_runtime_instance_id.contains(['\\', '/', '\0'])
+            || owner.is_empty()
+        {
+            return Err("CODEBUDDY_RUNTIME_IDENTITY_INVALID".into());
+        }
+        let connection = self.connection.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut connection = connection.lock().map_err(|e| e.to_string())?;
+            let tx = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|e| e.to_string())?;
+            let row = execution_record(&tx, &expected.execution_id)
+                .map_err(|e| e.to_string())?
+                .ok_or("EXECUTION_NOT_FOUND")?;
+            let binding = ownership(&tx, &expected.execution_id, Some(&expected_ownership))?;
+            let mut state = load(&tx, &expected.execution_id).map_err(|e| e.to_string())?;
+            validate(&state)?;
+            private_ownership(&tx, &state, &binding, false)?;
+            if state != expected || row.status != "reconciling" {
+                return Err("CodeBuddy inspection ownership conflict".into());
+            }
+            transactions::owns_claim(&tx, &expected.execution_id)?;
+            let r1 = binding.as_deref().ok_or("RUNTIME_EVIDENCE_REQUIRED")?;
+            let r1_approved: bool = tx
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM runtime_instances WHERE id=?1 AND provider='codebuddy'
+                     AND state='terminated' AND termination_evidence_state='complete'
+                     AND termination_evidence_type IN ('job_active_processes_zero','managed_job_destroyed')
+                     AND termination_evidence_at IS NOT NULL AND job_name=?2 AND job_session_id=?3
+                     AND job_creation_mode='proc_thread_attribute_job_list' AND job_handle_inheritable=0
+                     AND job_kill_on_close=1 AND job_breakaway_allowed=0 AND job_policy_verified_at IS NOT NULL
+                     AND runtime_platform='windows' AND containment_type='windows_job'
+                     AND process_identity_scheme='windows_filetime_v1')",
+                    params![r1, format!("Local\\SerenaDesktop.CodeBuddy.{r1}"), i64::from(session)],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            if !r1_approved {
+                return Err("RUNTIME_EVIDENCE_REQUIRED".into());
+            }
+            let now = chrono::Utc::now().timestamp_millis();
+            tx.execute(
+                "INSERT INTO execution_runtime_attempts(execution_id,runtime_instance_id,created_at)
+                 VALUES (?1,?2,?3)",
+                params![expected.execution_id, recovery_runtime_instance_id, now],
+            )
+            .map_err(|e| e.to_string())?;
+            tx.execute(
+                "INSERT INTO runtime_instances(id,provider,owner_host_instance_id,job_name,job_session_id,
+                 job_creation_mode,job_handle_inheritable,job_kill_on_close,job_breakaway_allowed,
+                 executable_path,state,created_at,updated_at)
+                 VALUES (?1,'codebuddy',?2,?3,?4,'proc_thread_attribute_job_list',0,1,0,?5,'preparing',?6,?6)",
+                params![
+                    recovery_runtime_instance_id,
+                    owner,
+                    format!("Local\\SerenaDesktop.CodeBuddy.{recovery_runtime_instance_id}"),
+                    i64::from(session),
+                    executable,
+                    now
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+            apply(
+                &mut state,
+                Mutation::BeginInspection { recovery_runtime_instance_id },
+                binding.clone(),
+                now,
+            )?;
+            validate(&state)?;
+            private_ownership(&tx, &state, &binding, false)?;
+            let next_revision = state.revision.checked_add(1).ok_or("CodeBuddy revision overflow")?;
+            let changed = tx.execute(
+                "UPDATE codebuddy_execution_state SET recovery_method='session/load',
+                 recovery_state='inspecting',recovery_runtime_instance_id=?2,recovery_started_at=?3,
+                 recovery_finished_at=NULL,revision=?4,updated_at=?3
+                 WHERE execution_id=?1 AND revision=?5",
+                params![state.execution_id,state.recovery_runtime_instance_id,now,next_revision,state.revision]
+            ).map_err(|e| e.to_string())?;
+            if changed != 1 {
+                return Err("CodeBuddy inspection revision conflict".into());
+            }
+            let result = load(&tx, &state.execution_id).map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
+            Ok(result)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    /// R2 complete evidence、private outcome 与 generic partial/unknown result 同一事务提交。
+    pub(crate) async fn finish_codebuddy_result_inspection(
+        &self,
+        expected: PrivateState,
+        expected_ownership: Ownership,
+        outcome: InspectionOutcome,
+        result: Option<serde_json::Value>,
+    ) -> Result<PrivateState, String> {
+        let connection = self.connection.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut connection = connection.lock().map_err(|e| e.to_string())?;
+            let tx = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(|e| e.to_string())?;
+            let row = execution_record(&tx, &expected.execution_id)
+                .map_err(|e| e.to_string())?
+                .ok_or("EXECUTION_NOT_FOUND")?;
+            let binding = ownership(&tx, &expected.execution_id, Some(&expected_ownership))?;
+            let mut state = load(&tx, &expected.execution_id).map_err(|e| e.to_string())?;
+            validate(&state)?;
+            private_ownership(&tx, &state, &binding, false)?;
+            if state != expected || row.status != "reconciling" || row.provider_terminal_status.is_some() {
+                return Err("CodeBuddy inspection finish ownership conflict".into());
+            }
+            transactions::owns_claim(&tx, &expected.execution_id)?;
+            let r2 = state.recovery_runtime_instance_id.as_deref().ok_or("CODEBUDDY_RECOVERY_RUNTIME_REQUIRED")?;
+            let r2_approved: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM runtime_instances WHERE id=?1 AND provider='codebuddy'
+                 AND state='terminated' AND termination_evidence_state='complete'
+                 AND termination_evidence_type IN ('job_active_processes_zero','managed_job_destroyed')
+                 AND termination_evidence_at IS NOT NULL AND job_name=?2
+                 AND job_creation_mode='proc_thread_attribute_job_list' AND job_handle_inheritable=0
+                 AND job_kill_on_close=1 AND job_breakaway_allowed=0 AND job_policy_verified_at IS NOT NULL
+                 AND runtime_platform='windows' AND containment_type='windows_job'
+                 AND process_identity_scheme='windows_filetime_v1')",
+                params![r2,format!("Local\\SerenaDesktop.CodeBuddy.{r2}")],|row|row.get(0)
+            ).map_err(|e| e.to_string())?;
+            if !r2_approved {
+                return Err("CODEBUDDY_RECOVERY_RUNTIME_EVIDENCE_REQUIRED".into());
+            }
+            let (serialized, completeness) = match (&outcome, &result) {
+                (InspectionOutcome::Partial, Some(value))
+                    if value.get("text").and_then(serde_json::Value::as_str)
+                        .is_some_and(|text| !text.is_empty() && text.len() <= 256 * 1024) =>
+                {
+                    (Some(value.to_string()), "partial")
+                }
+                (InspectionOutcome::Unknown | InspectionOutcome::MaterialDifference, None) => (None, "unknown"),
+                _ => return Err("CODEBUDDY_RECOVERY_RESULT_INVALID".into()),
+            };
+            let now = chrono::Utc::now().timestamp_millis();
+            apply(&mut state, Mutation::FinishInspection { outcome }, binding.clone(), now)?;
+            validate(&state)?;
+            private_ownership(&tx, &state, &binding, false)?;
+            let next_private_revision = state.revision.checked_add(1).ok_or("CodeBuddy revision overflow")?;
+            let private_changed = tx.execute(
+                "UPDATE codebuddy_execution_state SET recovery_state=?2,recovery_finished_at=?3,
+                 revision=?4,updated_at=?3 WHERE execution_id=?1 AND revision=?5",
+                params![state.execution_id,encode(&state.recovery_state)?,now,next_private_revision,state.revision]
+            ).map_err(|e| e.to_string())?;
+            let execution_changed = tx.execute(
+                "UPDATE executions SET final_result_json=?2,result_completeness=?3,
+                 revision=revision+1,updated_at=?4 WHERE id=?1 AND revision=?5
+                 AND status='reconciling' AND provider_terminal_status IS NULL",
+                params![state.execution_id,serialized,completeness,now,expected_ownership.execution_revision]
+            ).map_err(|e| e.to_string())?;
+            if private_changed != 1 || execution_changed != 1 {
+                return Err("CodeBuddy inspection finish revision conflict".into());
+            }
+            let result = load(&tx, &state.execution_id).map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
+            Ok(result)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
     /// Provider validation 只认 exact terminal private identity；缺行或不合格不推造 Session。
     pub(crate) async fn read_codebuddy_continuation_source(
         &self,
@@ -514,8 +695,15 @@ fn apply(
         Mutation::BeginInspection {
             recovery_runtime_instance_id,
         } => {
-            if !matches!(s.prompt_state, PromptState::Sent | PromptState::Uncertain)
-                || s.recovery_state != RecoveryState::NotAttempted
+            let continuation_state = s.recovery_runtime_instance_id == s.runtime_instance_id
+                && matches!(
+                    s.recovery_state,
+                    RecoveryState::Inspecting | RecoveryState::Partial
+                );
+            if !matches!(
+                s.prompt_state,
+                PromptState::Sent | PromptState::Uncertain | PromptState::TerminalObserved
+            ) || !(s.recovery_state == RecoveryState::NotAttempted || continuation_state)
                 || s.runtime_instance_id.as_deref() == Some(recovery_runtime_instance_id.as_str())
             {
                 return Err("inspection begin conflict".into());
@@ -524,6 +712,7 @@ fn apply(
             s.recovery_state = RecoveryState::Inspecting;
             s.recovery_runtime_instance_id = Some(recovery_runtime_instance_id);
             s.recovery_started_at = Some(now);
+            s.recovery_finished_at = None;
         }
         Mutation::FinishInspection { outcome } => {
             if s.recovery_state != RecoveryState::Inspecting

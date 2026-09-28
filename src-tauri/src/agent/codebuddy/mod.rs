@@ -26,6 +26,8 @@ pub(crate) mod protocol;
 pub(crate) mod provider;
 pub(crate) mod recovery;
 #[cfg(windows)]
+mod result_recovery;
+#[cfg(windows)]
 #[allow(dead_code, reason = "CB6-003 仅 managed handshake，不接产品 session")]
 pub(crate) mod runtime;
 #[allow(

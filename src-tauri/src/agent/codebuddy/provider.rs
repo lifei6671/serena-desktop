@@ -273,11 +273,15 @@ impl AgentProvider for CodeBuddyProvider {
         _context: ProviderStartupContext,
     ) -> ProviderFuture<'a, Result<ProviderReconcileSummary, ProviderError>> {
         Box::pin(async {
-            super::recovery::startup(&self.store, &self.owner)
-                .await
-                .map_err(|_| ProviderError {
-                    code: ProviderErrorCode::AgentProviderOperationFailed,
-                })
+            super::recovery::startup_with_launch(
+                &self.store,
+                &self.owner,
+                self.resolved_launch_spec(),
+            )
+            .await
+            .map_err(|_| ProviderError {
+                code: ProviderErrorCode::AgentProviderOperationFailed,
+            })
         })
     }
 }
