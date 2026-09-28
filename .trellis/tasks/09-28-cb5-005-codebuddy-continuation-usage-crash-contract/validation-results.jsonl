@@ -1,0 +1,65 @@
+{"check":"baseline","status":"PASSED","detail":"branch feat/codebuddy; HEAD b83418a3d12681d1cb372eebd9f58c53e08cc98a; initial worktree clean"}
+{"check":"authority_hashes_initial","status":"PASSED","detail":"all three user-provided SHA256 values matched"}
+{"check":"node_syntax_initial","status":"PASSED","detail":"lib.mjs and probe.mjs parsed on Node v24.19.0"}
+{"check":"unit_tests_round0","status":"FAILED","detail":"6 passed, 1 failed; test false-positive matched read-only session/resume inspection string"}
+{"check":"unit_tests_round1","status":"PASSED","detail":"7 passed, 0 failed after call-site-only assertion"}
+{"check":"static_inspection","status":"PASSED","detail":"installed CodeBuddy 2.158.0 and pinned ACP schema hashes recorded; unique probe method session/load"}
+{"check":"real_probe_attempt_1","status":"FAILED","detail":"initialize PASS with loadSession=true; session/new -32603 HTTP500; coordinator later failed before crash call because evidence/crash parent was absent"}
+{"check":"cleanup_attempt_1","status":"PASSED","detail":"two empty owned temp workspaces removed after prefix and manifest validation"}
+{"check":"real_probe_attempt_2","status":"FAILED","detail":"continuation plus four crash entries all initialize PASS then session/new -32603 HTTP500; no prompt or crash window reached; no third attempt"}
+{"check":"attempt_2_process_cleanup","status":"FAILED","detail":"taskkill /T failed and directChildReaped remained false; harness session was interrupted after result persistence"}
+{"check":"post_interrupt_pid_check","status":"PASSED","detail":"five exact direct PIDs absent; CIM ancestry inspection unavailable due Access Denied; not Job proof"}
+{"check":"cleanup_attempt_2","status":"PASSED","detail":"five empty owned temp workspaces removed after prefix and manifest validation"}
+{"check":"usage_conclusion_correction","status":"PASSED","detail":"raw unsupported label preserved and superseded by INCONCLUSIVE because no prompt prerequisite was reached"}
+{"check":"unit_tests_final_pre_review","status":"PASSED","detail":"Node syntax checks exit0; node --test passed 8, failed 0"}
+{"check":"authority_hashes_final","status":"PASSED","detail":"85e796bd..., 7af023d5..., a80a5a6f... matched user authority"}
+{"check":"git_diff_check","status":"PASSED","detail":"exit0; command covers tracked diff while all task files are untracked"}
+{"check":"production_zero_diff","status":"PASSED","detail":"git diff b83418a... -- src src-tauri docs returned no paths"}
+{"check":"temp_residue","status":"PASSED","detail":"cb5-005-20260928-* directory count is 0"}
+{"check":"independent_full_scope_review","status":"NOT_RUN","detail":"review will run against the subsequent frozen target and be recorded separately"}
+{"check":"independent_full_scope_review_round0","status":"FAILED","detail":"CHILD_AGENT covered 46/46; target hash matched; P0/P1=0, P2=3, P3=1; gate BLOCKED"}
+{"check":"review_repair_round1","status":"PASSED","detail":"exact usage identity, reachable crash response search, bounded pipe/probe watchdog and docs repaired; no real Provider rerun"}
+{"check":"unit_tests_after_review_repair","status":"PASSED","detail":"Node syntax exit0; node --test passed 10, failed 0"}
+{"check":"independent_full_scope_review_round1","status":"FAILED","detail":"CHILD_AGENT covered 47/47; target hash matched; P0/P1/P3=0, P2=3; gate BLOCKED"}
+{"check":"review_repair_round2","status":"PASSED","detail":"usage numeric semantics remain unknown; exact crash result requires typed stopReason; watchdog persists process/workspace cleanup evidence before exit; no real Provider rerun"}
+{"check":"unit_tests_after_review_repair_round2","status":"PASSED","detail":"Node syntax exit0; node --test passed 10, failed 0"}
+{"check":"independent_full_scope_review_round2","status":"FAILED","detail":"CHILD_AGENT covered 48/48; target hash matched; P0/P1/P3=0, P2=1; gate BLOCKED"}
+{"check":"review_repair_round3","status":"PASSED","detail":"usage terminal coverage and late behavior are now per-field and exact-bound; unbound is unknown; no real Provider rerun"}
+{"check":"unit_tests_after_review_repair_round3","status":"PASSED","detail":"Node syntax exit0; node --test passed 11, failed 0"}
+{"check":"host_gate_initialize_shape_finding","status":"FAILED","detail":"attempt1/2 used non-equivalent clientInfo and omitted CB5-004 clientCapabilities._meta; prior final review superseded"}
+{"check":"initialize_exact_baseline_fixture","status":"PASSED","detail":"both CB5-004 wire SHA256 values matched and generated initialize params deep-equaled both frozen Host requests"}
+{"check":"real_probe_attempt_3","status":"FAILED","detail":"exact CB5-004 initialize PASS with loadSession=true; fresh session/new returned -32603 HTTP500; gate stopped prompt, session/load and crash calls"}
+{"check":"attempt_3_process_cleanup","status":"PASSED","detail":"provider direct child reaped after direct SIGKILL; final manifest empty; workspace deleted; PID absent and temp residue 0; not Job proof"}
+{"check":"attempt_3_outer_harness_exit","status":"FAILED","detail":"result and summary persisted, then Host interrupted idle harness because completed operation retained 20-minute watchdog timer"}
+{"check":"watchdog_timer_repair","status":"PASSED","detail":"normal completion now clears timer; non-Provider child-process regression test exits within 2 seconds"}
+{"check":"unit_tests_after_attempt_3_repair","status":"PASSED","detail":"Node syntax exit0; node --test passed 13, failed 0; real Provider not rerun"}
+{"check":"attempt_3_wire_scope","status":"PASSED","detail":"4 frames only; outgoing methods initialize,session/new; crash count 0; no crash directory; FRESH_SESSION_PREREQUISITE_FAILED"}
+{"check":"authority_hashes_after_attempt_3","status":"PASSED","detail":"three original authorities plus both CB5-004 Host wire hashes matched"}
+{"check":"production_zero_diff_after_attempt_3","status":"PASSED","detail":"git diff from b83418a over src src-tauri docs returned zero paths"}
+{"check":"temp_residue_after_attempt_3","status":"PASSED","detail":"cb5-005-20260928-* directory count 0"}
+{"check":"final_full_scope_review_after_attempt_3","status":"NOT_RUN","detail":"will run against the new frozen target; prior PASSED review is superseded"}
+{"check":"attempt_3_full_scope_review_round0","status":"FAILED","detail":"CHILD_AGENT covered 59/59; identity matched; P0/P2/P3=0, P1=1; capability doc still relied on non-equivalent attempt1/2"}
+{"check":"attempt_3_review_repair_round1","status":"PASSED","detail":"capability method authority now uses typed schema plus exact attempt3 loadSession=true; attempt1/2 diagnostic only; no Provider rerun"}
+{"check":"host_environment_controls","status":"HOST_VERIFIED","detail":"Host gold_band_probe and minimal numeric/string JSON-RPC id controls each passed fresh session/new; backend-wide unavailability and id type are not supported explanations for attempt3"}
+{"check":"attempt_3_environment_reclassification","status":"PASSED","detail":"attempt3 is EXACT_INITIALIZE_NON_HOST_ENVIRONMENT_PROBE diagnostic history because it inherited Codex Agent-shell process.env; it is not final Contract authority"}
+{"check":"host_attempt_4_static_tests","status":"PASSED","detail":"Node syntax exit0; node --test passed 16, failed 0; real Provider not run"}
+{"check":"host_attempt_4_gate","status":"PASSED","detail":"probe-host-attempt-4 rejects unless SERENA_CB5_HOST_PROBE=1 and leaves evidence tree unchanged"}
+{"check":"host_attempt_4_evidence_path","status":"PASSED","detail":"fixed task-local evidence/attempt-4 path is independent of attempts1/2/3 and remains absent before Host execution"}
+{"check":"host_environment_provenance_privacy","status":"PASSED","detail":"fixed allowlist records runner/platform/node/LaunchSpec hashes and environment key presence only; no PATH, environment values or tokens"}
+{"check":"real_probe_attempt_4","status":"NOT_RUN","detail":"intentionally reserved for SerenaDesktop command_execute Host environment"}
+{"check":"final_freeze_and_review_after_attempt_4","status":"NOT_RUN","detail":"task remains in_progress; historical attempt3 freeze/review marked stale pending Host evidence"}
+{"check":"real_probe_attempt_4","status":"HOST_PASSED","detail":"SerenaDesktop command Host completed fresh session, R1/P1/P2, R1 reap, independent R2 session/load, 13 exact-S1 replay updates, P3, Usage and four crash windows; Workspace manifests had no delta"}
+{"check":"attempt_4_continuation_acceptance_finding","status":"FAILED","detail":"Continue remained INCONCLUSIVE only because p3Matched required byte-for-byte marker|workspace equality; decorated semantic answers can be false negatives; result recovery remains independently partial"}
+{"check":"host_attempt_5_syntax","status":"PASSED","detail":"absolute Node syntax checks passed for lib.mjs, probe.mjs and probe.test.mjs"}
+{"check":"host_attempt_5_unit_tests","status":"PASSED","detail":"node --test passed 24, failed 0; real Provider not run"}
+{"check":"host_attempt_5_semantic_fixtures","status":"PASSED","detail":"covered markdown/backticks, wrong marker, wrong cwd, Windows case/slash normalization, answer text omission and P3 marker/cwd isolation"}
+{"check":"host_attempt_5_gate_and_path","status":"PASSED","detail":"missing SERENA_CB5_HOST_PROBE rejects before evidence writes; evidence/attempt-5 is independent from earlier attempts and production roots"}
+{"check":"host_attempt_5_scope","status":"PASSED","detail":"CLI mode routes only runContinuationOnlyProbe; Usage and Crash are recorded NOT_RUN_ATTEMPT5"}
+{"check":"real_probe_attempt_5","status":"NOT_RUN","detail":"intentionally reserved for SerenaDesktop command_execute Host environment"}
+{"check":"final_freeze_and_review_after_attempt_5","status":"NOT_RUN","detail":"task remains in_progress pending Host attempt-5 evidence"}
+{"check":"attempt_5_final_static_audit","status":"PASSED","detail":"48 JSON and 19 JSONL files parsed with case-sensitive hashtables; attempt4 21-file tree hash unchanged; attempt5 absent; production diff zero; worktree task-only; tracked git diff --check exit0"}
+{"timestamp":"2026-09-28","phase":"final-contract-candidate","check":"task-local-syntax-and-unit","status":"PASS","details":{"node":"C:\\nvm4w\\nodejs\\node.exe","syntax":["harness/lib.mjs","harness/probe.mjs"],"tests":{"passed":24,"failed":0},"providerProbe":"NOT_RUN"}}
+{"timestamp":"2026-09-28","phase":"final-contract-candidate","check":"evidence-parse","status":"PASS","details":{"jsonFiles":54,"jsonlFiles":21,"jsonlRows":821}}
+{"timestamp":"2026-09-28","phase":"final-contract-candidate","check":"scope-authority-cleanup","status":"PASS","details":{"authorityHashes":5,"tempResidue":0,"productionDiff":0,"gitDiffCheck":"PASS","workspaceScope":"task-directory-only"}}
+{"timestamp":"2026-09-28","phase":"final-review-repair-round0","check":"review-findings","status":"REPAIRED","details":{"reviewCoverage":"86/86","freezeIdentity":"MATCH","p0":0,"p1":1,"p2":1,"p3":0,"repairs":["conversation_request_id local UUIDv7 provenance","attempt4 crash marker raw SHA256"]}}
+{"timestamp":"2026-09-28","phase":"final-review-round1","check":"independent-full-scope-review","status":"PASS","details":{"coverage":"86/86","freezeIdentity":"83f4cfb34b4ece5c2f7bef720850cb13d8fa703fcdcc71a6e2772b62a8a700d6","p0":0,"p1":0,"p2":0,"p3":1,"p3":"freeze JSONL row metadata 821 to 825; nonblocking and corrected in completed-state freeze","productionDiff":"ZERO"}}

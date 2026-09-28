@@ -1,0 +1,65 @@
+{
+  "generatedAt": "2026-09-28T04:06:48.309Z",
+  "diagnosticsOnly": true,
+  "windowsJobAtCreationProven": false,
+  "entries": [
+    {
+      "runtime": "continuation-attempt5-r1",
+      "pid": 3276,
+      "startedAt": "2026-09-28T04:05:56.077Z",
+      "exit": {
+        "code": 1,
+        "signal": null,
+        "at": "2026-09-28T04:06:20.933Z"
+      },
+      "abrupt": true,
+      "reason": "continuation_attempt5_r1_complete",
+      "taskkill": {
+        "status": 0,
+        "signal": null,
+        "errorCode": null,
+        "stdoutSha256": "3a51e2ba3e36654879d37029dd42c8667c6a33fe38d91494712991a307d944a7",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "directChildReaped": true,
+      "stderrBytes": 0,
+      "stderrPrefixSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrContentSaved": false,
+      "protocolError": null,
+      "reapError": null,
+      "directKillError": null,
+      "initializeParamsSha256": "921a7bc1ec9fd8049cd908221b742dafb2d4c154cd7be8be2dd13304828f38b4",
+      "windowsJobAtCreationProven": false,
+      "provesOldRuntimeTerminatedForProduction": false
+    },
+    {
+      "runtime": "continuation-attempt5-r2",
+      "pid": 44372,
+      "startedAt": "2026-09-28T04:06:20.983Z",
+      "exit": {
+        "code": 1,
+        "signal": null,
+        "at": "2026-09-28T04:06:48.306Z"
+      },
+      "abrupt": true,
+      "reason": "continuation_attempt5_r2_complete",
+      "taskkill": {
+        "status": 0,
+        "signal": null,
+        "errorCode": null,
+        "stdoutSha256": "35a6c0d98d7c42ae254679c59ede3f1acd03084cad6ac73fb35eaa0ef9054339",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "directChildReaped": true,
+      "stderrBytes": 0,
+      "stderrPrefixSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrContentSaved": false,
+      "protocolError": null,
+      "reapError": null,
+      "directKillError": null,
+      "initializeParamsSha256": "921a7bc1ec9fd8049cd908221b742dafb2d4c154cd7be8be2dd13304828f38b4",
+      "windowsJobAtCreationProven": false,
+      "provesOldRuntimeTerminatedForProduction": false
+    }
+  ]
+}

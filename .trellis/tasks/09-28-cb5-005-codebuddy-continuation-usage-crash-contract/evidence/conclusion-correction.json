@@ -1,0 +1,14 @@
+{
+  "appliesTo": [
+    "continuation-result.json",
+    "usage-analysis.json",
+    "attempt-2/continuation-result.json",
+    "attempt-2/usage-analysis.json",
+    "attempt-2/probe-summary.json"
+  ],
+  "field": "usage.publicConclusion",
+  "rawValue": "UNSUPPORTED",
+  "correctedValue": "INCONCLUSIVE",
+  "reason": "Both real attempts failed at session/new before any prompt was sent. Zero usage events therefore cannot distinguish unsupported Usage from an unexercised Usage path. tokenUsage remains false.",
+  "rawEvidencePreserved": true
+}

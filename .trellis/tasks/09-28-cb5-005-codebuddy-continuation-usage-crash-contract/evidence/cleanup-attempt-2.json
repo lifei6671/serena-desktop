@@ -1,0 +1,35 @@
+{
+  "generatedAt": "2026-09-28T02:43:44.468Z",
+  "entries": [
+    {
+      "workspace": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-continuation-01CrjX",
+      "manifest": {},
+      "removed": true,
+      "reason": "EMPTY_TASK_WORKSPACE"
+    },
+    {
+      "workspace": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_prompt_flush_before_terminal-m8cwJh",
+      "manifest": {},
+      "removed": true,
+      "reason": "EMPTY_TASK_WORKSPACE"
+    },
+    {
+      "workspace": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_session_new_before_prompt-2Hhwbq",
+      "manifest": {},
+      "removed": true,
+      "reason": "EMPTY_TASK_WORKSPACE"
+    },
+    {
+      "workspace": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_side_effect_before_terminal-Lh6w2o",
+      "manifest": {},
+      "removed": true,
+      "reason": "EMPTY_TASK_WORKSPACE"
+    },
+    {
+      "workspace": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_terminal_before_summary_persist-iVFHju",
+      "manifest": {},
+      "removed": true,
+      "reason": "EMPTY_TASK_WORKSPACE"
+    }
+  ]
+}

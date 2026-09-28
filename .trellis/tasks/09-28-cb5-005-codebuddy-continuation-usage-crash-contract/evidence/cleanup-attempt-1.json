@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-09-28T02:38:44.530Z",
+  "entries": [
+    {
+      "workspace": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-continuation-tI5VCl",
+      "manifest": {},
+      "removed": true,
+      "reason": "EMPTY_TASK_WORKSPACE"
+    },
+    {
+      "workspace": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_session_new_before_prompt-bD30kW",
+      "manifest": {},
+      "removed": true,
+      "reason": "EMPTY_TASK_WORKSPACE"
+    }
+  ]
+}

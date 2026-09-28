@@ -1,0 +1,114 @@
+{
+  "generatedAt": "2026-09-28T02:39:52.149Z",
+  "continuation": {
+    "conclusion": "INCONCLUSIVE",
+    "recoveryMethod": "session/load"
+  },
+  "usage": {
+    "eventCount": 0,
+    "fields": [],
+    "windows": [],
+    "exactPromptBound": false,
+    "publicConclusion": "UNSUPPORTED",
+    "tokenUsageCapability": false,
+    "reason": "NO_REAL_USAGE_EVENT"
+  },
+  "crash": [
+    {
+      "kind": "after_session_new_before_prompt",
+      "status": "FAILED",
+      "windowObserved": false,
+      "sessionId": null,
+      "markerObserved": false,
+      "recovery": {
+        "method": "session/load",
+        "recoveryStrength": "none",
+        "resultCompleteness": "unknown"
+      },
+      "error": {
+        "message": "JSON_RPC_ERROR",
+        "rpcCode": -32603,
+        "rpcMessageSha256": "1dac8deadf07408d9a2d94c7e5e61ff2448f500c654a8474262ca7c2c1d51605"
+      },
+      "boundaries": {
+        "r2ProvesR1Termination": false,
+        "windowsJobAtCreationProven": false
+      },
+      "finalManifest": {},
+      "workspaceDeleted": false,
+      "cleanupError": "EPERM, Permission denied: \\\\?\\C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_session_new_before_prompt-2Hhwbq '\\\\?\\C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_session_new_before_prompt-2Hhwbq'"
+    },
+    {
+      "kind": "after_prompt_flush_before_terminal",
+      "status": "FAILED",
+      "windowObserved": false,
+      "sessionId": null,
+      "markerObserved": false,
+      "recovery": {
+        "method": "session/load",
+        "recoveryStrength": "none",
+        "resultCompleteness": "unknown"
+      },
+      "error": {
+        "message": "JSON_RPC_ERROR",
+        "rpcCode": -32603,
+        "rpcMessageSha256": "1dac8deadf07408d9a2d94c7e5e61ff2448f500c654a8474262ca7c2c1d51605"
+      },
+      "boundaries": {
+        "r2ProvesR1Termination": false,
+        "windowsJobAtCreationProven": false
+      },
+      "finalManifest": {},
+      "workspaceDeleted": false,
+      "cleanupError": "EPERM, Permission denied: \\\\?\\C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_prompt_flush_before_terminal-m8cwJh '\\\\?\\C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_prompt_flush_before_terminal-m8cwJh'"
+    },
+    {
+      "kind": "after_side_effect_before_terminal",
+      "status": "FAILED",
+      "windowObserved": false,
+      "sessionId": null,
+      "markerObserved": false,
+      "recovery": {
+        "method": "session/load",
+        "recoveryStrength": "none",
+        "resultCompleteness": "unknown"
+      },
+      "error": {
+        "message": "JSON_RPC_ERROR",
+        "rpcCode": -32603,
+        "rpcMessageSha256": "1dac8deadf07408d9a2d94c7e5e61ff2448f500c654a8474262ca7c2c1d51605"
+      },
+      "boundaries": {
+        "r2ProvesR1Termination": false,
+        "windowsJobAtCreationProven": false
+      },
+      "finalManifest": {},
+      "workspaceDeleted": false,
+      "cleanupError": "EPERM, Permission denied: \\\\?\\C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_side_effect_before_terminal-Lh6w2o '\\\\?\\C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_side_effect_before_terminal-Lh6w2o'"
+    },
+    {
+      "kind": "after_terminal_before_summary_persist",
+      "status": "FAILED",
+      "windowObserved": false,
+      "sessionId": null,
+      "markerObserved": false,
+      "recovery": {
+        "method": "session/load",
+        "recoveryStrength": "none",
+        "resultCompleteness": "unknown"
+      },
+      "error": {
+        "message": "JSON_RPC_ERROR",
+        "rpcCode": -32603,
+        "rpcMessageSha256": "1dac8deadf07408d9a2d94c7e5e61ff2448f500c654a8474262ca7c2c1d51605"
+      },
+      "boundaries": {
+        "r2ProvesR1Termination": false,
+        "windowsJobAtCreationProven": false
+      },
+      "finalManifest": {},
+      "workspaceDeleted": false,
+      "cleanupError": "EPERM, Permission denied: \\\\?\\C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_terminal_before_summary_persist-iVFHju '\\\\?\\C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_terminal_before_summary_persist-iVFHju'"
+    }
+  ]
+}

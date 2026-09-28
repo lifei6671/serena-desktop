@@ -1,0 +1,20 @@
+{
+  "id": "cb5-005-codebuddy-continuation-usage-crash-contract",
+  "name": "cb5-005-codebuddy-continuation-usage-crash-contract",
+  "title": "CB5-005 Continuation / Usage / Crash Contract Freeze",
+  "description": "用本机 CodeBuddy 2.158.0、真实 ACP wire 与独立临时 Workspace 冻结 continuation、usage、crash/restart 和最小 Provider-private persistence contract；不修改生产实现。",
+  "status": "completed",
+  "priority": "P1",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-09-28",
+  "completedAt": "2026-09-28",
+  "branch": "feat/codebuddy",
+  "base_branch": "master",
+  "commit": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "CB5-005 PASS with Continue supported / Usage unsupported for initial release / Crash contract frozen. No commit/push; CB8-003 not entered."
+}

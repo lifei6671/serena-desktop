@@ -1,0 +1,15 @@
+{
+  "recordedAt": "2026-09-28T11:22:28.3880063+08:00",
+  "providerPid": 46000,
+  "providerPidAfterRun": "ABSENT",
+  "taskTempResidueCount": 0,
+  "workspaceFinalManifest": {},
+  "workspaceDeleted": true,
+  "resultAndSummaryPersistedBeforeInterrupt": true,
+  "outerHarnessInterrupted": true,
+  "outerHarnessInterruptReason": "completed operation left the 20-minute watchdog timer referenced",
+  "watchdogTimerDefectRepairedAfterRun": true,
+  "realProbeRerun": false,
+  "windowsJobAtCreationProven": false,
+  "provesOldRuntimeTerminatedForProduction": false
+}

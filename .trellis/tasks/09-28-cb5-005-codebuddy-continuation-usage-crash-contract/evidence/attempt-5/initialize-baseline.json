@@ -1,0 +1,23 @@
+{
+  "directWireSha256": "bf193e9d353357a1114293307107a4d5b6a1e671e6b2a6cb4c4fe45ae04b1b01",
+  "exactLauncherWireSha256": "5f2c4df063d214627f17e8a5bf77975d6b4e935d648a2127d0b2d16ec81b9e9f",
+  "params": {
+    "protocolVersion": 1,
+    "clientCapabilities": {
+      "elicitation": {
+        "form": {}
+      },
+      "_meta": {
+        "subagent-transcript": true,
+        "parameterizedModelPicker": true
+      }
+    },
+    "clientInfo": {
+      "name": "serena-desktop-gold-band-repro",
+      "title": "SerenaDesktop Gold Band Repro",
+      "version": "0.1"
+    }
+  },
+  "paramsSha256": "921a7bc1ec9fd8049cd908221b742dafb2d4c154cd7be8be2dd13304828f38b4",
+  "equalityRequired": "STRUCTURAL_EXACT"
+}

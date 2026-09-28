@@ -1,0 +1,18 @@
+{
+  "generatedAt": "2026-09-28T03:18:16.198Z",
+  "continuation": {
+    "conclusion": "INCONCLUSIVE",
+    "recoveryMethod": "session/load"
+  },
+  "usage": {
+    "eventCount": 0,
+    "fields": [],
+    "windows": [],
+    "exactPromptBound": false,
+    "publicConclusion": "INCONCLUSIVE",
+    "tokenUsageCapability": false,
+    "reason": "NO_REAL_USAGE_EVENT_REQUIRES_CALLER_PREREQUISITE_ASSESSMENT"
+  },
+  "crash": [],
+  "crashSkippedReason": "FRESH_SESSION_PREREQUISITE_FAILED"
+}

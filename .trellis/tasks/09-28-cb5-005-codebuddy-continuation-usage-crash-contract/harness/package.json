@@ -1,0 +1,13 @@
+{
+  "name": "cb5-005-codebuddy-contract-probe",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test probe.test.mjs",
+    "inspect": "node probe.mjs inspect",
+    "probe": "node probe.mjs probe",
+    "probe:attempt3": "node probe.mjs probe-attempt-3",
+    "probe:host:attempt4": "node probe.mjs probe-host-attempt-4",
+    "probe:host:attempt5:continuation": "node probe.mjs probe-host-attempt-5-continuation"
+  }
+}

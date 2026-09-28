@@ -1,0 +1,8 @@
+{
+  "status": "SUPERSEDED_BY_HOST_ATTEMPT4_AND_ATTEMPT5",
+  "historicalSource": "freeze.json before final Host contract freeze",
+  "baselineHead": "b83418a3d12681d1cb372eebd9f58c53e08cc98a",
+  "treeSha256": "de482e9ec0c029c84c284f2ab568bad66fb0d1c57133c0c986be7b47e1e39c08",
+  "reason": "The historical target stopped at attempt 3 and cannot represent the later Host attempt 4 Usage/Crash evidence or attempt 5 PROVEN_SUPPORTED Continuation evidence.",
+  "contractAuthority": false
+}

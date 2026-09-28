@@ -1,0 +1,17 @@
+{
+  "manifestAlgorithm": "relative path + kind + size + SHA256; empty canonical JSON hash shown below",
+  "emptyManifestSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+  "allWorkspacesWereOrdinaryWin32TempDirectories": true,
+  "entries": [
+    {"attempt": 1, "scenario": "continuation", "before": {}, "final": {}, "removed": true},
+    {"attempt": 1, "scenario": "crash-after_session_new_before_prompt-not-started", "before": {}, "final": {}, "removed": true},
+    {"attempt": 2, "scenario": "continuation", "before": {}, "final": {}, "removed": true},
+    {"attempt": 2, "scenario": "after_session_new_before_prompt", "before": {}, "final": {}, "removed": true},
+    {"attempt": 2, "scenario": "after_prompt_flush_before_terminal", "before": {}, "final": {}, "removed": true},
+    {"attempt": 2, "scenario": "after_side_effect_before_terminal", "before": {}, "final": {}, "removed": true},
+    {"attempt": 2, "scenario": "after_terminal_before_summary_persist", "before": {}, "final": {}, "removed": true}
+  ],
+  "evidence": ["cleanup-attempt-1.json", "cleanup-attempt-2.json", "attempt-2/crash/*.result.json"],
+  "userProjectTouched": false,
+  "markerCreated": false
+}
