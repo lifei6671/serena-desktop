@@ -59,14 +59,14 @@ fn deny(request: &RequestPermissionRequest) -> Result<RequestPermissionResponse,
         }
         if option.kind == PermissionOptionKind::RejectOnce {
             if selected.is_some() {
-                return Err(Failure::Incompatible);
+                return Err(Failure::PermissionOptions);
             }
             selected = Some(option.option_id.clone());
         }
     }
     Ok(RequestPermissionResponse::new(
         RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-            selected.ok_or(Failure::Incompatible)?,
+            selected.ok_or(Failure::PermissionOptions)?,
         )),
     ))
 }

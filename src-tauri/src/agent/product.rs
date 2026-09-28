@@ -118,6 +118,8 @@ pub struct ProviderCatalogEntry {
     pub version: Option<String>,
     pub enabled: bool,
     pub health: super::provider::registry::ProviderHealth,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostic_code: Option<String>,
     pub available_for_new_execution: bool,
     pub capabilities: ProviderCapabilitiesProduct,
 }
@@ -592,6 +594,15 @@ pub struct AgentProductService {
     manager: AgentTaskManager,
 }
 impl AgentProductService {
+    #[cfg(test)]
+    /// 测试只替换内存 Registry，不触发 discovery、Runtime 或持久化副作用。
+    pub(crate) fn use_registry_for_test(
+        &mut self,
+        registry: super::provider::registry::ProviderRegistry,
+    ) {
+        self.manager.use_registry(registry);
+    }
+
     /// 读取当前 Local Human 配置和 Registry 快照，不进入 probe、Runtime 或执行路径。
     pub fn provider_catalog(
         &self,
@@ -602,7 +613,7 @@ impl AgentProductService {
         let mut providers = Vec::new();
         // 只枚举注册项；配置中的未知 Provider 和路由目标不产生虚假的注册条目。
         for descriptor in registry.list_descriptors() {
-            let health = registry.health(&descriptor.id)?;
+            let (health, diagnostic_code) = registry.admission_status(&descriptor.id)?;
             let capabilities = registry.capabilities(&descriptor.id)?;
             let enabled = config
                 .agent_providers
@@ -619,6 +630,7 @@ impl AgentProductService {
                 version: descriptor.version,
                 enabled,
                 health,
+                diagnostic_code,
                 capabilities: ProviderCapabilitiesProduct {
                     can_execute: capabilities.can_execute,
                     can_continue: capabilities.can_continue,

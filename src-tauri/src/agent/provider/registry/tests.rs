@@ -12,6 +12,7 @@ use crate::agent::provider::{
 struct FakeProvider {
     descriptor: ProviderDescriptor,
     capabilities: ProviderCapabilities,
+    admission_diagnostic: Option<String>,
 }
 
 impl FakeProvider {
@@ -30,7 +31,15 @@ impl FakeProvider {
                 activity: false,
                 token_usage: false,
             },
+            admission_diagnostic: None,
         }
+    }
+
+    /// 构造会阻断后续新执行的通用 Provider diagnostic。
+    fn with_diagnostic(id: &str, diagnostic: &str) -> Self {
+        let mut provider = Self::new(id, "Diagnostic Provider", true);
+        provider.admission_diagnostic = Some(diagnostic.into());
+        provider
     }
 }
 
@@ -41,6 +50,11 @@ impl AgentProvider for FakeProvider {
 
     fn capabilities(&self) -> ProviderCapabilities {
         self.capabilities.clone()
+    }
+
+    /// 测试 adapter 只返回显式配置的 provider-neutral diagnostic。
+    fn admission_diagnostic(&self) -> Option<String> {
+        self.admission_diagnostic.clone()
     }
 
     fn execute<'a>(
@@ -73,6 +87,34 @@ fn provider(id: &str, display_name: &str, can_execute: bool) -> Arc<dyn AgentPro
 
 fn provider_id(id: &str) -> ProviderId {
     ProviderId::new(id.into()).unwrap()
+}
+
+/// admission diagnostic 覆盖新执行健康，但保留注册态控制访问。
+#[test]
+fn admission_diagnostic_overrides_effective_health_but_preserves_registered_access() {
+    let mut registry = ProviderRegistry::new();
+    let registered: Arc<dyn AgentProvider> = Arc::new(FakeProvider::with_diagnostic(
+        "diagnostic",
+        "FAKE_PROVIDER_CONTRACT_INCOMPATIBLE",
+    ));
+    let id = provider_id("diagnostic");
+    registry
+        .register(registered.clone(), ProviderHealth::Available)
+        .unwrap();
+
+    assert_eq!(registry.health(&id).unwrap(), ProviderHealth::Unavailable);
+    assert_eq!(
+        registry.diagnostic_code(&id).unwrap().as_deref(),
+        Some("FAKE_PROVIDER_CONTRACT_INCOMPATIBLE")
+    );
+    match registry.get(&id) {
+        Err(error) => assert_eq!(error.code, ProviderErrorCode::AgentProviderUnavailable),
+        Ok(_) => panic!("diagnostic-gated provider resolved for new execution"),
+    }
+    assert!(Arc::ptr_eq(
+        &registered,
+        &registry.get_registered(&id).unwrap()
+    ));
 }
 
 #[test]
@@ -131,7 +173,8 @@ fn unknown_id_returns_not_found_from_every_lookup() {
         Ok(_) => panic!("unknown provider resolved from registration"),
     }
     assert_eq!(registry.capabilities(&unknown), Err(expected.clone()));
-    assert_eq!(registry.health(&unknown), Err(expected));
+    assert_eq!(registry.health(&unknown), Err(expected.clone()));
+    assert_eq!(registry.diagnostic_code(&unknown), Err(expected));
 }
 
 #[test]

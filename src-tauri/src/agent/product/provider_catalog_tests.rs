@@ -22,6 +22,7 @@ struct CatalogProvider {
     descriptor: ProviderDescriptor,
     capabilities: ProviderCapabilities,
     invalid_descriptor: AtomicBool,
+    admission_diagnostic: Option<String>,
 }
 impl AgentProvider for CatalogProvider {
     /// 可控身份漂移用于触发 Registry 读取失败，不修改 Registry 自身。
@@ -35,6 +36,10 @@ impl AgentProvider for CatalogProvider {
     /// 返回冻结声明，覆盖不能提前宣传的能力。
     fn capabilities(&self) -> ProviderCapabilities {
         self.capabilities.clone()
+    }
+    /// 只返回 fixture 明确声明的 provider-neutral admission diagnostic。
+    fn admission_diagnostic(&self) -> Option<String> {
+        self.admission_diagnostic.clone()
     }
     /// 目录查询不允许进入执行，包括创建 Session。
     fn execute<'a>(
@@ -91,7 +96,15 @@ fn provider(id: &str, can_execute: bool) -> Arc<CatalogProvider> {
             token_usage: false,
         },
         invalid_descriptor: AtomicBool::new(false),
+        admission_diagnostic: None,
     })
+}
+
+/// 构造带确定性 admission diagnostic 的通用目录 Provider。
+fn provider_with_diagnostic(id: &str, diagnostic: &str) -> Arc<CatalogProvider> {
+    let mut provider = Arc::try_unwrap(provider(id, true)).unwrap_or_else(|_| unreachable!());
+    provider.admission_diagnostic = Some(diagnostic.into());
+    Arc::new(provider)
 }
 
 /// 读取完整持久化行，检测已有 Execution/Claim 被修改及新 Runtime 被创建。
@@ -367,6 +380,71 @@ async fn availability_matrix_preserves_independent_facts() {
         assert!(!entry.capabilities.can_recover);
         assert!(!entry.capabilities.token_usage);
     }
+}
+
+/// Catalog 只投影通用 Registry diagnostic，不从身份、版本或普通错误文本猜测。
+#[tokio::test]
+async fn admission_diagnostic_serializes_exact_code_and_blocks_new_execution() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let mut service = AgentProductService::new(store);
+    let mut registry = ProviderRegistry::new();
+    registry
+        .register(
+            provider_with_diagnostic("future-acp", "FAKE_PROVIDER_CONTRACT_INCOMPATIBLE"),
+            ProviderHealth::Available,
+        )
+        .unwrap();
+    // 相似身份与版本仅是展示数据，不得自行生成或改写 diagnostic。
+    let ordinary = provider("codebuddy-compatible-name", true);
+    let ordinary_id = ordinary.descriptor.id.clone();
+    registry
+        .register(ordinary, ProviderHealth::Available)
+        .unwrap();
+    service.manager.use_registry(registry);
+    let mut config = ManagerConfig {
+        agent_enabled: true,
+        ..Default::default()
+    };
+    for id in ["future-acp", ordinary_id.as_str()] {
+        config
+            .agent_providers
+            .providers
+            .insert(id.into(), AgentProviderPolicy { enabled: true });
+    }
+    let supervisor = supervisor(directory.path(), &config);
+
+    let value = serde_json::to_value(service.provider_catalog(&supervisor).unwrap()).unwrap();
+    let diagnostic = value["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == "future-acp")
+        .unwrap();
+    assert_eq!(diagnostic["health"], "unavailable");
+    assert_eq!(diagnostic["availableForNewExecution"], false);
+    assert_eq!(
+        diagnostic["diagnosticCode"],
+        "FAKE_PROVIDER_CONTRACT_INCOMPATIBLE"
+    );
+    let ordinary = value["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == ordinary_id.as_str())
+        .unwrap();
+    assert_eq!(ordinary["health"], "available");
+    assert_eq!(ordinary["availableForNewExecution"], cfg!(windows));
+    assert!(ordinary.get("diagnosticCode").is_none());
+}
+
+/// 生产 Catalog 不允许按 Provider 身份或 CodeBuddy 私有码分支。
+#[test]
+fn production_catalog_has_no_provider_specific_diagnostic_branch() {
+    let source = include_str!("../product.rs");
+    assert!(!source.contains("descriptor.id.as_str() == \"codebuddy\""));
+    assert!(!source.contains("descriptor.id == \"codebuddy\""));
+    assert!(!source.contains("CODEBUDDY_ACP_INCOMPATIBLE"));
 }
 
 /// 当前策略更新立即可观察；未知合法 route、null 和未配置注册项保持各自事实。

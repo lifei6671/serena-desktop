@@ -69,6 +69,11 @@ pub trait AgentProvider: Send + Sync {
 
     fn capabilities(&self) -> ProviderCapabilities;
 
+    /// 只公开会阻断后续新执行的确定性 Provider 合约诊断。
+    fn admission_diagnostic(&self) -> Option<String> {
+        None
+    }
+
     fn execute<'a>(
         &'a self,
         context: ProviderExecutionContext,

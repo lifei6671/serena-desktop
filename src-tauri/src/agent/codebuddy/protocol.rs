@@ -18,6 +18,7 @@ use permission::PermissionContext;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Failure {
     Incompatible,
+    PermissionOptions,
     Eof,
     Io,
     InvalidJson,
@@ -43,6 +44,7 @@ impl Failure {
     pub(crate) fn code(self) -> &'static str {
         match self {
             Self::Incompatible => "CODEBUDDY_ACP_INCOMPATIBLE",
+            Self::PermissionOptions => "CODEBUDDY_PERMISSION_OPTIONS_UNSUPPORTED",
             Self::Eof => "CODEBUDDY_ACP_EOF",
             Self::Io => "CODEBUDDY_ACP_IO",
             Self::InvalidJson => "CODEBUDDY_ACP_INVALID_JSON",

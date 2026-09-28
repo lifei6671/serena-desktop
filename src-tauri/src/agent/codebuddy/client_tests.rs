@@ -369,6 +369,7 @@ async fn mismatch_is_only_global_health_classification() {
         Failure::Remote,
         Failure::Malformed,
         Failure::InvalidJson,
+        Failure::PermissionOptions,
     ] {
         assert_eq!(error.health_change(), None);
     }
@@ -1094,7 +1095,7 @@ async fn permission_identity_and_options_fail_closed() {
         assert!(
             matches!(
                 observed,
-                Failure::State | Failure::Malformed | Failure::Incompatible
+                Failure::State | Failure::Malformed | Failure::PermissionOptions
             ),
             "{case}: {observed:?}"
         );

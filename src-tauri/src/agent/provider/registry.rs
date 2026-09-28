@@ -53,7 +53,7 @@ impl ProviderRegistry {
         let entry = self.entries.get(id).ok_or(ProviderError {
             code: ProviderErrorCode::AgentProviderNotFound,
         })?;
-        if entry.health == ProviderHealth::Unavailable {
+        if self.health(id)? == ProviderHealth::Unavailable {
             return Err(ProviderError {
                 code: ProviderErrorCode::AgentProviderUnavailable,
             });
@@ -113,9 +113,31 @@ impl ProviderRegistry {
     }
 
     pub fn health(&self, id: &ProviderId) -> Result<ProviderHealth, ProviderError> {
+        self.admission_status(id).map(|(health, _)| health)
+    }
+
+    /// 返回 Provider 自己声明的确定性 admission 诊断，不推断 provider 身份或错误文本。
+    pub fn diagnostic_code(&self, id: &ProviderId) -> Result<Option<String>, ProviderError> {
+        self.admission_status(id).map(|(_, diagnostic)| diagnostic)
+    }
+
+    /// 单次读取 provider diagnostic，形成内部一致的 effective health 与诊断快照。
+    pub(crate) fn admission_status(
+        &self,
+        id: &ProviderId,
+    ) -> Result<(ProviderHealth, Option<String>), ProviderError> {
         self.entries
             .get(id)
-            .map(|entry| entry.health)
+            .map(|entry| {
+                let diagnostic = entry.provider.admission_diagnostic();
+                // admission diagnostic 只覆盖新执行的有效健康；stored discovery health 保持不变。
+                let health = if diagnostic.is_some() {
+                    ProviderHealth::Unavailable
+                } else {
+                    entry.health
+                };
+                (health, diagnostic)
+            })
             .ok_or(ProviderError {
                 code: ProviderErrorCode::AgentProviderNotFound,
             })

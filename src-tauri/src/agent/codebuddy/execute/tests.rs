@@ -134,6 +134,7 @@ async fn native_permission_terminal_and_cleanup_matrix() {
             )
             .await
             .unwrap();
+            assert_eq!(provider.admission_diagnostic(), None, "{mode}");
             let row = store.execution("e".into()).await.unwrap().unwrap();
             let terminal = match mode {
                 "permission-read" | "permission-write" => Some("cancelled"),
@@ -1027,6 +1028,7 @@ async fn native_execute_eof_and_evidence_persistence_failure() {
                 .await
                 .is_err()
         );
+        assert_eq!(provider.admission_diagnostic(), None);
         let row = store.execution("e".into()).await.unwrap().unwrap();
         assert_eq!(row.status, if failure { "unknown" } else { "interrupted" });
         assert_eq!(
@@ -1058,6 +1060,167 @@ async fn native_execute_eof_and_evidence_persistence_failure() {
             assert!(row.provider_terminal_status.is_none());
             assert_eq!(row.result_completeness, "unknown");
         }
+    }
+}
+
+#[tokio::test]
+/// initialize mismatch 只污染同一 adapter 的未来 admission；refresh 替换 adapter 后清除且不启动 ACP。
+async fn native_initialize_incompatibility_wires_registry_catalog_and_refresh() {
+    use crate::{
+        agent::{
+            product::AgentProductService,
+            provider::{
+                ProviderErrorCode, ProviderId,
+                registry::{ProviderHealth, ProviderRegistry},
+            },
+        },
+        config::{AgentProviderPolicy, AppPaths, ManagerConfig},
+        serena::SupervisorState,
+    };
+
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    let (control, _workspace, store, provider) = setup(&binary, "initialize-incompatible").await;
+    let provider = Arc::new(provider);
+    let id = ProviderId::new("codebuddy".into()).unwrap();
+    let mut registry = ProviderRegistry::new();
+    registry
+        .register(provider.clone(), ProviderHealth::Available)
+        .unwrap();
+
+    let error = provider
+        .execute(
+            ProviderExecutionContext {
+                execution_id: "e".into(),
+            },
+            Arc::new(Sink(control.path().into())),
+            Arc::new(SlowTelemetry),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        ProviderExecutionFailure::State("CODEBUDDY_ACP_INCOMPATIBLE".into())
+    );
+    assert_eq!(
+        registry.diagnostic_code(&id).unwrap().as_deref(),
+        Some("CODEBUDDY_ACP_INCOMPATIBLE")
+    );
+    assert_eq!(registry.health(&id).unwrap(), ProviderHealth::Unavailable);
+    match registry.get(&id) {
+        Err(error) => assert_eq!(error.code, ProviderErrorCode::AgentProviderUnavailable),
+        Ok(_) => panic!("incompatible adapter admitted a new execution"),
+    }
+    let erased: Arc<dyn AgentProvider> = provider.clone();
+    assert!(Arc::ptr_eq(&erased, &registry.get_registered(&id).unwrap()));
+
+    let mut service = AgentProductService::new(store);
+    service.use_registry_for_test(registry);
+    let paths = AppPaths {
+        runtime_directory: control.path().join("runtime"),
+        config_file: control.path().join("config.json"),
+        log_directory: control.path().join("logs"),
+        app_log: control.path().join("logs/app.log"),
+        serena_log: control.path().join("logs/serena.log"),
+    };
+    let mut config = ManagerConfig {
+        agent_enabled: true,
+        ..Default::default()
+    };
+    config
+        .agent_providers
+        .providers
+        .insert("codebuddy".into(), AgentProviderPolicy { enabled: true });
+    crate::config::save(&paths.config_file, &config).unwrap();
+    let supervisor = SupervisorState::new(paths).unwrap();
+    let catalog = service.provider_catalog(&supervisor).unwrap();
+    let entry = catalog
+        .providers
+        .iter()
+        .find(|entry| entry.id == id)
+        .unwrap();
+    assert_eq!(entry.health, ProviderHealth::Unavailable);
+    assert!(!entry.available_for_new_execution);
+    assert_eq!(
+        entry.diagnostic_code.as_deref(),
+        Some("CODEBUDDY_ACP_INCOMPATIBLE")
+    );
+
+    let requests_before = std::fs::read(control.path().join("requests.jsonl")).unwrap();
+    crate::agent::codebuddy::TEST_DISCOVERY
+        .scope(
+            Ok(DiscoveryResult::direct_for_test(
+                control.path().join("peer.exe"),
+            )),
+            service.refresh_provider_health(id.clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        std::fs::read(control.path().join("requests.jsonl")).unwrap(),
+        requests_before
+    );
+    let refreshed = service.provider_catalog(&supervisor).unwrap();
+    let entry = refreshed
+        .providers
+        .iter()
+        .find(|entry| entry.id == id)
+        .unwrap();
+    assert_eq!(entry.health, ProviderHealth::Available);
+    assert_eq!(entry.diagnostic_code, None);
+    assert!(entry.available_for_new_execution);
+}
+
+#[tokio::test]
+/// initialize 的 EOF、timeout 与 malformed 都是单次 execution 失败，不污染未来 admission。
+async fn native_initialize_transient_failures_do_not_pollute_registry() {
+    use crate::agent::provider::{
+        ProviderId,
+        registry::{ProviderHealth, ProviderRegistry},
+    };
+
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    for (mode, code) in [
+        ("initialize-eof", "CODEBUDDY_ACP_EOF"),
+        ("initialize-timeout", "CODEBUDDY_ACP_TIMEOUT"),
+        ("initialize-malformed", "CODEBUDDY_ACP_MALFORMED"),
+    ] {
+        let (control, _workspace, _store, provider) = setup(&binary, mode).await;
+        let provider = Arc::new(provider);
+        let id = ProviderId::new("codebuddy".into()).unwrap();
+        let mut registry = ProviderRegistry::new();
+        registry
+            .register(provider.clone(), ProviderHealth::Available)
+            .unwrap();
+
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(25),
+            provider.execute(
+                ProviderExecutionContext {
+                    execution_id: "e".into(),
+                },
+                Arc::new(Sink(control.path().into())),
+                Arc::new(SlowTelemetry),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+        assert_eq!(
+            error,
+            ProviderExecutionFailure::State(code.into()),
+            "{mode}"
+        );
+        assert_eq!(
+            registry.health(&id).unwrap(),
+            ProviderHealth::Available,
+            "{mode}"
+        );
+        assert_eq!(registry.diagnostic_code(&id).unwrap(), None, "{mode}");
+        let resolved = registry.get(&id).unwrap();
+        let registered = registry.get_registered(&id).unwrap();
+        assert!(Arc::ptr_eq(&resolved, &registered), "{mode}");
     }
 }
 

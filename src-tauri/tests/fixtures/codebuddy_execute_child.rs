@@ -58,9 +58,15 @@ fn main() {
             }
             "initialize" => {
                 let mode = fs::read_to_string(control.join("mode")).unwrap();
+                if mode == "initialize-eof" {
+                    return;
+                }
+                if mode == "initialize-timeout" {
+                    continue;
+                }
                 reply(
                     &raw["id"],
-                    json!({"protocolVersion":1,"agentCapabilities":{"loadSession":mode != "continue-no-capability"}}),
+                    json!({"protocolVersion":if mode == "initialize-incompatible" { json!(2) } else if mode == "initialize-malformed" { json!("1") } else { json!(1) },"agentCapabilities":{"loadSession":mode != "continue-no-capability"}}),
                 );
             }
             "session/new" => {

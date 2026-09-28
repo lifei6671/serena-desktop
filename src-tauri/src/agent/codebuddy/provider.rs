@@ -1,6 +1,6 @@
 //! CodeBuddy Windows Fresh Execute 与历史 Runtime recovery；能力由已验证的平台边界声明。
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::agent::provider::{
     ProviderCancelContext, ProviderCapabilities, ProviderDescriptor, ProviderError,
@@ -35,6 +35,25 @@ pub(crate) struct CodeBuddyProvider {
     owner: String,
     discovery: Option<DiscoveryResult>,
     discovery_error: Option<DiscoveryError>,
+    admission_diagnostic: Arc<RuntimeAdmissionDiagnostic>,
+}
+
+/// adapter-local runtime 诊断；只接受 typed deterministic incompatibility。
+#[derive(Default)]
+pub(super) struct RuntimeAdmissionDiagnostic(Mutex<Option<&'static str>>);
+
+impl RuntimeAdmissionDiagnostic {
+    /// Provider-owned classifier 是写入全局 admission override 的唯一入口。
+    pub(super) fn record(&self, failure: super::protocol::Failure) {
+        if failure.health_change() == Some(ProviderHealth::Unavailable) {
+            *self.0.lock().unwrap() = Some(failure.code());
+        }
+    }
+
+    /// 返回安全稳定码，不公开 wire、stderr 或远端错误。
+    fn code(&self) -> Option<String> {
+        self.0.lock().unwrap().map(str::to_owned)
+    }
 }
 
 impl CodeBuddyProvider {
@@ -70,12 +89,14 @@ impl CodeBuddyProvider {
                 owner,
                 discovery: Some(discovery),
                 discovery_error: None,
+                admission_diagnostic: Arc::new(RuntimeAdmissionDiagnostic::default()),
             },
             Err(error) => Self {
                 store,
                 owner,
                 discovery: None,
                 discovery_error: Some(error),
+                admission_diagnostic: Arc::new(RuntimeAdmissionDiagnostic::default()),
             },
         }
     }
@@ -160,6 +181,11 @@ impl AgentProvider for CodeBuddyProvider {
         }
     }
 
+    /// 只有受管 initialize 已证明的确定性不兼容会阻断后续新执行。
+    fn admission_diagnostic(&self) -> Option<String> {
+        self.admission_diagnostic.code()
+    }
+
     /// generic core/admission 保持 authority；这里只验证 source exact CodeBuddy private S1。
     fn validate_continuation<'a>(
         &'a self,
@@ -200,6 +226,7 @@ impl AgentProvider for CodeBuddyProvider {
             let store = self.store.clone();
             let owner = self.owner.clone();
             let resolved = self.resolved_launch_spec().cloned();
+            let admission_diagnostic = self.admission_diagnostic.clone();
             Box::pin(async move {
                 let resolved = resolved.ok_or_else(|| {
                     ProviderExecutionFailure::State("CODEBUDDY_ACP_LAUNCH_FAILED".into())
@@ -213,7 +240,10 @@ impl AgentProvider for CodeBuddyProvider {
                     context.execution_id,
                     acceptance,
                     telemetry,
-                    cancelled,
+                    super::execute::RunControl {
+                        cancelled,
+                        admission_diagnostic,
+                    },
                 ));
                 let result = task.await.map_err(|_| {
                     ProviderExecutionFailure::State("CODEBUDDY_EXECUTION_OWNER_FAILED".into())

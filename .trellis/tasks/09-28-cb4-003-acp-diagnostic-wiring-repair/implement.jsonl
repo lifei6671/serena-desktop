@@ -1,0 +1,4 @@
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Registry to Product to frontend cross-layer diagnostic projection"}
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend contract regression context"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend quality check context"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Optional diagnosticCode DTO contract"}

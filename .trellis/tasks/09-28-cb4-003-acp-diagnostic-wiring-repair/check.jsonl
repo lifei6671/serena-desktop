@@ -1,0 +1,4 @@
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Full-scope cross-layer review"}
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend regression review context"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend check rules"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Serialized optional field review"}

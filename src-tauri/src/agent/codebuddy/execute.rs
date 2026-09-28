@@ -1,5 +1,10 @@
 //! Fresh/Continue Execute 的单一 owner：exact terminal 后停止整个 Job，再消费 durable authority。
-use super::{discovery::ResolvedLaunchSpec, fresh::DesiredConfiguration, protocol::Limits};
+use super::{
+    discovery::ResolvedLaunchSpec,
+    fresh::DesiredConfiguration,
+    protocol::{Failure, Limits},
+    provider::RuntimeAdmissionDiagnostic,
+};
 use crate::agent::{
     coordinator::now,
     execution::state::{ResultCompleteness, Status, Transition},
@@ -12,6 +17,12 @@ use crate::agent::{
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
+/// Provider owner 注入的单次取消信号与 adapter-local diagnostic 记录器。
+pub(super) struct RunControl {
+    pub(super) cancelled: oneshot::Receiver<()>,
+    pub(super) admission_diagnostic: Arc<RuntimeAdmissionDiagnostic>,
+}
+
 /// prepare/prompt/finalize 均由本 task 持有；不读取当前 admission policy，也不重放有副作用请求。
 pub(super) async fn run(
     store: StateStore,
@@ -20,8 +31,12 @@ pub(super) async fn run(
     id: String,
     acceptance: Arc<dyn ProviderAcceptanceSink>,
     telemetry: Arc<dyn AgentEventSink>,
-    cancelled: oneshot::Receiver<()>,
+    control: RunControl,
 ) -> Result<ProviderRunResult, ProviderExecutionFailure> {
+    let RunControl {
+        cancelled,
+        admission_diagnostic,
+    } = control;
     // 拒绝无关 Execution 后不运行 cleanup，避免绕过 admission 终止另一条生命周期。
     let row = store
         .execution(id.clone())
@@ -65,10 +80,12 @@ pub(super) async fn run(
                 .await
             }
         }
-        .map_err(|e| e.code().to_owned())?;
+        .map_err(|failure| record_failure(&admission_diagnostic, failure))?;
         let completion =
             super::prompt::run(session, store.clone(), acceptance, telemetry, cancelled).await;
-        let result = completion.result.map_err(|e| e.code().to_owned());
+        let result = completion
+            .result
+            .map_err(|failure| record_failure(&admission_diagnostic, failure));
         let staged = if let Ok(result) = &result {
             let terminal = match result.outcome {
                 ProviderOutcome::Completed => Status::Completed,
@@ -141,6 +158,12 @@ pub(super) async fn run(
         super::recovery::mark_unknown(&store, &id).await?;
     }
     result.map_err(ProviderExecutionFailure::State)
+}
+
+/// typed Failure 尚未降级为稳定码时记录 provider-owned admission 诊断。
+fn record_failure(diagnostic: &RuntimeAdmissionDiagnostic, failure: Failure) -> String {
+    diagnostic.record(failure);
+    failure.code().to_owned()
 }
 
 #[cfg(test)]
