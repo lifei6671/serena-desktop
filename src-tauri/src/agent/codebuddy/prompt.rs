@@ -125,6 +125,34 @@ pub(super) async fn run(
             .await
             .map_err(|_| Failure::State)?;
         sent = true;
+        if session.continued {
+            // v13 约束要求 recovery lifecycle 从 durable Sent 开始；load/history 此时已验证，
+            // 物理 child prompt 尚未发送，acceptance 也尚未对外发布。
+            session.private = private_store
+                .mutate(
+                    row.id.clone(),
+                    owner.clone(),
+                    session.private.revision,
+                    Mutation::BeginContinuationLoad {
+                        session_id: session_id.clone(),
+                        recovery_runtime_instance_id: current
+                            .runtime_instance_id
+                            .clone()
+                            .ok_or(Failure::State)?,
+                    },
+                )
+                .await
+                .map_err(|_| Failure::State)?;
+            session.private = private_store
+                .mutate(
+                    row.id.clone(),
+                    owner.clone(),
+                    session.private.revision,
+                    Mutation::FinishContinuationLoad,
+                )
+                .await
+                .map_err(|_| Failure::State)?;
+        }
         if cancelled.try_recv() != Err(oneshot::error::TryRecvError::Empty) {
             return Err(Failure::Closed);
         }

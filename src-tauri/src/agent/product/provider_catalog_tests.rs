@@ -139,6 +139,7 @@ async fn codex_available_enabled_json_fixture() {
         serde_json::from_str(include_str!("fixtures/provider_catalog_codex.json")).unwrap();
     // Fresh Execute、Activity、Cancel 与 Job recovery 仅在通过 native Windows Gate 的平台声明。
     expected["providers"][0]["capabilities"]["canExecute"] = json!(cfg!(windows));
+    expected["providers"][0]["capabilities"]["canContinue"] = json!(cfg!(windows));
     expected["providers"][0]["capabilities"]["activity"] = json!(cfg!(windows));
     expected["providers"][0]["capabilities"]["canRecover"] = json!(cfg!(windows));
     expected["providers"][0]["capabilities"]["canCancel"] = json!(cfg!(windows));
@@ -237,7 +238,7 @@ async fn codebuddy_catalog_and_refresh_preserve_capability_truth() {
                 "availableForNewExecution": cfg!(windows) && found && enabled,
                 "capabilities": {
                     "canExecute": cfg!(windows),
-                    "canContinue": false,
+                    "canContinue": cfg!(windows),
                     "canCancel": cfg!(windows),
                     "canRecover": cfg!(windows),
                     "activity": cfg!(windows),
@@ -250,6 +251,81 @@ async fn codebuddy_catalog_and_refresh_preserve_capability_truth() {
             assert_eq!(serde_json::to_value(entry).unwrap(), expected);
         }
         assert!(durable_snapshot(directory.path()).iter().all(Vec::is_empty));
+    }
+}
+
+/// public availableActions 必须组合 core、当前 policy/health 与真实 CodeBuddy private S1 validation。
+#[cfg(windows)]
+#[tokio::test]
+async fn codebuddy_product_continue_action_requires_exact_private_source_and_current_admission() {
+    use crate::agent::{
+        codebuddy::{
+            discovery::DiscoveryResult, provider::register_codebuddy_provider_with_discovery,
+        },
+        execution::{CreateExecutionInput, canonicalize_request},
+    };
+
+    for (private, enabled, health, expected) in [
+        ("exact", true, ProviderHealth::Available, true),
+        ("missing", true, ProviderHealth::Available, false),
+        ("no-session", true, ProviderHealth::Available, false),
+        ("exact", false, ProviderHealth::Available, false),
+        ("exact", true, ProviderHealth::Unavailable, false),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = StateStore::open(directory.path().into()).await.unwrap();
+        let root = crate::config::canonicalize_workspace_root(directory.path()).unwrap();
+        let input: CreateExecutionInput = serde_json::from_value(json!({
+            "agent_id":"codebuddy-agent","request_key":format!("source-{private}-{enabled}"),
+            "prompt":"source","execution_profile":{},"workspace_id":"workspace",
+            "canonical_workspace_root":root,"workspace_generation":1,
+            "provider":"codebuddy","mode":"workspace_write"
+        }))
+        .unwrap();
+        store
+            .create_execution("source".into(), canonicalize_request(input).unwrap(), 1)
+            .await
+            .unwrap();
+        let database = directory.path().join("agent-state.db");
+        let connection = rusqlite::Connection::open(&database).unwrap();
+        connection.execute_batch(
+            "INSERT INTO runtime_instances(id,owner_host_instance_id,state,termination_evidence_type,termination_evidence_at,termination_evidence_state,created_at,updated_at,provider) VALUES ('R1','old-host','terminated','job_active_processes_zero',2,'complete',1,2,'codebuddy');
+             UPDATE executions SET status='completed',dispatch_state='dispatched',runtime_instance_id='R1',provider_terminal_status='completed',provider_terminal_evidence_at=2,provider_terminal_evidence_runtime_instance_id='R1',release_evidence_state='complete',release_evidence_kind='runtime_terminated',release_evidence_json='{}',result_completeness='complete',final_result_json='{}',completed_at=2 WHERE id='source';
+             DELETE FROM workspace_claims WHERE execution_id='source';",
+        ).unwrap();
+        match private {
+            "exact" => connection.execute_batch(
+                "INSERT INTO codebuddy_execution_state(execution_id,runtime_instance_id,acp_protocol_version,session_id,conversation_request_id,prompt_state,terminal_stop_reason,terminal_observed_at,recovery_state,revision,created_at,updated_at) VALUES ('source','R1',1,'S1','01900000000070008000000000000001','terminal_observed','end_turn',2,'not_attempted',0,1,2);",
+            ).unwrap(),
+            "no-session" => connection.execute_batch(
+                "INSERT INTO codebuddy_execution_state(execution_id,runtime_instance_id,conversation_request_id,prompt_state,recovery_state,revision,created_at,updated_at) VALUES ('source','R1','01900000000070008000000000000001','prepared','not_attempted',0,1,2);",
+            ).unwrap(),
+            "missing" => {}
+            _ => unreachable!(),
+        }
+        drop(connection);
+
+        let mut registry = ProviderRegistry::new();
+        register_codebuddy_provider_with_discovery(
+            &mut registry,
+            store.clone(),
+            "current-host".into(),
+            Ok(DiscoveryResult::direct_for_test(
+                "C:/resolved/codebuddy.exe",
+            )),
+        )
+        .unwrap();
+        let provider_id = ProviderId::new("codebuddy".into()).unwrap();
+        registry.set_health(&provider_id, health).unwrap();
+        let mut service = AgentProductService::new(store);
+        service.manager.use_registry(registry);
+        service
+            .manager
+            .set_provider_enabled_for_test("codebuddy", enabled);
+        let before = durable_snapshot(directory.path());
+        let view = service.observe("source".into(), false).await.unwrap();
+        assert_eq!(view.available_actions.can_continue, expected, "{private}");
+        assert_eq!(durable_snapshot(directory.path()), before, "{private}");
     }
 }
 

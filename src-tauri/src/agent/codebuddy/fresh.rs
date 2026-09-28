@@ -7,14 +7,21 @@ use super::{
     store::{CodeBuddyStore, Mutation, Ownership, PrivateState, new_conversation_id},
     windows_launcher::{LaunchRequest, UncCurrentDirectoryPolicy},
 };
-use crate::agent::{coordinator::now, provider::port::ProviderAcceptanceSink, store::StateStore};
+use crate::agent::{
+    coordinator::now,
+    provider::port::ProviderAcceptanceSink,
+    store::{ExecutionRecord, StateStore},
+};
 use agent_client_protocol::schema::v1::{
     NewSessionRequest, NewSessionResponse, SessionConfigKind, SessionConfigOption,
     SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOptions,
     SetSessionConfigOptionRequest, SetSessionModeRequest,
 };
 use serde_json::Value;
-use std::{collections::HashSet, path::Path};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 /// 没有全局 auto 默认；调用方只能明确请求本次目录实际 advertise 的值。
 #[derive(Default)]
@@ -37,8 +44,19 @@ pub(crate) struct PreparedFreshSession {
     pub(crate) catalog: SessionCatalog,
     /// 保留原序帧供下一卡 Activity 消费；配置已按原序应用，不串入其他 Session。
     pub(crate) early_frames: Vec<SessionFrame>,
-    desired: DesiredConfiguration,
-    accepted: bool,
+    pub(super) desired: DesiredConfiguration,
+    /// Continue replay 只能验证 lineage；acceptance 前的历史帧不得进入 child Activity/result。
+    pub(super) continued: bool,
+    pub(super) accepted: bool,
+}
+
+/// Fresh/Continue 共享到 initialize 为止的受管 Runtime 与 child private binding。
+pub(super) struct StartedSession {
+    pub(super) runtime: Runtime,
+    pub(super) handshake: Handshake,
+    pub(super) private: PrivateState,
+    pub(super) ownership: Ownership,
+    pub(super) cwd: PathBuf,
 }
 
 impl PreparedFreshSession {
@@ -74,11 +92,18 @@ impl PreparedFreshSession {
             .ok_or(Failure::Closed)?
             .requests
             .shared;
-        let frames = shared.take_session(&self.catalog.response.session_id.to_string())?;
-        self.catalog
-            .replay(&self.catalog.response.session_id.to_string(), &frames)?;
+        let session_id = self.catalog.response.session_id.to_string();
+        let frames = if self.continued {
+            shared.take_continuation_tail(&session_id)?
+        } else {
+            shared.take_session(&session_id)?
+        };
+        check_replay_bound(&frames, shared.limits)?;
+        self.catalog.replay(&session_id, &frames)?;
         self.catalog.confirm_desired(&self.desired)?;
-        self.early_frames.extend(frames);
+        if !self.continued {
+            self.early_frames.extend(frames);
+        }
         check_replay_bound(&self.early_frames, shared.limits)?;
         Ok(())
     }
@@ -129,7 +154,90 @@ pub(super) async fn prepare_owned(
         .await
         .map_err(|_| Failure::State)?
         .ok_or(Failure::State)?;
-    if row.provider != "codebuddy"
+    if row.parent_execution_id.is_some() {
+        return Err(Failure::State);
+    }
+    let StartedSession {
+        runtime,
+        handshake,
+        mut private,
+        ownership,
+        cwd,
+    } = start_owned(
+        store.clone(),
+        owner,
+        execution_id.clone(),
+        row,
+        resolved,
+        limits,
+        runtime_id,
+    )
+    .await?;
+    let private_store = CodeBuddyStore(store);
+    let result = async {
+        let requests = &runtime.client.as_ref().ok_or(Failure::Closed)?.requests;
+        // SDK 构造默认明确包含空 mcpServers；不附加 systemPrompt 或其它 _meta。
+        let response = requests.request(NewSessionRequest::new(cwd)).await?;
+        let session_id = response.session_id.to_string();
+        let extensions = requests.shared.take_session_new_extensions(&session_id)?;
+        private = private_store
+            .mutate(
+                execution_id,
+                ownership,
+                private.revision,
+                Mutation::ExactSession(session_id.clone()),
+            )
+            .await
+            .map_err(|_| Failure::State)?;
+        requests.shared.register_route(&session_id)?;
+        let mut early_frames = requests.shared.take_session(&session_id)?;
+        let mut catalog = SessionCatalog {
+            response,
+            models: extensions.models,
+        };
+        catalog.replay(&session_id, &early_frames)?;
+        catalog.configure(requests, &desired).await?;
+        let after_config = requests.shared.take_session(&session_id)?;
+        catalog.replay(&session_id, &after_config)?;
+        early_frames.extend(after_config);
+        // 移出 transport queue 的 replay buffer 仍受同一计数/bytes 预算约束。
+        check_replay_bound(&early_frames, limits)?;
+        catalog.confirm_desired(&desired)?;
+        requests.shared.check_expiry()?;
+        Ok((catalog, early_frames))
+    }
+    .await;
+    match result {
+        Ok((catalog, early_frames)) => Ok(PreparedFreshSession {
+            runtime,
+            handshake,
+            private,
+            catalog,
+            early_frames,
+            desired,
+            continued: false,
+            accepted: false,
+        }),
+        Err(error) => {
+            // Session/config 副作用未知不重试；失败仍必须提交或尝试 Runtime evidence。
+            runtime.shutdown().await?;
+            Err(error)
+        }
+    }
+}
+
+/// 只共享 child Runtime 建立；调用方必须先完成 Fresh 或 Continue 专属 lineage 校验。
+pub(super) async fn start_owned(
+    store: StateStore,
+    owner: String,
+    execution_id: String,
+    row: ExecutionRecord,
+    resolved: &ResolvedLaunchSpec,
+    limits: Limits,
+    runtime_id: String,
+) -> Result<StartedSession, Failure> {
+    if row.id != execution_id
+        || row.provider != "codebuddy"
         || row.runtime_instance_id.is_some()
         || row.status != "dispatch_pending"
         || row.dispatch_state != "not_dispatched"
@@ -208,68 +316,32 @@ pub(super) async fn prepare_owned(
     };
     let (runtime, handshake) =
         Runtime::start_persisted(request, limits, store.clone(), runtime_id).await?;
-    let result = async {
-        private = private_store
-            .mutate(
-                execution_id.clone(),
-                ownership.clone(),
-                private.revision,
-                Mutation::NegotiatedProtocol(handshake.response.protocol_version.as_u16()),
-            )
-            .await
-            .map_err(|_| Failure::State)?;
-        let requests = &runtime.client.as_ref().ok_or(Failure::Closed)?.requests;
-        // SDK 构造默认明确包含空 mcpServers；不附加 systemPrompt 或其它 _meta。
-        let response = requests.request(NewSessionRequest::new(cwd)).await?;
-        let session_id = response.session_id.to_string();
-        let extensions = requests.shared.take_session_new_extensions(&session_id)?;
-        private = private_store
-            .mutate(
-                execution_id,
-                ownership,
-                private.revision,
-                Mutation::ExactSession(session_id.clone()),
-            )
-            .await
-            .map_err(|_| Failure::State)?;
-        requests.shared.register_route(&session_id)?;
-        let mut early_frames = requests.shared.take_session(&session_id)?;
-        let mut catalog = SessionCatalog {
-            response,
-            models: extensions.models,
-        };
-        catalog.replay(&session_id, &early_frames)?;
-        catalog.configure(requests, &desired).await?;
-        let after_config = requests.shared.take_session(&session_id)?;
-        catalog.replay(&session_id, &after_config)?;
-        early_frames.extend(after_config);
-        // 移出 transport queue 的 replay buffer 仍受同一计数/bytes 预算约束。
-        check_replay_bound(&early_frames, limits)?;
-        catalog.confirm_desired(&desired)?;
-        requests.shared.check_expiry()?;
-        Ok((catalog, early_frames))
-    }
-    .await;
-    match result {
-        Ok((catalog, early_frames)) => Ok(PreparedFreshSession {
-            runtime,
-            handshake,
-            private,
-            catalog,
-            early_frames,
-            desired,
-            accepted: false,
-        }),
-        Err(error) => {
-            // Session/config 副作用未知不重试；失败仍必须提交或尝试 Runtime evidence。
+    private = match private_store
+        .mutate(
+            execution_id,
+            ownership.clone(),
+            private.revision,
+            Mutation::NegotiatedProtocol(handshake.response.protocol_version.as_u16()),
+        )
+        .await
+    {
+        Ok(private) => private,
+        Err(_) => {
             runtime.shutdown().await?;
-            Err(error)
+            return Err(Failure::State);
         }
-    }
+    };
+    Ok(StartedSession {
+        runtime,
+        handshake,
+        private,
+        ownership,
+        cwd,
+    })
 }
 
 /// 已消费帧仍在 Prepared 对象内等待下一卡，使用与 transport 相同的总预算。
-fn check_replay_bound(frames: &[SessionFrame], limits: Limits) -> Result<(), Failure> {
+pub(super) fn check_replay_bound(frames: &[SessionFrame], limits: Limits) -> Result<(), Failure> {
     if frames.len() > limits.queue_count {
         return Err(Failure::QueueCount);
     }
@@ -288,7 +360,11 @@ fn check_replay_bound(frames: &[SessionFrame], limits: Limits) -> Result<(), Fai
 
 impl SessionCatalog {
     /// 只应用 exact session 的 early config update；其它原序帧保留给下一卡。
-    fn replay(&mut self, session_id: &str, frames: &[SessionFrame]) -> Result<(), Failure> {
+    pub(super) fn replay(
+        &mut self,
+        session_id: &str,
+        frames: &[SessionFrame],
+    ) -> Result<(), Failure> {
         for frame in frames {
             if frame.session_id != session_id {
                 return Err(Failure::Malformed);
@@ -380,7 +456,7 @@ impl SessionCatalog {
     }
 
     /// 仅显式配置触发请求；auto 也必须由当前目录证明，绝不猜 config id fallback。
-    async fn configure(
+    pub(super) async fn configure(
         &mut self,
         requests: &super::client::Requests,
         desired: &DesiredConfiguration,
@@ -483,7 +559,7 @@ impl SessionCatalog {
     }
 
     /// ACK 前已入队的更新不得撤销明确配置后仍产生 acceptance_ready。
-    fn confirm_desired(&self, desired: &DesiredConfiguration) -> Result<(), Failure> {
+    pub(super) fn confirm_desired(&self, desired: &DesiredConfiguration) -> Result<(), Failure> {
         self.validate()?;
         if let Some(mode) = &desired.mode
             && (self

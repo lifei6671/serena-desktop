@@ -553,7 +553,7 @@ async fn setup(
     let workspace = tempfile::tempdir().unwrap();
     let store = StateStore::open(control.path().into()).await.unwrap();
     let root = crate::config::canonicalize_workspace_root(workspace.path()).unwrap();
-    let input: CreateExecutionInput = serde_json::from_value(json!({"agent_id":"a","request_key":"k","prompt":"fixed fake input","execution_profile":{},"workspace_id":"w","canonical_workspace_root":root,"mode":if mode=="write" {"workspace_write"} else {"read_only"},"provider":"codebuddy"})).unwrap();
+    let input: CreateExecutionInput = serde_json::from_value(json!({"agent_id":"a","request_key":"k","prompt":"fixed fake input","execution_profile":{},"workspace_id":"w","canonical_workspace_root":root,"mode":if matches!(mode,"write" | "source-identity") {"workspace_write"} else {"read_only"},"provider":"codebuddy"})).unwrap();
     store
         .create_execution("e".into(), canonicalize_request(input).unwrap(), now())
         .await
@@ -566,6 +566,353 @@ async fn setup(
     let discovery = DiscoveryResult::direct_for_test(peer);
     let provider = CodeBuddyProvider::from_discovery(store.clone(), "host".into(), Ok(discovery));
     (control, workspace, store, provider)
+}
+
+/// Continue acceptance 只能发生在 child 自己的 load/recovery 与 durable prompt intent 之后。
+struct ContinuationSink(PathBuf);
+impl ProviderAcceptanceSink for ContinuationSink {
+    /// 同步观察 child 的 Runtime/Claim；source 已终止，不能充当本次释放证据。
+    fn accepted(&self) {
+        let db = rusqlite::Connection::open(self.0.join("agent-state.db")).unwrap();
+        let (dispatch, prompt, recovery, runtime, claims): (String, String, String, String, i64) = db
+            .query_row(
+                "SELECT e.dispatch_state,s.prompt_state,s.recovery_state,r.state,(SELECT count(*) FROM workspace_claims) FROM executions e JOIN codebuddy_execution_state s ON s.execution_id=e.id JOIN runtime_instances r ON r.id=e.runtime_instance_id WHERE e.id='c'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!(dispatch, "not_dispatched");
+        assert_eq!(prompt, "sent");
+        assert_eq!(recovery, "partial");
+        assert_eq!(runtime, "running");
+        assert_eq!(claims, 1);
+        assert!(!self.0.join("prompt.json").exists());
+        std::fs::write(self.0.join("accepted-child"), "").unwrap();
+    }
+}
+
+/// 先完成真实 R1，再由通用 product transaction 创建 child；只替换 peer 的下一次响应模式。
+async fn setup_continuation(
+    binary: &Path,
+    mode: &str,
+) -> (
+    tempfile::TempDir,
+    tempfile::TempDir,
+    StateStore,
+    Arc<CodeBuddyProvider>,
+) {
+    use crate::agent::provider::port::{ProviderContinuationContext, ProviderContinuationDecision};
+    // 通用 Continue 契约只允许 workspace_write source；这里先走完整 Fresh 生产路径。
+    let (control, workspace, store, provider) = setup(binary, "source-identity").await;
+    let provider = Arc::new(provider);
+    let source = provider
+        .execute(
+            ProviderExecutionContext {
+                execution_id: "e".into(),
+            },
+            Arc::new(Sink(control.path().into())),
+            Arc::new(SlowTelemetry),
+        )
+        .await
+        .unwrap();
+    assert_eq!(source.outcome, ProviderOutcome::Completed);
+    assert_eq!(
+        store
+            .read_codebuddy_state("e".into())
+            .await
+            .unwrap()
+            .provider_request_id
+            .as_deref(),
+        Some("source-provider-request")
+    );
+    assert_eq!(
+        provider
+            .validate_continuation(ProviderContinuationContext {
+                source_execution_id: "e".into(),
+            })
+            .await
+            .unwrap(),
+        ProviderContinuationDecision::Eligible
+    );
+    for evidence in ["accepted", "prompt.json", "requests.jsonl"] {
+        std::fs::remove_file(control.path().join(evidence)).unwrap();
+    }
+    std::fs::write(control.path().join("mode"), mode).unwrap();
+    let created = store
+        .product_create_continuation(
+            "c".into(),
+            "e".into(),
+            format!("child-{mode}"),
+            "child prompt".into(),
+            now(),
+        )
+        .await
+        .unwrap();
+    assert!(created.created);
+    assert_eq!(created.execution.parent_execution_id.as_deref(), Some("e"));
+    assert!(created.execution.runtime_instance_id.is_none());
+    (control, workspace, store, provider)
+}
+
+/// 读取 fake peer 捕获的完整请求方法序列。
+fn request_methods(control: &Path) -> Vec<String> {
+    std::fs::read_to_string(control.join("requests.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<Value>(line).unwrap()["method"]
+                .as_str()
+                .unwrap_or("permission-response")
+                .to_owned()
+        })
+        .collect()
+}
+
+#[tokio::test]
+/// R1→R2 只执行 initialize/load/prompt；历史只验证 S1，不进入 child result。
+async fn native_continuation_uses_new_runtime_and_exact_load_only() {
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    let (control, _workspace, store, provider) =
+        setup_continuation(&binary, "continue-success").await;
+    let source_row = store.execution("e".into()).await.unwrap().unwrap();
+    let source_private = store.read_codebuddy_state("e".into()).await.unwrap();
+    let result = provider
+        .execute(
+            ProviderExecutionContext {
+                execution_id: "c".into(),
+            },
+            Arc::new(ContinuationSink(control.path().into())),
+            Arc::new(
+                crate::agent::telemetry_projector::ExecutionTelemetryProjector::new(
+                    store.clone(),
+                    "c".into(),
+                ),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.outcome, ProviderOutcome::Completed);
+    assert_eq!(result.result, Some(json!({"text":"safe result"})));
+    assert_eq!(
+        request_methods(control.path()),
+        vec!["initialize", "session/load", "session/prompt"]
+    );
+    assert!(!control.path().join("forbidden-session-new").exists());
+    assert!(!control.path().join("forbidden-session-resume").exists());
+    let load: Value =
+        serde_json::from_str(&std::fs::read_to_string(control.path().join("load.json")).unwrap())
+            .unwrap();
+    assert_eq!(load["params"]["sessionId"], "exact-session");
+    assert_eq!(load["params"]["mcpServers"], json!([]));
+    let prompt = std::fs::read_to_string(control.path().join("prompt.json")).unwrap();
+    assert!(prompt.contains("child prompt"));
+    assert!(!prompt.contains("parent prompt sentinel"));
+    let child_row = store.execution("c".into()).await.unwrap().unwrap();
+    let child_private = store.read_codebuddy_state("c".into()).await.unwrap();
+    assert_eq!(child_row.parent_execution_id.as_deref(), Some("e"));
+    assert_ne!(
+        child_row.runtime_instance_id,
+        source_row.runtime_instance_id
+    );
+    assert_eq!(child_private.session_id, source_private.session_id);
+    assert_ne!(
+        child_private.conversation_request_id,
+        source_private.conversation_request_id
+    );
+    assert!(child_private.provider_request_id.is_none());
+    assert_eq!(
+        child_private.recovery_method.as_deref(),
+        Some("session/load")
+    );
+    assert_eq!(
+        child_private.recovery_state,
+        crate::agent::codebuddy::store::RecoveryState::Partial
+    );
+    for row in [source_row, child_row] {
+        let runtime = store
+            .runtime(row.runtime_instance_id.unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(runtime.state, "terminated");
+        assert_eq!(runtime.termination_evidence_state, "complete");
+    }
+}
+
+#[tokio::test]
+/// 错 Session、response mismatch、缺失/空洞历史与缺 capability 均在 acceptance 前关闭。
+async fn native_continuation_rejects_unproven_load_matrix() {
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    for mode in [
+        "continue-wrong-session",
+        "continue-load-mismatch",
+        "continue-missing-history",
+        "continue-unusable-history",
+        "continue-empty-object",
+        "continue-empty-text",
+        "continue-whitespace-history",
+        "continue-malformed-history",
+        "continue-no-capability",
+    ] {
+        let (control, _workspace, store, provider) = setup_continuation(&binary, mode).await;
+        let error = provider
+            .execute(
+                ProviderExecutionContext {
+                    execution_id: "c".into(),
+                },
+                Arc::new(ContinuationSink(control.path().into())),
+                Arc::new(SlowTelemetry),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error,
+            ProviderExecutionFailure::State("CODEBUDDY_CONTINUATION_VALIDATION_FAILED".into()),
+            "{mode}"
+        );
+        assert!(!control.path().join("accepted-child").exists(), "{mode}");
+        assert!(!control.path().join("prompt.json").exists(), "{mode}");
+        let methods = request_methods(control.path());
+        assert_eq!(methods.first().map(String::as_str), Some("initialize"));
+        assert!(!methods.iter().any(|method| matches!(
+            method.as_str(),
+            "session/new" | "session/resume" | "session/prompt"
+        )));
+        let row = store.execution("c".into()).await.unwrap().unwrap();
+        let runtime = store
+            .runtime(row.runtime_instance_id.unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(runtime.state, "terminated");
+        assert_eq!(runtime.termination_evidence_state, "complete");
+        assert_eq!(row.release_evidence_state, "complete");
+    }
+}
+
+#[tokio::test]
+/// child/source 的 parent、cwd 与 generation 任一漂移都必须在创建 Runtime 前失败。
+async fn native_continuation_rejects_lineage_drift_before_runtime() {
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    for statement in [
+        "UPDATE executions SET parent_execution_id='c' WHERE id='c'",
+        "UPDATE executions SET canonical_workspace_root='C:/wrong-workspace' WHERE id='c'",
+        "UPDATE executions SET workspace_generation=workspace_generation+1 WHERE id='c'",
+    ] {
+        let (control, _workspace, store, provider) =
+            setup_continuation(&binary, "continue-success").await;
+        let connection = rusqlite::Connection::open(control.path().join("agent-state.db")).unwrap();
+        // 故意构造通用事务不可能产生的损坏快照，验证 Provider 二次校验仍失败关闭。
+        connection.execute_batch("PRAGMA foreign_keys=OFF").unwrap();
+        connection.execute(statement, []).unwrap();
+        let error = provider
+            .execute(
+                ProviderExecutionContext {
+                    execution_id: "c".into(),
+                },
+                Arc::new(ContinuationSink(control.path().into())),
+                Arc::new(SlowTelemetry),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error,
+            ProviderExecutionFailure::State("CODEBUDDY_CONTINUATION_VALIDATION_FAILED".into())
+        );
+        assert!(request_methods(control.path()).is_empty());
+        assert!(!control.path().join("accepted-child").exists());
+        assert!(
+            store
+                .execution("c".into())
+                .await
+                .unwrap()
+                .unwrap()
+                .runtime_instance_id
+                .is_none()
+        );
+    }
+}
+
+#[tokio::test]
+/// continued prompt 的 Cancel、Permission 与 Activity 仍经过已有生产路径。
+async fn native_continuation_reuses_cancel_permission_and_activity_paths() {
+    use crate::agent::provider::ProviderCancelContext;
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+
+    let (control, _workspace, store, provider) =
+        setup_continuation(&binary, "continue-cancel").await;
+    let running = provider.clone();
+    let child_control = control.path().to_owned();
+    let task = tokio::spawn(async move {
+        running
+            .execute(
+                ProviderExecutionContext {
+                    execution_id: "c".into(),
+                },
+                Arc::new(ContinuationSink(child_control)),
+                Arc::new(SlowTelemetry),
+            )
+            .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !control.path().join("cancel-ready").exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    provider
+        .cancel(ProviderCancelContext {
+            execution_id: "c".into(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        task.await.unwrap().unwrap().outcome,
+        ProviderOutcome::Cancelled
+    );
+    assert_eq!(
+        store
+            .execution("c".into())
+            .await
+            .unwrap()
+            .unwrap()
+            .release_evidence_state,
+        "complete"
+    );
+
+    let (control, _workspace, store, provider) =
+        setup_continuation(&binary, "continue-permission").await;
+    let result = provider
+        .execute(
+            ProviderExecutionContext {
+                execution_id: "c".into(),
+            },
+            Arc::new(ContinuationSink(control.path().into())),
+            Arc::new(
+                crate::agent::telemetry_projector::ExecutionTelemetryProjector::new(
+                    store.clone(),
+                    "c".into(),
+                ),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result.outcome, ProviderOutcome::Cancelled);
+    assert!(control.path().join("permission-response.json").exists());
+    assert!(
+        store
+            .execution_activity_history("c".into(), None, Some(100))
+            .await
+            .unwrap()
+            .events
+            .iter()
+            .any(|event| event.summary_code.as_deref() == Some("provider.permission_denied"))
+    );
 }
 
 #[tokio::test]

@@ -60,10 +60,16 @@ fn validate(s: &PrivateState) -> Result<(), String> {
                 && s.recovery_finished_at.is_none()
         }
         state => {
+            let continuation_load = s.recovery_runtime_instance_id == s.runtime_instance_id
+                && matches!(state, RecoveryState::Inspecting | RecoveryState::Partial)
+                && s.prompt_state != PromptState::Prepared
+                && s.session_id.is_some();
+            let result_inspection = s.recovery_runtime_instance_id != s.runtime_instance_id
+                && s.prompt_state != PromptState::Prepared;
             s.recovery_method.as_deref() == Some("session/load")
                 && s.recovery_runtime_instance_id.is_some()
                 && s.recovery_started_at.is_some()
-                && s.prompt_state != PromptState::Prepared
+                && (continuation_load || result_inspection)
                 && ((state == RecoveryState::Inspecting) == s.recovery_finished_at.is_none())
         }
     };
@@ -142,7 +148,12 @@ fn private_ownership(
     }
     if let Some(id) = &s.recovery_runtime_instance_id {
         runtime_owner(c, id)?;
-        if Some(id) == s.runtime_instance_id.as_ref() {
+        if Some(id) == s.runtime_instance_id.as_ref()
+            && !matches!(
+                s.recovery_state,
+                RecoveryState::Inspecting | RecoveryState::Partial
+            )
+        {
             return Err("inspection requires separate R2".into());
         }
     }
@@ -150,6 +161,101 @@ fn private_ownership(
 }
 
 impl StateStore {
+    /// Provider validation 只认 exact terminal private identity；缺行或不合格不推造 Session。
+    pub(crate) async fn read_codebuddy_continuation_source(
+        &self,
+        id: String,
+    ) -> Result<Option<PrivateState>, String> {
+        let connection = self.connection.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut connection = connection.lock().map_err(|e| e.to_string())?;
+            let tx = connection.transaction().map_err(|e| e.to_string())?;
+            let Some(row) = execution_record(&tx, &id).map_err(|e| e.to_string())? else {
+                return Ok(None);
+            };
+            if row.provider != "codebuddy" {
+                return Ok(None);
+            }
+            let Some(state) = load(&tx, &id).optional().map_err(|e| e.to_string())? else {
+                return Ok(None);
+            };
+            validate(&state)?;
+            let binding = ownership(&tx, &id, None)?;
+            private_ownership(&tx, &state, &binding, false)?;
+            let result = continuation_source_eligible(&state).then_some(state);
+            tx.commit().map_err(|e| e.to_string())?;
+            Ok(result)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    /// child dispatch 前再次原子校验 generic lineage；任何漂移都不允许进入 session/load。
+    pub(crate) async fn read_codebuddy_continuation_lineage(
+        &self,
+        child_id: String,
+        source_id: String,
+    ) -> Result<Option<(ExecutionRecord, PrivateState)>, String> {
+        let connection = self.connection.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let mut connection = connection.lock().map_err(|e| e.to_string())?;
+            let tx = connection.transaction().map_err(|e| e.to_string())?;
+            let Some(child) = execution_record(&tx, &child_id).map_err(|e| e.to_string())? else {
+                return Ok(None);
+            };
+            let Some(source) = execution_record(&tx, &source_id).map_err(|e| e.to_string())? else {
+                return Ok(None);
+            };
+            let child_role: String = tx
+                .query_row(
+                    "SELECT task_role FROM executions WHERE id=?1",
+                    [&child_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            let source_role: String = tx
+                .query_row(
+                    "SELECT task_role FROM executions WHERE id=?1",
+                    [&source_id],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            if child.provider != "codebuddy"
+                || source.provider != "codebuddy"
+                || child.parent_execution_id.as_deref() != Some(source_id.as_str())
+                || child.status != "dispatch_pending"
+                || child.dispatch_state != "not_dispatched"
+                || child.runtime_instance_id.is_some()
+                || !super::transactions::product::continuation_core_eligible(&source)
+                || child.agent_id != source.agent_id
+                || child.workspace_id != source.workspace_id
+                || child.canonical_workspace_root != source.canonical_workspace_root
+                || child.workspace_generation != source.workspace_generation
+                || child.mode != source.mode
+                || child.execution_profile_json != source.execution_profile_json
+                || child_role != source_role
+            {
+                return Ok(None);
+            }
+            let Some(state) = load(&tx, &source_id)
+                .optional()
+                .map_err(|e| e.to_string())?
+            else {
+                return Ok(None);
+            };
+            validate(&state)?;
+            let binding = ownership(&tx, &source_id, None)?;
+            private_ownership(&tx, &state, &binding, false)?;
+            if !continuation_source_eligible(&state) {
+                return Ok(None);
+            }
+            tx.commit().map_err(|e| e.to_string())?;
+            Ok(Some((child, state)))
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
     /// exact response 在同一事务内读取 generic ownership 并冻结 private terminal。
     /// 用户 cancel 只改变 generic revision，不能使已收到的可靠终态失效；private OCC 仍严格保留。
     pub(crate) async fn commit_codebuddy_prompt_response(
@@ -325,6 +431,36 @@ fn apply(
             }
             s.session_id = Some(id);
         }
+        Mutation::BeginContinuationLoad {
+            session_id,
+            recovery_runtime_instance_id,
+        } => {
+            if session_id.is_empty()
+                || s.prompt_state != PromptState::Sent
+                || s.acp_protocol_version != Some(1)
+                || s.runtime_instance_id.as_deref() != Some(recovery_runtime_instance_id.as_str())
+                || s.session_id.as_deref() != Some(session_id.as_str())
+                || s.recovery_state != RecoveryState::NotAttempted
+            {
+                return Err("continuation load begin conflict".into());
+            }
+            s.recovery_method = Some("session/load".into());
+            s.recovery_state = RecoveryState::Inspecting;
+            s.recovery_runtime_instance_id = Some(recovery_runtime_instance_id);
+            s.recovery_started_at = Some(now);
+        }
+        Mutation::FinishContinuationLoad => {
+            if s.prompt_state != PromptState::Sent
+                || s.recovery_state != RecoveryState::Inspecting
+                || s.recovery_runtime_instance_id != s.runtime_instance_id
+                || s.session_id.is_none()
+            {
+                return Err("continuation load finish conflict".into());
+            }
+            // history replay 只能支持 Session continuation 与 partial result recovery。
+            s.recovery_state = RecoveryState::Partial;
+            s.recovery_finished_at = Some(now);
+        }
         Mutation::ExactProviderRequest(id) => {
             if s.prompt_state == PromptState::TerminalObserved
                 || id.is_empty()
@@ -380,6 +516,7 @@ fn apply(
         } => {
             if !matches!(s.prompt_state, PromptState::Sent | PromptState::Uncertain)
                 || s.recovery_state != RecoveryState::NotAttempted
+                || s.runtime_instance_id.as_deref() == Some(recovery_runtime_instance_id.as_str())
             {
                 return Err("inspection begin conflict".into());
             }
@@ -389,7 +526,9 @@ fn apply(
             s.recovery_started_at = Some(now);
         }
         Mutation::FinishInspection { outcome } => {
-            if s.recovery_state != RecoveryState::Inspecting {
+            if s.recovery_state != RecoveryState::Inspecting
+                || s.recovery_runtime_instance_id == s.runtime_instance_id
+            {
                 return Err("inspection finish conflict".into());
             }
             s.recovery_state = match outcome {
@@ -401,4 +540,18 @@ fn apply(
         }
     }
     Ok(())
+}
+
+/// Source 必须持有 exact terminal/session/protocol identity；provider request id 可缺失。
+fn continuation_source_eligible(state: &PrivateState) -> bool {
+    state.prompt_state == PromptState::TerminalObserved
+        && state.acp_protocol_version == Some(1)
+        && state
+            .session_id
+            .as_ref()
+            .is_some_and(|session_id| !session_id.is_empty())
+        && state.runtime_instance_id.is_some()
+        && state.terminal_stop_reason.is_some()
+        && state.terminal_observed_at.is_some()
+        && state.recovery_state != RecoveryState::MaterialDifference
 }

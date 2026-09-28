@@ -48,7 +48,7 @@ async fn missing_cli_registers_unavailable_skeleton() {
         provider.capabilities(),
         ProviderCapabilities {
             can_execute: cfg!(windows),
-            can_continue: false,
+            can_continue: cfg!(windows),
             can_cancel: cfg!(windows),
             can_recover: cfg!(windows),
             activity: cfg!(windows),
@@ -79,7 +79,7 @@ async fn found_cli_registers_available_platform_capabilities() {
         registered.capabilities(),
         ProviderCapabilities {
             can_execute: cfg!(windows),
-            can_continue: false,
+            can_continue: cfg!(windows),
             can_cancel: cfg!(windows),
             can_recover: cfg!(windows),
             activity: cfg!(windows),
@@ -98,6 +98,45 @@ async fn found_cli_registers_available_platform_capabilities() {
             ProviderErrorCode::AgentProviderCapabilityUnsupported
         );
     }
+    let continuation = policy.admit(&registry, &id, ProviderAdmissionCapability::Continue);
+    assert_eq!(continuation.is_ok(), cfg!(windows));
+}
+
+/// 缺 source private row/sessionId 时 Provider validation 必须 Ineligible，不推造身份。
+#[tokio::test]
+async fn continuation_requires_exact_source_private_identity() {
+    let (directory, store) = authority().await;
+    let input: crate::agent::execution::CreateExecutionInput =
+        serde_json::from_value(serde_json::json!({
+            "agent_id":"a","request_key":"k","prompt":"source","execution_profile":{},
+            "workspace_id":"w","canonical_workspace_root":directory.path(),
+            "workspace_generation":1,"provider":"codebuddy","mode":"workspace_write"
+        }))
+        .unwrap();
+    store
+        .create_execution(
+            "source".into(),
+            crate::agent::execution::canonicalize_request(input).unwrap(),
+            crate::agent::coordinator::now(),
+        )
+        .await
+        .unwrap();
+    let provider = CodeBuddyProvider::from_discovery(
+        store,
+        "test-host".into(),
+        Ok(DiscoveryResult::direct_for_test(
+            "C:/resolved/codebuddy.exe",
+        )),
+    );
+    assert_eq!(
+        provider
+            .validate_continuation(ProviderContinuationContext {
+                source_execution_id: "source".into(),
+            })
+            .await
+            .unwrap(),
+        ProviderContinuationDecision::Ineligible
+    );
 }
 
 /// resolved LaunchSpec 与 Release descriptor 分离，descriptor 不获得本机绝对路径。

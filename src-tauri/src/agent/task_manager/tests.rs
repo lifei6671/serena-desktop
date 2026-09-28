@@ -1877,7 +1877,7 @@ async fn codebuddy_missing_cli_keeps_execute_unaccepted_and_runtime_absent() {
         provider.capabilities(),
         ProviderCapabilities {
             can_execute: cfg!(windows),
-            can_continue: false,
+            can_continue: cfg!(windows),
             can_cancel: cfg!(windows),
             can_recover: cfg!(windows),
             activity: cfg!(windows),

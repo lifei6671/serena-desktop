@@ -482,6 +482,128 @@ async fn rpc_id_scalar_type_survives_restart() {
     }
 }
 
+/// Continue load 只在 exact S1 已绑定且 durable Sent 后记录，并保持同一 child Runtime authority。
+#[tokio::test]
+async fn continuation_load_reuses_v13_fields_without_terminal_or_release() {
+    let (_directory, store) = fixture(true).await;
+    let mut state = ready(&store).await;
+    rejected(
+        &store,
+        owner(true),
+        state.revision,
+        Mutation::BeginContinuationLoad {
+            session_id: "session-private".into(),
+            recovery_runtime_instance_id: "r1".into(),
+        },
+    )
+    .await;
+    state = store
+        .mutate(
+            "e1".into(),
+            owner(true),
+            state.revision,
+            Mutation::MarkSent { rpc_id: None },
+        )
+        .await
+        .unwrap();
+    let authority = snapshot(&store, AUTHORITY);
+    for (session, runtime) in [("wrong-session", "r1"), ("session-private", "r2")] {
+        rejected(
+            &store,
+            owner(true),
+            state.revision,
+            Mutation::BeginContinuationLoad {
+                session_id: session.into(),
+                recovery_runtime_instance_id: runtime.into(),
+            },
+        )
+        .await;
+    }
+    state = store
+        .mutate(
+            "e1".into(),
+            owner(true),
+            state.revision,
+            Mutation::BeginContinuationLoad {
+                session_id: "session-private".into(),
+                recovery_runtime_instance_id: "r1".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(state.recovery_state, RecoveryState::Inspecting);
+    assert_eq!(
+        state.recovery_runtime_instance_id,
+        state.runtime_instance_id
+    );
+    assert_eq!(state.prompt_state, PromptState::Sent);
+    state = store
+        .mutate(
+            "e1".into(),
+            owner(true),
+            state.revision,
+            Mutation::FinishContinuationLoad,
+        )
+        .await
+        .unwrap();
+    assert_eq!(state.recovery_state, RecoveryState::Partial);
+    assert_eq!(state.recovery_method.as_deref(), Some("session/load"));
+    assert!(state.recovery_finished_at.is_some());
+    assert!(state.terminal_stop_reason.is_none());
+    assert_eq!(snapshot(&store, AUTHORITY), authority);
+    assert_eq!(store.read("e1".into()).await.unwrap(), state);
+}
+
+/// child private create 不接收 source 参数，因此非空 provider/RPC connection identity 也不能被复制。
+#[tokio::test]
+async fn continuation_child_private_identity_never_inherits_source_connection_ids() {
+    let (_directory, store) = fixture(true).await;
+    let mut source = ready(&store).await;
+    source = store
+        .mutate(
+            "e1".into(),
+            owner(true),
+            source.revision,
+            Mutation::ExactProviderRequest("source-provider-request".into()),
+        )
+        .await
+        .unwrap();
+    source = store
+        .mutate(
+            "e1".into(),
+            owner(true),
+            source.revision,
+            Mutation::MarkSent {
+                rpc_id: Some(PromptRpcId::from_json("\"source-rpc\"").unwrap()),
+            },
+        )
+        .await
+        .unwrap();
+    {
+        let mut connection = store.0.connection.lock().unwrap();
+        insert(&mut connection, "e2", "agent2", "C:/cb-private-2");
+        connection
+            .execute(
+                "UPDATE executions SET provider='codebuddy' WHERE id='e2'",
+                [],
+            )
+            .unwrap();
+    }
+    let child = store.create("e2".into(), owner(false)).await.unwrap();
+    assert_eq!(
+        source.provider_request_id.as_deref(),
+        Some("source-provider-request")
+    );
+    assert_eq!(source.prompt_rpc_id.unwrap().to_json(), "\"source-rpc\"");
+    assert!(child.provider_request_id.is_none());
+    assert!(child.prompt_rpc_id.is_none());
+    assert!(child.session_id.is_none());
+    assert_ne!(
+        child.conversation_request_id,
+        source.conversation_request_id
+    );
+}
+
 /// R2 必须为独立 CodeBuddy runtime；三个检查结果都不改变 generic authority。
 #[tokio::test]
 async fn inspection_provenance_preserves_r1_and_generic_authority() {

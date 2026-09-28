@@ -185,6 +185,42 @@ async fn session_new_extensions_use_exact_sdk_id_and_method() {
     ));
     client.shutdown().await;
 }
+
+#[tokio::test]
+/// typed session/load 固定 exact S1/cwd/空 MCP，response 前 replay 由预注册路由完整接收。
+async fn continuation_load_uses_typed_boundary_and_exact_replay_route() {
+    use agent_client_protocol::schema::v1::LoadSessionRequest;
+    let (client, mut peer) = pair(Limits::default()).await;
+    let shared = client.requests.shared.clone();
+    shared.register_route("source-session").unwrap();
+    let requests = client.requests.clone();
+    let pending = tokio::spawn(async move {
+        requests
+            .request(LoadSessionRequest::new(
+                "source-session",
+                r"C:\fixture-workspace",
+            ))
+            .await
+    });
+    let request = peer.next().await;
+    assert_eq!(request["method"], "session/load");
+    assert_eq!(
+        request["params"],
+        json!({"sessionId":"source-session","cwd":r"C:\fixture-workspace","mcpServers":[]})
+    );
+    peer.send(json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"source-session","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"history"}}}})).await;
+    peer.respond(&request, json!({"sessionId":"source-session"}))
+        .await;
+    pending.await.unwrap().unwrap();
+    let extensions = shared
+        .take_session_load_extensions("source-session")
+        .unwrap();
+    assert!(extensions.models.is_none());
+    let replay = shared.take_continuation_replay("source-session").unwrap();
+    assert_eq!(replay.len(), 1);
+    assert_eq!(replay[0].session_id, "source-session");
+    client.shutdown().await;
+}
 impl Peer {
     /// 等待 SDK request/response，测试不会把任意下一帧当成完成结果。
     async fn next(&mut self) -> Value {
@@ -298,7 +334,8 @@ async fn initialize_sanitized_fixture_and_missing_capability_keep_health_and_cap
         );
         assert_eq!(registry.health(&id).unwrap(), ProviderHealth::Available);
         assert_eq!(registry.capabilities(&id).unwrap(), before);
-        assert!(!before.can_continue && !before.token_usage);
+        assert_eq!(before.can_continue, cfg!(windows));
+        assert!(!before.token_usage);
         assert_eq!(before.can_cancel, cfg!(windows));
         assert_eq!(before.can_recover, cfg!(windows));
         assert_eq!(before.can_execute, cfg!(windows));

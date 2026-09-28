@@ -1,6 +1,7 @@
 //! ACP 私有资源边界；SDK 仍拥有请求关联和协议分发，不向公共错误输出 wire。
 
 use crate::agent::provider::registry::ProviderHealth;
+use agent_client_protocol::schema::v1::ContentBlock;
 use futures::task::AtomicWaker;
 use serde_json::Value;
 use std::{
@@ -34,6 +35,7 @@ pub(crate) enum Failure {
     Cleanup,
     State,
     Configuration,
+    Continuation,
 }
 
 impl Failure {
@@ -58,6 +60,7 @@ impl Failure {
             Self::Cleanup => "CODEBUDDY_ACP_CLEANUP_TIMEOUT",
             Self::State => "CODEBUDDY_PREPARATION_STATE_CONFLICT",
             Self::Configuration => "CODEBUDDY_SESSION_CONFIGURATION_INVALID",
+            Self::Continuation => "CODEBUDDY_CONTINUATION_VALIDATION_FAILED",
         }
     }
 
@@ -113,6 +116,12 @@ pub(crate) struct SessionNewExtensions {
     pub(crate) models: Option<Value>,
 }
 
+/// session/load 的白名单扩展；typed response 未声明 sessionId 时仍校验 wire 上的可选值。
+pub(crate) struct SessionLoadExtensions {
+    session_id: Option<String>,
+    pub(crate) models: Option<Value>,
+}
+
 /// 固定计数诊断；未知与重复 response 共用稳定 UNMATCHED_RESPONSE_ID 分类。
 #[derive(Clone, Copy, Default, Debug)]
 pub(crate) struct Diagnostics {
@@ -129,6 +138,7 @@ struct State {
     routes: HashSet<String>,
     diagnostics: Diagnostics,
     session_new_extensions: Option<SessionNewExtensions>,
+    session_load_extensions: Option<SessionLoadExtensions>,
     prompt_response_received: bool,
     permission: Option<PermissionContext>,
     notification_sequence: u64,
@@ -158,6 +168,7 @@ impl Shared {
                 routes: HashSet::new(),
                 diagnostics: Diagnostics::default(),
                 session_new_extensions: None,
+                session_load_extensions: None,
                 prompt_response_received: false,
                 permission: None,
                 notification_sequence: 0,
@@ -178,6 +189,7 @@ impl Shared {
         let mut state = self.state.lock().unwrap();
         state.pending.clear();
         state.session_new_extensions = None;
+        state.session_load_extensions = None;
         state.frames.clear();
         state.routes.clear();
         state.bytes = 0;
@@ -301,6 +313,31 @@ impl Shared {
                     models: result.get("models").cloned(),
                 });
             }
+            if method == "session/load"
+                && let Some(result) = raw.get("result")
+            {
+                let session_id = match result.get("sessionId") {
+                    Some(value) => Some(
+                        value
+                            .as_str()
+                            .filter(|id| !id.is_empty())
+                            .ok_or(Failure::Malformed)?
+                            .to_owned(),
+                    ),
+                    None => None,
+                };
+                if state.session_load_extensions.is_some()
+                    || result
+                        .get("models")
+                        .is_some_and(|models| !models.is_object())
+                {
+                    return Err(Failure::Malformed);
+                }
+                state.session_load_extensions = Some(SessionLoadExtensions {
+                    session_id,
+                    models: result.get("models").cloned(),
+                });
+            }
         }
         state.inflight = true;
         Ok(true)
@@ -320,6 +357,29 @@ impl Shared {
                 Ok(snapshot)
             }
             _ => Err(self.fail(Failure::Malformed)),
+        }
+    }
+
+    /// typed load 完成后核对 wire 可选 sessionId，并只返回白名单 catalog 扩展。
+    pub(crate) fn take_session_load_extensions(
+        &self,
+        expected_session_id: &str,
+    ) -> Result<SessionLoadExtensions, Failure> {
+        if let Some(error) = self.failure() {
+            return Err(error);
+        }
+        let snapshot = self.state.lock().unwrap().session_load_extensions.take();
+        match snapshot {
+            Some(snapshot)
+                if !expected_session_id.is_empty()
+                    && snapshot
+                        .session_id
+                        .as_ref()
+                        .is_none_or(|session_id| session_id == expected_session_id) =>
+            {
+                Ok(snapshot)
+            }
+            _ => Err(self.fail(Failure::Continuation)),
         }
     }
 
@@ -406,6 +466,50 @@ impl Shared {
         Ok(result)
     }
 
+    /// Continue load response 前的 replay 必须非空、全属 exact S1，并包含可用历史正文。
+    pub(crate) fn take_continuation_replay(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<SessionFrame>, Failure> {
+        self.check_expiry()?;
+        let mut state = self.state.lock().unwrap();
+        let valid = state.routes.contains(session_id)
+            && !state.frames.is_empty()
+            && state
+                .frames
+                .iter()
+                .all(|frame| frame.session_id == session_id)
+            && state.frames.iter().any(usable_history_frame);
+        if !valid {
+            drop(state);
+            return Err(self.fail(Failure::Continuation));
+        }
+        let frames = state.frames.drain(..).collect::<Vec<_>>();
+        state.bytes = 0;
+        Ok(frames)
+    }
+
+    /// load response 后到 acceptance 前只允许 exact-S1 尾帧；允许为空并由调用方隔离历史。
+    pub(crate) fn take_continuation_tail(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<SessionFrame>, Failure> {
+        self.check_expiry()?;
+        let mut state = self.state.lock().unwrap();
+        if !state.routes.contains(session_id)
+            || state
+                .frames
+                .iter()
+                .any(|frame| frame.session_id != session_id)
+        {
+            drop(state);
+            return Err(self.fail(Failure::Continuation));
+        }
+        let frames = state.frames.drain(..).collect::<Vec<_>>();
+        state.bytes = 0;
+        Ok(frames)
+    }
+
     /// TTL 不静默丢帧；过期明确关闭整个本地 operation。
     pub(crate) fn check_expiry(&self) -> Result<(), Failure> {
         if let Some(error) = self.failure() {
@@ -435,6 +539,22 @@ impl Shared {
     pub(crate) fn diagnostics(&self) -> Diagnostics {
         self.state.lock().unwrap().diagnostics
     }
+}
+
+/// 配置/usage/command catalog 单独出现不能证明 Parent Session 历史可用于 Continue。
+fn usable_history_frame(frame: &SessionFrame) -> bool {
+    if frame.method != "session/update" {
+        return false;
+    }
+    let update = &frame.params["update"];
+    let message = matches!(
+        update.get("sessionUpdate").and_then(Value::as_str),
+        Some("user_message_chunk" | "agent_message_chunk" | "agent_thought_chunk")
+    );
+    message
+        && serde_json::from_value::<ContentBlock>(update["content"].clone()).is_ok_and(
+            |content| matches!(content, ContentBlock::Text(text) if !text.text.trim().is_empty()),
+        )
 }
 
 /// 外部 JSON-RPC 边界禁止 ambiguous envelopes、batch、null/fractional ids。

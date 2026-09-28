@@ -1,7 +1,7 @@
 //! CB7-005 隔离 native peer：control 在 cwd 之外，Workspace 只写指定 output。
 use serde_json::{Value, json};
 use std::{
-    fs,
+    fs::{self, OpenOptions},
     io::{self, BufRead, Write},
     path::PathBuf,
 };
@@ -16,15 +16,27 @@ fn main() {
     let db = rusqlite::Connection::open(control.join("agent-state.db")).unwrap();
     let mut pending_prompt: Option<Value> = None;
     for line in io::stdin().lock().lines() {
-        let raw: Value = serde_json::from_str(&line.unwrap()).unwrap();
+        let line = line.unwrap();
+        // 原始出站序列是 Continue 唯一方法与禁止 fallback 的测试证据。
+        writeln!(
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(control.join("requests.jsonl"))
+                .unwrap(),
+            "{line}"
+        )
+        .unwrap();
+        let raw: Value = serde_json::from_str(&line).unwrap();
         match raw["method"].as_str().unwrap_or("permission-response") {
             "permission-response" => {
                 assert_eq!(raw, json!({"jsonrpc":"2.0","id":0,"result":{"outcome":{"outcome":"selected","optionId":"advertised-deny-id"}}}));
                 assert!(!control.join("permission-response.json").exists());
                 fs::write(control.join("permission-response.json"), raw.to_string()).unwrap();
                 let mode = fs::read_to_string(control.join("mode")).unwrap();
+                let execution = if mode.starts_with("continue-") { "c" } else { "e" };
                 // deny 仅是 client 决策；此刻原 Job/Claim 必须仍活着，无 terminal/release。
-                let (terminal, evidence, claims): (Option<String>, String, i64) = db.query_row("SELECT provider_terminal_status,release_evidence_state,(SELECT count(*) FROM workspace_claims) FROM executions", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+                let (terminal, evidence, claims): (Option<String>, String, i64) = db.query_row("SELECT provider_terminal_status,release_evidence_state,(SELECT count(*) FROM workspace_claims) FROM executions WHERE id=?1", [execution], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
                 assert!(terminal.is_none());
                 assert_ne!(evidence, "complete");
                 assert_eq!(claims, 1);
@@ -44,9 +56,20 @@ fn main() {
                 let prompt = pending_prompt.take().unwrap();
                 reply(&prompt["id"], json!({"stopReason":if mode == "permission-end-turn" { "end_turn" } else { "cancelled" },"_meta":{"codebuddy.ai/conversationRequestId":prompt["params"]["_meta"]["codebuddy.ai/conversationRequestId"]}}));
             }
-            "initialize" => reply(&raw["id"], json!({"protocolVersion":1})),
+            "initialize" => {
+                let mode = fs::read_to_string(control.join("mode")).unwrap();
+                reply(
+                    &raw["id"],
+                    json!({"protocolVersion":1,"agentCapabilities":{"loadSession":mode != "continue-no-capability"}}),
+                );
+            }
             "session/new" => {
-                if fs::read_to_string(control.join("mode")).unwrap() == "closed-input" {
+                let mode = fs::read_to_string(control.join("mode")).unwrap();
+                if mode.starts_with("continue-") {
+                    fs::write(control.join("forbidden-session-new"), raw.to_string()).unwrap();
+                    panic!("continued execution must not create a fresh session");
+                }
+                if mode == "closed-input" {
                     // 精确注入真实 pipe write 失败，stdout 保留，因此不是 pre-accept EOF。
                     #[link(name = "kernel32")]
                     unsafe extern "system" {
@@ -76,14 +99,56 @@ fn main() {
                 }
                 reply(&raw["id"], json!({"sessionId":"exact-session"}));
             }
+            "session/load" => {
+                let mode = fs::read_to_string(control.join("mode")).unwrap();
+                assert!(mode.starts_with("continue-"));
+                assert_eq!(raw["params"]["sessionId"], "exact-session");
+                assert_eq!(raw["params"]["cwd"], json!(std::env::current_dir().unwrap()));
+                assert_eq!(raw["params"]["mcpServers"], json!([]));
+                fs::write(control.join("load.json"), raw.to_string()).unwrap();
+                match mode.as_str() {
+                    "continue-missing-history" => {}
+                    "continue-unusable-history" => {
+                        println!("{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"exact-session","update":{"sessionUpdate":"config_option_update","configOptions":[]}}}));
+                    }
+                    "continue-empty-object" => {
+                        println!("{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"exact-session","update":{"sessionUpdate":"user_message_chunk","content":{}}}}));
+                    }
+                    "continue-empty-text" => {
+                        println!("{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"exact-session","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":""}}}}));
+                    }
+                    "continue-whitespace-history" => {
+                        println!("{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"exact-session","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":" \t\r\n"}}}}));
+                    }
+                    "continue-malformed-history" => {
+                        println!("{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"exact-session","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":42}}}}));
+                    }
+                    "continue-wrong-session" => {
+                        println!("{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"wrong-session","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"parent prompt sentinel"}}}}));
+                    }
+                    _ => {
+                        // 冻结 replay 只用于证明 S1 历史存在；child prompt/result 不得消费这些正文。
+                        println!("{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"exact-session","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"parent prompt sentinel"}}}}));
+                        println!("{}", json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"exact-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"parent answer sentinel"}}}}));
+                    }
+                }
+                io::stdout().flush().unwrap();
+                if mode == "continue-load-mismatch" {
+                    reply(&raw["id"], json!({"sessionId":"other-session"}));
+                } else {
+                    reply(&raw["id"], json!({}));
+                }
+            }
             "session/prompt" => {
-                assert!(control.join("accepted").exists());
-                let (dispatch, intent): (String, String) = db.query_row("SELECT dispatch_state,prompt_state FROM executions JOIN codebuddy_execution_state ON executions.id=codebuddy_execution_state.execution_id", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+                let mode = fs::read_to_string(control.join("mode")).unwrap();
+                let execution = if mode.starts_with("continue-") { "c" } else { "e" };
+                let acceptance = if mode.starts_with("continue-") { "accepted-child" } else { "accepted" };
+                assert!(control.join(acceptance).exists());
+                let (dispatch, intent): (String, String) = db.query_row("SELECT dispatch_state,prompt_state FROM executions JOIN codebuddy_execution_state ON executions.id=codebuddy_execution_state.execution_id WHERE executions.id=?1", [execution], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
                 assert!(matches!(dispatch.as_str(), "dispatching" | "dispatched"));
                 assert_eq!(intent, "sent");
                 fs::write(control.join("prompt.json"), raw.to_string()).unwrap();
-                let mode = fs::read_to_string(control.join("mode")).unwrap();
-                if mode.starts_with("permission-") {
+                if mode.starts_with("permission-") || mode == "continue-permission" {
                     if mode == "permission-cancel-first" {
                         pending_prompt = Some(raw);
                         fs::write(control.join("permission-ready"), "").unwrap();
@@ -101,7 +166,7 @@ fn main() {
                     fs::write(control.join("permission-ready"), "").unwrap();
                     continue;
                 }
-                if mode.starts_with("cancel-") {
+                if mode.starts_with("cancel-") || mode == "continue-cancel" {
                     if mode == "cancel-write" { fs::write("marker.txt", b"CB8_WRITE\n").unwrap(); }
                     if mode == "cancel-pipe" {
                         // 只关闭真实 stdin pipe，stdout 保持打开让 owner 的 cancel write 失败。
@@ -147,10 +212,11 @@ fn main() {
                     json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"exact-session","update":{"sessionUpdate":"tool_call","toolCallId":"tool-1","title":"private command","kind":"read","status":"completed","_meta":{"codebuddy.ai/conversationRequestId":conversation}}}})
                 );
                 io::stdout().flush().unwrap();
-                reply(
-                    &raw["id"],
-                    json!({"stopReason":"end_turn","_meta":{"codebuddy.ai/conversationRequestId":conversation}}),
-                );
+                let mut meta = json!({"codebuddy.ai/conversationRequestId":conversation});
+                if mode == "source-identity" {
+                    meta["codebuddy.ai/requestId"] = json!("source-provider-request");
+                }
+                reply(&raw["id"], json!({"stopReason":"end_turn","_meta":meta}));
             }
             "session/cancel" => {
                 assert_eq!(raw, json!({"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"exact-session"}}));
@@ -167,6 +233,10 @@ fn main() {
                 if mode == "cancel-timeout" { continue; }
                 let prompt = pending_prompt.take().expect("prompt before cancel");
                 reply(&prompt["id"], json!({"stopReason":if mode == "cancel-end-turn" { "end_turn" } else { "cancelled" },"_meta":{"codebuddy.ai/conversationRequestId":prompt["params"]["_meta"]["codebuddy.ai/conversationRequestId"]}}));
+            }
+            "session/resume" => {
+                fs::write(control.join("forbidden-session-resume"), raw.to_string()).unwrap();
+                panic!("session/resume is not an allowed continuation method");
             }
             _ => panic!("unexpected request"),
         }

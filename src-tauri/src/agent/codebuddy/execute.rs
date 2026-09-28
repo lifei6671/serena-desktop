@@ -1,4 +1,4 @@
-//! Fresh Execute 的单一 owner：exact terminal 暂存后停止整个 Job，再消费 durable authority。
+//! Fresh/Continue Execute 的单一 owner：exact terminal 后停止整个 Job，再消费 durable authority。
 use super::{discovery::ResolvedLaunchSpec, fresh::DesiredConfiguration, protocol::Limits};
 use crate::agent::{
     coordinator::now,
@@ -31,7 +31,6 @@ pub(super) async fn run(
         || row.status != "dispatch_pending"
         || row.dispatch_state != "not_dispatched"
         || row.runtime_instance_id.is_some()
-        || row.parent_execution_id.is_some()
     {
         return Err(ProviderExecutionFailure::State(
             "CODEBUDDY_EXECUTION_CONTEXT_INVALID".into(),
@@ -39,16 +38,33 @@ pub(super) async fn run(
     }
     let attempt_id = format!("codebuddy-{}", super::store::new_conversation_id()?);
     let result = async {
-        let session = super::fresh::prepare_owned(
-            store.clone(),
-            owner,
-            id.clone(),
-            &resolved,
-            DesiredConfiguration::default(),
-            Limits::default(),
-            attempt_id.clone(),
-        )
-        .await
+        let session = match row.parent_execution_id.clone() {
+            Some(source_execution_id) => {
+                super::continued::prepare_owned(
+                    store.clone(),
+                    owner,
+                    id.clone(),
+                    source_execution_id,
+                    &resolved,
+                    DesiredConfiguration::default(),
+                    Limits::default(),
+                    attempt_id.clone(),
+                )
+                .await
+            }
+            None => {
+                super::fresh::prepare_owned(
+                    store.clone(),
+                    owner,
+                    id.clone(),
+                    &resolved,
+                    DesiredConfiguration::default(),
+                    Limits::default(),
+                    attempt_id.clone(),
+                )
+                .await
+            }
+        }
         .map_err(|e| e.code().to_owned())?;
         let completion =
             super::prompt::run(session, store.clone(), acceptance, telemetry, cancelled).await;

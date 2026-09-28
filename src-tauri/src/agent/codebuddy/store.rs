@@ -89,6 +89,13 @@ pub(crate) enum Mutation {
     BindRuntime,
     NegotiatedProtocol(u16),
     ExactSession(String),
+    /// Continue child 已验证 load/history 且 durable Sent 后，冻结 source S1 与本 Runtime recovery。
+    BeginContinuationLoad {
+        session_id: String,
+        recovery_runtime_instance_id: String,
+    },
+    /// exact-S1 非空可用 history 已验证；这里只冻结 partial recovery，不合成 terminal。
+    FinishContinuationLoad,
     /// 精确 Provider 观测独立持久化，绝不与本地 conversation identity 自动等同。
     ExactProviderRequest(String),
     MarkSent {
@@ -113,6 +120,27 @@ pub(crate) enum Mutation {
 pub(crate) struct CodeBuddyStore(pub(crate) StateStore);
 
 impl CodeBuddyStore {
+    /// 只读取可作为 Continue source 的 exact private identity；缺失或不合格返回 None。
+    pub(crate) async fn continuation_source(
+        &self,
+        execution_id: String,
+    ) -> Result<Option<PrivateState>, String> {
+        self.0
+            .read_codebuddy_continuation_source(execution_id)
+            .await
+    }
+
+    /// 原子验证 child/source 冻结 lineage，并返回 child generic authority 与 source private S1。
+    pub(crate) async fn continuation_lineage(
+        &self,
+        execution_id: String,
+        source_execution_id: String,
+    ) -> Result<Option<(crate::agent::store::ExecutionRecord, PrivateState)>, String> {
+        self.0
+            .read_codebuddy_continuation_lineage(execution_id, source_execution_id)
+            .await
+    }
+
     /// 只合并 exact response 的私有观测；不写 generic terminal，也不释放 Claim。
     pub(crate) async fn observe_prompt_response(
         &self,

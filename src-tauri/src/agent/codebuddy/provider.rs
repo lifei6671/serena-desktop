@@ -7,8 +7,9 @@ use crate::agent::provider::{
     ProviderErrorCode, ProviderExecutionContext, ProviderId, ProviderRunResult,
     ProviderStartupContext,
     port::{
-        AgentEventSink, AgentProvider, ProviderAcceptanceSink, ProviderExecutionFailure,
-        ProviderFuture, ProviderReconcileSummary,
+        AgentEventSink, AgentProvider, ProviderAcceptanceSink, ProviderContinuationContext,
+        ProviderContinuationDecision, ProviderExecutionFailure, ProviderFuture,
+        ProviderReconcileSummary,
     },
     registry::{ProviderHealth, ProviderRegistry},
 };
@@ -147,15 +148,43 @@ impl AgentProvider for CodeBuddyProvider {
         }
     }
 
-    /// Windows Fresh/Activity/Job recovery/Cancel 已通过 Gate；其他平台与未实现能力保持关闭。
+    /// Windows Fresh/Continue/Activity/Job recovery/Cancel 已通过 Gate；其他平台保持关闭。
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             can_execute: cfg!(windows),
-            can_continue: false,
+            can_continue: cfg!(windows),
             can_cancel: cfg!(windows),
             can_recover: cfg!(windows),
             activity: cfg!(windows),
             token_usage: false,
+        }
+    }
+
+    /// generic core/admission 保持 authority；这里只验证 source exact CodeBuddy private S1。
+    fn validate_continuation<'a>(
+        &'a self,
+        context: ProviderContinuationContext,
+    ) -> ProviderFuture<'a, Result<ProviderContinuationDecision, ProviderError>> {
+        #[cfg(windows)]
+        {
+            Box::pin(async move {
+                let source = super::store::CodeBuddyStore(self.store.clone())
+                    .continuation_source(context.source_execution_id)
+                    .await
+                    .map_err(|_| ProviderError {
+                        code: ProviderErrorCode::AgentProviderOperationFailed,
+                    })?;
+                Ok(if source.is_some() {
+                    ProviderContinuationDecision::Eligible
+                } else {
+                    ProviderContinuationDecision::Ineligible
+                })
+            })
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = context;
+            Box::pin(async { Ok(ProviderContinuationDecision::Ineligible) })
         }
     }
 

@@ -6,6 +6,8 @@ mod activity;
     reason = "CB6-003 建立 transport primitive，CB7 才接产品执行"
 )]
 pub(crate) mod client;
+#[cfg(windows)]
+mod continued;
 pub(crate) mod discovery;
 #[cfg(windows)]
 #[allow(
