@@ -1,5 +1,6 @@
 //! SQLite fixtures are simulated evidence, never Windows/Provider contract evidence.
 use super::*;
+use crate::agent::codebuddy::store::Ownership;
 use crate::agent::execution::{CreateExecutionInput, canonicalize_request};
 use std::sync::{Arc, Barrier};
 
@@ -1215,6 +1216,122 @@ fn recovery_scans_claims_retains_unknown_and_inconsistent_terminal_and_never_rep
             complete
         );
     }
+}
+
+/// Provider scoped recovery 先加载全部 Claim authority，再只读跳过合法的其他 Provider。
+#[test]
+fn provider_scoped_recovery_is_read_only_for_other_provider_claims() {
+    for (execution_provider, requested_provider) in [("codex", "codebuddy"), ("codebuddy", "codex")]
+    {
+        let directory = tempfile::tempdir().unwrap();
+        let store = open(directory.path());
+        let input: CreateExecutionInput = serde_json::from_value(json!({
+            "agent_id":"a","request_key":"k","prompt":"payload","execution_profile":{},
+            "workspace_id":"w","canonical_workspace_root":"root","mode":"workspace_write",
+            "provider":execution_provider
+        }))
+        .unwrap();
+        block(store.create_execution("e".into(), canonicalize_request(input).unwrap(), 1)).unwrap();
+        store.connection.lock().unwrap().execute(
+            "INSERT INTO runtime_instances (id,owner_host_instance_id,provider,state,created_at,updated_at)
+             VALUES ('r','host',?1,'running',1,1)",
+            [execution_provider],
+        ).unwrap();
+        // Dispatching 是 generic recovery 的首个必写分支，可封死 Provider 判断被后移的回归。
+        event(
+            &store,
+            Transition::Dispatch {
+                to: DispatchState::Dispatching,
+                runtime_id: Some("r".into()),
+            },
+            2,
+        )
+        .unwrap();
+        let binding = status(&store);
+        let private_before = (execution_provider == "codebuddy").then(|| {
+            block(store.create_codebuddy_state(
+                "e".into(),
+                Ownership {
+                    execution_revision: binding.revision,
+                    runtime_instance_id: binding.runtime_instance_id,
+                },
+            ))
+            .unwrap()
+        });
+        let execution_before = execution_snapshot(&store);
+        let claim_before = block(store.workspace_claim("root".into())).unwrap();
+        let runtime_before = block(store.runtime("r".into())).unwrap();
+
+        assert!(
+            block(store.recover_provider_claims(requested_provider.into(), 2))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(execution_snapshot(&store), execution_before);
+        assert_eq!(
+            block(store.workspace_claim("root".into())).unwrap(),
+            claim_before
+        );
+        assert_eq!(block(store.runtime("r".into())).unwrap(), runtime_before);
+        if let Some(private_before) = private_before {
+            assert_eq!(
+                block(store.read_codebuddy_state("e".into())).unwrap(),
+                private_before
+            );
+        } else {
+            assert!(!block(store.codebuddy_state_exists("e".into())).unwrap());
+        }
+    }
+}
+
+/// Provider scoped recovery 对自身 Claim 仍复用原 generic 分类，不建立第二套状态机。
+#[test]
+fn provider_scoped_recovery_classifies_its_own_claim() {
+    for provider in ["codex", "codebuddy"] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = open(directory.path());
+        let input: CreateExecutionInput = serde_json::from_value(json!({
+            "agent_id":"a","request_key":"k","prompt":"payload","execution_profile":{},
+            "workspace_id":"w","canonical_workspace_root":"root","mode":"workspace_write",
+            "provider":provider
+        }))
+        .unwrap();
+        block(store.create_execution("e".into(), canonicalize_request(input).unwrap(), 1)).unwrap();
+
+        assert!(matches!(
+            block(store.recover_provider_claims(provider.into(), 2))
+                .unwrap()
+                .as_slice(),
+            [ClaimRecovery::PendingExplicitResume { execution_id }] if execution_id == "e"
+        ));
+    }
+}
+
+/// Provider 无法判定悬空 Claim 的归属；generic 与两个 scoped 入口必须返回同一稳定错误。
+#[test]
+fn provider_scoped_recovery_fails_closed_for_dangling_claim() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = open(directory.path());
+    let connection = store.connection.lock().unwrap();
+    connection.execute_batch("PRAGMA foreign_keys=OFF").unwrap();
+    connection.execute(
+        "INSERT INTO workspace_claims VALUES ('missing-root','missing-execution','exclusive_execution',1)",
+        [],
+    ).unwrap();
+    drop(connection);
+
+    let generic = block(store.recover_claims(2)).unwrap_err();
+    for provider in ["codex", "codebuddy"] {
+        assert_eq!(
+            block(store.recover_provider_claims(provider.into(), 2)).unwrap_err(),
+            generic
+        );
+    }
+    assert!(
+        block(store.workspace_claim("missing-root".into()))
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[test]

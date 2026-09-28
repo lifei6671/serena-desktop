@@ -490,17 +490,24 @@ impl StateStore {
             // Claims are the authority for recovery, including legacy terminal rows.
             let mut statement = tx
                 .prepare(
-                    "SELECT w.execution_id FROM workspace_claims w WHERE (?1 IS NULL OR EXISTS (SELECT 1 FROM executions e WHERE e.id=w.execution_id AND e.provider=?1)) ORDER BY w.canonical_workspace_root",
+                    "SELECT execution_id FROM workspace_claims ORDER BY canonical_workspace_root",
                 )
                 .map_err(|e| e.to_string())?;
             let ids = statement
-                .query_map([provider], |r| r.get::<_, String>(0))
+                .query_map([], |r| r.get::<_, String>(0))
                 .map_err(|e| e.to_string())?
                 .collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(|e| e.to_string())?;
             let mut recovered = Vec::new();
             for id in ids {
                 let mut row = load(tx, &id)?;
+                // Claim 始终先完成权威加载；合法的其他 Provider 只能在任何状态写入前只读跳过。
+                if provider
+                    .as_ref()
+                    .is_some_and(|requested| requested != &row.provider)
+                {
+                    continue;
+                }
                 if row.dispatch == DispatchState::Dispatching {
                     transition_execution(
                         tx,
@@ -579,8 +586,10 @@ impl StateStore {
                         row.dispatch,
                         DispatchState::Uncertain | DispatchState::Dispatched
                     ) && row.status != Status::Reconciling
-                        && !(row.status == Status::Finalizing && row.result.is_some()
-                            && row.terminal.is_some() && row.terminal_runtime == row.runtime
+                        && !(row.status == Status::Finalizing
+                            && row.result.is_some()
+                            && row.terminal.is_some()
+                            && row.terminal_runtime == row.runtime
                             && row.terminal_at.is_some())
                     {
                         transition_execution(
