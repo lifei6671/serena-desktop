@@ -25,6 +25,30 @@ async fn execution(store: &StateStore, root: &std::path::Path, id: &str, created
         .unwrap();
 }
 
+/// 创建保留 Workspace Claim 的运行中 fixture，用于证明 Usage 读取没有生命周期副作用。
+async fn active_execution(
+    store: &StateStore,
+    root: &std::path::Path,
+    id: &str,
+    created_at: i64,
+) -> String {
+    let workspace_root = root.join(id);
+    std::fs::create_dir_all(&workspace_root).unwrap();
+    store
+        .product_create_fresh(
+            id.into(),
+            format!("agent-{id}"),
+            format!("key-{id}"),
+            "prompt".into(),
+            id.into(),
+            w(&workspace_root, id),
+            created_at,
+        )
+        .await
+        .unwrap();
+    workspace_root.to_string_lossy().into_owned()
+}
+
 /// 仅为 Product projection fixture 写入公共表；不会创建或读取 private Usage state。
 #[allow(clippy::too_many_arguments)]
 fn usage(
@@ -72,6 +96,35 @@ async fn product_usage(service: &AgentProductService, id: &str) -> Value {
     serde_json::to_value(service.observe(id.into(), false).await.unwrap()).unwrap()["usage"].clone()
 }
 
+/// 同时读取 detail、observe 与 list 的公共快照，避免任一路径遗漏 Usage 回归。
+async fn product_path_views(service: &AgentProductService, id: &str) -> Vec<Value> {
+    let detail = service
+        .agent_query(AgentQueryAction::Get {
+            execution_id: id.into(),
+            include_result: Some(false),
+        })
+        .await
+        .unwrap();
+    let detail = success(detail)["data"].clone();
+    let observed = service
+        .operation(
+            json!({"action":"observe","executionId":id,"waitMs":0}),
+            None,
+        )
+        .await["data"]
+        .clone();
+    let listed = service
+        .operation(json!({"action":"list","limit":100}), None)
+        .await["data"]["executions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["executionId"] == id)
+        .unwrap()
+        .clone();
+    vec![detail, observed, listed]
+}
+
 /// 非 Codex Execution 只读取 public Usage；无行返回 unknown/null，错配仍拒绝整条快照。
 #[tokio::test]
 async fn fake_provider_public_usage_is_optional_and_never_reads_codex_private_state() {
@@ -111,28 +164,7 @@ async fn fake_provider_public_usage_is_optional_and_never_reads_codex_private_st
         "modelContextWindow":128000,"completeness":"partial","usageRevision":7,"updatedAt":20
     });
     for (id, expected) in [("fake-none", unknown), ("fake-public", public)] {
-        let detail = service
-            .agent_query(AgentQueryAction::Get {
-                execution_id: id.into(),
-                include_result: Some(false),
-            })
-            .await
-            .unwrap();
-        let detail = success(detail);
-        let observed = service
-            .operation(
-                json!({"action":"observe","executionId":id,"waitMs":0}),
-                None,
-            )
-            .await;
-        let listed = service.operation(json!({"action":"list"}), None).await;
-        let listed = listed["data"]["executions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|row| row["executionId"] == id)
-            .unwrap();
-        for view in [&detail["data"], &observed["data"], listed] {
+        for view in product_path_views(&service, id).await {
             assert_eq!(view["provider"]["id"], "fake-acp");
             assert_eq!(view["taskRole"], "general");
             assert_eq!(view["usage"], expected);
@@ -213,13 +245,13 @@ async fn usage_product_defaults_and_persisted_values_preserve_null_zero_and_comp
         &database,
         "complete",
         "codex",
-        None,
-        None,
-        None,
-        None,
-        None,
+        Some(21),
+        Some(22),
+        Some(23),
+        Some(24),
+        Some(25),
         Some(456),
-        None,
+        Some(256_000),
         "complete",
         5,
         15,
@@ -255,13 +287,22 @@ async fn usage_product_defaults_and_persisted_values_preserve_null_zero_and_comp
     assert!(unknown["totalTokens"].is_null());
     assert_eq!(unknown["usageRevision"], 3);
     assert_eq!(unknown["updatedAt"], 13);
-    let partial = product_usage(&service, "partial").await;
-    assert_eq!(partial["completeness"], "partial");
-    assert_eq!(partial["totalTokens"], 123);
-    assert_eq!(
-        product_usage(&service, "complete").await["completeness"],
-        "complete"
-    );
+    let partial = json!({
+        "inputTokens":11,"cachedInputTokens":null,"cacheWriteInputTokens":null,
+        "outputTokens":null,"reasoningTokens":null,"totalTokens":123,
+        "modelContextWindow":null,"completeness":"partial","usageRevision":4,"updatedAt":14
+    });
+    let complete = json!({
+        "inputTokens":21,"cachedInputTokens":22,"cacheWriteInputTokens":23,
+        "outputTokens":24,"reasoningTokens":25,"totalTokens":456,
+        "modelContextWindow":256000,"completeness":"complete","usageRevision":5,"updatedAt":15
+    });
+    for (id, expected) in [("partial", partial), ("complete", complete)] {
+        for view in product_path_views(&service, id).await {
+            assert_eq!(view["provider"]["id"], "codex");
+            assert_eq!(view["usage"], expected);
+        }
+    }
     let zero = product_usage(&service, "zero").await;
     for field in [
         "inputTokens",
@@ -284,6 +325,192 @@ async fn usage_product_defaults_and_persisted_values_preserve_null_zero_and_comp
         let id = row["executionId"].as_str().unwrap();
         assert_eq!(row["provider"]["id"], "codex");
         assert_eq!(row["usage"], product_usage(&service, id).await);
+    }
+}
+
+/// CB9-002 冻结 unsupported CodeBuddy、历史 Provider 与公共历史行的 Product 边界。
+#[tokio::test]
+async fn cb9_provider_neutral_usage_matrix_ignores_codex_private_pollution_after_restart() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut store = StateStore::open(directory.path().into()).await.unwrap();
+    let running_root = active_execution(&store, directory.path(), "codebuddy-running", 1).await;
+    for (index, id) in [
+        "codebuddy-terminal",
+        "codebuddy-public",
+        "historical-none",
+        "historical-public",
+    ]
+    .iter()
+    .enumerate()
+    {
+        execution(&store, directory.path(), id, index as i64 + 2).await;
+    }
+    let running_claim = store.workspace_claim(running_root.clone()).await.unwrap();
+    assert!(running_claim.is_some());
+    let database_path = directory.path().join("agent-state.db");
+    let database = Connection::open(&database_path).unwrap();
+    database
+        .execute(
+            "UPDATE executions SET provider='codebuddy' WHERE id LIKE 'codebuddy-%'",
+            [],
+        )
+        .unwrap();
+    database
+        .execute(
+            "UPDATE executions SET status='running',dispatch_state='dispatched',completed_at=NULL WHERE id='codebuddy-running'",
+            [],
+        )
+        .unwrap();
+    database
+        .execute(
+            "UPDATE executions SET provider='historical-acp' WHERE id LIKE 'historical-%'",
+            [],
+        )
+        .unwrap();
+    // 该行模拟旧版本或非法手工数据；Product 对非 Codex 身份绝不能读取它。
+    database
+        .execute(
+            "INSERT INTO codex_execution_usage_state(
+                execution_id,runtime_instance_id,thread_id,turn_id,baseline_kind,baseline_json,
+                latest_cumulative_json,telemetry_state,terminal_at,freeze_at,last_event_at
+             ) VALUES ('codebuddy-terminal','polluted-runtime','polluted-thread','polluted-turn',
+                       'observed_same_epoch','{\"totalTokens\":900}',
+                       '{\"totalTokens\":999}','frozen',10,11,12)",
+            [],
+        )
+        .unwrap();
+    usage(
+        &database,
+        "codebuddy-public",
+        "codebuddy",
+        Some(31),
+        None,
+        Some(2),
+        Some(7),
+        None,
+        Some(40),
+        Some(200_000),
+        "partial",
+        8,
+        80,
+    );
+    usage(
+        &database,
+        "historical-public",
+        "historical-acp",
+        Some(5),
+        Some(1),
+        None,
+        Some(4),
+        None,
+        Some(10),
+        None,
+        "complete",
+        3,
+        30,
+    );
+    drop(database);
+
+    let unknown = json!({
+        "inputTokens":null,"cachedInputTokens":null,"cacheWriteInputTokens":null,
+        "outputTokens":null,"reasoningTokens":null,"totalTokens":null,
+        "modelContextWindow":null,"completeness":"unknown","usageRevision":0,"updatedAt":null
+    });
+    let codebuddy_public = json!({
+        "inputTokens":31,"cachedInputTokens":null,"cacheWriteInputTokens":2,
+        "outputTokens":7,"reasoningTokens":null,"totalTokens":40,
+        "modelContextWindow":200000,"completeness":"partial","usageRevision":8,"updatedAt":80
+    });
+    let historical_public = json!({
+        "inputTokens":5,"cachedInputTokens":1,"cacheWriteInputTokens":null,
+        "outputTokens":4,"reasoningTokens":null,"totalTokens":10,
+        "modelContextWindow":null,"completeness":"complete","usageRevision":3,"updatedAt":30
+    });
+
+    for restart in 0..=1 {
+        assert_eq!(
+            store.workspace_claim(running_root.clone()).await.unwrap(),
+            running_claim,
+            "Usage reads must preserve the running Claim after restart={restart}"
+        );
+        let service = AgentProductService::new(store.clone());
+        for (id, provider, expected) in [
+            ("codebuddy-running", "codebuddy", unknown.clone()),
+            ("codebuddy-terminal", "codebuddy", unknown.clone()),
+            ("codebuddy-public", "codebuddy", codebuddy_public.clone()),
+            ("historical-none", "historical-acp", unknown.clone()),
+            (
+                "historical-public",
+                "historical-acp",
+                historical_public.clone(),
+            ),
+        ] {
+            for view in product_path_views(&service, id).await {
+                assert_eq!(view["provider"]["id"], provider, "restart={restart} {id}");
+                assert_eq!(view["usage"], expected, "restart={restart} {id}");
+            }
+        }
+
+        let terminal = serde_json::to_value(
+            service
+                .observe("codebuddy-terminal".into(), false)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let public = serde_json::to_value(
+            service
+                .observe("codebuddy-public".into(), false)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        for field in ["status", "dispatchState", "attention", "availableActions"] {
+            assert_eq!(
+                terminal[field], public[field],
+                "Usage must not change {field}"
+            );
+        }
+        drop(service);
+
+        let database = Connection::open(&database_path).unwrap();
+        let polluted: (String, String, String, String, Option<i64>) = database
+            .query_row(
+                "SELECT runtime_instance_id,thread_id,baseline_kind,telemetry_state,last_event_at
+                 FROM codex_execution_usage_state WHERE execution_id='codebuddy-terminal'",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            polluted,
+            (
+                "polluted-runtime".into(),
+                "polluted-thread".into(),
+                "observed_same_epoch".into(),
+                "frozen".into(),
+                Some(12),
+            )
+        );
+        drop(database);
+        assert_eq!(
+            store.workspace_claim(running_root.clone()).await.unwrap(),
+            running_claim,
+            "Product reads must not alter the running Claim"
+        );
+
+        if restart == 0 {
+            drop(store);
+            store = StateStore::open(directory.path().into()).await.unwrap();
+        }
     }
 }
 

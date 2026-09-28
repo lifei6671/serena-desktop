@@ -1051,6 +1051,39 @@ test('Phase 5 gate keeps Provider, Activity and Usage truthful across list, hove
   assert.equal(calls.filter(call => call.action !== 'observe').every(call => call.action === 'list'), true);
 });
 
+test('CB9-002 keeps unsupported CodeBuddy Usage unknown without hiding lifecycle actions', async () => {
+  const host = navigationHost(); const project = workspace('A');
+  const complete = row({ executionId: 'cb9-codex-complete', canonicalWorkspaceRoot: project.root, prompt: 'Codex 完整统计', status: 'completed', attention: 'none', usage: { inputTokens: 8, outputTokens: 5, totalTokens: 13, completeness: 'complete' } });
+  const partial = row({ executionId: 'cb9-codex-partial', canonicalWorkspaceRoot: project.root, prompt: 'Codex 部分统计', usage: { inputTokens: 8, outputTokens: null, totalTokens: 8, completeness: 'partial' } });
+  const codebuddyRunning = row({ executionId: 'cb9-codebuddy-running', canonicalWorkspaceRoot: project.root, prompt: 'CodeBuddy 运行中', status: 'running', attention: 'none', provider: { id: 'codebuddy', displayName: 'CodeBuddy' }, usage: { totalTokens: null, completeness: 'unknown' }, availableActions: { canCancel: true, canContinue: false, canResumePending: false } });
+  const codebuddyTerminal = row({ executionId: 'cb9-codebuddy-terminal', canonicalWorkspaceRoot: project.root, prompt: 'CodeBuddy 已完成', status: 'completed', attention: 'none', provider: { id: 'codebuddy', displayName: 'CodeBuddy' }, usage: { totalTokens: null, completeness: 'unknown' }, availableActions: { canCancel: false, canContinue: true, canResumePending: false } });
+  const codebuddyCatalog = catalogProvider({
+    id: 'codebuddy', displayName: 'CodeBuddy',
+    capabilities: { canExecute: true, canContinue: true, canCancel: true, canRecover: true, activity: true, tokenUsage: false },
+  });
+  await mount([complete, partial, codebuddyRunning, codebuddyTerminal], undefined, { workspaces: [project], sidebarContainer: host }, { providers: [catalogProvider(), codebuddyCatalog], roleRouting: {} });
+
+  const task = title => [...host.querySelectorAll('.project-task')].find(item => item.textContent.includes(title));
+  await act(async () => task('Codex 完整统计').querySelector('.project-task-link').focus());
+  assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：13/);
+  await act(async () => task('Codex 部分统计').querySelector('.project-task-link').focus());
+  assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：8 · 统计不完整/);
+  await act(async () => task('CodeBuddy 运行中').querySelector('.project-task-link').focus());
+  const preview = document.querySelector('.project-task-preview').textContent;
+  assert.match(preview, /CodeBuddy.*总 Token：—/);
+  assert.doesNotMatch(preview, /总 Token：0/);
+  await act(async () => task('CodeBuddy 运行中').querySelector('.project-task-link').click());
+  assert.ok(button('取消任务', document.querySelector('.agent-detail')), 'unknown Usage must not hide the backend-authorized Cancel action');
+
+  await act(async () => task('CodeBuddy 已完成').querySelector('.project-task-link').click());
+  const detail = document.querySelector('.agent-detail');
+  assert.match(detail.querySelector('.agent-detail-info-card').textContent, /Provider.*CodeBuddy.*当前轮次总 Token.*—/);
+  const tokenFact = [...detail.querySelectorAll('.agent-detail-live-grid > div')].find(item => item.querySelector('span')?.textContent === '当前轮次总 Token');
+  assert.equal(tokenFact.querySelector('code').textContent, '—');
+  assert.ok(button('继续任务', detail), 'unknown Usage must not hide the backend-authorized Continue action');
+  assert.deepEqual([...document.querySelectorAll('.agent-provider-card h3')].map(node => node.textContent), ['Codex', 'CodeBuddy']);
+});
+
 test('project pagination and collapse are independent and older selected tasks keep updating', async () => {
   const host=navigationHost(); const projects=[workspace('A'),workspace('B')];
   const tasks=Array.from({length:12},(_,i)=>row({executionId:`task-${i}`,canonicalWorkspaceRoot:projects[i<7?0:1].root,prompt:`导航任务 ${i}`,revision:'R1'}));

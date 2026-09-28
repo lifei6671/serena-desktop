@@ -1,0 +1,6 @@
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"Review CB9-002 acceptance, allowed scope, and forbidden Phase10 work"}
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"Review provider-private isolation, public historical truth, and capability gates"}
+{"file":".trellis/tasks/09-28-cb9-001-codebuddy-usage-skip/decision.md","reason":"Review frozen CodeBuddy unknown/null and no-projector decision"}
+{"file":".trellis/tasks/09-28-cb9-002-usage-product-ui-regression/prd.md","reason":"Review A-I behavior and production modification gate"}
+{"file":".trellis/tasks/09-28-cb9-002-usage-product-ui-regression/design.md","reason":"Review public row decision and frontend/provider-neutral data flow"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Review persisted public row through Product and UI without null-to-zero drift"}
