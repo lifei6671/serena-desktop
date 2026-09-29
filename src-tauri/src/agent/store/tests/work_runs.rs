@@ -59,7 +59,7 @@ fn v4_upgrade_preserves_complete_execution_claim_and_existing_schema() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
                 .unwrap(),
-            13
+            14
         );
         for (index, (sql, expected)) in queries[..3].iter().zip(&before[..3]).enumerate() {
             let mut expected = expected.clone();
@@ -71,6 +71,7 @@ fn v4_upgrade_preserves_complete_execution_claim_and_existing_schema() {
                     row.push(Value::Text("execution.reconciling".into()));
                     row.push(Value::Integer(0));
                     row.push(Value::Text("general".into()));
+                    row.push(Value::Null);
                 }
             } else if index == 2 {
                 for row in &mut expected {

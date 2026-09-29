@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 /// 载入完整冻结 v12 dump，避免以当前迁移器伪造旧版本输入。
-fn frozen_v12_connection(path: &std::path::Path) -> Connection {
+pub(super) fn frozen_v12_connection(path: &std::path::Path) -> Connection {
     let connection = Connection::open(path).unwrap();
     configure(&connection).unwrap();
     // dump 的表顺序不保证父表先存在；载入后立即检查所有历史外键。
@@ -24,7 +24,7 @@ fn frozen_v12_connection(path: &std::path::Path) -> Connection {
 }
 
 /// 保存所有命名列的原始 SQLite 值，包含 Codex 私有表及 usage 历史。
-fn table_values(connection: &Connection, table: &str) -> BTreeMap<String, Vec<Value>> {
+pub(super) fn table_values(connection: &Connection, table: &str) -> BTreeMap<String, Vec<Value>> {
     let mut statement = connection
         .prepare(&format!("SELECT * FROM \"{table}\" ORDER BY 1"))
         .unwrap();
@@ -48,14 +48,14 @@ fn table_values(connection: &Connection, table: &str) -> BTreeMap<String, Vec<Va
 }
 
 /// 冻结对象 SQL，检查失败事务没有遗留新表、索引或重写历史对象。
-fn schema_objects(connection: &Connection) -> Vec<(String, String, Option<String>)> {
+pub(super) fn schema_objects(connection: &Connection) -> Vec<(String, String, Option<String>)> {
     connection.prepare("SELECT type,name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name")
         .unwrap().query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .unwrap().collect::<rusqlite::Result<_>>().unwrap()
 }
 
 /// 当前版本与外键策略都必须在成功升级和失败回滚后正确保留。
-fn assert_version(connection: &Connection, expected: i64) {
+pub(super) fn assert_version(connection: &Connection, expected: i64) {
     assert_eq!(
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
@@ -70,9 +70,9 @@ fn assert_version(connection: &Connection, expected: i64) {
     );
 }
 
-/// 冻结 v12 全表、全字段值跨 v13 升级与重开保持不变，且不回填私有状态。
+/// 冻结 v12 全表、全字段值升级到当前版本；仅新增的 effective 列保持 NULL。
 #[test]
-fn frozen_v12_to_v13_preserves_all_values_and_reopens_without_backfill() {
+fn frozen_v12_to_current_preserves_all_values_and_reopens_without_backfill() {
     let directory = tempfile::tempdir().unwrap();
     let mut connection = frozen_v12_connection(&directory.path().join("agent-state.db"));
     assert_version(&connection, 12);
@@ -99,15 +99,30 @@ fn frozen_v12_to_v13_preserves_all_values_and_reopens_without_backfill() {
     for _ in 0..2 {
         let store = open(directory.path());
         let connection = store.connection.lock().unwrap();
-        assert_version(&connection, 13);
+        assert_version(&connection, 14);
         for (table, values) in &before {
-            assert_eq!(&table_values(&connection, table), values, "{table}");
+            let mut expected = values.clone();
+            if table == "executions" {
+                let row_count = expected.values().next().map(Vec::len).unwrap_or(0);
+                expected.insert(
+                    "effective_execution_profile_json".into(),
+                    vec![Value::Null; row_count],
+                );
+            }
+            assert_eq!(table_values(&connection, table), expected, "{table}");
         }
         let historical_objects: Vec<_> = schema_objects(&connection)
             .into_iter()
-            .filter(|(_, name, _)| !name.starts_with("codebuddy_execution_"))
+            .filter(|(_, name, _)| {
+                !name.starts_with("codebuddy_execution_") && name != "executions"
+            })
             .collect();
-        assert_eq!(historical_objects, objects);
+        let original_historical: Vec<_> = objects
+            .iter()
+            .filter(|(_, name, _)| name != "executions")
+            .cloned()
+            .collect();
+        assert_eq!(historical_objects, original_historical);
         assert_eq!(
             connection
                 .query_row(
@@ -135,9 +150,9 @@ fn frozen_schema_v12_content_hash_is_unchanged() {
     );
 }
 
-/// v0 与冻结 v9/v11 均到达 v13，且没有为历史任务创建 CodeBuddy 私有行。
+/// v0 与冻结 v9/v11 均到达当前版本，且没有为历史任务创建 CodeBuddy 私有行。
 #[test]
-fn v0_and_historical_databases_reach_v13_without_private_rows() {
+fn v0_and_historical_databases_reach_current_without_private_rows() {
     let directory = tempfile::tempdir().unwrap();
     let fresh = Connection::open_in_memory().unwrap();
     fresh.pragma_update(None, "foreign_keys", true).unwrap();
@@ -149,7 +164,7 @@ fn v0_and_historical_databases_reach_v13_without_private_rows() {
         v11_fixture::frozen_v11_connection(&directory.path().join("historical.db"));
     for mut connection in [fresh, historical_v9, historical_v11] {
         migrate(&mut connection).unwrap();
-        assert_version(&connection, 13);
+        assert_version(&connection, 14);
         assert_eq!(
             connection
                 .query_row(
@@ -164,24 +179,24 @@ fn v0_and_historical_databases_reach_v13_without_private_rows() {
     }
 }
 
-/// 未来 v14 明确拒绝，连接重新打开也不得修改版本、对象和历史值。
+/// 未来 v15 明确拒绝，连接重新打开也不得修改版本、对象和历史值。
 #[tokio::test]
-async fn future_v14_is_rejected_without_mutation() {
+async fn future_v15_is_rejected_without_mutation() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("agent-state.db");
     let mut connection = frozen_v12_connection(&path);
-    connection.pragma_update(None, "user_version", 14).unwrap();
+    connection.pragma_update(None, "user_version", 15).unwrap();
     let before = schema_objects(&connection);
     let values = table_values(&connection, "executions");
     assert_eq!(
         migrate(&mut connection).unwrap_err(),
-        "unsupported agent state schema version: 14"
+        "unsupported agent state schema version: 15"
     );
     assert_eq!(schema_objects(&connection), before);
-    assert_version(&connection, 14);
+    assert_version(&connection, 15);
     drop(connection);
     assert!(
-        matches!(StateStore::open(directory.path().into()).await, Err(error) if error.contains("unsupported agent state schema version: 14"))
+        matches!(StateStore::open(directory.path().into()).await, Err(error) if error.contains("unsupported agent state schema version: 15"))
     );
     let connection = Connection::open(path).unwrap();
     assert_eq!(schema_objects(&connection), before);
@@ -190,7 +205,7 @@ async fn future_v14_is_rejected_without_mutation() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        14
+        15
     );
 }
 

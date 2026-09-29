@@ -115,6 +115,20 @@ pub(super) async fn run(
         if cancelled.try_recv() != Err(oneshot::error::TryRecvError::Empty) {
             return Err(Failure::Closed);
         }
+        let effective_profile = session.catalog.effective_execution_profile()?;
+        // exact Execution/Provider/R1 已核验后先提交实际配置；失败时不得写 Sent 或发送 Prompt。
+        store
+            .set_effective_execution_profile(
+                row.id.clone(),
+                row.provider.clone(),
+                owner
+                    .runtime_instance_id
+                    .clone()
+                    .ok_or(Failure::State)?,
+                effective_profile,
+            )
+            .await
+            .map_err(|_| Failure::State)?;
         session.private = private_store
             .mutate(
                 row.id.clone(),

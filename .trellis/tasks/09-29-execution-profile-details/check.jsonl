@@ -1,0 +1,7 @@
+{"file":".trellis/spec/frontend/index.md","reason":"前端层现行规范入口与完整范围复核依据"}
+{"file":".trellis/tasks/09-29-execution-profile-details/research/authority.md","reason":"验收语义、禁止项和基线身份"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"全链路 nullable、authority 与消费者一致性检查"}
+{"file":".trellis/tasks/09-29-execution-profile-details/design.md","reason":"审查不可变写入、identity 与 side-effect ordering"}
+{"file":".trellis/tasks/09-29-execution-profile-details/research/authority.md","reason":"复核 Host Review 冻结语义与 exact Provider evidence 边界"}
+{"file":"src-tauri/src/agent/codebuddy/fresh.rs","reason":"复核 raw availableModels、supportsReasoning 与 stale thought_level 处理"}
+{"file":"src-tauri/src/agent/codex/provider.rs","reason":"复核 fresh/continue CAS 最后安全边界与 outgoing profile 一致性"}

@@ -44,32 +44,97 @@ fn turn(status: &str) -> Value {
     json!({"id":"TURN","status":status,"items":[],"itemsView":"summary"})
 }
 
-/// Codex Start 只接受 model/list 对所选模型声明的 reasoning，失效保存值必须 fail-closed。
-#[test]
-fn frozen_profile_must_match_model_specific_reasoning_catalog() {
-    let models = vec![ExecutionModelOption {
-        id: "gpt-test".into(),
-        name: "GPT Test".into(),
-        description: None,
-        is_default: true,
-        hidden: false,
-        reasoning_options: vec![crate::agent::provider::ExecutionConfigurationOption {
-            id: "high".into(),
-            name: "High".into(),
-            description: None,
+/// Provider 执行 fixture 使用的唯一可执行默认模型 authority。
+fn effective_model_page() -> Value {
+    json!({
+        "data": [{
+            "id": "preset-default",
+            "model": "gpt-effective",
+            "displayName": "GPT Effective",
+            "description": "",
+            "isDefault": true,
+            "hidden": false,
+            "defaultReasoningEffort": "high",
+            "supportedReasoningEfforts": [{"reasoningEffort":"high","description":""}],
         }],
-        default_reasoning: Some("high".into()),
-    }];
-    assert!(
-        validate_codex_profile_models(
+        "nextCursor": null,
+    })
+}
+
+/// 应答本次 exact Client 的 model/list，并返回下一条业务请求。
+async fn receive_after_model_list(s: &mut BufReader<DuplexStream>) -> Value {
+    let request = recv(s).await;
+    assert_eq!(request["method"], "model/list");
+    reply(s, &request, effective_model_page()).await;
+    recv(s).await
+}
+
+/// Codex 必须从 exact model/list 解析完整的显式或默认 effective profile。
+#[test]
+fn codex_effective_profile_resolves_explicit_and_default_values() {
+    let model =
+        |id: &str, is_default: bool, default_reasoning: Option<&str>| ExecutionModelOption {
+            id: id.into(),
+            name: id.into(),
+            description: None,
+            is_default,
+            hidden: false,
+            reasoning_options: ["medium", "high"]
+                .into_iter()
+                .map(|id| crate::agent::provider::ExecutionConfigurationOption {
+                    id: id.into(),
+                    name: id.into(),
+                    description: None,
+                })
+                .collect(),
+            default_reasoning: default_reasoning.map(str::to_owned),
+        };
+    let models = vec![
+        model("gpt-default", true, Some("medium")),
+        model("gpt-explicit", false, Some("high")),
+    ];
+    assert_eq!(
+        resolve_codex_effective_profile_models(
             &models,
             &ExecutionProfile {
-                model: Some("gpt-test".into()),
-                reasoning: Some("high".into()),
-            }
+                model: Some("gpt-explicit".into()),
+                reasoning: Some("medium".into()),
+            },
         )
-        .is_ok()
+        .unwrap(),
+        ExecutionProfile {
+            model: Some("gpt-explicit".into()),
+            reasoning: Some("medium".into()),
+        }
     );
+    assert_eq!(
+        resolve_codex_effective_profile_models(&models, &ExecutionProfile::default()).unwrap(),
+        ExecutionProfile {
+            model: Some("gpt-default".into()),
+            reasoning: Some("medium".into()),
+        }
+    );
+}
+
+/// Codex 对缺失/隐藏模型、非法 reasoning、非唯一默认值和缺失默认 reasoning 均 fail closed。
+#[test]
+fn codex_effective_profile_rejects_unproven_values() {
+    let model = |id: &str, is_default: bool, hidden: bool, default_reasoning: Option<&str>| {
+        ExecutionModelOption {
+            id: id.into(),
+            name: id.into(),
+            description: None,
+            is_default,
+            hidden,
+            reasoning_options: vec![crate::agent::provider::ExecutionConfigurationOption {
+                id: "high".into(),
+                name: "High".into(),
+                description: None,
+            }],
+            default_reasoning: default_reasoning.map(str::to_owned),
+        }
+    };
+    let valid = model("gpt-test", true, false, Some("high"));
     for profile in [
         ExecutionProfile {
             model: Some("missing".into()),
@@ -81,7 +146,22 @@ fn frozen_profile_must_match_model_specific_reasoning_catalog() {
         },
     ] {
         assert_eq!(
-            validate_codex_profile_models(&models, &profile).unwrap_err(),
+            resolve_codex_effective_profile_models(std::slice::from_ref(&valid), &profile)
+                .unwrap_err(),
+            "EXECUTION_PROFILE_UNAVAILABLE"
+        );
+    }
+    for models in [
+        vec![
+            model("one", true, false, Some("high")),
+            model("two", true, false, Some("high")),
+        ],
+        vec![model("hidden", true, true, Some("high"))],
+        vec![model("missing-default", true, false, None)],
+    ] {
+        assert_eq!(
+            resolve_codex_effective_profile_models(&models, &ExecutionProfile::default())
+                .unwrap_err(),
             "EXECUTION_PROFILE_UNAVAILABLE"
         );
     }
@@ -465,7 +545,7 @@ async fn slice_case(case: &'static str) {
         }
         reply(&mut s,&req,json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"})).await;
         assert_eq!(recv(&mut s).await["method"], "initialized");
-        let req = recv(&mut s).await;
+        let req = receive_after_model_list(&mut s).await;
         if case == "continue-old-turn" {
             assert_eq!(req["method"], "thread/resume");
             assert_eq!(
@@ -479,6 +559,7 @@ async fn slice_case(case: &'static str) {
             assert_eq!(req["params"]["sandbox"], "read-only");
             assert_eq!(req["params"]["cwd"], request2.canonical_workspace_root);
             assert_eq!(req["params"]["approvalPolicy"], "never");
+            assert_eq!(req["params"]["model"], "gpt-effective");
             assert_eq!(req["params"]["dynamicTools"][0]["type"], "namespace");
             assert_eq!(req["params"]["dynamicTools"][0]["name"], "codex_app");
             assert_eq!(req["params"]["dynamicTools"].as_array().unwrap().len(), 1);
@@ -498,6 +579,18 @@ async fn slice_case(case: &'static str) {
         assert_eq!(row.runtime_instance_id.as_deref(), Some("R1"));
         assert_eq!(row.dispatch_state, "dispatching");
         assert_eq!(row.status, "dispatch_pending");
+        assert_eq!(
+            row.effective_execution_profile_json
+                .as_deref()
+                .map(serde_json::from_str::<ExecutionProfile>)
+                .transpose()
+                .unwrap(),
+            (case != "continue-old-turn").then_some(ExecutionProfile {
+                model: Some("gpt-effective".into()),
+                reasoning: Some("high".into()),
+            }),
+            "fresh 必须先于 thread/start 写入，continue 在 resume 校验完成前保持 NULL",
+        );
         if case == "resume" {
             assert!(
                 AgentTaskManager::new(fake_store.clone(), "unused".into())
@@ -516,6 +609,25 @@ async fn slice_case(case: &'static str) {
         assert_eq!(req["method"], "turn/start");
         assert_eq!(req["params"]["threadId"], "THREAD");
         assert_eq!(req["params"]["approvalPolicy"], "never");
+        assert_eq!(req["params"]["model"], "gpt-effective");
+        assert_eq!(req["params"]["effort"], "high");
+        assert_eq!(
+            fake_store
+                .execution(id.clone())
+                .await
+                .unwrap()
+                .unwrap()
+                .effective_execution_profile_json
+                .as_deref()
+                .map(serde_json::from_str::<ExecutionProfile>)
+                .transpose()
+                .unwrap(),
+            Some(ExecutionProfile {
+                model: Some("gpt-effective".into()),
+                reasoning: Some("high".into()),
+            }),
+            "effective profile 必须先于 exact turn/start 可观察",
+        );
         assert_eq!(
             req["params"]["sandboxPolicy"],
             if case == "continue-old-turn" {
@@ -1968,7 +2080,7 @@ async fn live_failure_case(case: &'static str, evidence: bool, bind_turn: bool) 
         assert_eq!(req["method"], "initialize");
         reply(&mut s,&req,json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"})).await;
         assert_eq!(recv(&mut s).await["method"], "initialized");
-        let req = recv(&mut s).await;
+        let req = receive_after_model_list(&mut s).await;
         assert_eq!(req["method"], "thread/start");
         if !bind_turn {
             reply(
@@ -2251,6 +2363,132 @@ fn permission_diagnostic_persistence_failure_does_not_fail_provider_execution() 
 #[test]
 fn continued_thread_rejects_late_old_turn_activity_and_permission_hints() {
     run(slice_case("continue-old-turn"));
+}
+
+/// continue 的 resume/history authority 未通过时不得提前写入 effective profile。
+#[test]
+fn continuation_history_validation_failure_keeps_effective_profile_null() {
+    run(async {
+        let temp = tempfile::tempdir().unwrap();
+        let store = StateStore::open(temp.path().into()).await.unwrap();
+        let request = input(temp.path());
+        let source = store
+            .product_create_fresh(
+                "SOURCE-INVALID-HISTORY".into(),
+                request.agent_id.clone(),
+                "source-invalid-history-key".into(),
+                "source".into(),
+                request.workspace_id.clone(),
+                Some(
+                    crate::agent::store::transactions::product::WorkspaceSnapshot {
+                        id: request.workspace_id.clone(),
+                        root: request.canonical_workspace_root.clone(),
+                        generation: 1,
+                    },
+                ),
+                1,
+            )
+            .await
+            .unwrap();
+        let database = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
+        database
+            .execute(
+                "INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at)
+                 VALUES ('R0-INVALID-HISTORY','fixture','terminated',1,1)",
+                [],
+            )
+            .unwrap();
+        let final_result = json!({
+            "historyMode":"paginated",
+            "executionId":source.execution_id,
+            "threadId":"THREAD-INVALID-HISTORY",
+            "turnId":"PRIOR-TURN",
+            "sourceRuntimeId":"R0-INVALID-HISTORY"
+        })
+        .to_string();
+        database
+            .execute(
+                "UPDATE executions SET status='completed',dispatch_state='dispatched',
+                 runtime_instance_id='R0-INVALID-HISTORY',thread_id='THREAD-INVALID-HISTORY',
+                 turn_id='PRIOR-TURN',provider_terminal_status='completed',
+                 release_evidence_state='complete',release_evidence_kind='same_runtime_cleanup',
+                 release_evidence_json='{}',result_completeness='complete',final_result_json=?1,
+                 completed_at=2 WHERE id=?2",
+                rusqlite::params![final_result, source.execution_id],
+            )
+            .unwrap();
+        database
+            .execute(
+                "DELETE FROM workspace_claims WHERE execution_id=?1",
+                [&source.execution_id],
+            )
+            .unwrap();
+        let child = store
+            .product_create_continuation(
+                "CONTINUE-INVALID-HISTORY".into(),
+                source.execution_id,
+                request.request_key,
+                request.prompt,
+                3,
+            )
+            .await
+            .unwrap();
+        database
+            .execute(
+                "INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at)
+                 VALUES ('R1-INVALID-HISTORY','fixture','running',3,3)",
+                [],
+            )
+            .unwrap();
+
+        let (wire, server) = tokio::io::duplex(64 * 1024);
+        let (read, write) = tokio::io::split(wire);
+        let client =
+            Client::transport("R1-INVALID-HISTORY".into(), read, write, tokio::io::empty());
+        let fake = tokio::spawn(async move {
+            let mut server = BufReader::new(server);
+            let initialize = recv(&mut server).await;
+            assert_eq!(initialize["method"], "initialize");
+            reply(
+                &mut server,
+                &initialize,
+                json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"}),
+            )
+            .await;
+            assert_eq!(recv(&mut server).await["method"], "initialized");
+            let resume = receive_after_model_list(&mut server).await;
+            assert_eq!(resume["method"], "thread/resume");
+            reply(
+                &mut server,
+                &resume,
+                json!({"thread":{"id":"THREAD-INVALID-HISTORY","turns":[],"historyMode":"legacy"}}),
+            )
+            .await;
+        });
+        client.initialize().await.unwrap();
+        let provider = CodexProvider {
+            store: store.clone(),
+            executable: "unused.exe".into(),
+            backend_error: None,
+            owner: "fixture".into(),
+            runtime_pool: Default::default(),
+        };
+        let error = provider
+            .run_client(&child.execution_id, &client)
+            .await
+            .unwrap_err();
+        assert!(error.contains("continuation requires paginated history"));
+        assert!(
+            store
+                .execution(child.execution_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .effective_execution_profile_json
+                .is_none()
+        );
+        fake.await.unwrap();
+    });
 }
 
 #[test]

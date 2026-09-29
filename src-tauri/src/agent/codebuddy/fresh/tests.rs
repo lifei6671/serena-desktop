@@ -71,12 +71,21 @@ pub(crate) async fn fixture(
     }
     std::fs::write(dir.path().join("new.json"), json!({
         "sessionId":"exact-session","modes":{"currentModeId":"default","availableModes":modes},
-        "configOptions":[depth("low")],
+        "configOptions":[
+            depth("low"),
+            execution_option("model", "model", "model-a", &["model-a"]),
+            execution_option("thought_level", "thought_level", "medium", &["low", "medium", "high"])
+        ],
         "models":{"currentModelId":"model-a","availableModels":[{"modelId":"model-a","name":"Model A"}]}
     }).to_string()).unwrap();
     std::fs::write(
         dir.path().join("config.json"),
-        json!({"configOptions":[depth("high")]}).to_string(),
+        json!({"configOptions":[
+            depth("high"),
+            execution_option("model", "model", "model-a", &["model-a"]),
+            execution_option("thought_level", "thought_level", "medium", &["low", "medium", "high"])
+        ]})
+        .to_string(),
     )
     .unwrap();
     let resolved = ResolvedLaunchSpec {
@@ -97,6 +106,137 @@ fn depth(current: &str) -> Value {
 fn execution_option(id: &str, category: &str, current: &str, values: &[&str]) -> Value {
     json!({"id":id,"name":id,"category":category,"type":"select","currentValue":current,
         "options":values.iter().map(|value| json!({"value":value,"name":value})).collect::<Vec<_>>()})
+}
+
+#[test]
+/// effective profile 只接受 exact Session 的一致当前值，并保留 ACK 后实际档位。
+fn effective_profile_uses_exact_current_configuration() {
+    let catalog = SessionCatalog {
+        response: serde_json::from_value(json!({
+            "sessionId":"exact-session",
+            "configOptions":[
+                execution_option("model", "model", "model-b", &["model-a", "model-b"]),
+                execution_option("thought_level", "thought_level", "high", &["low", "high"])
+            ]
+        }))
+        .unwrap(),
+        models: Some(json!({
+            "currentModelId":"model-b",
+            "availableModels":[{"modelId":"model-a"},{"modelId":"model-b","_meta":{}}]
+        })),
+    };
+
+    assert_eq!(
+        catalog.effective_execution_profile().unwrap(),
+        crate::agent::execution::ExecutionProfile {
+            model: Some("model-b".into()),
+            reasoning: Some("high".into()),
+        }
+    );
+}
+
+#[test]
+/// 不支持 reasoning 的实际模型必须忽略 Session 残留 thought_level，而不是记录伪事实。
+fn effective_profile_ignores_stale_reasoning_for_nonreasoning_model() {
+    let catalog = SessionCatalog {
+        response: serde_json::from_value(json!({
+            "sessionId":"exact-session",
+            "configOptions":[
+                execution_option("model", "model", "model-plain", &["model-plain"]),
+                execution_option("thought_level", "thought_level", "stale-high", &["stale-high"])
+            ]
+        }))
+        .unwrap(),
+        models: Some(json!({
+            "currentModelId":"model-plain",
+            "availableModels":[{
+                "modelId":"model-plain",
+                "_meta":{"supportsReasoning":false}
+            }]
+        })),
+    };
+
+    assert_eq!(
+        catalog.effective_execution_profile().unwrap(),
+        crate::agent::execution::ExecutionProfile {
+            model: Some("model-plain".into()),
+            reasoning: None,
+        }
+    );
+}
+
+#[test]
+/// 缺少完整 current authority 或 raw/model option 冲突时必须 fail closed。
+fn effective_profile_rejects_missing_or_conflicting_authority() {
+    let response = |config_options: Vec<Value>| {
+        serde_json::from_value(json!({
+            "sessionId":"exact-session",
+            "configOptions":config_options
+        }))
+        .unwrap()
+    };
+    let model = execution_option("model", "model", "model-a", &["model-a", "model-b"]);
+    let reasoning = execution_option("thought_level", "thought_level", "high", &["high"]);
+    let missing_reasoning = SessionCatalog {
+        response: response(vec![model.clone()]),
+        models: Some(json!({
+            "currentModelId":"model-a",
+            "availableModels":[{"modelId":"model-a"}]
+        })),
+    };
+    assert_eq!(
+        missing_reasoning.effective_execution_profile(),
+        Err(Failure::Configuration)
+    );
+
+    let missing_raw_models = SessionCatalog {
+        response: response(vec![model.clone(), reasoning.clone()]),
+        models: None,
+    };
+    assert_eq!(
+        missing_raw_models.effective_execution_profile(),
+        Err(Failure::Configuration)
+    );
+
+    let malformed_reasoning_metadata = SessionCatalog {
+        response: response(vec![model.clone(), reasoning.clone()]),
+        models: Some(json!({
+            "currentModelId":"model-a",
+            "availableModels":[{
+                "modelId":"model-a",
+                "_meta":{"supportsReasoning":"false"}
+            }]
+        })),
+    };
+    assert_eq!(
+        malformed_reasoning_metadata.effective_execution_profile(),
+        Err(Failure::Configuration)
+    );
+    for metadata in [Value::Null, json!("invalid"), json!([])] {
+        let malformed_metadata = SessionCatalog {
+            response: response(vec![model.clone(), reasoning.clone()]),
+            models: Some(json!({
+                "currentModelId":"model-a",
+                "availableModels":[{"modelId":"model-a","_meta":metadata}]
+            })),
+        };
+        assert_eq!(
+            malformed_metadata.effective_execution_profile(),
+            Err(Failure::Configuration)
+        );
+    }
+
+    let conflicting_model = SessionCatalog {
+        response: response(vec![model, reasoning]),
+        models: Some(json!({
+            "currentModelId":"model-b",
+            "availableModels":[{"modelId":"model-a"},{"modelId":"model-b"}]
+        })),
+    };
+    assert_eq!(
+        conflicting_model.effective_execution_profile(),
+        Err(Failure::Configuration)
+    );
 }
 
 /// 有界轮询只等待 fake peer 已记录的请求，不以固定 sleep 推断完成。

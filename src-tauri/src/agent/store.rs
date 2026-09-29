@@ -21,10 +21,12 @@ const SCHEMA_V10: &str = include_str!("schema_v10.sql");
 const SCHEMA_V11: &str = include_str!("schema_v11.sql");
 const SCHEMA_V12: &str = include_str!("schema_v12.sql");
 const SCHEMA_V13: &str = include_str!("schema_v13.sql");
+const SCHEMA_V14: &str = include_str!("schema_v14.sql");
 
 mod codebuddy;
 pub(crate) mod codebuddy_runtime;
 mod command_runs;
+mod effective_profile;
 mod usage;
 #[cfg(test)]
 mod usage_tests;
@@ -65,6 +67,7 @@ pub struct ExecutionRecord {
     pub request_hash: String,
     pub prompt: String,
     pub execution_profile_json: String,
+    pub effective_execution_profile_json: Option<String>,
     pub workspace_id: String,
     pub canonical_workspace_root: String,
     pub workspace_generation: u64,
@@ -348,10 +351,10 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .map_err(|e| e.to_string())?;
-    if !(0..=13).contains(&version) {
+    if !(0..=14).contains(&version) {
         return Err(format!("unsupported agent state schema version: {version}"));
     }
-    if version == 13 {
+    if version == 14 {
         return check_foreign_keys(connection);
     }
     // SQLite 不能在事务内切换 foreign_keys；父表重建前关闭，提交前后均检查外键。
@@ -373,7 +376,7 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
     check_foreign_keys(connection)
 }
 
-/// 所有历史 migration 与 v13 共用一个 IMMEDIATE 事务，失败时整体回滚。
+/// 所有历史 migration 与 v14 共用一个 IMMEDIATE 事务，失败时整体回滚。
 fn migrate_in_transaction(connection: &mut Connection) -> Result<(), String> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -400,7 +403,7 @@ fn migrate_in_transaction(connection: &mut Connection) -> Result<(), String> {
             }
             apply_migration(&transaction, 1, SCHEMA_V1).map_err(|e| e.to_string())?;
         }
-        1..=13 => {}
+        1..=14 => {}
         _ => return Err(format!("unsupported agent state schema version: {version}")),
     }
     if version < 2 {
@@ -450,6 +453,9 @@ fn migrate_in_transaction(connection: &mut Connection) -> Result<(), String> {
         transaction
             .pragma_update(None, "user_version", 13)
             .map_err(|e| e.to_string())?;
+    }
+    if version < 14 {
+        apply_migration(&transaction, 14, SCHEMA_V14).map_err(|e| e.to_string())?;
     }
     transaction.commit().map_err(|e| e.to_string())
 }
@@ -536,7 +542,8 @@ fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<Executi
              runtime_instance_id, status, dispatch_state, revision, background_cleanup_state,
              release_evidence_state, release_evidence_kind, release_evidence_json, result_completeness, turn_id, provider_terminal_status, provider_terminal_evidence_runtime_instance_id, final_result_json
              , interrupt_requested_at, interrupt_ack_at, interrupt_timeout_at, interrupt_diagnostic, provider_terminal_evidence_at, error_code, error_message,
-             last_activity_at, activity_phase, tool_category, activity_summary_code, activity_sequence
+             last_activity_at, activity_phase, tool_category, activity_summary_code, activity_sequence,
+             effective_execution_profile_json
              FROM executions WHERE id = ?1", [&id], |r| Ok(ExecutionRecord {
                 id: r.get(0)?, agent_id: r.get(1)?, request_key: r.get(2)?, request_hash: r.get(3)?,
                 prompt: r.get(4)?, execution_profile_json: r.get(5)?, workspace_id: r.get(6)?,
@@ -551,5 +558,6 @@ fn execution_record(c: &Connection, id: &str) -> rusqlite::Result<Option<Executi
                  error_code: r.get(31)?, error_message: r.get(32)?,
                  last_activity_at: r.get(33)?, activity_phase: r.get(34)?, tool_category: r.get(35)?,
                  activity_summary_code: r.get(36)?, activity_sequence: r.get(37)?,
+                 effective_execution_profile_json: r.get(38)?,
              })).optional()
 }

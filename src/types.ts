@@ -244,6 +244,10 @@ export interface ExecutionView {
   executionId: string; agentId: string; workspaceId: string; status: string;
   provider: { id: string; displayName: string; version: string | null };
   taskRole: "development" | "testing" | "review" | "analysis" | "general";
+  /** Execution 创建时持久化的冻结配置；null 表示当时沿用 Provider 默认。 */
+  executionProfile: { model: string | null; reasoning: string | null };
+  /** Provider 对本次 Execution 已确认的实际配置；null 表示没有可靠历史证据。 */
+  effectiveExecutionProfile: { model: string | null; reasoning: string | null } | null;
   usage: {
     inputTokens: number | null; cachedInputTokens: number | null; cacheWriteInputTokens: number | null;
     outputTokens: number | null; reasoningTokens: number | null; totalTokens: number | null;

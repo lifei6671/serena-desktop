@@ -77,7 +77,7 @@ impl CodexProvider {
                 })?;
             let defaults: Vec<_> = models
                 .iter()
-                .filter(|model| model.is_default)
+                .filter(|model| model.is_default && !model.hidden)
                 .map(|model| model.id.clone())
                 .collect();
             Ok(ExecutionConfigurationCatalog {
@@ -114,7 +114,12 @@ async fn list_codex_models(client: &Client) -> Result<Vec<ExecutionModelOption>,
             Some(next) if cursors.insert(next.clone()) => cursor = Some(next),
             Some(_) => return Err(()),
             None => {
-                if models.iter().filter(|model| model.is_default).count() > 1 {
+                if models
+                    .iter()
+                    .filter(|model| model.is_default && !model.hidden)
+                    .count()
+                    > 1
+                {
                     return Err(());
                 }
                 return Ok(models);
@@ -124,38 +129,57 @@ async fn list_codex_models(client: &Client) -> Result<Vec<ExecutionModelOption>,
     Err(())
 }
 
-/// frozen profile 必须由当前 model/list 证明可执行；不把失效设置传给写请求。
-async fn validate_codex_profile(client: &Client, profile: &ExecutionProfile) -> Result<(), String> {
-    if profile.model.is_none() && profile.reasoning.is_none() {
-        return Ok(());
-    }
+/// 从当前受管 Client 的完整 model/list 解析本次实际配置；缺失 authority 时拒绝派发。
+async fn resolve_codex_effective_profile(
+    client: &Client,
+    profile: &ExecutionProfile,
+) -> Result<ExecutionProfile, String> {
     let models = list_codex_models(client)
         .await
         .map_err(|_| "CODEX_MODEL_CATALOG_INVALID".to_string())?;
-    validate_codex_profile_models(&models, profile)
+    resolve_codex_effective_profile_models(&models, profile)
 }
 
-/// 用已验证目录解析 profile 的实际模型，并拒绝隐藏、缺失或不支持的 reasoning。
-fn validate_codex_profile_models(
+/// 用已验证目录解析实际模型和 reasoning；默认模型必须在可执行集合中唯一。
+fn resolve_codex_effective_profile_models(
     models: &[ExecutionModelOption],
     profile: &ExecutionProfile,
-) -> Result<(), String> {
+) -> Result<ExecutionProfile, String> {
     let model = match profile.model.as_deref() {
         Some(id) => models.iter().find(|model| model.id == id && !model.hidden),
-        None => models
-            .iter()
-            .find(|model| model.is_default && !model.hidden),
+        None => {
+            let mut defaults = models
+                .iter()
+                .filter(|model| model.is_default && !model.hidden);
+            let model = defaults.next();
+            if defaults.next().is_some() {
+                return Err("EXECUTION_PROFILE_UNAVAILABLE".into());
+            }
+            model
+        }
     }
     .ok_or_else(|| "EXECUTION_PROFILE_UNAVAILABLE".to_string())?;
-    if profile.reasoning.as_ref().is_some_and(|reasoning| {
-        !model
-            .reasoning_options
-            .iter()
-            .any(|option| &option.id == reasoning)
-    }) {
-        return Err("EXECUTION_PROFILE_UNAVAILABLE".into());
-    }
-    Ok(())
+
+    let reasoning = match profile.reasoning.as_deref() {
+        Some(reasoning)
+            if model
+                .reasoning_options
+                .iter()
+                .any(|option| option.id == reasoning) =>
+        {
+            reasoning
+        }
+        Some(_) => return Err("EXECUTION_PROFILE_UNAVAILABLE".into()),
+        None => model
+            .default_reasoning
+            .as_deref()
+            .ok_or_else(|| "EXECUTION_PROFILE_UNAVAILABLE".to_string())?,
+    };
+
+    Ok(ExecutionProfile {
+        model: Some(model.id.clone()),
+        reasoning: Some(reasoning.to_owned()),
+    })
 }
 
 /// 将临时 Runtime failure 压缩成稳定 Provider 目录错误。
@@ -775,7 +799,7 @@ impl CodexProvider {
             serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?;
         let profile = ExecutionProfile::from_json(&row.execution_profile_json)
             .map_err(|_| "EXECUTION_PROFILE_INVALID".to_string())?;
-        validate_codex_profile(client, &profile).await?;
+        let effective_profile = resolve_codex_effective_profile(client, &profile).await?;
         // A parent is the current continuation authority. A persisted child
         // thread is only the bounded pre-C2 fallback when there is no parent.
         let continuation_thread = self.runtime_continuation_target(&row).await?;
@@ -798,8 +822,17 @@ impl CodexProvider {
             }
             thread
         } else {
+            // fresh 的最后安全边界：CAS 成功后才把同一 effective profile 交给 thread/start。
+            self.store
+                .set_effective_execution_profile(
+                    id.into(),
+                    "codex".into(),
+                    client.runtime_id().into(),
+                    effective_profile.clone(),
+                )
+                .await?;
             client
-                .thread_start_configured(&row.canonical_workspace_root, mode, &profile)
+                .thread_start_configured(&row.canonical_workspace_root, mode, &effective_profile)
                 .await
                 .map_err(|e| e.to_string())?
         };
@@ -824,16 +857,27 @@ impl CodexProvider {
                 .save_thread_name(thread.id.clone(), thread.name.clone())
                 .await?;
         }
+        let (flushed_tx, mut flushed_rx) = tokio::sync::oneshot::channel();
+        if continuation_thread.is_some() {
+            // continue 必须先通过 resume/history、bind 与本地持久化前置，再在 turn/start 前写入同一事实。
+            self.store
+                .set_effective_execution_profile(
+                    id.into(),
+                    "codex".into(),
+                    client.runtime_id().into(),
+                    effective_profile.clone(),
+                )
+                .await?;
+        }
         // Product continue is accepted only after exact managed Thread validation.
         acceptance.accepted();
-        let (flushed_tx, mut flushed_rx) = tokio::sync::oneshot::channel();
         let request = client.turn_start_observed_configured(
             &thread.id,
             id,
             &row.prompt,
             mode,
             &row.canonical_workspace_root,
-            &profile,
+            &effective_profile,
             flushed_tx,
         );
         tokio::pin!(request);

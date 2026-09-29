@@ -677,6 +677,57 @@ fn request_methods(control: &Path) -> Vec<String> {
 }
 
 #[tokio::test]
+/// Fresh 的 non-reasoning 模型仍可派发，且不得把残留 thought_level 写成历史事实。
+async fn native_fresh_nonreasoning_model_persists_no_stale_reasoning_before_prompt() {
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    let (control, _workspace, store, provider) = setup(&binary, "nonreasoning").await;
+    let result = provider
+        .execute(
+            ProviderExecutionContext {
+                execution_id: "e".into(),
+            },
+            Arc::new(Sink(control.path().into())),
+            Arc::new(SlowTelemetry),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.outcome, ProviderOutcome::Completed);
+    let row = store.execution("e".into()).await.unwrap().unwrap();
+    let effective = crate::agent::execution::ExecutionProfile::from_json(
+        row.effective_execution_profile_json.as_deref().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(effective.model.as_deref(), Some("model-plain"));
+    assert!(effective.reasoning.is_none());
+    assert!(control.path().join("prompt.json").exists());
+}
+
+#[tokio::test]
+/// malformed model metadata 在 public Provider 路径 fail closed，不能持久化或发送 Prompt。
+async fn native_fresh_malformed_effective_meta_sends_no_prompt() {
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    let (control, _workspace, store, provider) = setup(&binary, "malformed-effective-meta").await;
+    let result = provider
+        .execute(
+            ProviderExecutionContext {
+                execution_id: "e".into(),
+            },
+            Arc::new(Sink(control.path().into())),
+            Arc::new(SlowTelemetry),
+        )
+        .await;
+
+    assert!(result.is_err());
+    let row = store.execution("e".into()).await.unwrap().unwrap();
+    assert!(row.effective_execution_profile_json.is_none());
+    assert!(!control.path().join("accepted").exists());
+    assert!(!control.path().join("prompt.json").exists());
+}
+
+#[tokio::test]
 /// R1→R2 只执行 initialize/load/prompt；历史只验证 S1，不进入 child result。
 async fn native_continuation_uses_new_runtime_and_exact_load_only() {
     let bin = tempfile::tempdir().unwrap();
@@ -746,6 +797,44 @@ async fn native_continuation_uses_new_runtime_and_exact_load_only() {
         assert_eq!(runtime.state, "terminated");
         assert_eq!(runtime.termination_evidence_state, "complete");
     }
+}
+
+#[tokio::test]
+/// Continue child 必须采用 exact load 的 non-reasoning 配置，不能继承 source 的 reasoning。
+async fn native_continuation_nonreasoning_model_uses_child_session_fact() {
+    let bin = tempfile::tempdir().unwrap();
+    let binary = build(bin.path());
+    let (control, _workspace, store, provider) =
+        setup_continuation(&binary, "continue-nonreasoning").await;
+    let result = provider
+        .execute(
+            ProviderExecutionContext {
+                execution_id: "c".into(),
+            },
+            Arc::new(ContinuationSink(control.path().into())),
+            Arc::new(SlowTelemetry),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.outcome, ProviderOutcome::Completed);
+    let source = store.execution("e".into()).await.unwrap().unwrap();
+    let child = store.execution("c".into()).await.unwrap().unwrap();
+    let source = crate::agent::execution::ExecutionProfile::from_json(
+        source.effective_execution_profile_json.as_deref().unwrap(),
+    )
+    .unwrap();
+    let child = crate::agent::execution::ExecutionProfile::from_json(
+        child.effective_execution_profile_json.as_deref().unwrap(),
+    )
+    .unwrap();
+    assert_eq!(source.reasoning.as_deref(), Some("medium"));
+    assert_eq!(child.model.as_deref(), Some("model-plain"));
+    assert!(child.reasoning.is_none());
+    assert_eq!(
+        request_methods(control.path()),
+        vec!["initialize", "session/load", "session/prompt"]
+    );
 }
 
 #[tokio::test]

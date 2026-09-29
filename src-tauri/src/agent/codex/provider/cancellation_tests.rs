@@ -22,6 +22,23 @@ async fn send(s: &mut BufReader<DuplexStream>, v: Value) {
 async fn reply(s: &mut BufReader<DuplexStream>, r: &Value, v: Value) {
     send(s, json!({"id":r["id"],"result":v})).await;
 }
+/// 为执行 fixture 应答 exact Client 的唯一默认模型目录。
+async fn receive_after_model_list(s: &mut BufReader<DuplexStream>) -> Value {
+    let request = recv(s).await;
+    assert_eq!(request["method"], "model/list");
+    reply(
+        s,
+        &request,
+        json!({"data":[{
+            "id":"preset-default","model":"gpt-effective","displayName":"GPT Effective",
+            "description":"","isDefault":true,"hidden":false,
+            "defaultReasoningEffort":"high",
+            "supportedReasoningEfforts":[{"reasoningEffort":"high","description":""}]
+        }],"nextCursor":null}),
+    )
+    .await;
+    recv(s).await
+}
 fn turn(status: &str) -> Value {
     json!({"id":"TURN","status":status,"items":[],"itemsView":"summary"})
 }
@@ -78,7 +95,7 @@ async fn race(case: &'static str) {
         assert_eq!(r["method"], "initialize");
         reply(&mut s, &r, json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"})).await;
         assert_eq!(recv(&mut s).await["method"], "initialized");
-        let r = recv(&mut s).await;
+        let r = receive_after_model_list(&mut s).await;
         assert_eq!(r["method"], "thread/start");
         let manager = AgentTaskManager::new(fs.clone(), "must-not-start.exe".into());
         // Cancel wins no longer: Provider already atomically bound running R1.
@@ -514,7 +531,7 @@ fn partial_write_and_unconfirmed_flush_are_uncertain_without_replay() {
                 let r = recv(&mut s).await;
                 reply(&mut s,&r,json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"})).await;
                 assert_eq!(recv(&mut s).await["method"], "initialized");
-                let r = recv(&mut s).await;
+                let r = receive_after_model_list(&mut s).await;
                 assert_eq!(r["method"], "thread/start");
                 armed.store(
                     case != "rpc-after-flush",

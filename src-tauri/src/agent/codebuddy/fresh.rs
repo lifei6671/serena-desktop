@@ -9,6 +9,7 @@ use super::{
 };
 use crate::agent::{
     coordinator::now,
+    execution::ExecutionProfile,
     provider::{
         ExecutionConfigurationCatalog, ExecutionConfigurationOption, ExecutionModelOption,
         ProviderId, port::ProviderAcceptanceSink,
@@ -365,6 +366,60 @@ pub(super) fn check_replay_bound(frames: &[SessionFrame], limits: Limits) -> Res
 }
 
 impl SessionCatalog {
+    /// 从 exact Session 当前 ACK 状态解析本次实际模型与推理强度；任何缺失或冲突都拒绝派发。
+    pub(super) fn effective_execution_profile(&self) -> Result<ExecutionProfile, Failure> {
+        self.validate()?;
+        let options = self.response.config_options.as_deref().unwrap_or_default();
+        let model_option =
+            unique_select_current(options, "model", SessionConfigOptionCategory::Model)?;
+        let models = self.models.as_ref().ok_or(Failure::Configuration)?;
+        let current = models
+            .get("currentModelId")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or(Failure::Configuration)?;
+        let model = models
+            .get("availableModels")
+            .and_then(Value::as_array)
+            .and_then(|available| {
+                available
+                    .iter()
+                    .find(|model| model["modelId"].as_str() == Some(current))
+            })
+            .ok_or(Failure::Configuration)?;
+        let supports_reasoning = match model.get("_meta") {
+            None => true,
+            Some(Value::Object(metadata)) => match metadata.get("supportsReasoning") {
+                Some(value) => value.as_bool().ok_or(Failure::Configuration)?,
+                None => true,
+            },
+            Some(_) => return Err(Failure::Configuration),
+        };
+        if model_option
+            .as_deref()
+            .is_some_and(|option| option != current)
+        {
+            return Err(Failure::Configuration);
+        }
+        let reasoning = if supports_reasoning {
+            let reasoning = unique_select_current(
+                options,
+                "thought_level",
+                SessionConfigOptionCategory::ThoughtLevel,
+            )?
+            .ok_or(Failure::Configuration)?;
+            Some(reasoning)
+        } else {
+            None
+        };
+        let profile = ExecutionProfile {
+            model: Some(current.to_owned()),
+            reasoning,
+        };
+        profile.validate().map_err(|_| Failure::Configuration)?;
+        Ok(profile)
+    }
+
     /// 只应用 exact session 的 early config update；其它原序帧保留给下一卡。
     pub(super) fn replay(
         &mut self,
@@ -866,6 +921,27 @@ fn current_select_value(option: &SessionConfigOption) -> Option<String> {
         return None;
     };
     Some(select.current_value.to_string())
+}
+
+/// exact id/category 只能出现一次；非 select、空值和重复 authority 均不可信。
+fn unique_select_current(
+    options: &[SessionConfigOption],
+    id: &str,
+    category: SessionConfigOptionCategory,
+) -> Result<Option<String>, Failure> {
+    let mut matching = options
+        .iter()
+        .filter(|option| option.id.to_string() == id && option.category == Some(category.clone()));
+    let Some(option) = matching.next() else {
+        return Ok(None);
+    };
+    if matching.next().is_some() {
+        return Err(Failure::Configuration);
+    }
+    current_select_value(option)
+        .filter(|value| !value.is_empty())
+        .map(Some)
+        .ok_or(Failure::Configuration)
 }
 
 /// 保留 SDK typed select/group 身份；未知类型不能作为配置授权。

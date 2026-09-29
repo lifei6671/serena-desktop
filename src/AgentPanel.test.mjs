@@ -48,7 +48,7 @@ toast.success = text => notifications.push(['success', text]);
 toast.error = text => notifications.push(['error', text]);
 let root;
 const workspace = name => ({ id: name, name, root: `E:\\${name}` });
-const row = (overrides = {}) => ({ executionId: 'old-E1', agentId: 'old-lineage', workspaceId: 'A', canonicalWorkspaceRoot: 'E:\\frozen-A', prompt: '原始任务 <literal>', status: 'unknown', attention: 'manual_resolution_required', revision: 'R1', resultAvailable: overrides.finalResult !== undefined && overrides.finalResult !== null, provider: { id: 'codex', displayName: 'Codex', version: null }, providerSessionLabel: null, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null }, progress: { phase: 'reconciling', summaryCode: 'execution.reconciling', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null }, nextAction: { action: 'manual_resolution' }, dispatchState: 'uncertain', threadId: null, threadName: null, turnId: null, providerTerminalStatus: null, errorCode: null, errorMessage: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: null,
+const row = (overrides = {}) => ({ executionId: 'old-E1', agentId: 'old-lineage', workspaceId: 'A', canonicalWorkspaceRoot: 'E:\\frozen-A', prompt: '原始任务 <literal>', status: 'unknown', attention: 'manual_resolution_required', revision: 'R1', resultAvailable: overrides.finalResult !== undefined && overrides.finalResult !== null, provider: { id: 'codex', displayName: 'Codex', version: null }, executionProfile: { model: null, reasoning: null }, effectiveExecutionProfile: null, providerSessionLabel: null, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null }, progress: { phase: 'reconciling', summaryCode: 'execution.reconciling', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null }, nextAction: { action: 'manual_resolution' }, dispatchState: 'uncertain', threadId: null, threadName: null, turnId: null, providerTerminalStatus: null, errorCode: null, errorMessage: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: null,
   availableActions: { canCancel: false, canContinue: false, canResumePending: false }, ...overrides, provider: { id: 'codex', displayName: 'Codex', version: null, ...overrides.provider }, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null, ...overrides.usage }, progress: { phase: 'reconciling', summaryCode: 'execution.reconciling', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null, ...overrides.progress } });
 async function mount(rows, handler, props = {}, catalog = { providers: [], roleRouting: {} }, configurationHandler, defaultsHandler) {
   const calls = [];
@@ -1307,6 +1307,34 @@ test('Phase 5 gate keeps Provider, Activity and Usage truthful across list, hove
   assert.doesNotMatch(detail.textContent, /PRIVATE_REASONING|stdout|source code/iu);
   assert.equal(calls.filter(call => call.action === 'observe').length, 1);
   assert.equal(calls.filter(call => call.action !== 'observe').every(call => call.action === 'list'), true);
+});
+
+test('Agent detail prefers effective profile, then requested profile, then fixed Provider default text', async () => {
+  const effective = row({ executionProfile: { model: 'requested-model', reasoning: 'medium' }, effectiveExecutionProfile: { model: 'effective-model', reasoning: 'xhigh' } });
+  await mount([effective]); await openTask();
+  const effectiveFields = Object.fromEntries([...document.querySelectorAll('.agent-detail-live-grid > div')].map(item => [item.querySelector('span').textContent, item.querySelector('strong,code').textContent]));
+  assert.equal(effectiveFields['模型'], 'effective-model');
+  assert.equal(effectiveFields['推理强度'], 'xhigh');
+  assert.doesNotMatch(document.querySelector('.agent-detail-live-grid').textContent, /Provider 默认/);
+
+  await act(async () => root.unmount()); root = null;
+  await mount([row({ executionProfile: { model: null, reasoning: null }, effectiveExecutionProfile: { model: 'non-reasoning-model', reasoning: null } })]); await openTask();
+  const partialEffectiveFields = Object.fromEntries([...document.querySelectorAll('.agent-detail-live-grid > div')].map(item => [item.querySelector('span').textContent, item.querySelector('strong,code').textContent]));
+  assert.equal(partialEffectiveFields['模型'], 'non-reasoning-model');
+  assert.equal(partialEffectiveFields['推理强度'], 'Provider 默认');
+
+  await act(async () => root.unmount()); root = null;
+  const changedCurrentDefaults = { providers: [catalogProvider()], roleRouting: { general: 'codex' }, roleDefaults: { general: { codex: { model: 'current-default', reasoning: 'low' } } } };
+  await mount([row({ executionProfile: { model: 'historical-request', reasoning: null } })], undefined, {}, changedCurrentDefaults); await openTask();
+  const requestedFields = Object.fromEntries([...document.querySelectorAll('.agent-detail-live-grid > div')].map(item => [item.querySelector('span').textContent, item.querySelector('strong,code').textContent]));
+  assert.equal(requestedFields['模型'], 'historical-request');
+  assert.equal(requestedFields['推理强度'], 'Provider 默认');
+
+  await act(async () => root.unmount()); root = null;
+  await mount([row()]); await openTask();
+  const defaultFields = Object.fromEntries([...document.querySelectorAll('.agent-detail-live-grid > div')].map(item => [item.querySelector('span').textContent, item.querySelector('strong,code').textContent]));
+  assert.equal(defaultFields['模型'], 'Provider 默认');
+  assert.equal(defaultFields['推理强度'], 'Provider 默认');
 });
 
 test('CB9-002 keeps unsupported CodeBuddy Usage unknown without hiding lifecycle actions', async () => {

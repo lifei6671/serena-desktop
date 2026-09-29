@@ -10,6 +10,29 @@ fn reply(id: &Value, result: Value) {
     println!("{}", json!({"jsonrpc":"2.0","id":id,"result":result}));
     io::stdout().flush().unwrap();
 }
+/// fake peer 返回 exact Session 已确认的完整实际模型与推理配置。
+fn effective_catalog(mode: &str) -> Value {
+    let mut catalog = json!({
+        "configOptions":[
+            {"id":"model","name":"Model","category":"model","type":"select","currentValue":"model-a","options":[{"value":"model-a","name":"Model A"}]},
+            {"id":"thought_level","name":"Thought level","category":"thought_level","type":"select","currentValue":"medium","options":[{"value":"medium","name":"Medium"}]}
+        ],
+        "models":{"currentModelId":"model-a","availableModels":[{"modelId":"model-a","name":"Model A"}]}
+    });
+    if mode.ends_with("nonreasoning") {
+        catalog["configOptions"] = json!([
+            {"id":"model","name":"Model","category":"model","type":"select","currentValue":"model-plain","options":[{"value":"model-plain","name":"Model Plain"}]},
+            {"id":"thought_level","name":"Thought level","category":"thought_level","type":"select","currentValue":"stale-high","options":[{"value":"stale-high","name":"Stale High"}]}
+        ]);
+        catalog["models"] = json!({
+            "currentModelId":"model-plain",
+            "availableModels":[{"modelId":"model-plain","name":"Model Plain","_meta":{"supportsReasoning":false}}]
+        });
+    } else if mode == "malformed-effective-meta" {
+        catalog["models"]["availableModels"][0]["_meta"] = Value::Null;
+    }
+    catalog
+}
 /// 全部测试控制与证据写外部 temp control，避免污染 Workspace delta。
 fn main() {
     let control: PathBuf = std::env::current_exe().unwrap().parent().unwrap().into();
@@ -103,7 +126,9 @@ fn main() {
                     std::thread::sleep(std::time::Duration::from_secs(30));
                     return;
                 }
-                reply(&raw["id"], json!({"sessionId":"exact-session"}));
+                let mut result = effective_catalog(&mode);
+                result["sessionId"] = json!("exact-session");
+                reply(&raw["id"], result);
             }
             "session/load" => {
                 let mode = fs::read_to_string(control.join("mode")).unwrap();
@@ -140,19 +165,37 @@ fn main() {
                 }
                 io::stdout().flush().unwrap();
                 if mode == "continue-load-mismatch" {
-                    reply(&raw["id"], json!({"sessionId":"other-session"}));
+                    let mut result = effective_catalog(&mode);
+                    result["sessionId"] = json!("other-session");
+                    reply(&raw["id"], result);
                 } else {
-                    reply(&raw["id"], json!({}));
+                    reply(&raw["id"], effective_catalog(&mode));
                 }
             }
             "session/prompt" => {
                 let mode = fs::read_to_string(control.join("mode")).unwrap();
-                let execution = if mode.starts_with("continue-") { "c" } else { "e" };
-                let acceptance = if mode.starts_with("continue-") { "accepted-child" } else { "accepted" };
+                let execution = if mode.starts_with("continue-") {
+                    "c"
+                } else {
+                    "e"
+                };
+                let acceptance = if mode.starts_with("continue-") {
+                    "accepted-child"
+                } else {
+                    "accepted"
+                };
                 assert!(control.join(acceptance).exists());
-                let (dispatch, intent): (String, String) = db.query_row("SELECT dispatch_state,prompt_state FROM executions JOIN codebuddy_execution_state ON executions.id=codebuddy_execution_state.execution_id WHERE executions.id=?1", [execution], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+                let (dispatch, intent, effective): (String, String, String) = db.query_row("SELECT dispatch_state,prompt_state,effective_execution_profile_json FROM executions JOIN codebuddy_execution_state ON executions.id=codebuddy_execution_state.execution_id WHERE executions.id=?1", [execution], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
                 assert!(matches!(dispatch.as_str(), "dispatching" | "dispatched"));
                 assert_eq!(intent, "sent");
+                let effective: Value = serde_json::from_str(&effective).unwrap();
+                if mode.ends_with("nonreasoning") {
+                    assert_eq!(effective["model"], "model-plain");
+                    assert!(effective["reasoning"].is_null());
+                    assert_ne!(effective["reasoning"], "stale-high");
+                } else {
+                    assert_eq!(effective, json!({"model":"model-a","reasoning":"medium"}));
+                }
                 fs::write(control.join("prompt.json"), raw.to_string()).unwrap();
                 if mode.starts_with("permission-") || mode == "continue-permission" {
                     if mode == "permission-cancel-first" {

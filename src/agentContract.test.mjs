@@ -50,6 +50,8 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
     const providerId: string = row.provider.id;
     const providerVersion: string | null = row.provider.version;
     const providerSessionLabel: string | null = row.providerSessionLabel;
+    const requestedModel: string | null = row.executionProfile.model;
+    const effectiveProfile: { model: string | null; reasoning: string | null } | null = row.effectiveExecutionProfile;
     const providerVersionAcceptsNullable: ExecutionView['provider']['version'] = nullableString;
     const providerSessionLabelAcceptsNullable: ExecutionView['providerSessionLabel'] = nullableString;
     const inputTokens: number | null = row.usage.inputTokens;
@@ -75,6 +77,10 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
     const noProvider: ExecutionView = {} as Omit<ExecutionView, 'provider'>;
     // @ts-expect-error usage 是必填 Product projection
     const noUsage: ExecutionView = {} as Omit<ExecutionView, 'usage'>;
+    // @ts-expect-error requested profile 是必填历史快照
+    const noExecutionProfile: ExecutionView = {} as Omit<ExecutionView, 'executionProfile'>;
+    // @ts-expect-error effective profile 字段必填，但值允许 null
+    const noEffectiveExecutionProfile: ExecutionView = {} as Omit<ExecutionView, 'effectiveExecutionProfile'>;
     // @ts-expect-error summaryCode 是 required nullable Product 字段
     const noSummaryCode: ExecutionView['progress'] = {} as Omit<ExecutionView['progress'], 'summaryCode'>;
     // @ts-expect-error activity is a hint, never a lifecycle phase
@@ -82,10 +88,11 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
     void [threadName, errorCode, errorMessage, threadNameAcceptsNullable, errorCodeAcceptsNullable,
       errorMessageAcceptsNullable, noThreadName, noErrorCode, noErrorMessage,
       pendingPhase, activityPhase, toolCategory, lastActivityAt, activityAgeMs, silenceLevel, summaryCode,
-      providerId, providerVersion, providerSessionLabel, inputTokens, cachedInputTokens, cacheWriteInputTokens, outputTokens, reasoningTokens,
+      providerId, providerVersion, providerSessionLabel, requestedModel, effectiveProfile, inputTokens, cachedInputTokens, cacheWriteInputTokens, outputTokens, reasoningTokens,
       totalTokens, modelContextWindow, completeness, usageRevision, usageUpdatedAt, providerVersionAcceptsNullable, providerSessionLabelAcceptsNullable,
       inputTokensAcceptNullable, cachedInputTokensAcceptNullable, cacheWriteInputTokensAcceptNullable, outputTokensAcceptNullable, reasoningTokensAcceptNullable,
-      totalTokensAcceptNullable, modelContextWindowAcceptNullable, usageUpdatedAtAcceptsNullable, summaryCodeAcceptsNullable, noProvider, noUsage, noSummaryCode, invalidPhase];
+      totalTokensAcceptNullable, modelContextWindowAcceptNullable, usageUpdatedAtAcceptsNullable, summaryCodeAcceptsNullable, noProvider, noUsage,
+      noExecutionProfile, noEffectiveExecutionProfile, noSummaryCode, invalidPhase];
     const prompt: string = row.prompt;
     const revision: string = row.revision;
     const controlRevision: string = row.controlRevision;

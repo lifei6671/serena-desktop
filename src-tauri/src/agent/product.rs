@@ -6,7 +6,7 @@ use super::{
         derive_activity_revision, resolve_summary_code,
     },
     coordinator::now,
-    execution::AgentTaskRole,
+    execution::{AgentTaskRole, ExecutionProfile},
     provider::{ProviderDescriptor, ProviderId, port::ProviderReconcileItem},
     store::{
         StateStore,
@@ -228,6 +228,30 @@ impl UsageProduct {
         }
     }
 }
+/// Provider-neutral 执行配置投影；空字段保持显式 null。
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutionProfileProduct {
+    #[schemars(schema_with = "nullable_string_schema", required)]
+    pub model: Option<String>,
+    #[schemars(schema_with = "nullable_string_schema", required)]
+    pub reasoning: Option<String>,
+}
+
+/// 固定生成 string 或 null，避免 `required` 属性把 Option schema 收窄为 string。
+fn nullable_string_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({"type": ["string", "null"]})
+}
+
+impl From<ExecutionProfile> for ExecutionProfileProduct {
+    /// 逐字段投影持久化冻结值，不读取当前 Provider 目录或角色默认配置。
+    fn from(profile: ExecutionProfile) -> Self {
+        Self {
+            model: profile.model,
+            reasoning: profile.reasoning,
+        }
+    }
+}
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
@@ -298,6 +322,11 @@ pub struct ExecutionView {
     pub provider: ProviderProduct,
     /// 创建时持久化的冻结角色；不读取当前 Provider 路由策略。
     pub task_role: String,
+    /// 创建时持久化的冻结执行配置；缺失值表示沿用当时的 Provider 默认。
+    pub execution_profile: ExecutionProfileProduct,
+    /// Provider 对本次 Execution 已确认的实际配置；历史记录可以没有证据。
+    #[schemars(required)]
+    pub effective_execution_profile: Option<ExecutionProfileProduct>,
     /// 始终存在的公共 Usage 投影；无持久化行时保持 unknown/null。
     pub usage: UsageProduct,
     pub status: String,
@@ -1065,6 +1094,24 @@ impl AgentProductService {
             let task_role: AgentTaskRole =
                 serde_json::from_value(Value::String(s.task_role.clone()))
                     .map_err(|_| "AGENT_TASK_ROLE_CONTRACT_ERROR".to_string())?;
+            let execution_profile = ExecutionProfile::from_json(&r.execution_profile_json)
+                .map_err(|error| format!("Invalid persisted execution profile: {error}"))?;
+            let effective_execution_profile = r
+                .effective_execution_profile_json
+                .as_deref()
+                .map(ExecutionProfile::from_json)
+                .transpose()
+                .map_err(|error| {
+                    format!("Invalid persisted effective execution profile: {error}")
+                })?;
+            if effective_execution_profile
+                .as_ref()
+                .is_some_and(|profile| profile.model.is_none() && profile.reasoning.is_none())
+            {
+                return Err(
+                    "Invalid persisted effective execution profile: incomplete evidence".into(),
+                );
+            }
             let pending = r.status == "dispatch_pending"
                 && r.dispatch_state == "not_dispatched"
                 && r.runtime_instance_id.is_none()
@@ -1194,6 +1241,8 @@ impl AgentProductService {
                     }),
                 ),
                 task_role: task_role.as_str().into(),
+                execution_profile: execution_profile.into(),
+                effective_execution_profile: effective_execution_profile.map(Into::into),
                 usage: UsageProduct::project(s.usage.as_ref()),
                 status: r.status.clone(),
                 dispatch_state: r.dispatch_state.clone(),
@@ -1377,6 +1426,9 @@ fn safe_turn_error_category(raw: &str) -> Option<&'static str> {
         .find(|safe| *safe == category)
 }
 
+#[cfg(test)]
+#[path = "product/profile_projection_tests.rs"]
+mod profile_projection_tests;
 #[cfg(test)]
 #[path = "product/provider_catalog_tests.rs"]
 mod provider_catalog_tests;

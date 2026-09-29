@@ -582,6 +582,7 @@ async fn rejected_identity_preflight_and_stale_revision_send_nothing() {
         "stale",
         "frame",
         "accepted",
+        "effective",
     ] {
         let (dir, store, mut session, sink) = setup(&base, Limits::default()).await;
         let id = session.private.execution_id.clone();
@@ -618,6 +619,19 @@ async fn rejected_identity_preflight_and_stale_revision_send_nothing() {
                 }
                 session = session.accept(&Noop).unwrap();
             }
+            "effective" => {
+                session.catalog.response.config_options = session
+                    .catalog
+                    .response
+                    .config_options
+                    .take()
+                    .map(|options| {
+                        options
+                            .into_iter()
+                            .filter(|option| option.id.to_string() == "model")
+                            .collect()
+                    });
+            }
             _ => unreachable!(),
         }
         let completed = prompt(
@@ -638,6 +652,17 @@ async fn rejected_identity_preflight_and_stale_revision_send_nothing() {
                 .prompt_state,
             PromptState::Prepared
         );
+        if case == "effective" {
+            let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+            let persisted: Option<String> = db
+                .query_row(
+                    "SELECT effective_execution_profile_json FROM executions",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(persisted.is_none());
+        }
         assert!(
             !wire(dir.path())
                 .iter()
