@@ -4,7 +4,7 @@ use std::{
     cmp::Ordering,
     ffi::{OsStr, OsString, c_void},
     fmt,
-    fs::File,
+    fs::{self, File},
     mem::{size_of, zeroed},
     os::windows::{
         ffi::{OsStrExt, OsStringExt},
@@ -25,6 +25,7 @@ use crate::config::{canonicalize_workspace_root, same_workspace_root_identity};
 
 const INVALID_INPUT: &str = "CODEBUDDY_LAUNCH_INPUT_INVALID";
 const INVALID_WORKSPACE_PATH: &str = "CODEBUDDY_EXTERNAL_WORKSPACE_PATH_INVALID";
+const INVALID_SCRIPT_PATH: &str = "CODEBUDDY_EXTERNAL_SCRIPT_PATH_INVALID";
 const UNSUPPORTED_UNC_CWD: &str = "CODEBUDDY_UNC_CWD_UNSUPPORTED";
 
 /// 声明 launcher/provider 是否明确支持普通 UNC current directory。
@@ -163,9 +164,14 @@ impl LaunchRequest {
         validate_resolved_launch_spec(resolved)?;
         let current_dir = ExternalProcessPath::verify(frozen_canonical_root, unc_policy)?;
         let environment = ProviderChildEnvironment::from_host(&resolved.path_projection)?;
+        let mut args = resolved.args.clone();
+        if is_node_executable(&resolved.executable) {
+            // ResolvedLaunchSpec 保留 canonical identity；只把 Node 主脚本 argv 投影给外部进程。
+            args[0] = project_external_script_path(Path::new(&args[0]))?.into_os_string();
+        }
         let request = Self {
             executable: resolved.executable.clone(),
-            args: resolved.args.clone(),
+            args,
             current_dir,
             environment,
             runtime_instance_id,
@@ -293,15 +299,67 @@ fn project_external_path(
     Ok(projected)
 }
 
+/// 将 canonical Node 主脚本投影为 Node 可消费的普通本地盘符路径。
+fn project_external_script_path(canonical_script: &Path) -> Result<PathBuf, LaunchError> {
+    let wide: Vec<_> = canonical_script.as_os_str().encode_wide().collect();
+    let verbatim_unc = ascii_prefix_ignore_case(&wide, &wide_ascii(r"\\?\UNC\"));
+    let verbatim = ascii_prefix_ignore_case(&wide, &wide_ascii(r"\\?\"));
+    let ordinary_unc = wide.starts_with(&[u16::from(b'\\'), u16::from(b'\\')]);
+    if verbatim_unc || (!verbatim && ordinary_unc) {
+        return Err(failure(INVALID_SCRIPT_PATH, ERROR_BAD_NETPATH));
+    }
+
+    let projected = if verbatim {
+        let remainder = &wide[4..];
+        if !is_local_drive_absolute(remainder) {
+            return Err(failure(INVALID_SCRIPT_PATH, ERROR_BAD_PATHNAME));
+        }
+        PathBuf::from(OsString::from_wide(remainder))
+    } else {
+        if !is_local_drive_absolute(&wide) {
+            return Err(failure(INVALID_SCRIPT_PATH, ERROR_BAD_PATHNAME));
+        }
+        canonical_script.to_owned()
+    };
+
+    verify_projected_file_identity(canonical_script, &projected)?;
+    Ok(projected)
+}
+
+/// 验证 UTF-16 路径是带根目录的本地盘符绝对路径。
+fn is_local_drive_absolute(wide: &[u16]) -> bool {
+    wide.len() >= 3
+        && ((u16::from(b'A')..=u16::from(b'Z')).contains(&wide[0])
+            || (u16::from(b'a')..=u16::from(b'z')).contains(&wide[0]))
+        && wide[1] == u16::from(b':')
+        && matches!(wide[2], value if value == u16::from(b'\\') || value == u16::from(b'/'))
+}
+
+/// 重新 canonicalize 投影前后的 regular file，并确认二者仍是同一 identity。
+fn verify_projected_file_identity(frozen_file: &Path, projected: &Path) -> Result<(), LaunchError> {
+    let frozen_canonical = canonicalize_regular_file(frozen_file)?;
+    let projected_canonical = canonicalize_regular_file(projected)?;
+    if !same_workspace_root_identity(&frozen_canonical, &projected_canonical) {
+        return Err(failure(INVALID_SCRIPT_PATH, ERROR_BAD_PATHNAME));
+    }
+    Ok(())
+}
+
+/// canonicalize 单个 regular file；缺失、目录或不可验证路径一律 fail-closed。
+fn canonicalize_regular_file(path: &Path) -> Result<PathBuf, LaunchError> {
+    let metadata =
+        fs::metadata(path).map_err(|_| failure(INVALID_SCRIPT_PATH, ERROR_BAD_PATHNAME))?;
+    if !metadata.is_file() {
+        return Err(failure(INVALID_SCRIPT_PATH, ERROR_BAD_PATHNAME));
+    }
+    fs::canonicalize(path).map_err(|_| failure(INVALID_SCRIPT_PATH, ERROR_BAD_PATHNAME))
+}
+
 /// 验证 resolver 产出的 executable 是可直接 CreateProcessW 的绝对边界。
 fn validate_resolved_launch_spec(resolved: &ResolvedLaunchSpec) -> Result<(), LaunchError> {
     validate_direct_executable(&resolved.executable)?;
     let acp = OsStr::new("--acp");
-    let is_node = resolved
-        .executable
-        .file_name()
-        .is_some_and(|name| os_eq_ignore_case(name, OsStr::new("node.exe")));
-    if is_node {
+    if is_node_executable(&resolved.executable) {
         let [script, flag] = resolved.args.as_slice() else {
             return Err(failure(INVALID_INPUT, ERROR_INVALID_PARAMETER));
         };
@@ -319,6 +377,13 @@ fn validate_resolved_launch_spec(resolved: &ResolvedLaunchSpec) -> Result<(), La
         return Err(failure(INVALID_INPUT, ERROR_INVALID_PARAMETER));
     }
     Ok(())
+}
+
+/// 判断 frozen executable 是否为 npm wrapper 解析得到的 Node host。
+fn is_node_executable(executable: &Path) -> bool {
+    executable
+        .file_name()
+        .is_some_and(|name| os_eq_ignore_case(name, OsStr::new("node.exe")))
 }
 
 /// 验证 executable 是绝对 `.exe`/`.com`，并独立拒绝所有 wrapper/shim。

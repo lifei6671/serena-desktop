@@ -1,0 +1,29 @@
+{
+  "id": "codebuddy-windows-script-path",
+  "name": "codebuddy-windows-script-path",
+  "title": "CodeBuddy Windows Verbatim Script Path",
+  "description": "Project canonical npm wrapper file identities to safe ordinary Win32 paths at the external process boundary",
+  "status": "in_progress",
+  "dev_type": "bugfix",
+  "scope": "src-tauri/src/agent/codebuddy Windows discovery/launcher path boundary and focused tests",
+  "package": "src-tauri",
+  "priority": "P1",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-09-28",
+  "completedAt": null,
+  "branch": "feat/codebuddy",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "src-tauri/src/agent/codebuddy/discovery.rs",
+    "src-tauri/src/agent/codebuddy/windows_launcher.rs",
+    "src-tauri/src/agent/codebuddy/windows_launcher/tests.rs"
+  ],
+  "notes": "Host-provided source hashes match the clean baseline at HEAD 18c36ef25931ab0dd88f0b89caa3626c60d8171c. Trellis Python CLI is unavailable on this workstation, so lifecycle artifacts and status are maintained directly. No commit or push is authorized."
+}

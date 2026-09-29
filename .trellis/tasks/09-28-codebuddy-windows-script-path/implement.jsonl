@@ -1,0 +1,4 @@
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"14.1.1 canonical authority 与 Windows external process path 投影契约"}
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"CB6-001/CB6-002 resolved LaunchSpec、npm wrapper 与 launcher 安全边界"}
+{"file":".trellis/tasks/09-28-codebuddy-windows-script-path/prd.md","reason":"本次 Host 根因、验收条件与禁止范围"}
+{"file":".trellis/tasks/09-28-codebuddy-windows-script-path/design.md","reason":"最小 file projection 与 identity revalidation 设计"}

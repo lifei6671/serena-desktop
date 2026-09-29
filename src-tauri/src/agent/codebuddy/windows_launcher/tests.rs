@@ -186,6 +186,56 @@ fn external_path_rejects_identity_mismatch_and_missing_directory() {
     );
 }
 
+/// Node 主脚本只在外部进程边界投影 verbatim 本地盘符，普通路径保持不变。
+#[test]
+fn node_script_projects_verbatim_local_drive_and_keeps_ordinary_path() {
+    let directory = tempfile::tempdir().unwrap();
+    let ordinary = directory.path().join("codebuddy-script");
+    std::fs::write(&ordinary, "fixture").unwrap();
+    let canonical = std::fs::canonicalize(&ordinary).unwrap();
+
+    assert!(
+        canonical
+            .as_os_str()
+            .encode_wide()
+            .collect::<Vec<_>>()
+            .starts_with(&wide_ascii(r"\\?\"))
+    );
+    assert_eq!(project_external_script_path(&canonical).unwrap(), ordinary);
+    assert_eq!(project_external_script_path(&ordinary).unwrap(), ordinary);
+}
+
+/// Node 主脚本投影必须复验文件 identity，并拒绝所有越界或不可验证路径。
+#[test]
+fn node_script_revalidates_identity_and_rejects_invalid_paths() {
+    let directory = tempfile::tempdir().unwrap();
+    let frozen = directory.path().join("frozen-script");
+    let other = directory.path().join("other-script");
+    std::fs::write(&frozen, "frozen").unwrap();
+    std::fs::write(&other, "other").unwrap();
+
+    assert_eq!(
+        verify_projected_file_identity(&frozen, &other)
+            .unwrap_err()
+            .code,
+        INVALID_SCRIPT_PATH
+    );
+    for invalid in [
+        PathBuf::from("relative-script"),
+        PathBuf::from(r"\\server\share\codebuddy"),
+        PathBuf::from(r"\\?\UNC\server\share\codebuddy"),
+        PathBuf::from(r"\\?\Volume{fixture}\codebuddy"),
+        directory.path().join("missing-script"),
+        directory.path().to_owned(),
+    ] {
+        assert_eq!(
+            project_external_script_path(&invalid).unwrap_err().code,
+            INVALID_SCRIPT_PATH,
+            "{invalid:?}"
+        );
+    }
+}
+
 #[test]
 fn provider_environment_inherits_host_replaces_path_and_redacts_debug() {
     let entries = vec![
@@ -278,10 +328,23 @@ fn resolved_launch_spec_wires_without_starting_acp_and_rejects_wrappers() {
     let directory = tempfile::tempdir().unwrap();
     let frozen = canonicalize_workspace_root(directory.path()).unwrap();
     let executable = directory.path().join("node.exe");
-    let script = directory.path().join("node_modules/pkg/bin/codebuddy");
+    let script = directory
+        .path()
+        .join("node_modules")
+        .join("pkg")
+        .join("bin")
+        .join("codebuddy");
+    std::fs::create_dir_all(script.parent().unwrap()).unwrap();
+    std::fs::write(&executable, "node fixture").unwrap();
+    std::fs::write(&script, "script fixture").unwrap();
+    let canonical_executable = std::fs::canonicalize(&executable).unwrap();
+    let canonical_script = std::fs::canonicalize(&script).unwrap();
     let resolved = ResolvedLaunchSpec {
-        executable: executable.clone(),
-        args: vec![script.clone().into_os_string(), OsString::from("--acp")],
+        executable: canonical_executable.clone(),
+        args: vec![
+            canonical_script.clone().into_os_string(),
+            OsString::from("--acp"),
+        ],
         path_projection: vec![directory.path().to_owned()],
     };
     let request = LaunchRequest::from_resolved(
@@ -291,8 +354,10 @@ fn resolved_launch_spec_wires_without_starting_acp_and_rejects_wrappers() {
         runtime_id(),
     )
     .unwrap();
-    assert_eq!(request.executable, executable);
-    assert_eq!(request.args, resolved.args);
+    assert_eq!(request.executable, canonical_executable);
+    assert_eq!(request.args[0], script.as_os_str());
+    assert_eq!(request.args[1], OsStr::new("--acp"));
+    assert_eq!(resolved.args[0], canonical_script.as_os_str());
     assert_eq!(request.projected_cwd().as_path(), directory.path());
     assert!(
         environment_strings(&request.environment).contains(&OsString::from(format!(
@@ -615,6 +680,33 @@ fn run_real_node_tree_if_available(fixture: &Path) {
         return;
     };
     let directory = tempfile::tempdir().unwrap();
+    let projected_script = directory.path().join("projected-argv.js");
+    std::fs::write(&projected_script, "process.stdout.write(process.argv[1]);").unwrap();
+    let canonical_node = std::fs::canonicalize(&node).unwrap();
+    let canonical_script = std::fs::canonicalize(&projected_script).unwrap();
+    let frozen = canonicalize_workspace_root(directory.path()).unwrap();
+    let resolved = ResolvedLaunchSpec {
+        executable: canonical_node,
+        args: vec![canonical_script.into_os_string(), OsString::from("--acp")],
+        path_projection: vec![node.parent().unwrap().to_owned()],
+    };
+    let projected_request = LaunchRequest::from_resolved(
+        &resolved,
+        &frozen,
+        UncCurrentDirectoryPolicy::Supported,
+        runtime_id(),
+    )
+    .unwrap();
+    assert!(
+        !projected_request.args[0]
+            .encode_wide()
+            .collect::<Vec<_>>()
+            .starts_with(&wide_ascii(r"\\?\"))
+    );
+    let (projected_argv, error) = finish(launch(&projected_request).unwrap().child);
+    assert_eq!(projected_argv, projected_script.to_string_lossy());
+    assert!(error.is_empty(), "{error}");
+
     let script = directory.path().join("contained-tree.js");
     std::fs::write(
         &script,
