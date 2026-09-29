@@ -270,6 +270,23 @@ fn call(requests: Requests, method: &'static str) -> JoinHandle<Result<Value, Fa
     })
 }
 
+/// 以官方 SDK Prompt 类型测试独立 response timeout，不绕过 method 判定。
+fn prompt_call(
+    requests: Requests,
+) -> JoinHandle<Result<agent_client_protocol::schema::v1::PromptResponse, Failure>> {
+    use agent_client_protocol::schema::v1::PromptRequest;
+    tokio::spawn(async move {
+        requests
+            .request(
+                PromptRequest::new("s", vec![]).meta(serde_json::Map::from_iter([(
+                    "codebuddy.ai/conversationRequestId".into(),
+                    json!("c"),
+                )])),
+            )
+            .await
+    })
+}
+
 /// 有界等待后台失败，不以 sleep 猜测 SDK dispatch 完成。
 async fn failure(shared: &Shared) -> Failure {
     let mut stopped = shared.stop.subscribe();
@@ -628,6 +645,61 @@ async fn initialize_and_request_timeout_close_all_pending() {
     peer.next().await;
     assert!(matches!(initialize.await.unwrap(), Err(Failure::Timeout)));
     assert_eq!(second.await.unwrap(), Err(Failure::Timeout));
+    client.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+/// 普通非 Prompt request 仍在短 request timeout 到期时失败。
+async fn non_prompt_request_uses_request_timeout() {
+    let request_timeout = Duration::from_secs(10);
+    let (client, mut peer) = pair(Limits {
+        request_timeout,
+        prompt_timeout: Duration::from_secs(60),
+        ..Limits::default()
+    })
+    .await;
+    let pending = call(client.requests.clone(), "fixture/query");
+    peer.next().await;
+    tokio::time::advance(request_timeout).await;
+    assert_eq!(pending.await.unwrap(), Err(Failure::Timeout));
+    client.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+/// Prompt 跨过短 request timeout 仍可接收正常 typed response。
+async fn prompt_remains_pending_after_request_timeout() {
+    let request_timeout = Duration::from_secs(10);
+    let (client, mut peer) = pair(Limits {
+        request_timeout,
+        prompt_timeout: Duration::from_secs(60),
+        ..Limits::default()
+    })
+    .await;
+    let pending = prompt_call(client.requests.clone());
+    let request = peer.next().await;
+    tokio::time::advance(request_timeout + Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    assert!(!pending.is_finished());
+    peer.respond(&request, json!({"stopReason":"end_turn"}))
+        .await;
+    assert!(pending.await.unwrap().is_ok());
+    client.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+/// Prompt 在独立长上限到期时仍 fail-closed 为 Timeout。
+async fn prompt_uses_prompt_timeout() {
+    let prompt_timeout = Duration::from_secs(60);
+    let (client, mut peer) = pair(Limits {
+        request_timeout: Duration::from_secs(10),
+        prompt_timeout,
+        ..Limits::default()
+    })
+    .await;
+    let pending = prompt_call(client.requests.clone());
+    peer.next().await;
+    tokio::time::advance(prompt_timeout).await;
+    assert_eq!(pending.await.unwrap(), Err(Failure::Timeout));
     client.shutdown().await;
 }
 

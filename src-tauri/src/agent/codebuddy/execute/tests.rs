@@ -1769,6 +1769,7 @@ async fn native_cancel_timeout_pipe_failure_and_staged_claim() {
             DesiredConfiguration::default(),
             Limits {
                 request_timeout: std::time::Duration::from_secs(2),
+                prompt_timeout: std::time::Duration::from_secs(60 * 60),
                 ..Limits::default()
             },
         )

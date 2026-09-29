@@ -81,7 +81,10 @@ pub(crate) struct Limits {
     pub(crate) queue_bytes: usize,
     pub(crate) routes: usize,
     pub(crate) queue_ttl: Duration,
+    /// 普通控制 RPC 与短物理边界的固定等待上限。
     pub(crate) request_timeout: Duration,
+    /// 长耗时 Prompt response 的独立且有界等待上限。
+    pub(crate) prompt_timeout: Duration,
     pub(crate) stderr_bytes: usize,
 }
 
@@ -96,6 +99,7 @@ impl Default for Limits {
             routes: 64,
             queue_ttl: Duration::from_secs(10),
             request_timeout: Duration::from_secs(15),
+            prompt_timeout: Duration::from_secs(60 * 60),
             stderr_bytes: 8192,
         }
     }

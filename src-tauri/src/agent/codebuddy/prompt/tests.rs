@@ -320,7 +320,7 @@ async fn failures_and_future_drop_are_uncertain_without_retry() {
         "drop",
     ] {
         let limits = Limits {
-            request_timeout: Duration::from_secs(2),
+            prompt_timeout: Duration::from_secs(2),
             ..Limits::default()
         };
         let (dir, store, session, sink) = setup(&base, limits).await;

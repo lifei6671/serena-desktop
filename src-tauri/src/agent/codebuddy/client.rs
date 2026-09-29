@@ -183,6 +183,12 @@ impl Requests {
             .map_err(|_| Failure::Malformed)?
             .method()
             == "session/prompt";
+        // Prompt 可承载长时间推理；其它控制 RPC 仍受短 request timeout 约束。
+        let response_timeout = if is_prompt {
+            self.shared.limits.prompt_timeout
+        } else {
+            self.shared.limits.request_timeout
+        };
         let future = self.connection.send_request(request).block_task();
         let mut lifetime = RequestLifetime {
             shared: self.shared.clone(),
@@ -192,7 +198,7 @@ impl Requests {
             biased;
             _ = stopped.wait_for(|value| value.is_some()) => Err(self.shared.failure().unwrap_or(Failure::Closed)),
             _ = async {
-                tokio::time::sleep(self.shared.limits.request_timeout).await;
+                tokio::time::sleep(response_timeout).await;
                 // cancel 已开始后由 owner 的 send/physical-flush deadline 接管，不能沿用旧 Prompt 起点。
                 let cancelling = self.cancel.lock().map(|slot| slot.used).unwrap_or(false);
                 if is_prompt && cancelling { std::future::pending::<()>().await; }
