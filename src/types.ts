@@ -37,6 +37,12 @@ export interface AgentProviderPolicy {
   enabled: boolean;
 }
 
+/** 角色/Provider 的稀疏默认值；null 或缺失表示跟随 Provider 默认。 */
+export interface AgentRoleProviderDefaults {
+  model?: string | null;
+  reasoning?: string | null;
+}
+
 /** Provider ID 保持开放；角色固定，路由允许未知 ID 或显式清空。 */
 export interface AgentProviderSettings {
   providers: Record<string, AgentProviderPolicy>;
@@ -47,6 +53,7 @@ export interface AgentProviderSettings {
     analysis: string | null;
     general: string | null;
   };
+  roleDefaults: Partial<Record<keyof AgentProviderSettings["roleRouting"], Record<string, AgentRoleProviderDefaults>>>;
 }
 
 export interface ManagerConfig {
@@ -212,6 +219,25 @@ export interface ProviderCatalogEntry {
 export interface ProviderCatalogSnapshot {
   providers: ProviderCatalogEntry[];
   roleRouting: Record<string, string | null>;
+  roleDefaults: AgentProviderSettings["roleDefaults"];
+}
+/** Provider-owned 动态执行配置目录，与普通 health catalog 分离。 */
+export interface ExecutionConfigurationOption {
+  id: string; name: string; description?: string | null;
+}
+export interface ExecutionModelOption extends ExecutionConfigurationOption {
+  isDefault: boolean; hidden: boolean;
+  reasoningOptions: ExecutionConfigurationOption[];
+  defaultReasoning?: string | null;
+}
+export interface ExecutionConfigurationCatalog {
+  providerId: string;
+  models: ExecutionModelOption[];
+  currentModel?: string | null;
+  defaultModel?: string | null;
+  reasoningOptions: ExecutionConfigurationOption[];
+  currentReasoning?: string | null;
+  defaultReasoning?: string | null;
 }
 export interface ExecutionView {
   prompt: string; canonicalWorkspaceRoot: string;

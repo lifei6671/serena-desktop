@@ -2,8 +2,9 @@ use super::automatic_recovery::{AutoRecoveryDecision, AutoRecoveryIneligibleReas
 use super::*;
 use crate::agent::notification::{AgentTerminalNotifier, AgentTerminalStatus};
 use crate::agent::provider::{
-    ProviderCapabilities, ProviderDescriptor, ProviderOutcome, ProviderResultCompleteness,
-    ProviderRunResult, ProviderStartupContext,
+    ExecutionConfigurationCatalog, ExecutionConfigurationOption, ExecutionModelOption,
+    ProviderCapabilities, ProviderConfigurationCatalogContext, ProviderDescriptor, ProviderOutcome,
+    ProviderResultCompleteness, ProviderRunResult, ProviderStartupContext,
     port::{
         AgentEventSink, AgentProvider, ProviderContinuationContext, ProviderContinuationDecision,
         ProviderExecutionFailure, ProviderFuture, ProviderReconcileItem, ProviderReconcileKind,
@@ -206,6 +207,36 @@ impl AgentProvider for FakeProvider {
             activity: false,
             token_usage: false,
         }
+    }
+
+    /// 测试目录只返回静态 Provider-owned 值，不借用 Execution 路径。
+    fn configuration_catalog<'a>(
+        &'a self,
+        _context: ProviderConfigurationCatalogContext,
+    ) -> ProviderFuture<'a, Result<ExecutionConfigurationCatalog, ProviderError>> {
+        Box::pin(async move {
+            Ok(ExecutionConfigurationCatalog {
+                provider_id: self.id.clone(),
+                models: vec![ExecutionModelOption {
+                    id: "fake-model".into(),
+                    name: "Fake Model".into(),
+                    description: None,
+                    is_default: true,
+                    hidden: false,
+                    reasoning_options: vec![ExecutionConfigurationOption {
+                        id: "high".into(),
+                        name: "High".into(),
+                        description: None,
+                    }],
+                    default_reasoning: Some("high".into()),
+                }],
+                current_model: Some("fake-model".into()),
+                default_model: Some("fake-model".into()),
+                reasoning_options: Vec::new(),
+                current_reasoning: Some("high".into()),
+                default_reasoning: Some("high".into()),
+            })
+        })
     }
 
     fn execute<'a>(
@@ -1229,6 +1260,77 @@ async fn disabled_and_unavailable_are_distinct_and_disabled_wins_ordering() {
             .await
             .unwrap_err(),
         ProviderExecutionFailure::State("AGENT_PROVIDER_UNAVAILABLE".into())
+    );
+}
+
+/// 配置目录查询不创建 Execution/Claim，且 unknown、disabled、unavailable 错误保持稳定。
+#[tokio::test]
+async fn configuration_catalog_is_read_only_and_uses_provider_admission_errors() {
+    let directory = tempfile::tempdir().unwrap();
+    let data = directory.path().join("catalog");
+    let store = StateStore::open(data.clone()).await.unwrap();
+    let provider = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
+    let manager = manager_with_provider_enabled(store, provider, ProviderHealth::Available, true);
+    let codex = ProviderId::new("codex".into()).unwrap();
+    let catalog = manager
+        .provider_configuration_catalog(codex.clone(), "E:\\frozen".into())
+        .await
+        .unwrap();
+    assert_eq!(catalog.models[0].id, "fake-model");
+    let connection = rusqlite::Connection::open(data.join("agent-state.db")).unwrap();
+    for table in ["executions", "workspace_claims", "runtime_instances"] {
+        let count: i64 = connection
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "{table}");
+    }
+    assert_eq!(
+        manager
+            .provider_configuration_catalog(
+                ProviderId::new("missing".into()).unwrap(),
+                "E:\\frozen".into(),
+            )
+            .await
+            .unwrap_err()
+            .code,
+        ProviderErrorCode::AgentProviderNotFound
+    );
+    manager.set_provider_enabled_for_test("codex", false);
+    assert_eq!(
+        manager
+            .provider_configuration_catalog(codex, "E:\\frozen".into())
+            .await
+            .unwrap_err()
+            .code,
+        ProviderErrorCode::AgentProviderDisabled
+    );
+
+    let unavailable_data = directory.path().join("unavailable-catalog");
+    let unavailable_store = StateStore::open(unavailable_data).await.unwrap();
+    let unavailable_provider = Arc::new(FakeProvider::new(
+        unavailable_store.clone(),
+        "codex",
+        true,
+        true,
+    ));
+    let unavailable = manager_with_provider_enabled(
+        unavailable_store,
+        unavailable_provider,
+        ProviderHealth::Unavailable,
+        true,
+    );
+    assert_eq!(
+        unavailable
+            .provider_configuration_catalog(
+                ProviderId::new("codex".into()).unwrap(),
+                "E:\\frozen".into(),
+            )
+            .await
+            .unwrap_err()
+            .code,
+        ProviderErrorCode::AgentProviderUnavailable
     );
 }
 

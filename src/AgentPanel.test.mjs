@@ -50,10 +50,12 @@ let root;
 const workspace = name => ({ id: name, name, root: `E:\\${name}` });
 const row = (overrides = {}) => ({ executionId: 'old-E1', agentId: 'old-lineage', workspaceId: 'A', canonicalWorkspaceRoot: 'E:\\frozen-A', prompt: '原始任务 <literal>', status: 'unknown', attention: 'manual_resolution_required', revision: 'R1', resultAvailable: overrides.finalResult !== undefined && overrides.finalResult !== null, provider: { id: 'codex', displayName: 'Codex', version: null }, providerSessionLabel: null, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null }, progress: { phase: 'reconciling', summaryCode: 'execution.reconciling', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null }, nextAction: { action: 'manual_resolution' }, dispatchState: 'uncertain', threadId: null, threadName: null, turnId: null, providerTerminalStatus: null, errorCode: null, errorMessage: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: null,
   availableActions: { canCancel: false, canContinue: false, canResumePending: false }, ...overrides, provider: { id: 'codex', displayName: 'Codex', version: null, ...overrides.provider }, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null, ...overrides.usage }, progress: { phase: 'reconciling', summaryCode: 'execution.reconciling', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null, ...overrides.progress } });
-async function mount(rows, handler, props = {}, catalog = { providers: [], roleRouting: {} }) {
+async function mount(rows, handler, props = {}, catalog = { providers: [], roleRouting: {} }, configurationHandler, defaultsHandler) {
   const calls = [];
   // 独立目录 fixture，避免任务行为测试依赖本机 Tauri 环境。
   api.agentProviderCatalog = typeof catalog === 'function' ? catalog : async () => structuredClone(catalog);
+  api.agentProviderConfigurationCatalog = configurationHandler ?? (async providerId => ({ providerId, models: [{ id: 'default-model', name: 'Default Model', description: null, isDefault: true, hidden: false, reasoningOptions: [{ id: 'high', name: 'High', description: null }], defaultReasoning: 'high' }], currentModel: 'default-model', defaultModel: 'default-model', reasoningOptions: [], currentReasoning: 'high', defaultReasoning: 'high' }));
+  api.agentProviderSetRoleDefaults = defaultsHandler ?? (async (role, providerId, defaults) => ({ ...roleSettings(), roleDefaults: { [role]: { [providerId]: structuredClone(defaults) } } }));
   api.agent = async request => {
     calls.push(structuredClone(request));
     if (handler) { const result = handler(request); if (result !== undefined) return result; }
@@ -179,6 +181,24 @@ async function chooseRole(role, label) {
   await act(async () => option.click());
 }
 
+/** 通过 aria-label 操作模型或推理 Select，避免测试绑定内部 DOM 层级。 */
+async function chooseConfiguration(label, optionLabel) {
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  const trigger = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === label);
+  assert.ok(trigger, label);
+  assert.equal(trigger.disabled, false);
+  await act(async () => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  const option = [...document.querySelectorAll('[role="option"]')].find(node => node.textContent === optionLabel);
+  assert.ok(option, optionLabel);
+  assert.notEqual(option.getAttribute('aria-disabled'), 'true');
+  await act(async () => option.click());
+}
+
+/** 等待配置目录 Promise 对应的 React state 提交。 */
+async function flushConfigurationCatalog() {
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+}
+
 /** 延迟 IPC/轮询 fixture，显式控制跨角色响应与旧快照的返回顺序。 */
 function deferredRoleResponse() {
   let resolve, reject;
@@ -201,7 +221,7 @@ test('role editor sets enabled provider through local IPC and commits returned a
   const frozen = structuredClone(executions);
   const actions = await mount(executions, undefined, {}, { providers: [catalogProvider()], roleRouting: {} });
   const section = document.querySelector('.agent-role-routing');
-  assert.equal(section.querySelectorAll('[role="combobox"]').length, 5);
+  assert.equal(section.querySelectorAll('[role="combobox"]').length, 15);
   assert.ok(document.querySelector('.agent-providers').compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING);
   assert.ok(section.compareDocumentPosition(document.querySelector('.agent-workspace-bar')) & Node.DOCUMENT_POSITION_FOLLOWING);
   await chooseRole('development', 'Codex');
@@ -210,6 +230,239 @@ test('role editor sets enabled provider through local IPC and commits returned a
   assert.deepEqual(executions, frozen);
   assert.ok(actions.every(action => action.action === 'list'));
   assert.match(readFileSync('src/api.ts', 'utf8'), /invoke<AgentProviderSettings>\("agent_provider_set_role_route", \{ taskRole, providerId \}\)/);
+});
+
+test('role defaults remember independent model and reasoning values when provider changes', async () => {
+  const catalog = {
+    providers: [catalogProvider(), catalogProvider({ id: 'other', displayName: 'Other' })],
+    roleRouting: { development: 'codex' },
+    roleDefaults: { development: {
+      codex: { model: 'codex-model', reasoning: 'high' },
+      other: { model: 'other-model', reasoning: 'low' },
+    } },
+  };
+  api.agentProviderSetRoleRoute = async (role, providerId) => ({ ...roleSettings({ [role]: providerId }), roleDefaults: catalog.roleDefaults });
+  const configuration = async providerId => providerId === 'codex'
+    ? { providerId, models: [{ id: 'codex-model', name: 'Codex Model', isDefault: true, hidden: false, reasoningOptions: [{ id: 'high', name: 'High' }], defaultReasoning: 'high' }], currentModel: 'codex-model', defaultModel: 'codex-model', reasoningOptions: [] }
+    : { providerId, models: [{ id: 'other-model', name: 'Other Model', isDefault: true, hidden: false, reasoningOptions: [{ id: 'low', name: 'Low' }], defaultReasoning: 'low' }], currentModel: 'other-model', defaultModel: 'other-model', reasoningOptions: [] };
+  await mount([], undefined, {}, catalog, configuration);
+  await flushConfigurationCatalog();
+  const model = () => [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发默认模型');
+  const reasoning = () => [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.match(model().textContent, /Codex Model/);
+  assert.match(reasoning().textContent, /High/);
+  await chooseRole('development', 'Other');
+  await flushConfigurationCatalog();
+  assert.match(model().textContent, /Other Model/);
+  assert.match(reasoning().textContent, /Low/);
+  await chooseRole('development', 'Codex');
+  assert.match(model().textContent, /Codex Model/);
+  assert.match(reasoning().textContent, /High/);
+});
+
+test('model and reasoning Select mutations send the complete pair and commit authoritative settings', async () => {
+  const calls = [];
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: { model: 'model-a', reasoning: 'high' } } } };
+  const configuration = async providerId => ({ providerId, models: [
+    { id: 'model-a', name: 'Model A', isDefault: true, hidden: false, reasoningOptions: [{ id: 'high', name: 'High' }], defaultReasoning: 'high' },
+    { id: 'model-b', name: 'Model B', isDefault: false, hidden: false, reasoningOptions: [{ id: 'high', name: 'High' }, { id: 'low', name: 'Low' }], defaultReasoning: 'low' },
+  ], defaultModel: 'model-a', reasoningOptions: [] });
+  const save = async (role, providerId, defaults) => {
+    calls.push({ role, providerId, defaults: structuredClone(defaults) });
+    const saved = calls.length === 1 ? { model: 'model-b', reasoning: 'low' } : { model: 'model-b', reasoning: 'high' };
+    catalog.roleDefaults.development.codex = structuredClone(saved);
+    return { ...roleSettings({ development: 'codex' }), roleDefaults: structuredClone(catalog.roleDefaults) };
+  };
+  await mount([], undefined, {}, catalog, configuration, save);
+  await flushConfigurationCatalog();
+  await chooseConfiguration('开发默认模型', 'Model B');
+  assert.deepEqual(calls[0], { role: 'development', providerId: 'codex', defaults: { model: 'model-b', reasoning: 'high' } });
+  const reasoning = () => [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.equal(reasoning().textContent, 'Low · Provider 默认');
+  await chooseConfiguration('开发推理强度', 'High');
+  assert.deepEqual(calls[1], { role: 'development', providerId: 'codex', defaults: { model: 'model-b', reasoning: 'high' } });
+  assert.equal(reasoning().textContent, 'High');
+});
+
+test('pending defaults suppress duplicate mutation and failure restores the prior value', async () => {
+  const mutation = deferredRoleResponse();
+  const calls = [];
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: { model: 'model-a', reasoning: 'high' } } } };
+  const configuration = async providerId => ({ providerId, models: [{ id: 'model-a', name: 'Model A', isDefault: true, hidden: false, reasoningOptions: [{ id: 'high', name: 'High' }, { id: 'low', name: 'Low' }], defaultReasoning: 'high' }], defaultModel: 'model-a', reasoningOptions: [] });
+  const save = (...args) => { calls.push(structuredClone(args)); return mutation.promise; };
+  await mount([], undefined, {}, catalog, configuration, save);
+  await flushConfigurationCatalog();
+  await chooseConfiguration('开发推理强度', 'Low');
+  const trigger = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.equal(trigger.disabled, true);
+  await act(async () => trigger.click());
+  assert.equal(calls.length, 1);
+  await act(async () => mutation.reject(new Error('persist failed')));
+  assert.equal(trigger.textContent, 'High · Provider 默认');
+  assert.match(notifications.at(-1)[1], /默认配置保存失败/);
+});
+
+test('changing model retains an invalid saved reasoning value until the user explicitly changes it', async () => {
+  const calls = [];
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: { model: 'model-a', reasoning: 'high' } } } };
+  const configuration = async providerId => ({ providerId, models: [
+    { id: 'model-a', name: 'Model A', isDefault: true, hidden: false, reasoningOptions: [{ id: 'high', name: 'High' }], defaultReasoning: 'high' },
+    { id: 'model-b', name: 'Model B', isDefault: false, hidden: false, reasoningOptions: [{ id: 'low', name: 'Low' }], defaultReasoning: 'low' },
+  ], defaultModel: 'model-a', reasoningOptions: [] });
+  const save = async (role, providerId, defaults) => {
+    calls.push({ role, providerId, defaults: structuredClone(defaults) });
+    return { ...roleSettings({ development: 'codex' }), roleDefaults: { development: { codex: structuredClone(defaults) } } };
+  };
+  await mount([], undefined, {}, catalog, configuration, save);
+  await flushConfigurationCatalog();
+  await chooseConfiguration('开发默认模型', 'Model B');
+  assert.deepEqual(calls, [{ role: 'development', providerId: 'codex', defaults: { model: 'model-b', reasoning: 'high' } }]);
+  const reasoning = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.equal(reasoning.textContent, 'high · 当前不可用');
+});
+
+test('unknown saved model and reasoning remain visible without automatic mutation', async () => {
+  const calls = [];
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: { model: 'retired-model', reasoning: 'ultra' } } } };
+  await mount([], undefined, {}, catalog, async providerId => ({ providerId, models: [{ id: 'current-model', name: 'Current Model', isDefault: true, hidden: false, reasoningOptions: [{ id: 'high', name: 'High' }] }], defaultModel: 'current-model', reasoningOptions: [] }));
+  api.agentProviderSetRoleDefaults = async (...args) => { calls.push(args); throw new Error('must not mutate'); };
+  await flushConfigurationCatalog();
+  const model = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发默认模型');
+  const reasoning = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.equal(model.textContent, 'retired-model · 当前不可用');
+  assert.equal(reasoning.textContent, 'ultra · 当前不可用');
+  assert.deepEqual(calls, []);
+});
+
+test('model-specific empty reasoning list disables reasoning even when a global fallback exists', async () => {
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: {} };
+  await mount([], undefined, {}, catalog, async providerId => ({ providerId, models: [{ id: 'plain', name: 'Plain', isDefault: true, hidden: false, reasoningOptions: [] }], defaultModel: 'plain', reasoningOptions: [{ id: 'high', name: 'High' }] }));
+  await flushConfigurationCatalog();
+  const reasoning = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.equal(reasoning.textContent, '不支持');
+  assert.equal(reasoning.disabled, true);
+});
+
+test('configuration catalog reports stable no-workspace and unavailable states without deleting defaults', async () => {
+  let queries = 0;
+  const saved = { model: 'saved-model', reasoning: 'saved-reasoning' };
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: saved } } };
+  await mount([], undefined, { workspace: null }, catalog, async () => { queries++; throw new Error('must not query'); });
+  assert.equal(queries, 0);
+  assert.match(document.querySelector('.agent-role-routing').textContent, /请选择工作区后读取 Provider 模型与推理目录/);
+  for (const label of ['开发默认模型', '开发推理强度']) {
+    const trigger = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === label);
+    assert.equal(trigger.textContent, '需要工作区');
+    assert.equal(trigger.disabled, true);
+  }
+  await act(async () => root.unmount()); root = null;
+  await mount([], undefined, {}, catalog, async () => { queries++; throw new Error('catalog unavailable'); });
+  await flushConfigurationCatalog();
+  assert.equal(queries, 1);
+  assert.match(document.querySelector('.agent-role-routing').textContent, /目录不可用，已保留设置/);
+  assert.deepEqual(catalog.roleDefaults.development.codex, saved);
+});
+
+test('configuration catalog retries a rejected key once, preserves defaults, and caches success', async t => {
+  const timers = [];
+  const originalSetInterval = globalThis.setInterval;
+  // 只手动推进 1.5 秒业务轮询，保留 JSDOM 自身的真实计时器。
+  t.mock.method(globalThis, 'setInterval', (callback, delay, ...args) => {
+    if (delay === 1500) { timers.push(callback); return originalSetInterval(() => {}, 60_000); }
+    return originalSetInterval(callback, delay, ...args);
+  });
+  const first = deferredRoleResponse();
+  const saved = { model: 'saved-model', reasoning: 'saved-reasoning' };
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: saved } } };
+  const available = { providerId: 'codex', models: [{ id: 'saved-model', name: 'Saved Model', isDefault: false, hidden: false, reasoningOptions: [{ id: 'saved-reasoning', name: 'Saved Reasoning' }], defaultReasoning: 'saved-reasoning' }], defaultModel: 'saved-model', reasoningOptions: [] };
+  let queries = 0, writes = 0;
+  await mount([], undefined, {}, catalog, async () => {
+    queries++;
+    return queries === 1 ? first.promise : structuredClone(available);
+  }, async () => { writes++; throw new Error('retry must not save defaults'); });
+  assert.equal(queries, 1);
+  // 首次请求仍在进行时，即使目录轮询也不能为同一个 key 启动并发请求。
+  await act(async () => timers[0]());
+  assert.equal(queries, 1);
+  await act(async () => first.reject(new Error('catalog unavailable')));
+  await flushConfigurationCatalog();
+  assert.match(document.querySelector('.agent-role-routing').textContent, /目录不可用，已保留设置/);
+  assert.deepEqual(catalog.roleDefaults.development.codex, saved);
+  assert.equal(writes, 0);
+
+  // 下一次目录轮询重试同一 key；成功后 Select 恢复，后续轮询命中成功缓存。
+  await act(async () => timers[0]());
+  await flushConfigurationCatalog();
+  const model = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发默认模型');
+  const reasoning = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.equal(queries, 2);
+  assert.equal(model.disabled, false);
+  assert.equal(reasoning.disabled, false);
+  assert.match(model.textContent, /Saved Model/);
+  assert.match(reasoning.textContent, /Saved Reasoning/);
+  assert.deepEqual(catalog.roleDefaults.development.codex, saved);
+  assert.equal(writes, 0);
+  await act(async () => timers[0]());
+  await flushConfigurationCatalog();
+  assert.equal(queries, 2);
+});
+
+test('long role configuration menus use one scroll viewport and hide inactive state options', async () => {
+  const catalog = {
+    providers: [catalogProvider({ id: 'codebuddy', displayName: 'CodeBuddy' })],
+    roleRouting: { review: 'codebuddy' },
+    roleDefaults: {},
+  };
+  const models = Array.from({ length: 16 }, (_, index) => ({
+    id: `model-${index + 1}`,
+    name: `Model ${index + 1}`,
+    isDefault: index === 0,
+    hidden: false,
+    reasoningOptions: [{ id: 'high', name: 'High' }],
+    defaultReasoning: 'high',
+  }));
+  await mount([], undefined, {}, catalog, async providerId => ({
+    providerId,
+    models,
+    currentModel: 'model-1',
+    defaultModel: 'model-1',
+    reasoningOptions: [],
+    currentReasoning: 'high',
+    defaultReasoning: 'high',
+  }));
+  await flushConfigurationCatalog();
+  const trigger = [...document.querySelectorAll('[role="combobox"]')]
+    .find(node => node.getAttribute('aria-label') === '评审默认模型');
+  assert.ok(trigger);
+  await act(async () => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  const labels = [...document.querySelectorAll('[role="option"]')].map(node => node.textContent);
+  assert.ok(labels.includes('跟随 Provider 默认'));
+  assert.ok(labels.includes('Model 16'));
+  for (const inactive of ['请先指定 Agent', '需要工作区', '正在加载…', '目录不可用']) {
+    assert.equal(labels.includes(inactive), false, inactive);
+  }
+  const viewport = document.querySelector('[data-slot="select-viewport"]');
+  const content = document.querySelector('[data-slot="select-content"]');
+  assert.ok(viewport);
+  assert.ok(content);
+  assert.match(viewport.className, /max-h-72/);
+  assert.match(viewport.className, /overflow-y-auto/);
+  assert.match(viewport.className, /overscroll-contain/);
+  assert.match(content.className, /overflow-hidden/);
+  assert.doesNotMatch(content.className, /overflow-y-auto/);
+});
+
+test('role configuration CSS keeps narrow controls in the right column', () => {
+  const css = readFileSync('src/styles.css', 'utf8');
+  assert.match(css, /\.agent-role-row\s*\{[^}]*grid-template-columns:\s*minmax\(56px,\s*\.55fr\)\s+repeat\(3,\s*minmax\(150px,\s*1fr\)\)/);
+  const narrowStart = css.indexOf('@media (max-width: 980px)');
+  const narrowEnd = css.indexOf('.agent-providers h2', narrowStart);
+  assert.notEqual(narrowStart, -1);
+  assert.notEqual(narrowEnd, -1);
+  const narrow = css.slice(narrowStart, narrowEnd);
+  assert.match(narrow, /\.agent-role-row\s*\{[^}]*grid-template-columns:\s*minmax\(56px,\s*\.55fr\)\s+minmax\(150px,\s*1fr\)/);
+  assert.match(narrow, /\.agent-role-row\s*>\s*label\s*\{[^}]*grid-column:\s*1/);
+  assert.match(narrow, /\.agent-role-row\s*>\s*button,\s*\.agent-role-row\s*>\s*\[role="status"\]\s*\{[^}]*grid-column:\s*2/);
 });
 
 test('role editor clears persisted binding with explicit null and restores persisted catalog on remount', async () => {
@@ -234,7 +487,11 @@ test('role editor clears persisted binding with explicit null and restores persi
 test('role editor preserves disabled and unknown bindings without mutation and permits explicit replacement', async () => {
   const catalog = { providers: [catalogProvider({ id: 'none', displayName: 'Future Agent', enabled: false })], roleRouting: { development: 'none', testing: '__none__', review: 'historical' } };
   const calls = [];
-  api.agentProviderSetRoleRoute = async (role, value) => { calls.push([role, value]); return roleSettings({ [role]: value }); };
+  api.agentProviderSetRoleRoute = async (role, value) => {
+    calls.push([role, value]);
+    catalog.roleRouting[role] = value;
+    return roleSettings(catalog.roleRouting);
+  };
   await mount([], undefined, {}, catalog);
   assert.equal(document.querySelector('#agent-role-development').textContent, 'Future Agent · 已停用');
   assert.equal(document.querySelector('#agent-role-testing').textContent, '__none__ · 未注册');
@@ -246,12 +503,12 @@ test('role editor preserves disabled and unknown bindings without mutation and p
   assert.equal(document.querySelector('#agent-role-review').textContent, 'Future Agent · 已停用');
   assert.equal(document.querySelector('#agent-role-development').textContent, 'Future Agent · 已停用');
 });
-
 test('role save failure rolls back only its role while another role saves', async () => {
   const development = deferredRoleResponse(), testing = deferredRoleResponse();
   const calls = [];
+  const catalog = { providers: [catalogProvider(), catalogProvider({ id: 'other', displayName: 'Other' })], roleRouting: { development: 'codex' } };
   api.agentProviderSetRoleRoute = (role, value) => { calls.push([role, value]); return role === 'development' ? development.promise : testing.promise; };
-  await mount([], undefined, {}, { providers: [catalogProvider(), catalogProvider({ id: 'other', displayName: 'Other' })], roleRouting: { development: 'codex' } });
+  await mount([], undefined, {}, catalog);
   await chooseRole('development', 'Other');
   assert.equal(document.querySelector('#agent-role-development').disabled, true);
   await chooseRole('testing', 'Other');
@@ -261,6 +518,7 @@ test('role save failure rolls back only its role while another role saves', asyn
   assert.equal(document.querySelector('#agent-role-testing').textContent, 'Other');
   assert.equal(document.querySelector('#agent-role-testing').disabled, true);
   assert.match(notifications.at(-1)[1], /开发角色保存失败/);
+  catalog.roleRouting.testing = 'other';
   await act(async () => testing.resolve(roleSettings({ testing: 'other', development: 'other' })));
   assert.equal(document.querySelector('#agent-role-development').textContent, 'Codex');
   assert.equal(document.querySelector('#agent-role-testing').textContent, 'Other');

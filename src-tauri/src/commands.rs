@@ -1196,6 +1196,52 @@ pub async fn agent_provider_set_role_route(
     .map_err(|error| error.to_string())?
 }
 
+/// 查询显式 Workspace 下的 Provider 执行配置目录，不接受前端路径。
+#[tauri::command]
+pub async fn agent_provider_configuration_catalog(
+    app: AppHandle,
+    provider_id: crate::agent::provider::ProviderId,
+    workspace_id: String,
+) -> Result<crate::agent::provider::ExecutionConfigurationCatalog, String> {
+    let broker = crate::mcp::get(&app);
+    agent_provider_configuration_catalog_impl(&broker, provider_id, workspace_id).await
+}
+
+/// 锁内只冻结 Registry authority 与稳定 Product 句柄，Provider 慢 I/O 在锁外执行。
+pub(crate) async fn agent_provider_configuration_catalog_impl(
+    broker: &crate::mcp::Broker,
+    provider_id: crate::agent::provider::ProviderId,
+    workspace_id: String,
+) -> Result<crate::agent::provider::ExecutionConfigurationCatalog, String> {
+    let (canonical_workspace_root, product) = {
+        let _management = broker.management.lock().await;
+        let workspace = crate::workspace_registry::WorkspaceRegistry::new(&broker.supervisor)
+            .get(&workspace_id)?;
+        let product = broker
+            .product
+            .get()
+            .cloned()
+            .ok_or("BACKEND_UNAVAILABLE: Agent service not initialized")?;
+        (workspace.root.to_string_lossy().into_owned(), product)
+    };
+    product
+        .provider_configuration_catalog(provider_id, canonical_workspace_root)
+        .await
+        .map_err(|error| crate::agent::task_manager::provider_error_code(error.code).into())
+}
+
+/// 保存一个角色/Provider 的默认值；两个 null 规范化为删除稀疏 entry。
+#[tauri::command]
+pub async fn agent_provider_set_role_defaults(
+    app: AppHandle,
+    task_role: crate::agent::execution::AgentTaskRole,
+    provider_id: crate::agent::provider::ProviderId,
+    defaults: crate::config::AgentRoleProviderDefaults,
+) -> Result<crate::config::AgentProviderSettings, String> {
+    let broker = crate::mcp::get(&app);
+    agent_provider_set_role_defaults_impl(&broker, task_role, provider_id, defaults).await
+}
+
 /// 刷新 Admission Health，禁止进入 execute/session/ACP。
 #[tauri::command]
 pub async fn agent_provider_refresh_health(
@@ -1243,6 +1289,39 @@ async fn agent_provider_set_role_route_impl(
         settings
             .role_routing
             .insert(task_role.as_str().into(), provider_id);
+    })
+}
+
+/// mutation 与启停/路由共享 Broker management lock，并保留合法未知 Provider。
+pub(crate) async fn agent_provider_set_role_defaults_impl(
+    broker: &crate::mcp::Broker,
+    task_role: crate::agent::execution::AgentTaskRole,
+    provider_id: crate::agent::provider::ProviderId,
+    defaults: crate::config::AgentRoleProviderDefaults,
+) -> Result<crate::config::AgentProviderSettings, String> {
+    crate::agent::execution::ExecutionProfile {
+        model: defaults.model.clone(),
+        reasoning: defaults.reasoning.clone(),
+    }
+    .validate()
+    .map_err(|error| format!("{}: {error}", crate::config::AGENT_PROVIDER_CONFIG_INVALID))?;
+    let _management = broker.management.lock().await;
+    broker.supervisor.mutate_provider_settings(|settings| {
+        let role = task_role.as_str().to_owned();
+        if defaults.model.is_none() && defaults.reasoning.is_none() {
+            if let Some(providers) = settings.role_defaults.get_mut(&role) {
+                providers.remove(provider_id.as_str());
+                if providers.is_empty() {
+                    settings.role_defaults.remove(&role);
+                }
+            }
+        } else {
+            settings
+                .role_defaults
+                .entry(role)
+                .or_default()
+                .insert(provider_id.as_str().to_owned(), defaults);
+        }
     })
 }
 

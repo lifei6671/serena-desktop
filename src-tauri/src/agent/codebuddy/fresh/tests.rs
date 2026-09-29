@@ -93,6 +93,12 @@ fn depth(current: &str) -> Value {
         "options":[{"value":"low","name":"Low"},{"value":"high","name":"High"}]})
 }
 
+/// 构造 live ACP 已确认的 model/thought_level select。
+fn execution_option(id: &str, category: &str, current: &str, values: &[&str]) -> Value {
+    json!({"id":id,"name":id,"category":category,"type":"select","currentValue":current,
+        "options":values.iter().map(|value| json!({"value":value,"name":value})).collect::<Vec<_>>()})
+}
+
 /// 有界轮询只等待 fake peer 已记录的请求，不以固定 sleep 推断完成。
 pub(crate) async fn wait_wire(dir: &Path, count: usize) -> Vec<Value> {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(12);
@@ -171,6 +177,8 @@ async fn durable_ordering_early_routing_and_acceptance_without_prompt() {
             &resolved,
             DesiredConfiguration {
                 mode: Some("auto".into()),
+                model: None,
+                reasoning: None,
                 option: None,
             },
             Limits::default(),
@@ -325,6 +333,8 @@ async fn preparation_success_and_failure_matrix() {
             &resolved,
             DesiredConfiguration {
                 mode: desired_mode.map(str::to_owned),
+                model: None,
+                reasoning: None,
                 option: desired_option.map(|(id, value)| (id.into(), value.into())),
             },
             Limits {
@@ -409,6 +419,8 @@ async fn mode_option_ack_reconciles_legacy_modes_without_notification() {
         &resolved,
         DesiredConfiguration {
             mode: None,
+            model: None,
+            reasoning: None,
             option: Some(("actual-mode".into(), "auto".into())),
         },
         Limits::default(),
@@ -474,6 +486,191 @@ fn catalog_options_reject_ambiguous_values_and_multitask_true() {
         .validate(),
         Err(Failure::Configuration)
     );
+}
+
+#[tokio::test]
+/// model ACK 必须先替换目录，reasoning 才能按新 options 校验并发送。
+async fn model_then_reasoning_uses_sequential_ack_authority() {
+    let bin_dir = tempfile::tempdir().unwrap();
+    let base = build(bin_dir.path());
+    let (dir, store, id, resolved) = fixture(&base, "profile", true).await;
+    let models = json!({"currentModelId":"model-a","availableModels":[
+        {"modelId":"model-a","name":"Model A","_meta":{"supportsReasoning":true}},
+        {"modelId":"model-b","name":"Model B","_meta":{"supportsReasoning":true}},
+        {"modelId":"model-c","name":"Model C","_meta":{"supportsReasoning":false}}
+    ]});
+    let model_a = execution_option("model", "model", "model-a", &["model-a", "model-b"]);
+    let model_b = execution_option("model", "model", "model-b", &["model-a", "model-b"]);
+    let low = execution_option("thought_level", "thought_level", "low", &["low", "high"]);
+    let high = execution_option("thought_level", "thought_level", "high", &["low", "high"]);
+    std::fs::write(
+        dir.path().join("new.json"),
+        json!({"sessionId":"exact-session","configOptions":[model_a],"models":models}).to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("config-1.json"),
+        json!({"configOptions":[model_b.clone(),low]}).to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("config-2.json"),
+        json!({"configOptions":[model_b,high]}).to_string(),
+    )
+    .unwrap();
+    let prepared = prepare(
+        store.clone(),
+        "host".into(),
+        id.clone(),
+        &resolved,
+        DesiredConfiguration {
+            mode: None,
+            model: Some("model-b".into()),
+            reasoning: Some("high".into()),
+            option: None,
+        },
+        Limits::default(),
+    )
+    .await
+    .unwrap();
+    let projected = prepared.catalog.configuration_catalog().unwrap();
+    assert_eq!(projected.current_model.as_deref(), Some("model-b"));
+    assert_eq!(projected.current_reasoning.as_deref(), Some("high"));
+    assert_eq!(
+        projected
+            .models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        ["model-a", "model-b", "model-c"]
+    );
+    assert_eq!(
+        projected
+            .models
+            .iter()
+            .find(|model| model.id == "model-b")
+            .unwrap()
+            .reasoning_options
+            .iter()
+            .map(|option| option.id.as_str())
+            .collect::<Vec<_>>(),
+        ["low", "high"]
+    );
+    assert!(
+        projected
+            .models
+            .iter()
+            .find(|model| model.id == "model-c")
+            .unwrap()
+            .reasoning_options
+            .is_empty()
+    );
+    assert_eq!(
+        prepared.catalog.confirm_desired(&DesiredConfiguration {
+            mode: None,
+            model: Some("model-b".into()),
+            reasoning: Some("not-advertised".into()),
+            option: None,
+        }),
+        Err(Failure::Configuration)
+    );
+    prepared.shutdown().await.unwrap();
+    cleanup_evidence(&store, &id).await;
+    let rows = wire(dir.path());
+    let config_ids: Vec<_> = rows
+        .iter()
+        .filter(|row| row["method"] == "session/set_config_option")
+        .map(|row| row["params"]["configId"].as_str().unwrap())
+        .collect();
+    assert_eq!(config_ids, ["model", "thought_level"]);
+}
+
+#[tokio::test]
+/// Provider catalog 必须逐模型读取 reasoning ACK；当前模型的档位不能复制给其它模型。
+async fn provider_catalog_reads_model_specific_reasoning_options() {
+    let bin_dir = tempfile::tempdir().unwrap();
+    let base = build(bin_dir.path());
+    let (dir, store, id, resolved) = fixture(&base, "profile", true).await;
+    let models = json!({"currentModelId":"model-a","availableModels":[
+        {"modelId":"model-a","name":"Model A","_meta":{"supportsReasoning":true}},
+        {"modelId":"model-b","name":"Model B","_meta":{"supportsReasoning":true}},
+        {"modelId":"model-c","name":"Model C","_meta":{"supportsReasoning":false}}
+    ]});
+    let model_a = execution_option("model", "model", "model-a", &["model-a", "model-b"]);
+    let model_b = execution_option("model", "model", "model-b", &["model-a", "model-b"]);
+    let thought_a = execution_option("thought_level", "thought_level", "high", &["high"]);
+    let thought_b = execution_option(
+        "thought_level",
+        "thought_level",
+        "low",
+        &["low", "high", "xhigh"],
+    );
+    std::fs::write(
+        dir.path().join("new.json"),
+        json!({"sessionId":"exact-session","configOptions":[model_a,thought_a],"models":models})
+            .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("config-1.json"),
+        json!({"configOptions":[model_b,thought_b]}).to_string(),
+    )
+    .unwrap();
+
+    let mut prepared = prepare(
+        store.clone(),
+        "host".into(),
+        id.clone(),
+        &resolved,
+        DesiredConfiguration::default(),
+        Limits::default(),
+    )
+    .await
+    .unwrap();
+    let requests = prepared.runtime.client.as_ref().unwrap().requests.clone();
+    let projected = prepared
+        .catalog
+        .configuration_catalog_for_provider(&requests)
+        .await
+        .unwrap();
+
+    let model = |id: &str| {
+        projected
+            .models
+            .iter()
+            .find(|model| model.id == id)
+            .unwrap()
+    };
+    assert_eq!(
+        model("model-a")
+            .reasoning_options
+            .iter()
+            .map(|option| option.id.as_str())
+            .collect::<Vec<_>>(),
+        ["high"]
+    );
+    assert_eq!(
+        model("model-b")
+            .reasoning_options
+            .iter()
+            .map(|option| option.id.as_str())
+            .collect::<Vec<_>>(),
+        ["low", "high", "xhigh"]
+    );
+    assert!(model("model-c").reasoning_options.is_empty());
+    assert_eq!(projected.current_model.as_deref(), Some("model-a"));
+    assert_eq!(projected.current_reasoning.as_deref(), Some("high"));
+
+    prepared.shutdown().await.unwrap();
+    cleanup_evidence(&store, &id).await;
+    let rows = wire(dir.path());
+    let config: Vec<_> = rows
+        .iter()
+        .filter(|row| row["method"] == "session/set_config_option")
+        .collect();
+    assert_eq!(config.len(), 1);
+    assert_eq!(config[0]["params"]["configId"], "model");
+    assert_eq!(config[0]["params"]["value"], "model-b");
 }
 
 #[tokio::test]

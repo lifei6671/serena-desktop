@@ -5,10 +5,12 @@ use super::{
 };
 use crate::agent::{
     coordinator::{WorkspaceExecutionCoordinator, now},
+    execution::ExecutionProfile,
     execution::state::{DispatchState, Status, Transition},
     provider::{
-        ProviderCancelContext, ProviderCapabilities, ProviderDescriptor, ProviderError,
-        ProviderErrorCode, ProviderExecutionContext, ProviderId, ProviderOutcome,
+        ExecutionConfigurationCatalog, ExecutionModelOption, ProviderCancelContext,
+        ProviderCapabilities, ProviderConfigurationCatalogContext, ProviderDescriptor,
+        ProviderError, ProviderErrorCode, ProviderExecutionContext, ProviderId, ProviderOutcome,
         ProviderResultCompleteness, ProviderRunResult, ProviderStartupContext,
         port::{
             AgentEventSink, AgentProvider, ProviderAcceptanceSink, ProviderContinuationContext,
@@ -19,7 +21,7 @@ use crate::agent::{
     },
     store::{ExecutionRecord, StateStore},
 };
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
 
 #[cfg(test)]
 use crate::agent::{
@@ -33,6 +35,138 @@ pub(crate) struct CodexProvider {
     pub(crate) backend_error: Option<String>,
     pub owner: String,
     pub runtime_pool: std::sync::Arc<super::pool::CodexRuntimePool>,
+}
+
+impl CodexProvider {
+    /// 用隔离 managed app-server 分页读取 model/list，并在返回前收敛 Job。
+    async fn read_configuration_catalog(
+        &self,
+        context: ProviderConfigurationCatalogContext,
+    ) -> Result<ExecutionConfigurationCatalog, ProviderError> {
+        let executable = if self.executable.as_os_str().is_empty() {
+            let probe_context = crate::agent::task_manager::ProbeContext::from_existing(
+                self.store.clone(),
+                self.owner.clone(),
+                self.runtime_pool.clone(),
+            );
+            super::discover(probe_context)
+                .await
+                .map_err(|_| ProviderError {
+                    code: ProviderErrorCode::AgentProviderUnavailable,
+                })?
+        } else {
+            self.executable.clone()
+        };
+        let runtime_id = crate::agent::task_manager::AgentTaskManager::id("catalog-runtime");
+        let managed = super::connect_managed(
+            self.store.clone(),
+            self.owner.clone(),
+            self.runtime_pool.clone(),
+            runtime_id,
+            executable,
+            PathBuf::from(context.cwd),
+            None,
+        )
+        .await
+        .map_err(codex_catalog_failure)?;
+        let result = async {
+            let models = list_codex_models(&managed.client)
+                .await
+                .map_err(|_| ProviderError {
+                    code: ProviderErrorCode::AgentProviderContractError,
+                })?;
+            let defaults: Vec<_> = models
+                .iter()
+                .filter(|model| model.is_default)
+                .map(|model| model.id.clone())
+                .collect();
+            Ok(ExecutionConfigurationCatalog {
+                provider_id: ProviderId::new("codex".into()).expect("static provider id is valid"),
+                models,
+                current_model: None,
+                default_model: defaults.into_iter().next(),
+                reasoning_options: Vec::new(),
+                current_reasoning: None,
+                default_reasoning: None,
+            })
+        }
+        .await;
+        managed.shutdown().await.map_err(codex_catalog_failure)?;
+        result
+    }
+}
+
+/// 在同一个受管 Client 内读取完整模型目录，并拒绝重复身份或循环游标。
+async fn list_codex_models(client: &Client) -> Result<Vec<ExecutionModelOption>, ()> {
+    let mut models = Vec::new();
+    let mut ids = HashSet::new();
+    let mut cursors = HashSet::new();
+    let mut cursor = None;
+    for _ in 0..100 {
+        let page = client.model_list(cursor.as_deref()).await.map_err(|_| ())?;
+        for model in page.models {
+            if !ids.insert(model.id.clone()) {
+                return Err(());
+            }
+            models.push(model);
+        }
+        match page.next_cursor {
+            Some(next) if cursors.insert(next.clone()) => cursor = Some(next),
+            Some(_) => return Err(()),
+            None => {
+                if models.iter().filter(|model| model.is_default).count() > 1 {
+                    return Err(());
+                }
+                return Ok(models);
+            }
+        }
+    }
+    Err(())
+}
+
+/// frozen profile 必须由当前 model/list 证明可执行；不把失效设置传给写请求。
+async fn validate_codex_profile(client: &Client, profile: &ExecutionProfile) -> Result<(), String> {
+    if profile.model.is_none() && profile.reasoning.is_none() {
+        return Ok(());
+    }
+    let models = list_codex_models(client)
+        .await
+        .map_err(|_| "CODEX_MODEL_CATALOG_INVALID".to_string())?;
+    validate_codex_profile_models(&models, profile)
+}
+
+/// 用已验证目录解析 profile 的实际模型，并拒绝隐藏、缺失或不支持的 reasoning。
+fn validate_codex_profile_models(
+    models: &[ExecutionModelOption],
+    profile: &ExecutionProfile,
+) -> Result<(), String> {
+    let model = match profile.model.as_deref() {
+        Some(id) => models.iter().find(|model| model.id == id && !model.hidden),
+        None => models
+            .iter()
+            .find(|model| model.is_default && !model.hidden),
+    }
+    .ok_or_else(|| "EXECUTION_PROFILE_UNAVAILABLE".to_string())?;
+    if profile.reasoning.as_ref().is_some_and(|reasoning| {
+        !model
+            .reasoning_options
+            .iter()
+            .any(|option| &option.id == reasoning)
+    }) {
+        return Err("EXECUTION_PROFILE_UNAVAILABLE".into());
+    }
+    Ok(())
+}
+
+/// 将临时 Runtime failure 压缩成稳定 Provider 目录错误。
+fn codex_catalog_failure(failure: super::runtime_adapter::RuntimeFailure) -> ProviderError {
+    ProviderError {
+        code: if failure.code == "CODEX_APP_SERVER_INCOMPATIBLE" {
+            ProviderErrorCode::AgentProviderContractError
+        } else {
+            ProviderErrorCode::AgentProviderOperationFailed
+        },
+    }
 }
 #[derive(Debug)]
 pub enum ExecutionFailure {
@@ -639,6 +773,9 @@ impl CodexProvider {
             .map_err(|e| e.to_string())?;
         let mode =
             serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?;
+        let profile = ExecutionProfile::from_json(&row.execution_profile_json)
+            .map_err(|_| "EXECUTION_PROFILE_INVALID".to_string())?;
+        validate_codex_profile(client, &profile).await?;
         // A parent is the current continuation authority. A persisted child
         // thread is only the bounded pre-C2 fallback when there is no parent.
         let continuation_thread = self.runtime_continuation_target(&row).await?;
@@ -662,7 +799,7 @@ impl CodexProvider {
             thread
         } else {
             client
-                .thread_start(&row.canonical_workspace_root, mode)
+                .thread_start_configured(&row.canonical_workspace_root, mode, &profile)
                 .await
                 .map_err(|e| e.to_string())?
         };
@@ -690,12 +827,13 @@ impl CodexProvider {
         // Product continue is accepted only after exact managed Thread validation.
         acceptance.accepted();
         let (flushed_tx, mut flushed_rx) = tokio::sync::oneshot::channel();
-        let request = client.turn_start_observed(
+        let request = client.turn_start_observed_configured(
             &thread.id,
             id,
             &row.prompt,
             mode,
             &row.canonical_workspace_root,
+            &profile,
             flushed_tx,
         );
         tokio::pin!(request);
@@ -1182,6 +1320,14 @@ impl AgentProvider for CodexProvider {
             activity: true,
             token_usage: false,
         }
+    }
+
+    /// model/list 查询与普通 health Catalog 分离，不创建 Execution 或 Claim。
+    fn configuration_catalog<'a>(
+        &'a self,
+        context: ProviderConfigurationCatalogContext,
+    ) -> ProviderFuture<'a, Result<ExecutionConfigurationCatalog, ProviderError>> {
+        Box::pin(async move { self.read_configuration_catalog(context).await })
     }
 
     fn execute<'a>(

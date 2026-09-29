@@ -1252,7 +1252,7 @@ mod tests {
         for (name, expected) in [
             (
                 "agent_query",
-                "96bf06b880b5ec4972a42dd83cb1dc7e8f1f8c797f760dbad24c333466d68ae0",
+                "dde10c05e7dbd11dce929030b8271fe88315ee2d813e90225b755eb0acd6c9d4",
             ),
             (
                 "agent_execute",
@@ -2207,7 +2207,7 @@ mod agent_contract_tests {
             })
         }));
         let catalog = &defs["ProviderCatalogSnapshot"];
-        for field in ["providers", "roleRouting"] {
+        for field in ["providers", "roleRouting", "roleDefaults"] {
             assert!(
                 catalog["required"]
                     .as_array()

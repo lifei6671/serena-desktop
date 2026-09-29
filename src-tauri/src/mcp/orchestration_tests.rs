@@ -331,6 +331,22 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     ];
     config.desktop_selected_workspace_id = Some("B".into());
     broker.supervisor.replace_config(config).unwrap();
+    broker
+        .supervisor
+        .mutate_provider_settings(|settings| {
+            settings
+                .role_defaults
+                .entry("general".into())
+                .or_default()
+                .insert(
+                    "codex".into(),
+                    crate::config::AgentRoleProviderDefaults {
+                        model: Some("frozen-model".into()),
+                        reasoning: Some("high".into()),
+                    },
+                );
+        })
+        .unwrap();
     let server = active(&broker, &root_b).await;
     {
         let mut active = broker.workspace.write().await;
@@ -373,7 +389,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
         let response = call(
             &broker,
             "agent_execute",
-            json!({"action":"start","workRunId":work_run_id,"workspaceId":workspace_id,"requestKey":"key","prompt":"p"}),
+            json!({"action":"start","workRunId":work_run_id,"workspaceId":workspace_id,"providerId":"codex","taskRole":"general","requestKey":"key","prompt":"p"}),
         )
         .await;
         // 测试专用 Provider 在接受前拒绝；durable 创建先于派发失败完成。
@@ -391,6 +407,10 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
         assert_eq!(execution.workspace_id, workspace_id);
         assert_eq!(execution.canonical_workspace_root, root.to_string_lossy());
         assert_eq!(execution.workspace_generation, generation);
+        assert_eq!(
+            execution.execution_profile_json,
+            r#"{"model":"frozen-model","reasoning":"high"}"#
+        );
     }
 
     WorkspaceRegistry::new(&broker.supervisor)
@@ -404,7 +424,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     let retry = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-a","workspaceId":"A","requestKey":"key","prompt":"p"}),
+        json!({"action":"start","workRunId":"work-a","workspaceId":"A","providerId":"codex","taskRole":"general","requestKey":"key","prompt":"p"}),
     )
     .await;
     assert_eq!(retry["ok"], true);
@@ -421,6 +441,39 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
         .unwrap();
     assert_eq!(frozen.canonical_workspace_root, root_a.to_string_lossy());
     assert_eq!(frozen.workspace_generation, 3);
+
+    // 同一 requestKey 在角色默认值变化后属于不同 canonical identity，不能借用旧 profile。
+    broker
+        .supervisor
+        .mutate_provider_settings(|settings| {
+            settings
+                .role_defaults
+                .get_mut("general")
+                .unwrap()
+                .get_mut("codex")
+                .unwrap()
+                .model = Some("new-model".into());
+        })
+        .unwrap();
+    let profile_conflict = call(
+        &broker,
+        "agent_execute",
+        json!({"action":"start","workRunId":"work-a","workspaceId":"A","providerId":"codex","taskRole":"general","requestKey":"key","prompt":"p"}),
+    )
+    .await;
+    assert_eq!(
+        profile_conflict["error"]["code"],
+        "EXECUTION_REQUEST_KEY_CONFLICT"
+    );
+    assert_eq!(
+        store
+            .execution(before_retry[0].execution_id.clone())
+            .await
+            .unwrap()
+            .unwrap()
+            .execution_profile_json,
+        r#"{"model":"frozen-model","reasoning":"high"}"#
+    );
 
     let mut changed = broker.config();
     let workspace_a = changed
@@ -1095,7 +1148,7 @@ process.stdin.on('end', () => {
       const missing = {...row}; delete missing.revision;
       invalid.push({...response, data:{executions:[missing]}});
     } else if (response.ok && response.data.providers) {
-      for (const field of ['providers', 'roleRouting']) {
+      for (const field of ['providers', 'roleRouting', 'roleDefaults']) {
         const missing = {...response.data}; delete missing[field];
         invalid.push({...response, data:missing});
       }

@@ -1,7 +1,8 @@
 use std::{future::Future, pin::Pin, sync::Arc};
 
 use super::{
-    ProviderCancelContext, ProviderCapabilities, ProviderDescriptor, ProviderError,
+    ExecutionConfigurationCatalog, ProviderCancelContext, ProviderCapabilities,
+    ProviderConfigurationCatalogContext, ProviderDescriptor, ProviderError,
     ProviderExecutionContext, ProviderRunResult, ProviderStartupContext,
     telemetry::AgentTelemetryEvent,
 };
@@ -68,6 +69,18 @@ pub trait AgentProvider: Send + Sync {
     fn descriptor(&self) -> ProviderDescriptor;
 
     fn capabilities(&self) -> ProviderCapabilities;
+
+    /// 读取一次 Provider-owned 配置目录；默认能力关闭且不得启动 Runtime。
+    fn configuration_catalog<'a>(
+        &'a self,
+        _context: ProviderConfigurationCatalogContext,
+    ) -> ProviderFuture<'a, Result<ExecutionConfigurationCatalog, ProviderError>> {
+        Box::pin(async {
+            Err(ProviderError {
+                code: super::ProviderErrorCode::AgentProviderCapabilityUnsupported,
+            })
+        })
+    }
 
     /// 只公开会阻断后续新执行的确定性 Provider 合约诊断。
     fn admission_diagnostic(&self) -> Option<String> {

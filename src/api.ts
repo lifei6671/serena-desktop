@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, AgentProviderSettings, ExecutionView, ProviderCatalogSnapshot, RemoteState, RemoteAccessMode, SecurityDeclaration, Workspace, WorkspaceInspection, WorkspaceRegistrySnapshot, WorkspaceCapabilityHealth } from "./types";
+import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, AgentProviderSettings, AgentRoleProviderDefaults, ExecutionConfigurationCatalog, ExecutionView, ProviderCatalogSnapshot, RemoteState, RemoteAccessMode, SecurityDeclaration, Workspace, WorkspaceInspection, WorkspaceRegistrySnapshot, WorkspaceCapabilityHealth } from "./types";
 
 export const api = {
   remoteState: () => invoke<RemoteState>("remote_state"),
@@ -20,6 +20,12 @@ export const api = {
   // 角色策略只走本地专用 Authority；null 显式清空，不修改现有 Execution。
   agentProviderSetRoleRoute: (taskRole: keyof AgentProviderSettings["roleRouting"], providerId: string | null) =>
     invoke<AgentProviderSettings>("agent_provider_set_role_route", { taskRole, providerId }),
+  // 动态目录需要显式 Provider 与 Registry Workspace identity。
+  agentProviderConfigurationCatalog: (providerId: string, workspaceId: string) =>
+    invoke<ExecutionConfigurationCatalog>("agent_provider_configuration_catalog", { providerId, workspaceId }),
+  // 单个 role/provider entry 原子保存；调用方不能直接覆盖 Execution profile。
+  agentProviderSetRoleDefaults: (taskRole: keyof AgentProviderSettings["roleRouting"], providerId: string, defaults: AgentRoleProviderDefaults) =>
+    invoke<AgentProviderSettings>("agent_provider_set_role_defaults", { taskRole, providerId, defaults }),
   // 专用 Local Tauri IPC；不得复用 Remote MCP 的 agent_execute action。
   agentManualResolve: (executionId: string, resolution: "interrupt_and_release", reason?: string) =>
     invoke<ExecutionView>("agent_manual_resolve", { executionId, resolution, reason }),

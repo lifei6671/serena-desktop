@@ -106,6 +106,10 @@ pub struct ProviderProduct {
 pub struct ProviderCatalogSnapshot {
     pub providers: Vec<ProviderCatalogEntry>,
     pub role_routing: std::collections::BTreeMap<String, Option<ProviderId>>,
+    pub role_defaults: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<String, crate::config::AgentRoleProviderDefaults>,
+    >,
 }
 
 /// 注册、策略、健康与能力分别投影，不把不可执行等同于未注册。
@@ -644,7 +648,20 @@ impl AgentProductService {
         Ok(ProviderCatalogSnapshot {
             providers,
             role_routing: config.agent_providers.role_routing,
+            role_defaults: config.agent_providers.role_defaults,
         })
+    }
+
+    /// 配置目录是显式 Provider/Workspace 查询，不进入便宜的 Provider Catalog 快照。
+    pub(crate) async fn provider_configuration_catalog(
+        &self,
+        provider_id: super::provider::ProviderId,
+        canonical_workspace_root: String,
+    ) -> Result<super::provider::ExecutionConfigurationCatalog, super::provider::ProviderError>
+    {
+        self.manager
+            .provider_configuration_catalog(provider_id, canonical_workspace_root)
+            .await
     }
 
     /// 本地健康刷新只进入 Manager 的 admission probe。
@@ -1080,7 +1097,9 @@ impl AgentProductService {
                 .as_ref()
                 .filter(|_| include_result)
                 .map(|v| {
-                    serde_json::from_str(v).map_err(|e| format!("Invalid persisted result: {e}"))
+                    serde_json::from_str(v)
+                        .map(project_public_final_result)
+                        .map_err(|e| format!("Invalid persisted result: {e}"))
                 })
                 .transpose()?;
             let attention = if r.status == "unknown" || quarantined_pending {
@@ -1305,6 +1324,24 @@ fn safe_unsupported_model_message(raw: &str) -> Option<String> {
         return Some(format!("Codex model {REASON}"));
     }
     Some(format!("Codex model '{model}' {REASON}"))
+}
+
+/// 将 Provider 内部的 legacy plain-text result 投影为公共可展示结构。
+/// 只接受 exact {"text": string}，复杂 JSON 保持原样，避免从任意字段猜正文。
+fn project_public_final_result(value: Value) -> Value {
+    if let Value::Object(fields) = &value
+        && fields.len() == 1
+        && let Some(Value::String(text)) = fields.get("text")
+    {
+        return json!({
+            "finalResult": [{
+                "type": "agentMessage",
+                "phase": "final_answer",
+                "text": text
+            }]
+        });
+    }
+    value
 }
 
 fn safe_turn_error_category(raw: &str) -> Option<&'static str> {

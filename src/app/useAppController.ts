@@ -10,6 +10,7 @@ const initialConfig: ManagerConfig = {
   agentProviders: {
     providers: { codex: { enabled: true }, codebuddy: { enabled: false } },
     roleRouting: { development: "codex", testing: "codex", review: "codex", analysis: "codex", general: "codex" },
+    roleDefaults: {},
   },
   agentEnabled: false,
   remoteAccess: { mode: "mcp_only", quickTunnelDesiredRunning: false, selfHosted: { provider: "custom_https", publicOrigin: null }, mcpOnly: { securityDeclaration: "external_auth", publicOrigin: null } },

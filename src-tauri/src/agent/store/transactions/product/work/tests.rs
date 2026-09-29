@@ -1,5 +1,7 @@
 use super::*;
-use crate::agent::execution::{legacy_pre_workspace_generation_hash, legacy_v2_request_hash};
+use crate::agent::execution::{
+    ExecutionProfile, legacy_pre_workspace_generation_hash, legacy_v2_request_hash,
+};
 use rusqlite::types::Value;
 
 fn context(work: &str) -> WorkExecutionContext {
@@ -200,6 +202,67 @@ async fn terminal_parent(store: &StateStore, id: &str) -> ExecutionRecord {
     let row = store.execution(id.into()).await.unwrap().unwrap();
     assert!(continuation_core_eligible(&row));
     row
+}
+
+/// Fresh 冻结 profile 参与 retry identity；Continue 只继承 source profile。
+#[tokio::test]
+async fn profile_is_frozen_for_start_retry_and_continuation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    let routing = |model: &str| FrozenStartRouting {
+        provider: ProviderId::new("codex".into()).unwrap(),
+        task_role: AgentTaskRole::Testing,
+        execution_profile: ExecutionProfile {
+            model: Some(model.into()),
+            reasoning: Some("high".into()),
+        },
+    };
+    let workspace = WorkspaceSnapshot {
+        id: "W".into(),
+        root: "root".into(),
+        generation: 1,
+    };
+    let first = store
+        .product_create_fresh_with_work_blocking(
+            routing("model-a"),
+            "E1".into(),
+            "A".into(),
+            "source".into(),
+            "prompt".into(),
+            "W".into(),
+            workspace.clone(),
+            None,
+            10,
+        )
+        .unwrap();
+    assert_eq!(
+        first.execution.execution_profile_json,
+        r#"{"model":"model-a","reasoning":"high"}"#
+    );
+    assert_eq!(
+        store
+            .product_create_fresh_with_work_blocking(
+                routing("model-b"),
+                "unused".into(),
+                "A".into(),
+                "source".into(),
+                "prompt".into(),
+                "W".into(),
+                workspace,
+                None,
+                11,
+            )
+            .unwrap_err(),
+        "EXECUTION_REQUEST_KEY_CONFLICT"
+    );
+    terminal_parent(&store, "E1").await;
+    let child = continuation(&store, "E2", "E1", "next", None)
+        .await
+        .unwrap();
+    assert_eq!(
+        child.execution.execution_profile_json,
+        first.execution.execution_profile_json
+    );
 }
 
 #[tokio::test]

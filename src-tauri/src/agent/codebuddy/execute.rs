@@ -21,6 +21,7 @@ use tokio::sync::oneshot;
 pub(super) struct RunControl {
     pub(super) cancelled: oneshot::Receiver<()>,
     pub(super) admission_diagnostic: Arc<RuntimeAdmissionDiagnostic>,
+    pub(super) limits: Limits,
 }
 
 /// prepare/prompt/finalize 均由本 task 持有；不读取当前 admission policy，也不重放有副作用请求。
@@ -36,6 +37,7 @@ pub(super) async fn run(
     let RunControl {
         cancelled,
         admission_diagnostic,
+        limits,
     } = control;
     // 拒绝无关 Execution 后不运行 cleanup，避免绕过 admission 终止另一条生命周期。
     let row = store
@@ -52,6 +54,14 @@ pub(super) async fn run(
         ));
     }
     let attempt_id = format!("codebuddy-{}", super::store::new_conversation_id()?);
+    let profile = crate::agent::execution::ExecutionProfile::from_json(&row.execution_profile_json)
+        .map_err(|_| ProviderExecutionFailure::State("EXECUTION_PROFILE_INVALID".into()))?;
+    let desired = DesiredConfiguration {
+        mode: None,
+        model: profile.model,
+        reasoning: profile.reasoning,
+        option: None,
+    };
     let result = async {
         let session = match row.parent_execution_id.clone() {
             Some(source_execution_id) => {
@@ -61,8 +71,8 @@ pub(super) async fn run(
                     id.clone(),
                     source_execution_id,
                     &resolved,
-                    DesiredConfiguration::default(),
-                    Limits::default(),
+                    desired,
+                    limits,
                     attempt_id.clone(),
                 )
                 .await
@@ -73,8 +83,8 @@ pub(super) async fn run(
                     owner.clone(),
                     id.clone(),
                     &resolved,
-                    DesiredConfiguration::default(),
-                    Limits::default(),
+                    desired,
+                    limits,
                     attempt_id.clone(),
                 )
                 .await

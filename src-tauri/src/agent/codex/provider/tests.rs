@@ -4,7 +4,22 @@ use crate::agent::{
     telemetry_projector::ExecutionTelemetryProjector,
 };
 use serde_json::{Value, json};
+#[cfg(windows)]
+use std::{
+    os::windows::{
+        io::{AsRawHandle, FromRawHandle, OwnedHandle},
+        process::CommandExt,
+    },
+    time::{Duration, Instant},
+};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
+#[cfg(windows)]
+use windows_sys::Win32::{
+    Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
+    System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+    },
+};
 
 fn run(future: impl std::future::Future<Output = ()>) {
     tokio::runtime::Runtime::new().unwrap().block_on(future)
@@ -27,6 +42,260 @@ async fn reply(s: &mut BufReader<DuplexStream>, req: &Value, value: Value) {
 }
 fn turn(status: &str) -> Value {
     json!({"id":"TURN","status":status,"items":[],"itemsView":"summary"})
+}
+
+/// Codex Start 只接受 model/list 对所选模型声明的 reasoning，失效保存值必须 fail-closed。
+#[test]
+fn frozen_profile_must_match_model_specific_reasoning_catalog() {
+    let models = vec![ExecutionModelOption {
+        id: "gpt-test".into(),
+        name: "GPT Test".into(),
+        description: None,
+        is_default: true,
+        hidden: false,
+        reasoning_options: vec![crate::agent::provider::ExecutionConfigurationOption {
+            id: "high".into(),
+            name: "High".into(),
+            description: None,
+        }],
+        default_reasoning: Some("high".into()),
+    }];
+    assert!(
+        validate_codex_profile_models(
+            &models,
+            &ExecutionProfile {
+                model: Some("gpt-test".into()),
+                reasoning: Some("high".into()),
+            }
+        )
+        .is_ok()
+    );
+    for profile in [
+        ExecutionProfile {
+            model: Some("missing".into()),
+            reasoning: Some("high".into()),
+        },
+        ExecutionProfile {
+            model: Some("gpt-test".into()),
+            reasoning: Some("ultra".into()),
+        },
+    ] {
+        assert_eq!(
+            validate_codex_profile_models(&models, &profile).unwrap_err(),
+            "EXECUTION_PROFILE_UNAVAILABLE"
+        );
+    }
+}
+
+/// Catalog 必须经过共享平台 wrapper，避免直接绑定 Windows managed::connect 签名。
+#[test]
+fn configuration_catalog_uses_cross_platform_managed_wrapper() {
+    let source = include_str!("../provider.rs");
+    let start = source.find("async fn read_configuration_catalog").unwrap();
+    let end = source[start..]
+        .find("async fn list_codex_models")
+        .map(|offset| start + offset)
+        .unwrap();
+    let catalog = &source[start..end];
+    assert!(catalog.contains("super::connect_managed("));
+    assert!(catalog.contains("self.runtime_pool.clone()"));
+    assert!(!catalog.contains("managed::connect("));
+}
+
+/// 通过真实 Client 聚合分页目录，覆盖跨页 identity/default 与游标收敛约束。
+async fn list_models_from_pages(pages: Vec<Value>) -> Result<Vec<ExecutionModelOption>, ()> {
+    let (wire, server) = tokio::io::duplex(64 * 1024);
+    let (read, write) = tokio::io::split(wire);
+    let client =
+        Client::product_test_transport("catalog-pages".into(), read, write, tokio::io::empty());
+    let fake = tokio::spawn(async move {
+        let mut io = BufReader::new(server);
+        let initialize = recv(&mut io).await;
+        assert_eq!(initialize["method"], "initialize");
+        reply(
+            &mut io,
+            &initialize,
+            json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"}),
+        )
+        .await;
+        assert_eq!(recv(&mut io).await["method"], "initialized");
+        for page in pages {
+            let request = recv(&mut io).await;
+            assert_eq!(request["method"], "model/list");
+            reply(&mut io, &request, page).await;
+        }
+    });
+    client.initialize().await.unwrap();
+    let result = list_codex_models(&client).await;
+    fake.await.unwrap();
+    result
+}
+
+/// Provider 层必须完整聚合分页，并对重复游标、slug 与默认模型 fail-closed。
+#[test]
+fn list_codex_models_aggregates_pages_and_rejects_invalid_cross_page_state() {
+    run(async {
+        let model = |id: &str, slug: &str, is_default: bool| {
+            json!({
+                "id": id,
+                "model": slug,
+                "displayName": slug,
+                "description": "",
+                "isDefault": is_default,
+                "hidden": false,
+                "defaultReasoningEffort": "high",
+                "supportedReasoningEfforts": [{"reasoningEffort":"high","description":""}],
+            })
+        };
+        let models = list_models_from_pages(vec![
+            json!({"data":[model("preset-a", "wire-a", true)],"nextCursor":"next"}),
+            json!({"data":[model("preset-b", "wire-b", false)],"nextCursor":null}),
+        ])
+        .await
+        .unwrap();
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["wire-a", "wire-b"]
+        );
+
+        for pages in [
+            vec![
+                json!({"data":[model("preset-a", "wire-a", true)],"nextCursor":"repeat"}),
+                json!({"data":[model("preset-b", "wire-b", false)],"nextCursor":"repeat"}),
+            ],
+            vec![
+                json!({"data":[model("preset-a", "wire-a", true)],"nextCursor":"next"}),
+                json!({"data":[model("preset-b", "wire-a", false)],"nextCursor":null}),
+            ],
+            vec![
+                json!({"data":[model("preset-a", "wire-a", true)],"nextCursor":"next"}),
+                json!({"data":[model("preset-b", "wire-b", true)],"nextCursor":null}),
+            ],
+        ] {
+            assert!(list_models_from_pages(pages).await.is_err());
+        }
+    });
+}
+
+/// 等待 fake app-server 写出 PID，避免用固定 sleep 推断 Runtime 已启动。
+#[cfg(windows)]
+async fn wait_catalog_pid(path: &std::path::Path) -> OwnedHandle {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !path.exists() {
+        assert!(Instant::now() < deadline, "{}", path.display());
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let pid = std::fs::read_to_string(path)
+        .unwrap()
+        .parse::<u32>()
+        .unwrap();
+    // SAFETY: PID 来自本测试刚启动的隔离 fake；OwnedHandle 接管成功返回的 handle。
+    let raw = unsafe {
+        OpenProcess(
+            PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        )
+    };
+    assert!(!raw.is_null());
+    unsafe { OwnedHandle::from_raw_handle(raw) }
+}
+
+/// Provider catalog 必须走真实 compatibility/managed Runtime，并在成功和错误后收敛进程与证据。
+#[cfg(windows)]
+#[tokio::test]
+async fn configuration_catalog_managed_runtime_converges_without_execution_or_claim() {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("codex-catalog-child.exe");
+    let output = std::process::Command::new("rustc")
+        .args(["--edition=2024", "--crate-name", "codex_catalog_child"])
+        .arg(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/codex_catalog_child.rs"),
+        )
+        .arg("-o")
+        .arg(&executable)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(
+        directory.path().join("schema.json"),
+        crate::agent::codex::compatibility::compatible_schema_for_test().to_string(),
+    )
+    .unwrap();
+
+    for error in [false, true] {
+        let workspace = directory.path().join(format!("workspace-{error}"));
+        std::fs::create_dir_all(&workspace).unwrap();
+        if error {
+            std::fs::write(workspace.join("catalog-error"), "1").unwrap();
+        }
+        let data = directory.path().join(format!("data-{error}"));
+        let store = StateStore::open(data.clone()).await.unwrap();
+        let provider = Arc::new(CodexProvider {
+            store,
+            executable: executable.clone(),
+            backend_error: None,
+            owner: "catalog-test-host".into(),
+            runtime_pool: Default::default(),
+        });
+        let task = tokio::spawn({
+            let provider = provider.clone();
+            let root = workspace.to_string_lossy().into_owned();
+            async move {
+                provider
+                    .configuration_catalog(ProviderConfigurationCatalogContext { cwd: root })
+                    .await
+            }
+        });
+        let process = wait_catalog_pid(&workspace.join("peer-pid.txt")).await;
+        assert_eq!(
+            unsafe { WaitForSingleObject(process.as_raw_handle(), 0) },
+            WAIT_TIMEOUT
+        );
+        std::fs::write(workspace.join("release-model-list"), "1").unwrap();
+        let result = task.await.unwrap();
+        if error {
+            assert_eq!(
+                result.unwrap_err().code,
+                ProviderErrorCode::AgentProviderContractError
+            );
+        } else {
+            let catalog = result.unwrap();
+            assert_eq!(catalog.models[0].id, "visible-wire");
+            assert_eq!(catalog.default_model.as_deref(), Some("visible-wire"));
+        }
+        assert_eq!(
+            unsafe { WaitForSingleObject(process.as_raw_handle(), 5000) },
+            WAIT_OBJECT_0
+        );
+        let connection = rusqlite::Connection::open(data.join("agent-state.db")).unwrap();
+        for table in ["executions", "workspace_claims"] {
+            let count: i64 = connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "{table}");
+        }
+        let runtime: (String, String) = connection
+            .query_row(
+                "SELECT state, termination_evidence_state FROM runtime_instances",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(runtime, ("terminated".into(), "complete".into()));
+    }
 }
 
 // Hold only turn/start flush until the fake server has persisted terminal evidence.

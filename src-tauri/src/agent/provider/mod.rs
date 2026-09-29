@@ -66,6 +66,54 @@ pub struct ProviderExecutionContext {
     pub execution_id: String,
 }
 
+/// Provider 配置目录查询所需的已解析工作目录；Workspace authority 由 Product 层冻结。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProviderConfigurationCatalogContext {
+    pub cwd: String,
+}
+
+/// Provider-neutral 的可选值。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExecutionConfigurationOption {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// 模型及其专属推理选项；hidden 只表达 Provider 目录事实。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExecutionModelOption {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub is_default: bool,
+    pub hidden: bool,
+    pub reasoning_options: Vec<ExecutionConfigurationOption>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_reasoning: Option<String>,
+}
+
+/// 与普通 Provider health 目录分离的只读执行配置目录。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExecutionConfigurationCatalog {
+    pub provider_id: ProviderId,
+    pub models: Vec<ExecutionModelOption>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_model: Option<String>,
+    pub reasoning_options: Vec<ExecutionConfigurationOption>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_reasoning: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_reasoning: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderCancelContext {

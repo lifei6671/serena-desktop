@@ -1,6 +1,21 @@
 use super::*;
 use crate::agent::provider::port::{AgentEventSink, ProviderAcceptanceSink};
 use std::path::PathBuf;
+#[cfg(windows)]
+use std::{
+    os::windows::{
+        io::{AsRawHandle, FromRawHandle, OwnedHandle},
+        process::CommandExt,
+    },
+    time::{Duration, Instant},
+};
+#[cfg(windows)]
+use windows_sys::Win32::{
+    Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
+    System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+    },
+};
 
 /// lifecycle fail-closed 测试的 acceptance sentinel。
 struct NoopAcceptance;
@@ -187,6 +202,153 @@ async fn descriptor_uses_only_product_version_metadata() {
             version: Some("2.158.0".into()),
         }
     );
+}
+
+/// 等待 catalog fake 写出 PID，并持有可观察进程 handle。
+#[cfg(windows)]
+async fn wait_catalog_process(path: &std::path::Path) -> OwnedHandle {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !path.exists() {
+        assert!(Instant::now() < deadline, "{}", path.display());
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let pid = std::fs::read_to_string(path)
+        .unwrap()
+        .parse::<u32>()
+        .unwrap();
+    // SAFETY: PID 来自当前测试启动的隔离 fake，OwnedHandle 接管返回 handle。
+    let raw = unsafe {
+        OpenProcess(
+            PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        )
+    };
+    assert!(!raw.is_null());
+    unsafe { OwnedHandle::from_raw_handle(raw) }
+}
+
+/// Provider catalog 使用正式 launcher/ACP Runtime，成功和错误都必须终止进程且不写 Execution/Claim。
+#[cfg(windows)]
+#[tokio::test]
+async fn configuration_catalog_managed_job_converges_without_product_side_effects() {
+    let directory = tempfile::tempdir().unwrap();
+    let base = directory.path().join("base.exe");
+    let output = std::process::Command::new("rustc")
+        .args(["--edition=2024", "--crate-name", "codebuddy_fresh_child"])
+        .arg(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/codebuddy_fresh_child.rs"),
+        )
+        .arg("-o")
+        .arg(&base)
+        .creation_flags(0x0800_0000)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    for error in [false, true] {
+        let workspace = directory.path().join(format!("workspace-{error}"));
+        std::fs::create_dir_all(&workspace).unwrap();
+        let executable = workspace.join(if error {
+            "cb7-fresh-gated-new-error.exe"
+        } else {
+            "cb7-fresh-gated.exe"
+        });
+        std::fs::copy(&base, &executable).unwrap();
+        std::fs::write(
+            workspace.join("new.json"),
+            serde_json::json!({
+                "sessionId":"catalog-session",
+                "configOptions":[
+                    {"id":"model","name":"Model","category":"model","type":"select","currentValue":"model-a","options":[{"value":"model-a","name":"Model A"}]},
+                    {"id":"thought_level","name":"Reasoning","category":"thought_level","type":"select","currentValue":"high","options":[{"value":"high","name":"High"}]}
+                ],
+                "models":{"currentModelId":"model-a","availableModels":[{"modelId":"model-a","name":"Model A","_meta":{"supportsReasoning":true}}]}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let data = directory.path().join(format!("data-{error}"));
+        let store = crate::agent::store::StateStore::open(data.clone())
+            .await
+            .unwrap();
+        let mut discovery = DiscoveryResult::direct_for_test(executable);
+        discovery.launch_spec.path_projection = vec![workspace.clone()];
+        let provider = Arc::new(CodeBuddyProvider::from_discovery(
+            store,
+            "catalog-test-host".into(),
+            Ok(discovery),
+        ));
+        let task = tokio::spawn({
+            let provider = provider.clone();
+            let root = crate::config::canonicalize_workspace_root(&workspace)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            async move {
+                provider
+                    .configuration_catalog(ProviderConfigurationCatalogContext { cwd: root })
+                    .await
+            }
+        });
+        let pid_path = workspace.join("peer-pid.txt");
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !pid_path.exists() {
+            if task.is_finished() {
+                panic!(
+                    "catalog exited before fake peer start: {:?}",
+                    task.await.unwrap()
+                );
+            }
+            assert!(Instant::now() < deadline, "{}", pid_path.display());
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let process = wait_catalog_process(&pid_path).await;
+        assert_eq!(
+            unsafe { WaitForSingleObject(process.as_raw_handle(), 0) },
+            WAIT_TIMEOUT
+        );
+        std::fs::write(workspace.join("release-initialize"), "1").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            let wire = std::fs::read_to_string(workspace.join("wire.jsonl")).unwrap_or_default();
+            if wire.lines().count() >= 2 {
+                break;
+            }
+            assert!(Instant::now() < deadline, "session/new was not observed");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        std::fs::write(workspace.join("release-new"), "1").unwrap();
+        let result = task.await.unwrap();
+        if error {
+            assert_eq!(
+                result.unwrap_err().code,
+                ProviderErrorCode::AgentProviderOperationFailed
+            );
+        } else {
+            let catalog = result.unwrap();
+            assert_eq!(catalog.models[0].id, "model-a");
+            assert_eq!(catalog.current_reasoning.as_deref(), Some("high"));
+        }
+        assert_eq!(
+            unsafe { WaitForSingleObject(process.as_raw_handle(), 5000) },
+            WAIT_OBJECT_0
+        );
+        let connection = rusqlite::Connection::open(data.join("agent-state.db")).unwrap();
+        for table in ["executions", "workspace_claims", "runtime_instances"] {
+            let count: i64 = connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "{table}");
+        }
+    }
 }
 
 /// 绕过 admission 也不能 execute/cancel；startup 可独立恢复空的历史集合。

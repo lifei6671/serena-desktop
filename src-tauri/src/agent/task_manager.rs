@@ -171,7 +171,8 @@ impl ProviderAcceptanceSink for HostAcceptanceSink {
     }
 }
 
-fn provider_error_code(code: ProviderErrorCode) -> &'static str {
+/// 把 Provider 领域错误映射为稳定 Product code，供本地目录 IPC 复用。
+pub(crate) fn provider_error_code(code: ProviderErrorCode) -> &'static str {
     match code {
         ProviderErrorCode::AgentProviderNotFound => "AGENT_PROVIDER_NOT_FOUND",
         ProviderErrorCode::AgentProviderDisabled => "AGENT_PROVIDER_DISABLED",
@@ -510,6 +511,21 @@ impl AgentTaskManager {
             .map(|_| ())
     }
 
+    /// 在不创建 Execution/Claim 的路径读取 Provider-owned 配置目录。
+    pub(crate) async fn provider_configuration_catalog(
+        &self,
+        provider_id: ProviderId,
+        canonical_workspace_root: String,
+    ) -> Result<super::provider::ExecutionConfigurationCatalog, ProviderError> {
+        self.ensure_provider_enabled(&provider_id)?;
+        let provider = self.registry()?.get(&provider_id)?;
+        provider
+            .configuration_catalog(super::provider::ProviderConfigurationCatalogContext {
+                cwd: canonical_workspace_root,
+            })
+            .await
+    }
+
     /// Product Start 在创建 Execution 与 Claim 前完成 registered→enabled 前缀。
     #[cfg(test)]
     fn ensure_product_start_enabled(&self) -> Result<(), super::product::ProductError> {
@@ -696,9 +712,22 @@ impl AgentTaskManager {
         };
         self.admit_provider(&provider, ProviderAdmissionCapability::Execute)
             .map_err(provider_error)?;
+        let defaults = config
+            .agent_providers
+            .role_defaults
+            .get(task_role.as_str())
+            .and_then(|providers| providers.get(provider.as_str()));
+        let execution_profile = super::execution::ExecutionProfile {
+            model: defaults.and_then(|defaults| defaults.model.clone()),
+            reasoning: defaults.and_then(|defaults| defaults.reasoning.clone()),
+        };
+        execution_profile.validate().map_err(|_| {
+            super::product::ProductError::from("AGENT_PROVIDER_CONFIG_INVALID".to_string())
+        })?;
         Ok(super::store::transactions::product::FrozenStartRouting {
             provider,
             task_role,
+            execution_profile,
         })
     }
 

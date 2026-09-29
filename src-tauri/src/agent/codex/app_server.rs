@@ -151,6 +151,7 @@ fn turn_start_params(
     text: &str,
     mode: crate::agent::execution::ExecutionMode,
     workspace_root: &str,
+    profile: &crate::agent::execution::ExecutionProfile,
 ) -> Value {
     let sandbox_policy = match mode {
         crate::agent::execution::ExecutionMode::ReadOnly => {
@@ -164,12 +165,130 @@ fn turn_start_params(
             "excludeSlashTmp":false
         }),
     };
-    json!({
+    let mut params = json!({
         "threadId":thread,
         "input":[{"type":"text","text":text,"text_elements":[]}],
         "approvalPolicy":"never",
         "sandboxPolicy":sandbox_policy
+    });
+    if let Some(model) = &profile.model {
+        params["model"] = Value::String(model.clone());
+    }
+    if let Some(reasoning) = &profile.reasoning {
+        params["effort"] = Value::String(reasoning.clone());
+    }
+    params
+}
+
+/// 解析 `model/list` 公共子集；额外 generated 字段由 serde 忽略。
+fn parse_model_page(value: Value) -> Result<ModelPage> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RawReasoning {
+        reasoning_effort: String,
+        description: String,
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RawModel {
+        id: String,
+        model: String,
+        display_name: String,
+        description: String,
+        is_default: bool,
+        hidden: bool,
+        default_reasoning_effort: String,
+        #[serde(default)]
+        supported_reasoning_efforts: Vec<RawReasoning>,
+    }
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RawPage {
+        data: Vec<RawModel>,
+        #[serde(default)]
+        next_cursor: Option<String>,
+    }
+    let raw: RawPage = serde_json::from_value(value)
+        .map_err(|error| ProtocolError::incompatible(format!("invalid model/list: {error}")))?;
+    let mut preset_ids = HashSet::new();
+    let mut executable_models = HashSet::new();
+    let models = raw
+        .data
+        .into_iter()
+        .map(|model| {
+            if model.id.trim().is_empty()
+                || model.model.trim().is_empty()
+                || !preset_ids.insert(model.id.clone())
+                || !executable_models.insert(model.model.clone())
+            {
+                return Err(ProtocolError::incompatible(
+                    "model/list contains empty or duplicate model identity",
+                ));
+            }
+            let mut efforts = HashSet::new();
+            let reasoning_options = model
+                .supported_reasoning_efforts
+                .into_iter()
+                .map(|effort| {
+                    if effort.reasoning_effort.trim().is_empty()
+                        || !efforts.insert(effort.reasoning_effort.clone())
+                    {
+                        return Err(ProtocolError::incompatible(
+                            "model/list contains empty or duplicate reasoning effort",
+                        ));
+                    }
+                    Ok(crate::agent::provider::ExecutionConfigurationOption {
+                        name: effort.reasoning_effort.clone(),
+                        id: effort.reasoning_effort,
+                        description: (!effort.description.trim().is_empty())
+                            .then_some(effort.description),
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            if model.default_reasoning_effort.trim().is_empty()
+                || !reasoning_options
+                    .iter()
+                    .any(|option| option.id == model.default_reasoning_effort)
+            {
+                return Err(ProtocolError::incompatible(
+                    "model default reasoning effort is not supported",
+                ));
+            }
+            Ok(crate::agent::provider::ExecutionModelOption {
+                // Product profile 保存并回传 app-server 真正接受的 model slug，不使用 preset id。
+                id: model.model.clone(),
+                name: if model.display_name.trim().is_empty() {
+                    model.model
+                } else {
+                    model.display_name
+                },
+                description: (!model.description.trim().is_empty()).then_some(model.description),
+                is_default: model.is_default,
+                hidden: model.hidden,
+                reasoning_options,
+                default_reasoning: Some(model.default_reasoning_effort),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if raw
+        .next_cursor
+        .as_ref()
+        .is_some_and(|cursor| cursor.is_empty())
+    {
+        return Err(ProtocolError::incompatible(
+            "model/list returned an empty nextCursor",
+        ));
+    }
+    Ok(ModelPage {
+        models,
+        next_cursor: raw.next_cursor,
     })
+}
+
+/// `model/list` 单页投影；分页游标只在当前受管 Client 内继续使用。
+pub(crate) struct ModelPage {
+    pub(crate) models: Vec<crate::agent::provider::ExecutionModelOption>,
+    pub(crate) next_cursor: Option<String>,
 }
 
 impl Client {
@@ -572,11 +691,25 @@ impl Client {
         cwd: &str,
         mode: crate::agent::execution::ExecutionMode,
     ) -> Result<Thread> {
+        self.thread_start_configured(cwd, mode, &Default::default())
+            .await
+    }
+
+    /// 创建新 Thread 时只发送冻结 profile 中显式设置的 model。
+    pub async fn thread_start_configured(
+        &self,
+        cwd: &str,
+        mode: crate::agent::execution::ExecutionMode,
+        profile: &crate::agent::execution::ExecutionProfile,
+    ) -> Result<Thread> {
         let sandbox = match mode {
             crate::agent::execution::ExecutionMode::ReadOnly => "read-only",
             crate::agent::execution::ExecutionMode::WorkspaceWrite => "workspace-write",
         };
         let mut params = json!({"cwd":cwd,"ephemeral":false,"historyMode":"paginated","approvalPolicy":"never","sandbox":sandbox});
+        if let Some(model) = &profile.model {
+            params["model"] = Value::String(model.clone());
+        }
         if self.shared.title_scope.lock().unwrap().is_some() {
             params["dynamicTools"] = title::tools();
         }
@@ -630,10 +763,31 @@ impl Client {
         mode: crate::agent::execution::ExecutionMode,
         workspace_root: &str,
     ) -> Result<Turn> {
+        self.turn_start_configured(
+            thread,
+            execution,
+            text,
+            mode,
+            workspace_root,
+            &Default::default(),
+        )
+        .await
+    }
+
+    /// Turn 使用冻结的 model/effort；缺失字段保持由 Codex 决定默认值。
+    pub async fn turn_start_configured(
+        &self,
+        thread: &str,
+        execution: &str,
+        text: &str,
+        mode: crate::agent::execution::ExecutionMode,
+        workspace_root: &str,
+        profile: &crate::agent::execution::ExecutionProfile,
+    ) -> Result<Turn> {
         let v = self
             .rpc(
                 "turn/start",
-                turn_start_params(thread, text, mode, workspace_root),
+                turn_start_params(thread, text, mode, workspace_root, profile),
                 Some(execution.into()),
                 Instant::now() + RPC_TIMEOUT,
                 false,
@@ -651,10 +805,37 @@ impl Client {
         workspace_root: &str,
         flushed: oneshot::Sender<()>,
     ) -> Result<Turn> {
+        self.turn_start_observed_configured(
+            thread,
+            execution,
+            text,
+            mode,
+            workspace_root,
+            &Default::default(),
+            flushed,
+        )
+        .await
+    }
+
+    /// 带物理 flush 观察的 Turn 创建同样只消费冻结 profile。
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "参数逐一对应既有 turn/start wire 与物理 flush authority"
+    )]
+    pub(crate) async fn turn_start_observed_configured(
+        &self,
+        thread: &str,
+        execution: &str,
+        text: &str,
+        mode: crate::agent::execution::ExecutionMode,
+        workspace_root: &str,
+        profile: &crate::agent::execution::ExecutionProfile,
+        flushed: oneshot::Sender<()>,
+    ) -> Result<Turn> {
         let value = self
             .rpc_with_flush(
                 "turn/start",
-                turn_start_params(thread, text, mode, workspace_root),
+                turn_start_params(thread, text, mode, workspace_root, profile),
                 Some(execution.into()),
                 Instant::now() + RPC_TIMEOUT,
                 false,
@@ -662,6 +843,17 @@ impl Client {
             )
             .await?;
         self.validated(turn_response(value))
+    }
+
+    /// 分页读取 generated experimental `model/list`，不解析 CLI stdout。
+    pub(crate) async fn model_list(&self, cursor: Option<&str>) -> Result<ModelPage> {
+        let value = self
+            .control(
+                "model/list",
+                json!({"cursor":cursor,"limit":100,"includeHidden":true}),
+            )
+            .await?;
+        self.validated(parse_model_page(value))
     }
     pub async fn turn_interrupt(&self, thread: &str, turn: &str) -> Result<()> {
         let v = self

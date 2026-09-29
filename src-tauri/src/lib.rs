@@ -299,6 +299,8 @@ pub fn run() {
             commands::agent_provider_catalog_get,
             commands::agent_provider_set_enabled,
             commands::agent_provider_set_role_route,
+            commands::agent_provider_set_role_defaults,
+            commands::agent_provider_configuration_catalog,
             commands::agent_provider_refresh_health,
             commands::command_query,
             commands::command_execute,

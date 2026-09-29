@@ -43,11 +43,15 @@ fn main() {
         .unwrap()
         .strip_prefix("cb7-fresh-")
         .unwrap();
+    let behavior = mode.strip_prefix("gated-").unwrap_or(mode);
+    let gated = mode == "gated" || mode.starts_with("gated-");
+    fs::write("peer-pid.txt", std::process::id().to_string()).unwrap();
     let mut log = OpenOptions::new()
         .create(true)
         .append(true)
         .open("wire.jsonl")
         .unwrap();
+    let mut config_count = 0usize;
     for line in io::stdin().lock().lines() {
         let line = line.unwrap();
         writeln!(log, "{line}").unwrap();
@@ -70,28 +74,28 @@ fn main() {
             .split([',', '}'])
             .next()
             .unwrap();
-        if mode == "gated" {
+        if gated {
             let deadline = Instant::now() + Duration::from_secs(15);
             while !std::path::Path::new(&format!("release-{method}")).exists() {
                 assert!(Instant::now() < deadline, "test did not release gate");
                 std::thread::sleep(Duration::from_millis(5));
             }
         }
-        if mode == format!("{method}-timeout") {
+        if behavior == format!("{method}-timeout") {
             std::thread::sleep(Duration::from_secs(30));
             return;
         }
-        if mode == format!("{method}-eof") {
+        if behavior == format!("{method}-eof") {
             return;
         }
-        if mode == format!("{method}-error") {
+        if behavior == format!("{method}-error") {
             reply(id, r#"{"code":-32603,"message":"fake failure"}"#, true);
             continue;
         }
         match method {
             "initialize" => reply(
                 id,
-                if mode == "mismatch" {
+                if behavior == "mismatch" {
                     r#"{"protocolVersion":2}"#
                 } else {
                     r#"{"protocolVersion":1}"#
@@ -105,7 +109,15 @@ fn main() {
                 reply(id, &fs::read_to_string("new.json").unwrap(), false);
             }
             "mode" => reply(id, "{}", false),
-            "config" => reply(id, &fs::read_to_string("config.json").unwrap(), false),
+            "config" => {
+                config_count += 1;
+                // 多次配置可提供逐 ACK 权威；旧测试继续回退单一 config.json。
+                let path = format!("config-{config_count}.json");
+                let body = fs::read_to_string(&path)
+                    .or_else(|_| fs::read_to_string("config.json"))
+                    .unwrap();
+                reply(id, &body, false)
+            }
             _ => unreachable!(),
         }
     }

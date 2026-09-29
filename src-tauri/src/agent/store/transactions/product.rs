@@ -22,6 +22,7 @@ pub struct WorkspaceSnapshot {
 pub(crate) struct FrozenStartRouting {
     pub(crate) provider: ProviderId,
     pub(crate) task_role: AgentTaskRole,
+    pub(crate) execution_profile: crate::agent::execution::ExecutionProfile,
 }
 
 /// Start 的持久化输入；同步管理协调与普通异步提交共用同一事务逻辑。
@@ -64,6 +65,7 @@ fn create_fresh_with_work(
         // 重试身份必须来自本次最终解析结果，不能借用历史行的 Provider/Role。
         retry.provider = creation.routing.provider.clone();
         retry.task_role = creation.routing.task_role;
+        retry.execution_profile = creation.routing.execution_profile.to_value();
         if let Some(workspace) = creation
             .workspace
             .as_ref()
@@ -113,7 +115,7 @@ fn create_fresh_with_work(
         agent_id: creation.agent.clone(),
         request_key: creation.request_key.clone(),
         prompt: creation.prompt.clone(),
-        execution_profile: json!({}),
+        execution_profile: creation.routing.execution_profile.to_value(),
         workspace_id: workspace.id.clone(),
         canonical_workspace_root: workspace.root.clone(),
         workspace_generation: workspace.generation,
@@ -162,7 +164,8 @@ pub fn continuation_core_eligible(row: &ExecutionRecord) -> bool {
         "completed" | "failed" | "cancelled" | "interrupted"
     ) || row.release_evidence_state != "complete"
         || row.mode != "workspace_write"
-        || row.execution_profile_json != "{}"
+        || crate::agent::execution::ExecutionProfile::from_json(&row.execution_profile_json)
+            .is_err()
         // Continue 只能继承父 Execution 已冻结的完整快照，绝不猜测当前 Workspace。
         || row.workspace_id.trim().is_empty()
         || row.canonical_workspace_root.trim().is_empty()
@@ -215,8 +218,10 @@ fn input(
         agent_id: row.agent_id.clone(),
         request_key: key,
         prompt,
-        execution_profile: serde_json::from_str(&row.execution_profile_json)
-            .map_err(|e| e.to_string())?,
+        execution_profile: crate::agent::execution::ExecutionProfile::from_json(
+            &row.execution_profile_json,
+        )?
+        .to_value(),
         workspace_id: row.workspace_id.clone(),
         canonical_workspace_root: row.canonical_workspace_root.clone(),
         workspace_generation: row.workspace_generation,
@@ -472,6 +477,7 @@ impl StateStore {
             routing: FrozenStartRouting {
                 provider: ProviderId::new("codex".into()).unwrap(),
                 task_role: AgentTaskRole::General,
+                execution_profile: Default::default(),
             },
             id,
             agent,

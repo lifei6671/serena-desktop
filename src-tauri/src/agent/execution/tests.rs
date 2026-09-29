@@ -9,6 +9,36 @@ fn input() -> CreateExecutionInput {
     .unwrap()
 }
 
+/// 稀疏 profile 只接受统一字段，并把 null 规范化为历史空对象。
+#[test]
+fn execution_profile_is_typed_bounded_and_canonical() {
+    assert_eq!(
+        ExecutionProfile::from_value(json!({"model":null,"reasoning":null}))
+            .unwrap()
+            .to_value(),
+        json!({})
+    );
+    let mut configured = input();
+    configured.execution_profile = json!({"reasoning":"high","model":"gpt-5"});
+    let request = canonicalize_request(configured).unwrap();
+    assert_eq!(
+        request.execution_profile_json(),
+        r#"{"model":"gpt-5","reasoning":"high"}"#
+    );
+    for invalid in [
+        json!({"model":""}),
+        json!({"reasoning":"   "}),
+        json!({"model":"x".repeat(257)}),
+        json!({"thought_level":"high"}),
+        json!([]),
+    ] {
+        assert!(
+            ExecutionProfile::from_value(invalid.clone()).is_err(),
+            "{invalid}"
+        );
+    }
+}
+
 #[test]
 fn v3_general_and_testing_fixed_bytes_and_sha256_vectors() {
     let request = canonicalize_request(input()).unwrap();
@@ -189,15 +219,13 @@ fn legacy_v1_hash_excludes_generation_while_current_v3_hash_includes_it() {
         canonicalize_request(generation_two).unwrap().request_hash()
     );
 }
-
 #[test]
-fn nested_objects_sort_keys_but_arrays_preserve_order() {
+/// typed profile 的字段顺序不影响 identity，但显式值变化必须参与 hash。
+fn typed_profile_canonicalizes_field_order_and_distinguishes_values() {
     let mut a = input();
-    a.execution_profile =
-        serde_json::from_str(r#"{"z":[{"b":2,"a":1},false],"a":{"β":"值","a":null}}"#).unwrap();
+    a.execution_profile = json!({"reasoning":"high","model":"model-a"});
     let mut b = a.clone();
-    b.execution_profile =
-        serde_json::from_str(r#"{"a":{"a":null,"β":"值"},"z":[{"a":1,"b":2},false]}"#).unwrap();
+    b.execution_profile = json!({"model":"model-a","reasoning":"high"});
     let a = canonicalize_request(a).unwrap();
     assert_eq!(
         a.request_hash(),
@@ -205,9 +233,9 @@ fn nested_objects_sort_keys_but_arrays_preserve_order() {
     );
     assert_eq!(
         a.execution_profile_json(),
-        r#"{"a":{"a":null,"β":"值"},"z":[{"a":1,"b":2},false]}"#
+        r#"{"model":"model-a","reasoning":"high"}"#
     );
-    b.execution_profile["z"].as_array_mut().unwrap().reverse();
+    b.execution_profile["reasoning"] = json!("medium");
     assert_ne!(
         a.request_hash(),
         canonicalize_request(b).unwrap().request_hash()
@@ -322,38 +350,36 @@ fn thread_is_runtime_compatibility_but_parent_execution_is_request_identity() {
         .unwrap();
     assert!(!current.contains("thread_id"));
 }
-
 #[test]
-fn opaque_profile_retains_null_types_numbers_and_empty_values() {
-    let profiles = [
-        json!({}),
-        json!({"x":null}),
-        json!({"x":false}),
-        json!({"x":0}),
-        json!({"x":1}),
-        json!({"x":1.0}),
-        json!({"x":"1"}),
-        json!({"x":[]}),
-        json!({"x":""}),
-    ];
-    let hashes: std::collections::HashSet<_> = profiles
-        .iter()
-        .map(|profile| {
-            let mut a = input();
-            a.execution_profile = profile.clone();
-            canonicalize_request(a).unwrap().request_hash().to_owned()
-        })
-        .collect();
-    assert_eq!(hashes.len(), profiles.len());
-    let mut a = input();
-    a.execution_profile = Value::Null;
-    assert!(canonicalize_request(a).is_err());
-    let mut a = input();
-    a.workspace_generation = 0;
+/// typed sparse profile 将显式 null 归一化为空对象，并拒绝未知字段及错误类型。
+fn canonical_request_rejects_non_typed_profile_and_preserves_other_input_validation() {
+    let baseline = canonicalize_request(input()).unwrap();
+    let mut explicit_nulls = input();
+    explicit_nulls.execution_profile = json!({"model":null,"reasoning":null});
     assert_eq!(
-        canonicalize_request(a).unwrap_err(),
+        baseline.request_hash(),
+        canonicalize_request(explicit_nulls).unwrap().request_hash()
+    );
+
+    for invalid in [
+        json!({"x":null}),
+        json!({"model":false}),
+        json!({"reasoning":0}),
+        json!({"model":[]}),
+        json!(null),
+    ] {
+        let mut request = input();
+        request.execution_profile = invalid;
+        assert!(canonicalize_request(request).is_err());
+    }
+
+    let mut invalid_generation = input();
+    invalid_generation.workspace_generation = 0;
+    assert_eq!(
+        canonicalize_request(invalid_generation).unwrap_err(),
         "workspace_generation must be a positive SQLite integer"
     );
+
     let mut value = json!({"agent_id":"a","request_key":"k","prompt":"p","execution_profile":{},"workspace_id":"w","canonical_workspace_root":"r","mode":"read_only","new_ignored_field":1});
     assert!(serde_json::from_value::<CreateExecutionInput>(value.clone()).is_err());
     value.as_object_mut().unwrap().remove("new_ignored_field");

@@ -3,11 +3,25 @@ use super::*;
 use crate::agent::{
     execution::AgentTaskRole,
     notification::noop_agent_terminal_notifier,
-    provider::{ProviderId, control::ProviderAdmissionCapability, registry::ProviderHealth},
+    provider::{
+        ExecutionConfigurationCatalog, ProviderCancelContext, ProviderCapabilities,
+        ProviderConfigurationCatalogContext, ProviderDescriptor, ProviderError, ProviderErrorCode,
+        ProviderExecutionContext, ProviderId, ProviderRunResult, ProviderStartupContext,
+        control::ProviderAdmissionCapability,
+        port::{
+            AgentEventSink, AgentProvider, ProviderAcceptanceSink, ProviderExecutionFailure,
+            ProviderFuture, ProviderReconcileSummary,
+        },
+        registry::{ProviderHealth, ProviderRegistry},
+    },
     store::StateStore,
     task_manager::AgentTaskManager,
 };
-use std::sync::Arc;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+use tokio::sync::Notify;
 
 #[cfg(windows)]
 #[path = "provider_policy_drain_tests.rs"]
@@ -44,6 +58,92 @@ async fn fixture() -> (tempfile::TempDir, Arc<crate::mcp::Broker>, AgentTaskMana
 /// 使用与 Tauri 参数相同的 ProviderId 反序列化边界。
 fn id(value: &str) -> ProviderId {
     serde_json::from_value(serde_json::json!(value)).unwrap()
+}
+
+/// 目录调用保持挂起，直到测试显式放行，用于观察 Broker 锁是否已经释放。
+struct BlockingCatalogProvider {
+    id: ProviderId,
+    entered: Arc<Notify>,
+    release: Arc<Notify>,
+    observed_root: Arc<Mutex<Option<String>>>,
+}
+
+impl AgentProvider for BlockingCatalogProvider {
+    /// 返回测试 Provider 的稳定身份。
+    fn descriptor(&self) -> ProviderDescriptor {
+        ProviderDescriptor {
+            id: self.id.clone(),
+            display_name: "Blocking Catalog".into(),
+            version: None,
+        }
+    }
+
+    /// 只声明目录测试所需的最小执行能力。
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities {
+            can_execute: true,
+            can_continue: false,
+            can_cancel: false,
+            can_recover: false,
+            activity: false,
+            token_usage: false,
+        }
+    }
+
+    /// 记录 Host 冻结的规范路径，然后确定性阻塞慢 I/O。
+    fn configuration_catalog<'a>(
+        &'a self,
+        context: ProviderConfigurationCatalogContext,
+    ) -> ProviderFuture<'a, Result<ExecutionConfigurationCatalog, ProviderError>> {
+        Box::pin(async move {
+            *self.observed_root.lock().unwrap() = Some(context.cwd);
+            self.entered.notify_one();
+            self.release.notified().await;
+            Ok(ExecutionConfigurationCatalog {
+                provider_id: self.id.clone(),
+                models: Vec::new(),
+                current_model: None,
+                default_model: None,
+                reasoning_options: Vec::new(),
+                current_reasoning: None,
+                default_reasoning: None,
+            })
+        })
+    }
+
+    /// 测试不进入执行路径。
+    fn execute<'a>(
+        &'a self,
+        _context: ProviderExecutionContext,
+        _acceptance: Arc<dyn ProviderAcceptanceSink>,
+        _telemetry: Arc<dyn AgentEventSink>,
+    ) -> ProviderFuture<'a, Result<ProviderRunResult, ProviderExecutionFailure>> {
+        Box::pin(async { Err(ProviderExecutionFailure::State("unused test path".into())) })
+    }
+
+    /// 测试不进入取消路径。
+    fn cancel<'a>(
+        &'a self,
+        _context: ProviderCancelContext,
+    ) -> ProviderFuture<'a, Result<(), ProviderError>> {
+        Box::pin(async {
+            Err(ProviderError {
+                code: ProviderErrorCode::AgentProviderOperationFailed,
+            })
+        })
+    }
+
+    /// 测试不进入恢复路径。
+    fn startup_reconcile<'a>(
+        &'a self,
+        _context: ProviderStartupContext,
+    ) -> ProviderFuture<'a, Result<ProviderReconcileSummary, ProviderError>> {
+        Box::pin(async {
+            Err(ProviderError {
+                code: ProviderErrorCode::AgentProviderOperationFailed,
+            })
+        })
+    }
 }
 
 /// 查询真实持久化表，禁止测试只依赖返回值推断无执行副作用。
@@ -131,6 +231,42 @@ async fn provider_policy_persists_restarts_and_updates_admission_without_runtime
     assert_no_execution(&directory);
 }
 
+/// role/provider 默认值独立持久化，未知 Provider 保留，双 null 规范化删除。
+#[tokio::test]
+async fn role_provider_defaults_persist_and_normalize_empty_entry() {
+    let (directory, broker, _) = fixture().await;
+    let defaults = crate::config::AgentRoleProviderDefaults {
+        model: Some("future-model".into()),
+        reasoning: Some("high".into()),
+    };
+    let saved = agent_provider_set_role_defaults_impl(
+        &broker,
+        AgentTaskRole::Testing,
+        id("future-provider"),
+        defaults.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(saved.role_defaults["testing"]["future-provider"], defaults);
+    assert_eq!(
+        crate::config::load(&broker.supervisor.paths.config_file)
+            .unwrap()
+            .agent_providers
+            .role_defaults["testing"]["future-provider"],
+        defaults
+    );
+    let cleared = agent_provider_set_role_defaults_impl(
+        &broker,
+        AgentTaskRole::Testing,
+        id("future-provider"),
+        Default::default(),
+    )
+    .await
+    .unwrap();
+    assert!(!cleared.role_defaults.contains_key("testing"));
+    assert_no_execution(&directory);
+}
+
 /// IPC 的既有领域类型拒绝非法 Provider/Role，null 仍可表示清空。
 #[test]
 fn provider_policy_ipc_validation_reuses_domain_types() {
@@ -211,6 +347,108 @@ async fn provider_policy_concurrent_mutations_wait_for_management_lock() {
             .unwrap()
             .agent_providers,
         settings
+    );
+    assert_no_execution(&directory);
+}
+
+/// Provider 目录慢 I/O 挂起时，同一 Broker 的路由与默认值 mutation 仍可完成。
+#[tokio::test]
+async fn provider_catalog_releases_management_lock_before_provider_io() {
+    let (directory, broker, mut manager) = fixture().await;
+    let workspace_root = directory.path().join("catalog-workspace");
+    std::fs::create_dir(&workspace_root).unwrap();
+    let workspace = crate::workspace_registry::WorkspaceRegistry::new(&broker.supervisor)
+        .register(workspace_root, Some("Catalog Workspace".into()))
+        .unwrap();
+    let provider_id = id("blocking-catalog");
+    agent_provider_set_enabled_impl(&broker, provider_id.clone(), true)
+        .await
+        .unwrap();
+
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let observed_root = Arc::new(Mutex::new(None));
+    let mut registry = ProviderRegistry::new();
+    registry
+        .register(
+            Arc::new(BlockingCatalogProvider {
+                id: provider_id.clone(),
+                entered: entered.clone(),
+                release: release.clone(),
+                observed_root: observed_root.clone(),
+            }),
+            ProviderHealth::Available,
+        )
+        .unwrap();
+    manager.use_registry(registry);
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    assert!(
+        broker
+            .product
+            .set(Arc::new(AgentProductService::new_with_manager_for_test(
+                store, manager,
+            )))
+            .is_ok()
+    );
+
+    let catalog_broker = broker.clone();
+    let catalog_workspace_id = workspace.id.clone();
+    let catalog_provider_id = provider_id.clone();
+    let catalog = tokio::spawn(async move {
+        agent_provider_configuration_catalog_impl(
+            &catalog_broker,
+            catalog_provider_id,
+            catalog_workspace_id,
+        )
+        .await
+    });
+    tokio::time::timeout(Duration::from_secs(1), entered.notified())
+        .await
+        .expect("catalog provider should enter its blocked I/O");
+    assert!(!catalog.is_finished());
+
+    let mutation_broker = broker.clone();
+    let mutation_provider_id = provider_id.clone();
+    let settings = tokio::time::timeout(Duration::from_secs(1), async move {
+        agent_provider_set_role_route_impl(
+            &mutation_broker,
+            AgentTaskRole::Review,
+            Some(mutation_provider_id.clone()),
+        )
+        .await?;
+        agent_provider_set_role_defaults_impl(
+            &mutation_broker,
+            AgentTaskRole::Review,
+            mutation_provider_id,
+            crate::config::AgentRoleProviderDefaults {
+                model: Some("fixture-model".into()),
+                reasoning: None,
+            },
+        )
+        .await
+    })
+    .await
+    .expect("management mutation must not wait for Provider catalog I/O")
+    .unwrap();
+    assert_eq!(settings.role_routing["review"], Some(provider_id.clone()));
+    assert_eq!(
+        settings.role_defaults["review"][provider_id.as_str()]
+            .model
+            .as_deref(),
+        Some("fixture-model")
+    );
+    assert!(!catalog.is_finished());
+
+    release.notify_one();
+    let response = tokio::time::timeout(Duration::from_secs(1), catalog)
+        .await
+        .expect("catalog should finish after release")
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.provider_id, provider_id);
+    assert_eq!(
+        observed_root.lock().unwrap().as_deref(),
+        Some(workspace.root.to_string_lossy().as_ref())
     );
     assert_no_execution(&directory);
 }

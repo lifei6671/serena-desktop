@@ -63,6 +63,7 @@ function futurePolicy() {
   return {
     providers: { 'future-acp': { enabled: true }, codex: { enabled: false } },
     roleRouting: { development: 'future-acp', testing: 'unregistered-provider', review: null, analysis: 'future-acp', general: null },
+    roleDefaults: { testing: { 'unregistered-provider': { model: 'future-model', reasoning: null } } },
   };
 }
 
@@ -126,13 +127,14 @@ test('config API round-trip keeps unknown provider IDs and unknown/null routes w
   assert.deepEqual(calls, [{ command: 'get_app_state', args: {} }, { command: 'save_config', args: { config: incoming.config } }]);
   assert.equal(saved.config.agentProviders.roleRouting.testing, 'unregistered-provider');
   assert.equal(saved.config.agentProviders.roleRouting.review, null);
+  assert.equal(saved.config.agentProviders.roleDefaults.testing['unregistered-provider'].model, 'future-model');
 });
 
 test('polling refresh synchronizes policy while preserving unrelated unsaved draft', async () => {
   let current = snapshot();
   await mount(async () => structuredClone(current));
   await act(async () => controller.setDraft(draft => ({ ...draft, port: 23456 })));
-  current = snapshot({ providers: {}, roleRouting: { development: null, testing: null, review: null, analysis: null, general: null } });
+  current = snapshot({ providers: {}, roleRouting: { development: null, testing: null, review: null, analysis: null, general: null }, roleDefaults: {} });
   await act(async () => intervals.values().find(entry => entry.delay === 1500).callback());
   assert.deepEqual(controller.state.config.agentProviders, current.config.agentProviders);
   assert.deepEqual(controller.draft.agentProviders, current.config.agentProviders);

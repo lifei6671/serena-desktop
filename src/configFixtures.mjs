@@ -3,5 +3,6 @@ export function providerSettingsFixture() {
   return {
     providers: { codex: { enabled: true }, codebuddy: { enabled: false } },
     roleRouting: { development: 'codex', testing: 'codex', review: 'codex', analysis: 'codex', general: 'codex' },
+    roleDefaults: {},
   };
 }

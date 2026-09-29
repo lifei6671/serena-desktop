@@ -9,12 +9,15 @@ use super::{
 };
 use crate::agent::{
     coordinator::now,
-    provider::port::ProviderAcceptanceSink,
+    provider::{
+        ExecutionConfigurationCatalog, ExecutionConfigurationOption, ExecutionModelOption,
+        ProviderId, port::ProviderAcceptanceSink,
+    },
     store::{ExecutionRecord, StateStore},
 };
 use agent_client_protocol::schema::v1::{
     NewSessionRequest, NewSessionResponse, SessionConfigKind, SessionConfigOption,
-    SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOptions,
+    SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOptions, SessionId,
     SetSessionConfigOptionRequest, SetSessionModeRequest,
 };
 use serde_json::Value;
@@ -27,6 +30,9 @@ use std::{
 #[derive(Default)]
 pub(crate) struct DesiredConfiguration {
     pub(crate) mode: Option<String>,
+    pub(crate) model: Option<String>,
+    pub(crate) reasoning: Option<String>,
+    /// 保留内部测试/既有 mode-option 路径；Product profile 永不填充此字段。
     pub(crate) option: Option<(String, SessionConfigOptionValue)>,
 }
 
@@ -516,12 +522,49 @@ impl SessionCatalog {
                 }
             }
         }
+        if let Some(model) = &desired.model {
+            // raw models 是可执行模型的 authority，不能仅凭 configOptions 猜测有效模型。
+            let advertised = self.models.as_ref().is_some_and(|models| {
+                models["availableModels"]
+                    .as_array()
+                    .is_some_and(|available| {
+                        available
+                            .iter()
+                            .any(|candidate| candidate["modelId"].as_str() == Some(model))
+                    })
+            });
+            if !advertised {
+                return Err(Failure::Configuration);
+            }
+            self.apply_named_option(
+                requests,
+                &session_id,
+                "model",
+                SessionConfigOptionCategory::Model,
+                model,
+            )
+            .await?;
+            if let Some(models) = &mut self.models {
+                models["currentModelId"] = Value::String(model.clone());
+            }
+        }
+        // model ACK 返回的完整 options 是 reasoning 校验的新 authority。
+        if let Some(reasoning) = &desired.reasoning {
+            self.apply_named_option(
+                requests,
+                &session_id,
+                "thought_level",
+                SessionConfigOptionCategory::ThoughtLevel,
+                reasoning,
+            )
+            .await?;
+        }
         if let Some((id, value)) = &desired.option {
             let option = self
                 .response
                 .config_options
                 .as_ref()
-                .and_then(|options| options.iter().find(|v| v.id.to_string() == *id))
+                .and_then(|options| options.iter().find(|option| option.id.to_string() == *id))
                 .ok_or(Failure::Configuration)?;
             if !option_accepts(option, value) {
                 return Err(Failure::Configuration);
@@ -534,15 +577,6 @@ impl SessionCatalog {
                 ))
                 .await?;
             validate_options(&response.config_options)?;
-            let actual = response
-                .config_options
-                .iter()
-                .find(|option| option.id.to_string() == *id)
-                .ok_or(Failure::Configuration)?;
-            if !current_equals(actual, value) {
-                return Err(Failure::Configuration);
-            }
-            // ACK 本身也是当前配置 authority；不能依赖服务端另发重复通知。
             if let Some(modes) = &mut self.response.modes {
                 for option in &response.config_options {
                     if option.category == Some(SessionConfigOptionCategory::Mode) {
@@ -553,8 +587,56 @@ impl SessionCatalog {
                     }
                 }
             }
+            if !response
+                .config_options
+                .iter()
+                .any(|option| option.id.to_string() == *id && current_equals(option, value))
+            {
+                return Err(Failure::Configuration);
+            }
             self.response.config_options = Some(response.config_options);
         }
+        Ok(())
+    }
+
+    /// 对 exact category/id 应用一个 select，并以 ACK 的完整目录替换旧 authority。
+    async fn apply_named_option(
+        &mut self,
+        requests: &super::client::Requests,
+        session_id: &SessionId,
+        id: &str,
+        category: SessionConfigOptionCategory,
+        selected: &str,
+    ) -> Result<(), Failure> {
+        let value: SessionConfigOptionValue = selected.into();
+        let option = self
+            .response
+            .config_options
+            .as_ref()
+            .and_then(|options| {
+                options.iter().find(|option| {
+                    option.id.to_string() == id && option.category == Some(category.clone())
+                })
+            })
+            .ok_or(Failure::Configuration)?;
+        if !option_accepts(option, &value) {
+            return Err(Failure::Configuration);
+        }
+        let response = requests
+            .request(SetSessionConfigOptionRequest::new(
+                session_id.clone(),
+                id.to_owned(),
+                value.clone(),
+            ))
+            .await?;
+        validate_options(&response.config_options)?;
+        let actual = response.config_options.iter().find(|option| {
+            option.id.to_string() == id && option.category == Some(category.clone())
+        });
+        if !actual.is_some_and(|option| current_equals(option, &value)) {
+            return Err(Failure::Configuration);
+        }
+        self.response.config_options = Some(response.config_options);
         Ok(())
     }
 
@@ -580,6 +662,32 @@ impl SessionCatalog {
         {
             return Err(Failure::Configuration);
         }
+        for (selected, id, category) in [
+            (&desired.model, "model", SessionConfigOptionCategory::Model),
+            (
+                &desired.reasoning,
+                "thought_level",
+                SessionConfigOptionCategory::ThoughtLevel,
+            ),
+        ] {
+            if let Some(selected) = selected {
+                let value: SessionConfigOptionValue = selected.as_str().into();
+                if !self
+                    .response
+                    .config_options
+                    .as_ref()
+                    .is_some_and(|options| {
+                        options.iter().any(|option| {
+                            option.id.to_string() == id
+                                && option.category == Some(category.clone())
+                                && current_equals(option, &value)
+                        })
+                    })
+                {
+                    return Err(Failure::Configuration);
+                }
+            }
+        }
         if let Some((id, value)) = &desired.option
             && !self
                 .response
@@ -595,6 +703,169 @@ impl SessionCatalog {
         }
         Ok(())
     }
+
+    /// 将 ACP Session 目录投影为 Product 统一模型，不暴露 `_meta` 原始对象。
+    pub(crate) fn configuration_catalog(&self) -> Result<ExecutionConfigurationCatalog, Failure> {
+        self.validate()?;
+        let options = self.response.config_options.as_deref().unwrap_or_default();
+        let model_option = options.iter().find(|option| {
+            option.id.to_string() == "model"
+                && option.category == Some(SessionConfigOptionCategory::Model)
+        });
+        let reasoning_option = options.iter().find(|option| {
+            option.id.to_string() == "thought_level"
+                && option.category == Some(SessionConfigOptionCategory::ThoughtLevel)
+        });
+        let reasoning_options = reasoning_option
+            .map(project_select_options)
+            .transpose()?
+            .unwrap_or_default();
+        let current_reasoning = reasoning_option.and_then(current_select_value);
+        let raw_models = self.models.as_ref().ok_or(Failure::Configuration)?;
+        let current_model = raw_models["currentModelId"].as_str().map(str::to_owned);
+        let models = raw_models["availableModels"]
+            .as_array()
+            .ok_or(Failure::Configuration)?
+            .iter()
+            .map(|model| {
+                let id = model["modelId"]
+                    .as_str()
+                    .ok_or(Failure::Configuration)?
+                    .to_owned();
+                let supports_reasoning = model
+                    .get("_meta")
+                    .and_then(|meta| meta.get("supportsReasoning"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true);
+                Ok(ExecutionModelOption {
+                    name: model["name"].as_str().unwrap_or(&id).to_owned(),
+                    description: model["description"].as_str().map(str::to_owned),
+                    id,
+                    is_default: false,
+                    hidden: false,
+                    reasoning_options: if supports_reasoning {
+                        reasoning_options.clone()
+                    } else {
+                        Vec::new()
+                    },
+                    default_reasoning: None,
+                })
+            })
+            .collect::<Result<Vec<_>, Failure>>()?;
+        Ok(ExecutionConfigurationCatalog {
+            provider_id: ProviderId::new("codebuddy".into()).expect("static provider id is valid"),
+            models,
+            current_model: current_model.or_else(|| model_option.and_then(current_select_value)),
+            default_model: None,
+            reasoning_options,
+            current_reasoning,
+            default_reasoning: None,
+        })
+    }
+
+    /// 临时 Provider catalog Session 逐模型读取真实 ACK，避免把当前模型的 thought_level
+    /// 误投影给其它模型。Runtime 查询完成后立即销毁，因此无需切回原模型。
+    pub(crate) async fn configuration_catalog_for_provider(
+        &mut self,
+        requests: &super::client::Requests,
+    ) -> Result<ExecutionConfigurationCatalog, Failure> {
+        let mut projected = self.configuration_catalog()?;
+        let original_current = projected.current_model.clone();
+        let session_id = self.response.session_id.clone();
+
+        for index in 0..projected.models.len() {
+            let model_id = projected.models[index].id.clone();
+            let supports_reasoning = self
+                .models
+                .as_ref()
+                .and_then(|models| models["availableModels"].as_array())
+                .and_then(|models| {
+                    models
+                        .iter()
+                        .find(|model| model["modelId"].as_str() == Some(model_id.as_str()))
+                })
+                .map(|model| {
+                    model
+                        .get("_meta")
+                        .and_then(|meta| meta.get("supportsReasoning"))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true)
+                })
+                .ok_or(Failure::Configuration)?;
+
+            if !supports_reasoning {
+                projected.models[index].reasoning_options.clear();
+                projected.models[index].default_reasoning = None;
+                continue;
+            }
+            if original_current.as_deref() == Some(model_id.as_str()) {
+                continue;
+            }
+
+            self.apply_named_option(
+                requests,
+                &session_id,
+                "model",
+                SessionConfigOptionCategory::Model,
+                &model_id,
+            )
+            .await?;
+            if let Some(models) = &mut self.models {
+                models["currentModelId"] = Value::String(model_id.clone());
+            }
+
+            let reasoning = self
+                .response
+                .config_options
+                .as_ref()
+                .and_then(|options| {
+                    options.iter().find(|option| {
+                        option.id.to_string() == "thought_level"
+                            && option.category == Some(SessionConfigOptionCategory::ThoughtLevel)
+                    })
+                })
+                .ok_or(Failure::Configuration)?;
+            projected.models[index].reasoning_options = project_select_options(reasoning)?;
+            // ACP exposes the current session value but does not distinguish it from a durable
+            // provider default, so do not infer default_reasoning here.
+            projected.models[index].default_reasoning = None;
+        }
+
+        Ok(projected)
+    }
+}
+
+/// 只投影 select 的稳定展示字段；group label 不进入 Product wire。
+fn project_select_options(
+    option: &SessionConfigOption,
+) -> Result<Vec<ExecutionConfigurationOption>, Failure> {
+    let SessionConfigKind::Select(select) = &option.kind else {
+        return Err(Failure::Configuration);
+    };
+    let entries: Vec<_> = match &select.options {
+        SessionConfigSelectOptions::Ungrouped(options) => options.iter().collect(),
+        SessionConfigSelectOptions::Grouped(groups) => groups
+            .iter()
+            .flat_map(|group| group.options.iter())
+            .collect(),
+        _ => return Err(Failure::Configuration),
+    };
+    Ok(entries
+        .into_iter()
+        .map(|entry| ExecutionConfigurationOption {
+            id: entry.value.to_string(),
+            name: entry.name.clone(),
+            description: entry.description.clone(),
+        })
+        .collect())
+}
+
+/// 读取 select 当前值；非 select 不作为模型或推理 authority。
+fn current_select_value(option: &SessionConfigOption) -> Option<String> {
+    let SessionConfigKind::Select(select) = &option.kind else {
+        return None;
+    };
+    Some(select.current_value.to_string())
 }
 
 /// 保留 SDK typed select/group 身份；未知类型不能作为配置授权。

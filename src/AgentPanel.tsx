@@ -11,13 +11,16 @@ import { api } from "./api";
 import { agentRequests } from "./agentRequests";
 import { providerCardPresentation, executionStatus, executionWorkspace, taskSummary } from "./agentPresentation";
 const ExecutionDetails = lazy(() => import("./ExecutionDetails").then(module => ({ default: module.ExecutionDetails })));
-import type { AgentAction, AgentProviderSettings, ExecutionView, ProviderCatalogSnapshot, Workspace } from "./types";
+import type { AgentAction, AgentProviderSettings, AgentRoleProviderDefaults, ExecutionConfigurationCatalog, ExecutionView, ProviderCatalogSnapshot, Workspace } from "./types";
 
 // Role 是固定协议域；Provider ID 与名称始终来自目录。
 const roleLabels = { development: "开发", testing: "测试", review: "评审", analysis: "分析", general: "通用" };
 type TaskRole = keyof AgentProviderSettings["roleRouting"];
 type RoleEdits = Partial<Record<TaskRole, { value: string | null; pending: boolean }>>;
 type ProviderEdits = Partial<Record<string, { value: boolean; pending: boolean }>>;
+type DefaultsValue = { model: string | null; reasoning: string | null };
+type DefaultsEdits = Record<string, { value: DefaultsValue; pending: boolean } | undefined>;
+type ConfigurationCatalogState = { loading: boolean; value?: ExecutionConfigurationCatalog; error?: boolean };
 
 export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, sidebarContainer, onShowTask, onShowAgent, onWorkspaceRename = async () => false, onWorkspaceRemove = async () => false, detailView = true }: { detailView?: boolean; sidebarContainer?: HTMLElement | null; onShowTask?: () => void; onShowAgent?: () => void; workspace: Workspace | null; workspaces?: Workspace[]; onSelectWorkspace?: () => void; onWorkspaceRename?: (id: string, name: string) => Promise<boolean>; onWorkspaceRemove?: (id: string) => Promise<boolean> }) {
   const [rows, setRows] = useState<ExecutionView[]>([]);
@@ -29,6 +32,13 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
   const [providerEdits, setProviderEdits] = useState<ProviderEdits>({});
   const providerEditsRef = useRef<ProviderEdits>({});
   const providerGenerations = useRef<Partial<Record<string, number>>>({});
+  const [defaultsEdits, setDefaultsEdits] = useState<DefaultsEdits>({});
+  const defaultsEditsRef = useRef<DefaultsEdits>({});
+  const defaultsGenerations = useRef<Record<string, number>>({});
+  const [configurationCatalogs, setConfigurationCatalogs] = useState<Record<string, ConfigurationCatalogState>>({});
+  // in-flight 与成功缓存分离：失败必须允许后续轮询重试，成功则避免重复启动临时 Runtime。
+  const configurationRequests = useRef(new Set<string>());
+  const configurationLoaded = useRef(new Set<string>());
   // 目录独立读取，失败不阻塞侧栏导航或详情操作。
   useEffect(() => {
     let disposed = false;
@@ -39,6 +49,7 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
       waiting = true;
       const generations = { ...roleGenerations.current };
       const enabledGenerations = { ...providerGenerations.current };
+      const savedDefaultsGenerations = { ...defaultsGenerations.current };
       try {
         const snapshot = await api.agentProviderCatalog();
         if (!disposed) {
@@ -57,6 +68,12 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
           }
           providerEditsRef.current = enabledEdits;
           setProviderEdits(enabledEdits);
+          const defaultEdits = { ...defaultsEditsRef.current };
+          for (const key of Object.keys(defaultEdits)) {
+            if (!defaultEdits[key]?.pending && savedDefaultsGenerations[key] === defaultsGenerations.current[key]) delete defaultEdits[key];
+          }
+          defaultsEditsRef.current = defaultEdits;
+          setDefaultsEdits(defaultEdits);
           setCatalog(snapshot);
           setCatalogError(false);
         }
@@ -68,6 +85,26 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
     const timer = setInterval(() => void refreshCatalog(), 1500);
     return () => { disposed = true; clearInterval(timer); };
   }, []);
+  // 只为当前角色实际选中的 Provider 查询动态目录；查询失败不改写设置。
+  useEffect(() => {
+    if (!catalog || !workspace) return;
+    const providers = new Set((Object.keys(roleLabels) as TaskRole[])
+      .map(role => roleEditsRef.current[role] ? roleEditsRef.current[role]!.value : catalog.roleRouting[role] ?? null)
+      .filter((value): value is string => value !== null));
+    for (const providerId of providers) {
+      const key = `${workspace.id}:${workspace.generation}:${providerId}`;
+      if (configurationLoaded.current.has(key) || configurationRequests.current.has(key)) continue;
+      configurationRequests.current.add(key);
+      setConfigurationCatalogs(old => ({ ...old, [key]: { loading: true } }));
+      void api.agentProviderConfigurationCatalog(providerId, workspace.id).then(value => {
+        configurationLoaded.current.add(key);
+        setConfigurationCatalogs(old => ({ ...old, [key]: { loading: false, value } }));
+      }).catch(() => {
+        // 失败不能进入成功缓存；下一次 Provider catalog poll 会再次尝试同一个 key。
+        setConfigurationCatalogs(old => ({ ...old, [key]: { loading: false, error: true } }));
+      }).finally(() => configurationRequests.current.delete(key));
+    }
+  }, [catalog, roleEdits, workspace]);
   /** 独立提交一个角色，返回全量 settings 时仅采纳当前角色，避免乱序响应覆盖其它保存。 */
   async function saveRoleRoute(role: TaskRole, providerId: string | null) {
     if (!catalog || roleEditsRef.current[role]?.pending) return;
@@ -87,6 +124,33 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
       roleGenerations.current[role] = (roleGenerations.current[role] ?? 0) + 1;
       roleEditsRef.current = { ...roleEditsRef.current, [role]: { value, pending: false } };
       setRoleEdits(roleEditsRef.current);
+    }
+  }
+  /** 保存当前 role/provider 的完整稀疏 entry，避免模型与推理并行写互相覆盖。 */
+  async function saveRoleDefaults(role: TaskRole, providerId: string, next: DefaultsValue) {
+    if (!catalog) return;
+    const key = `${role}:${providerId}`;
+    if (defaultsEditsRef.current[key]?.pending) return;
+    const persisted = catalog.roleDefaults?.[role]?.[providerId];
+    const previous = defaultsEditsRef.current[key]?.value ?? {
+      model: persisted?.model ?? null,
+      reasoning: persisted?.reasoning ?? null,
+    };
+    if (previous.model === next.model && previous.reasoning === next.reasoning) return;
+    defaultsGenerations.current[key] = (defaultsGenerations.current[key] ?? 0) + 1;
+    defaultsEditsRef.current = { ...defaultsEditsRef.current, [key]: { value: next, pending: true } };
+    setDefaultsEdits(defaultsEditsRef.current);
+    let value = previous;
+    try {
+      const settings = await api.agentProviderSetRoleDefaults(role, providerId, next satisfies AgentRoleProviderDefaults);
+      const saved = settings.roleDefaults?.[role]?.[providerId];
+      value = { model: saved?.model ?? null, reasoning: saved?.reasoning ?? null };
+    } catch {
+      toast.error(`${roleLabels[role]}角色默认配置保存失败，已恢复原设置，请重试。`);
+    } finally {
+      defaultsGenerations.current[key] = (defaultsGenerations.current[key] ?? 0) + 1;
+      defaultsEditsRef.current = { ...defaultsEditsRef.current, [key]: { value, pending: false } };
+      setDefaultsEdits(defaultsEditsRef.current);
     }
   }
   /** 只采纳本 Provider 的持久化结果，保留并行角色保存与其它 Provider 的状态。 */
@@ -350,24 +414,73 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
     </section>
     <section className="agent-role-routing" aria-labelledby="agent-role-heading">
       <h2 id="agent-role-heading">角色分工</h2>
-      <p className="agent-muted">为不同角色指定 Agent，仅影响后续任务；停用或未注册的绑定会保留。</p>
+      <p className="agent-muted">为不同角色指定 Agent、默认模型和推理强度，仅影响后续任务；停用或未注册的绑定与配置会保留。</p>
       {!catalog && <p role="status" className="agent-muted">{catalogError ? "角色分工暂不可用，等待接入信息恢复。" : "正在加载角色分工…"}</p>}
+      {catalog && !workspace && <p role="status" className="agent-muted">请选择工作区后读取 Provider 模型与推理目录；已保存配置会继续保留。</p>}
       {catalog && <div className="agent-role-grid">{(Object.keys(roleLabels) as TaskRole[]).map(role => {
         const edit = roleEdits[role];
         const value = edit ? edit.value : catalog.roleRouting[role] ?? null;
         const unknown = value !== null && !catalog.providers.some(provider => provider.id === value);
+        const defaultsKey = value === null ? null : `${role}:${value}`;
+        const persistedDefaults = value === null ? undefined : catalog.roleDefaults?.[role]?.[value];
+        const defaultsEdit = defaultsKey ? defaultsEdits[defaultsKey] : undefined;
+        const defaults = defaultsEdit?.value ?? { model: persistedDefaults?.model ?? null, reasoning: persistedDefaults?.reasoning ?? null };
+        const configurationKey = workspace && value ? `${workspace.id}:${workspace.generation}:${value}` : null;
+        const configuration = configurationKey ? configurationCatalogs[configurationKey] : undefined;
+        const loadedCatalog = configuration?.value;
+        const selectableModels = loadedCatalog?.models.filter(model => !model.hidden) ?? [];
+        const unavailableModel = defaults.model !== null && !selectableModels.some(model => model.id === defaults.model);
+        const effectiveModel = defaults.model ?? loadedCatalog?.currentModel ?? loadedCatalog?.defaultModel ?? null;
+        const selectedModel = loadedCatalog?.models.find(model => model.id === effectiveModel);
+        // 模型级空列表表示明确不支持 reasoning；只有目录未给出模型时才使用全局 fallback。
+        const reasoningOptions = selectedModel
+          ? selectedModel.reasoningOptions
+          : loadedCatalog?.reasoningOptions ?? [];
+        const unavailableReasoning = defaults.reasoning !== null && !reasoningOptions.some(option => option.id === defaults.reasoning);
+        const loadingConfiguration = !!value && !!workspace && (!configuration || configuration.loading);
+        const configurationUnavailable = !!configuration?.error;
+        const reasoningUnsupported = !!loadedCatalog && reasoningOptions.length === 0;
+        const defaultsPending = defaultsEdit?.pending;
+        const modelControlValue = !value ? "no-provider" : !workspace ? "no-workspace" : loadingConfiguration ? "loading" : configurationUnavailable ? "unavailable" : defaults.model === null ? "default" : `value:${defaults.model}`;
+        const reasoningControlValue = !value ? "no-provider" : !workspace ? "no-workspace" : loadingConfiguration ? "loading" : configurationUnavailable ? "unavailable" : defaults.reasoning !== null ? `value:${defaults.reasoning}` : reasoningUnsupported ? "unsupported" : "default";
         return <div className="agent-role-row" key={role}>
           <label id={`agent-role-label-${role}`} htmlFor={`agent-role-${role}`}>{roleLabels[role]}</label>
           {/* 给所有 Provider 值加前缀，避免合法 ID 与清空 sentinel 冲突。 */}
           <Select value={value === null ? "none" : `provider:${value}`} disabled={edit?.pending} onValueChange={next => void saveRoleRoute(role, next === "none" ? null : next.slice("provider:".length))}>
             <SelectTrigger id={`agent-role-${role}`} size="sm" aria-labelledby={`agent-role-label-${role}`}><SelectValue /></SelectTrigger>
-            <SelectContent>
+            <SelectContent position="popper" align="start">
               <SelectItem value="none">未指定 Agent</SelectItem>
               {catalog.providers.map(provider => <SelectItem key={provider.id} value={`provider:${provider.id}`}>{provider.displayName?.trim() || provider.id}{!(providerEdits[provider.id]?.value ?? provider.enabled) && " · 已停用"}</SelectItem>)}
               {unknown && <SelectItem value={`provider:${value}`}>{value} · 未注册</SelectItem>}
             </SelectContent>
           </Select>
-          {edit?.pending && <span role="status" className="agent-muted">正在保存…</span>}
+          <Select value={modelControlValue} disabled={!value || !workspace || loadingConfiguration || configurationUnavailable || defaultsPending} onValueChange={next => value && void saveRoleDefaults(role, value, { ...defaults, model: next === "default" ? null : next.slice("value:".length) })}>
+            <SelectTrigger size="sm" aria-label={`${roleLabels[role]}默认模型`}><SelectValue /></SelectTrigger>
+            <SelectContent position="popper" align="start">
+              {!value && <SelectItem value="no-provider">请先指定 Agent</SelectItem>}
+              {value && !workspace && <SelectItem value="no-workspace">需要工作区</SelectItem>}
+              {loadingConfiguration && <SelectItem value="loading">正在加载…</SelectItem>}
+              {configurationUnavailable && <SelectItem value="unavailable">目录不可用</SelectItem>}
+              {value && workspace && !loadingConfiguration && !configurationUnavailable && <SelectItem value="default">跟随 Provider 默认</SelectItem>}
+              {selectableModels.map(model => <SelectItem key={model.id} value={`value:${model.id}`}>{model.name}{model.isDefault && " · Provider 默认"}</SelectItem>)}
+              {!!loadedCatalog && unavailableModel && <SelectItem disabled value={`value:${defaults.model}`}>{defaults.model} · 当前不可用</SelectItem>}
+            </SelectContent>
+          </Select>
+          <Select value={reasoningControlValue} disabled={!value || !workspace || loadingConfiguration || configurationUnavailable || reasoningUnsupported || defaultsPending} onValueChange={next => value && void saveRoleDefaults(role, value, { ...defaults, reasoning: next === "default" ? null : next.slice("value:".length) })}>
+            <SelectTrigger size="sm" aria-label={`${roleLabels[role]}推理强度`}><SelectValue /></SelectTrigger>
+            <SelectContent position="popper" align="start">
+              {!value && <SelectItem value="no-provider">请先指定 Agent</SelectItem>}
+              {value && !workspace && <SelectItem value="no-workspace">需要工作区</SelectItem>}
+              {loadingConfiguration && <SelectItem value="loading">正在加载…</SelectItem>}
+              {configurationUnavailable && <SelectItem value="unavailable">目录不可用</SelectItem>}
+              {reasoningUnsupported && defaults.reasoning === null && <SelectItem value="unsupported">不支持</SelectItem>}
+              {value && workspace && !loadingConfiguration && !configurationUnavailable && !reasoningUnsupported && <SelectItem value="default">跟随 Provider 默认</SelectItem>}
+              {reasoningOptions.map(option => <SelectItem key={option.id} value={`value:${option.id}`}>{option.name}{selectedModel?.defaultReasoning === option.id && " · Provider 默认"}</SelectItem>)}
+              {!!loadedCatalog && unavailableReasoning && <SelectItem disabled value={`value:${defaults.reasoning}`}>{defaults.reasoning} · 当前不可用</SelectItem>}
+            </SelectContent>
+          </Select>
+          {(edit?.pending || defaultsPending) && <span role="status" className="agent-muted">正在保存…</span>}
+          {configurationUnavailable && <span role="status" className="agent-muted">目录不可用，已保留设置</span>}
         </div>;
       })}</div>}
     </section>

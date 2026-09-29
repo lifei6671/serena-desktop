@@ -1,4 +1,5 @@
 use crate::agent::{execution::AgentTaskRole, provider::ProviderId};
+use rmcp::schemars;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -135,6 +136,18 @@ pub struct AgentProviderPolicy {
 pub struct AgentProviderSettings {
     pub providers: BTreeMap<String, AgentProviderPolicy>,
     pub role_routing: BTreeMap<String, Option<ProviderId>>,
+    #[serde(default)]
+    pub role_defaults: BTreeMap<String, BTreeMap<String, AgentRoleProviderDefaults>>,
+}
+
+/// 单个角色/Provider 的默认执行配置；null 与缺失都表示跟随 Provider 默认。
+#[derive(
+    Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, rmcp::schemars::JsonSchema,
+)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct AgentRoleProviderDefaults {
+    pub model: Option<String>,
+    pub reasoning: Option<String>,
 }
 
 impl Default for AgentProviderSettings {
@@ -151,6 +164,7 @@ impl Default for AgentProviderSettings {
         Self {
             providers,
             role_routing,
+            role_defaults: BTreeMap::new(),
         }
     }
 }
@@ -175,6 +189,24 @@ impl AgentProviderSettings {
             return Err(format!(
                 "{AGENT_PROVIDER_CONFIG_INVALID}: roleRouting must contain exactly development, testing, review, analysis, general"
             ));
+        }
+        for (role, providers) in &self.role_defaults {
+            if !AGENT_TASK_ROLES.iter().any(|known| known.as_str() == role) {
+                return Err(format!(
+                    "{AGENT_PROVIDER_CONFIG_INVALID}: roleDefaults contains unknown role {role}"
+                ));
+            }
+            for (provider_id, defaults) in providers {
+                ProviderId::new(provider_id.clone()).map_err(|error| {
+                    format!("{AGENT_PROVIDER_CONFIG_INVALID}: roleDefaults provider id: {error}")
+                })?;
+                crate::agent::execution::ExecutionProfile {
+                    model: defaults.model.clone(),
+                    reasoning: defaults.reasoning.clone(),
+                }
+                .validate()
+                .map_err(|error| format!("{AGENT_PROVIDER_CONFIG_INVALID}: {error}"))?;
+            }
         }
         Ok(())
     }
@@ -792,6 +824,66 @@ mod tests {
             );
         }
         assert_eq!(fs::read_to_string(&path).unwrap(), legacy);
+        assert!(config.agent_providers.role_defaults.is_empty());
+    }
+
+    /// roleDefaults 保留未知 Provider，同时拒绝未知角色和非法字符串。
+    #[test]
+    fn role_provider_defaults_round_trip_unknown_provider_and_reject_invalid_values() {
+        let mut config = ManagerConfig::default();
+        config
+            .agent_providers
+            .role_defaults
+            .entry("testing".into())
+            .or_default()
+            .insert(
+                "future-provider".into(),
+                AgentRoleProviderDefaults {
+                    model: Some("future-model".into()),
+                    reasoning: Some("future-effort".into()),
+                },
+            );
+        assert!(config.validate().is_ok());
+        let value = serde_json::to_value(&config).unwrap();
+        let loaded: ManagerConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded, config);
+
+        let mut invalid_role = config.clone();
+        invalid_role
+            .agent_providers
+            .role_defaults
+            .insert("deploy".into(), Default::default());
+        assert!(
+            invalid_role
+                .validate()
+                .unwrap_err()
+                .contains("unknown role")
+        );
+        let mut invalid_provider = config.clone();
+        invalid_provider
+            .agent_providers
+            .role_defaults
+            .entry("testing".into())
+            .or_default()
+            .insert("bad provider".into(), Default::default());
+        assert!(
+            invalid_provider
+                .validate()
+                .unwrap_err()
+                .contains("provider id")
+        );
+        for value in [String::new(), "   ".into(), "x".repeat(257)] {
+            let mut invalid = config.clone();
+            invalid
+                .agent_providers
+                .role_defaults
+                .get_mut("testing")
+                .unwrap()
+                .get_mut("future-provider")
+                .unwrap()
+                .model = Some(value);
+            assert!(invalid.validate().is_err());
+        }
     }
 
     #[test]

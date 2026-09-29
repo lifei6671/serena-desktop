@@ -38,6 +38,11 @@ const REQUIRED_METHODS: &[MethodRequirement] = &[
     },
     MethodRequirement {
         union: "ClientRequest",
+        method: "model/list",
+        has_params: true,
+    },
+    MethodRequirement {
+        union: "ClientRequest",
         method: "thread/start",
         has_params: true,
     },
@@ -243,6 +248,90 @@ const REQUIRED_FIELDS: &[FieldRequirement] = &[
         expected_type: "array",
     },
     FieldRequirement {
+        definition: "v2/ThreadStartParams",
+        property: "model",
+        required: false,
+        expected_type: "string",
+    },
+    FieldRequirement {
+        definition: "v2/ModelListParams",
+        property: "cursor",
+        required: false,
+        expected_type: "string",
+    },
+    FieldRequirement {
+        definition: "v2/ModelListParams",
+        property: "limit",
+        required: false,
+        expected_type: "integer",
+    },
+    FieldRequirement {
+        definition: "v2/ModelListParams",
+        property: "includeHidden",
+        required: false,
+        expected_type: "boolean",
+    },
+    FieldRequirement {
+        definition: "v2/ModelListResponse",
+        property: "data",
+        required: true,
+        expected_type: "array",
+    },
+    FieldRequirement {
+        definition: "v2/Model",
+        property: "id",
+        required: true,
+        expected_type: "string",
+    },
+    FieldRequirement {
+        definition: "v2/Model",
+        property: "model",
+        required: true,
+        expected_type: "string",
+    },
+    FieldRequirement {
+        definition: "v2/Model",
+        property: "displayName",
+        required: true,
+        expected_type: "string",
+    },
+    FieldRequirement {
+        definition: "v2/Model",
+        property: "description",
+        required: true,
+        expected_type: "string",
+    },
+    FieldRequirement {
+        definition: "v2/Model",
+        property: "isDefault",
+        required: true,
+        expected_type: "boolean",
+    },
+    FieldRequirement {
+        definition: "v2/Model",
+        property: "hidden",
+        required: true,
+        expected_type: "boolean",
+    },
+    FieldRequirement {
+        definition: "v2/Model",
+        property: "supportedReasoningEfforts",
+        required: true,
+        expected_type: "array",
+    },
+    FieldRequirement {
+        definition: "v2/Model",
+        property: "defaultReasoningEffort",
+        required: true,
+        expected_type: "string",
+    },
+    FieldRequirement {
+        definition: "v2/ReasoningEffortOption",
+        property: "reasoningEffort",
+        required: true,
+        expected_type: "string",
+    },
+    FieldRequirement {
         definition: "v2/ThreadResumeParams",
         property: "threadId",
         required: true,
@@ -313,6 +402,18 @@ const REQUIRED_FIELDS: &[FieldRequirement] = &[
         property: "input",
         required: true,
         expected_type: "array",
+    },
+    FieldRequirement {
+        definition: "v2/TurnStartParams",
+        property: "model",
+        required: false,
+        expected_type: "string",
+    },
+    FieldRequirement {
+        definition: "v2/TurnStartParams",
+        property: "effort",
+        required: false,
+        expected_type: "string",
     },
     FieldRequirement {
         definition: "v2/TurnInterruptParams",
@@ -858,11 +959,10 @@ pub(crate) fn validate_schema(bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// 为 managed fake app-server 生成覆盖当前兼容性子集的最小 schema。
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(crate) fn compatible_schema_for_test() -> Value {
     use serde_json::{Map, json};
-
     /// 按路径创建测试定义，避免复制真实 Codex 的大型 schema。
     fn insert_definition(schema: &mut Value, path: &str, value: Value) {
         let mut node = schema
@@ -883,64 +983,69 @@ mod tests {
         }
     }
 
-    /// 构造覆盖当前兼容性子集的最小 schema。
-    fn compatible_schema() -> Value {
-        let mut schema = json!({"definitions": {}});
-        let mut unions: std::collections::BTreeMap<&str, Vec<Value>> = Default::default();
-        for (index, requirement) in REQUIRED_METHODS.iter().enumerate() {
-            let mut required = vec![json!("method")];
-            let mut properties = json!({
-                "method": {"const": requirement.method}
-            });
-            if requirement.has_params {
-                let definition_name = format!("TestParams{index}");
-                insert_definition(
-                    &mut schema,
-                    &definition_name,
-                    json!({"type": "object", "properties": {}}),
-                );
-                required.push(json!("params"));
-                properties["params"] = json!({"$ref": format!("#/definitions/{definition_name}")});
-            }
-            unions
-                .entry(requirement.union)
-                .or_default()
-                .push(json!({"type": "object", "properties": properties, "required": required}));
-        }
-        for (name, branches) in unions {
-            insert_definition(&mut schema, name, json!({"oneOf": branches}));
-        }
-
-        let mut objects: std::collections::BTreeMap<&str, (Map<String, Value>, Vec<Value>)> =
-            Default::default();
-        for requirement in REQUIRED_FIELDS {
-            let (properties, required) = objects.entry(requirement.definition).or_default();
-            properties.insert(
-                requirement.property.to_owned(),
-                json!({"type": requirement.expected_type}),
-            );
-            if requirement.required {
-                required.push(json!(requirement.property));
-            }
-        }
-        for (name, (properties, required)) in objects {
+    let mut schema = json!({"definitions": {}});
+    let mut unions: std::collections::BTreeMap<&str, Vec<Value>> = Default::default();
+    for (index, requirement) in REQUIRED_METHODS.iter().enumerate() {
+        let mut required = vec![json!("method")];
+        let mut properties = json!({"method": {"const": requirement.method}});
+        if requirement.has_params {
+            let definition_name = format!("TestParams{index}");
             insert_definition(
                 &mut schema,
-                name,
-                json!({"type": "object", "properties": properties, "required": required}),
+                &definition_name,
+                json!({"type": "object", "properties": {}}),
             );
+            required.push(json!("params"));
+            properties["params"] = json!({"$ref": format!("#/definitions/{definition_name}")});
         }
+        unions
+            .entry(requirement.union)
+            .or_default()
+            .push(json!({"type": "object", "properties": properties, "required": required}));
+    }
+    for (name, branches) in unions {
+        insert_definition(&mut schema, name, json!({"oneOf": branches}));
+    }
+    let mut objects: std::collections::BTreeMap<&str, (Map<String, Value>, Vec<Value>)> =
+        Default::default();
+    for requirement in REQUIRED_FIELDS {
+        let (properties, required) = objects.entry(requirement.definition).or_default();
+        properties.insert(
+            requirement.property.to_owned(),
+            json!({"type": requirement.expected_type}),
+        );
+        if requirement.required {
+            required.push(json!(requirement.property));
+        }
+    }
+    for (name, (properties, required)) in objects {
         insert_definition(
             &mut schema,
-            "v2/ThreadItem",
-            json!({
-                "oneOf": REQUIRED_THREAD_ITEM_VARIANTS
-                    .iter()
-                    .map(|kind| json!({"properties": {"type": {"const": kind}}}))
-                    .collect::<Vec<_>>()
-            }),
+            name,
+            json!({"type": "object", "properties": properties, "required": required}),
         );
-        schema
+    }
+    insert_definition(
+        &mut schema,
+        "v2/ThreadItem",
+        json!({
+            "oneOf": REQUIRED_THREAD_ITEM_VARIANTS
+                .iter()
+                .map(|kind| json!({"properties": {"type": {"const": kind}}}))
+                .collect::<Vec<_>>()
+        }),
+    );
+    schema
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// 构造覆盖当前兼容性子集的最小 schema。
+    fn compatible_schema() -> Value {
+        compatible_schema_for_test()
     }
 
     /// 新增方法、字段和分支不应导致兼容性拒绝。

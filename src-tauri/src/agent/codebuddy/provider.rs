@@ -1,11 +1,14 @@
 //! CodeBuddy Windows Fresh Execute 与历史 Runtime recovery；能力由已验证的平台边界声明。
 
-use std::sync::{Arc, Mutex};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use crate::agent::provider::{
-    ProviderCancelContext, ProviderCapabilities, ProviderDescriptor, ProviderError,
-    ProviderErrorCode, ProviderExecutionContext, ProviderId, ProviderRunResult,
-    ProviderStartupContext,
+    ProviderCancelContext, ProviderCapabilities, ProviderConfigurationCatalogContext,
+    ProviderDescriptor, ProviderError, ProviderErrorCode, ProviderExecutionContext, ProviderId,
+    ProviderRunResult, ProviderStartupContext,
     port::{
         AgentEventSink, AgentProvider, ProviderAcceptanceSink, ProviderContinuationContext,
         ProviderContinuationDecision, ProviderExecutionFailure, ProviderFuture,
@@ -36,6 +39,8 @@ pub(crate) struct CodeBuddyProvider {
     discovery: Option<DiscoveryResult>,
     discovery_error: Option<DiscoveryError>,
     admission_diagnostic: Arc<RuntimeAdmissionDiagnostic>,
+    #[cfg(test)]
+    test_limits: Option<super::protocol::Limits>,
 }
 
 /// adapter-local runtime 诊断；只接受 typed deterministic incompatibility。
@@ -57,6 +62,61 @@ impl RuntimeAdmissionDiagnostic {
 }
 
 impl CodeBuddyProvider {
+    /// 使用非持久化受管 Job 查询一次 ACP Session 目录，并在返回前完整关闭。
+    #[cfg(windows)]
+    async fn read_configuration_catalog(
+        &self,
+        context: ProviderConfigurationCatalogContext,
+    ) -> Result<crate::agent::provider::ExecutionConfigurationCatalog, ProviderError> {
+        use super::{
+            fresh::SessionCatalog,
+            protocol::{Failure, Limits},
+            runtime::Runtime,
+            windows_launcher::{LaunchRequest, UncCurrentDirectoryPolicy},
+        };
+        use agent_client_protocol::schema::v1::NewSessionRequest;
+        let resolved = self.resolved_launch_spec().ok_or(ProviderError {
+            code: ProviderErrorCode::AgentProviderUnavailable,
+        })?;
+        let runtime_id = format!(
+            "codebuddy-catalog-{}",
+            super::store::new_conversation_id().map_err(|_| ProviderError {
+                code: ProviderErrorCode::AgentProviderOperationFailed,
+            })?
+        );
+        let request = LaunchRequest::from_resolved(
+            resolved,
+            Path::new(&context.cwd),
+            UncCurrentDirectoryPolicy::Unsupported,
+            runtime_id,
+        )
+        .map_err(|_| ProviderError {
+            code: ProviderErrorCode::AgentProviderOperationFailed,
+        })?;
+        let cwd = request.projected_cwd().as_path().to_owned();
+        let (runtime, _) = Runtime::start(request, Limits::default())
+            .await
+            .map_err(catalog_failure)?;
+        let result = async {
+            let requests = &runtime.client.as_ref().ok_or(Failure::Closed)?.requests;
+            let response = requests.request(NewSessionRequest::new(cwd)).await?;
+            let session_id = response.session_id.to_string();
+            let extensions = requests.shared.take_session_new_extensions(&session_id)?;
+            requests.shared.register_route(&session_id)?;
+            let frames = requests.shared.take_session(&session_id)?;
+            let mut catalog = SessionCatalog {
+                response,
+                models: extensions.models,
+            };
+            catalog.replay(&session_id, &frames)?;
+            catalog.configuration_catalog_for_provider(requests).await
+        }
+        .await;
+        let cleanup = runtime.shutdown().await;
+        cleanup.map_err(catalog_failure)?;
+        result.map_err(catalog_failure)
+    }
+
     /// 内部准备入口复用生产 fresh primitive，供独立准备与 crash-window 测试。
     #[cfg(windows)]
     #[allow(dead_code, reason = "内部准备入口供独立 lifecycle 验证")]
@@ -90,6 +150,8 @@ impl CodeBuddyProvider {
                 discovery: Some(discovery),
                 discovery_error: None,
                 admission_diagnostic: Arc::new(RuntimeAdmissionDiagnostic::default()),
+                #[cfg(test)]
+                test_limits: None,
             },
             Err(error) => Self {
                 store,
@@ -97,8 +159,16 @@ impl CodeBuddyProvider {
                 discovery: None,
                 discovery_error: Some(error),
                 admission_diagnostic: Arc::new(RuntimeAdmissionDiagnostic::default()),
+                #[cfg(test)]
+                test_limits: None,
             },
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_limits_for_test(mut self, limits: super::protocol::Limits) -> Self {
+        self.test_limits = Some(limits);
+        self
     }
 
     /// 返回当前 registered adapter 冻结的 LaunchSpec，execute 不重新 discovery 或 fallback。
@@ -156,6 +226,22 @@ fn unsupported() -> ProviderError {
     }
 }
 
+/// 将配置目录失败压缩为稳定 Provider 错误，不暴露 ACP payload。
+#[cfg(windows)]
+fn catalog_failure(failure: super::protocol::Failure) -> ProviderError {
+    let code = if matches!(
+        failure,
+        super::protocol::Failure::Incompatible
+            | super::protocol::Failure::Malformed
+            | super::protocol::Failure::Configuration
+    ) {
+        ProviderErrorCode::AgentProviderContractError
+    } else {
+        ProviderErrorCode::AgentProviderOperationFailed
+    };
+    ProviderError { code }
+}
+
 impl AgentProvider for CodeBuddyProvider {
     /// descriptor 只投影身份与 best-effort 产品版本，不携带 command/args authority。
     fn descriptor(&self) -> ProviderDescriptor {
@@ -178,6 +264,25 @@ impl AgentProvider for CodeBuddyProvider {
             can_recover: cfg!(windows),
             activity: cfg!(windows),
             token_usage: false,
+        }
+    }
+
+    /// 配置目录复用正式 launcher/ACP guard，但没有 Execution 或 Claim authority。
+    fn configuration_catalog<'a>(
+        &'a self,
+        context: ProviderConfigurationCatalogContext,
+    ) -> ProviderFuture<
+        'a,
+        Result<crate::agent::provider::ExecutionConfigurationCatalog, ProviderError>,
+    > {
+        #[cfg(windows)]
+        {
+            Box::pin(async move { self.read_configuration_catalog(context).await })
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = context;
+            Box::pin(async { Err(unsupported()) })
         }
     }
 
@@ -227,6 +332,10 @@ impl AgentProvider for CodeBuddyProvider {
             let owner = self.owner.clone();
             let resolved = self.resolved_launch_spec().cloned();
             let admission_diagnostic = self.admission_diagnostic.clone();
+            #[cfg(test)]
+            let limits = self.test_limits.unwrap_or_default();
+            #[cfg(not(test))]
+            let limits = super::protocol::Limits::default();
             Box::pin(async move {
                 let resolved = resolved.ok_or_else(|| {
                     ProviderExecutionFailure::State("CODEBUDDY_ACP_LAUNCH_FAILED".into())
@@ -243,6 +352,7 @@ impl AgentProvider for CodeBuddyProvider {
                     super::execute::RunControl {
                         cancelled,
                         admission_diagnostic,
+                        limits,
                     },
                 ));
                 let result = task.await.map_err(|_| {

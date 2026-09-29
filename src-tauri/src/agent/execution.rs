@@ -2,6 +2,57 @@
 use super::provider::ProviderId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+/// 随 Execution 持久化的 Provider-neutral 执行配置。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct ExecutionProfile {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+}
+
+impl ExecutionProfile {
+    pub const VALUE_MAX_BYTES: usize = 256;
+
+    /// 校验一次冻结配置；Provider-specific 枚举只能由运行时目录继续验证。
+    pub fn validate(&self) -> Result<(), String> {
+        for (name, value) in [("model", &self.model), ("reasoning", &self.reasoning)] {
+            if let Some(value) = value
+                && (value.trim().is_empty()
+                    || value.len() > Self::VALUE_MAX_BYTES
+                    || value.chars().any(char::is_control))
+            {
+                return Err(format!(
+                    "execution_profile.{name} must be a non-empty string of at most {} bytes",
+                    Self::VALUE_MAX_BYTES
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// 从 Product wire 解析并拒绝额外字段，防止 Provider 私有选项泄漏到持久化契约。
+    pub fn from_value(value: Value) -> Result<Self, String> {
+        if !value.is_object() {
+            return Err("execution_profile must be a JSON object".into());
+        }
+        let profile: Self = serde_json::from_value(value).map_err(|error| error.to_string())?;
+        profile.validate()?;
+        Ok(profile)
+    }
+
+    /// 从持久化 JSON 解析冻结配置。
+    pub fn from_json(value: &str) -> Result<Self, String> {
+        Self::from_value(serde_json::from_str(value).map_err(|error| error.to_string())?)
+    }
+
+    /// 生成稀疏 wire；两个字段都缺失时保持历史 `{}`。
+    pub fn to_value(&self) -> Value {
+        serde_json::to_value(self).expect("ExecutionProfile serialization is infallible")
+    }
+}
 use sha2::{Digest, Sha256};
 
 pub mod state;
@@ -101,13 +152,11 @@ impl CanonicalRequest {
 
 /// Single canonicalization/hash entry point. See docs/tasks/TASK-001-implementation.md.
 pub fn canonicalize_request(input: CreateExecutionInput) -> Result<CanonicalRequest, String> {
-    if !input.execution_profile.is_object() {
-        return Err("execution_profile must be a JSON object".into());
-    }
+    let profile = ExecutionProfile::from_value(input.execution_profile.clone())?;
     if input.workspace_generation == 0 || input.workspace_generation > i64::MAX as u64 {
         return Err("workspace_generation must be a positive SQLite integer".into());
     }
-    let profile_json = canonical_json(&input.execution_profile);
+    let profile_json = canonical_json(&profile.to_value());
     // v3 保留 v2 字段顺序，以 JSON tuple framing 在末尾追加固定角色 wire 值。
     // Profile 以 canonical JSON 字符串嵌入，不依赖输入 map 的遍历顺序。
     let bytes = serde_json::to_vec(&(
@@ -142,10 +191,8 @@ pub fn canonicalize_request(input: CreateExecutionInput) -> Result<CanonicalRequ
 pub(crate) fn legacy_pre_workspace_generation_hash(
     input: &CreateExecutionInput,
 ) -> Result<String, String> {
-    if !input.execution_profile.is_object() {
-        return Err("execution_profile must be a JSON object".into());
-    }
-    let profile_json = canonical_json(&input.execution_profile);
+    let profile = ExecutionProfile::from_value(input.execution_profile.clone())?;
+    let profile_json = canonical_json(&profile.to_value());
     let bytes = serde_json::to_vec(&(
         "execution-request-v1",
         &input.agent_id,
@@ -167,10 +214,8 @@ pub(crate) fn legacy_pre_workspace_generation_hash(
 
 /// 冻结的 v2 tuple 仅用于核对既有 General Execution，不用于新请求写入。
 pub(crate) fn legacy_v2_request_hash(input: &CreateExecutionInput) -> Result<String, String> {
-    if !input.execution_profile.is_object() {
-        return Err("execution_profile must be a JSON object".into());
-    }
-    let profile_json = canonical_json(&input.execution_profile);
+    let profile = ExecutionProfile::from_value(input.execution_profile.clone())?;
+    let profile_json = canonical_json(&profile.to_value());
     let bytes = serde_json::to_vec(&(
         "execution-request-v2",
         &input.agent_id,
@@ -219,10 +264,8 @@ pub(crate) fn legacy_pre_c2_continuation_hash(
     input: &CreateExecutionInput,
     source_thread_id: &Option<String>,
 ) -> Result<String, String> {
-    if !input.execution_profile.is_object() {
-        return Err("execution_profile must be a JSON object".into());
-    }
-    let profile_json = canonical_json(&input.execution_profile);
+    let profile = ExecutionProfile::from_value(input.execution_profile.clone())?;
+    let profile_json = canonical_json(&profile.to_value());
     let bytes = serde_json::to_vec(&(
         "execution-request-v1",
         &input.agent_id,

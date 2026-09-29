@@ -265,6 +265,45 @@ async fn persisted_result_is_opt_in_repeatable_and_does_not_change_revision_or_s
 }
 
 #[tokio::test]
+async fn legacy_plain_text_result_projects_to_public_final_answer_without_rewriting_storage() {
+    let (dir, store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    let raw = json!({"text":"ROLE_DEFAULTS_CODEBUDDY_OK"});
+    db.execute(
+        "UPDATE executions SET final_result_json=?1 WHERE id='e'",
+        [raw.to_string()],
+    )
+    .unwrap();
+
+    let before = store.execution("e".into()).await.unwrap().unwrap();
+    let full = service
+        .checked_operation(
+            json!({"action":"observe","executionId":"e","includeResult":true,"waitMs":0}),
+            None,
+        )
+        .await;
+    assert_eq!(
+        full["data"]["finalResult"],
+        json!({"finalResult":[{"type":"agentMessage","phase":"final_answer","text":"ROLE_DEFAULTS_CODEBUDDY_OK"}]})
+    );
+    assert_eq!(store.execution("e".into()).await.unwrap().unwrap(), before);
+
+    let complex = json!({"text":"arbitrary","prompt":"never result"});
+    db.execute(
+        "UPDATE executions SET final_result_json=?1 WHERE id='e'",
+        [complex.to_string()],
+    )
+    .unwrap();
+    let preserved = service
+        .checked_operation(
+            json!({"action":"observe","executionId":"e","includeResult":true,"waitMs":0}),
+            None,
+        )
+        .await;
+    assert_eq!(preserved["data"]["finalResult"], complex);
+}
+
+#[tokio::test]
 async fn revisions_separate_control_activity_and_store_cas() {
     let (dir, _store, service) = pending().await;
     let mut view = service.observe("e".into(), false).await.unwrap();

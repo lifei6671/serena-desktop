@@ -565,7 +565,14 @@ async fn setup(
     let peer = control.path().join("peer.exe");
     std::fs::copy(binary, &peer).unwrap();
     let discovery = DiscoveryResult::direct_for_test(peer);
-    let provider = CodeBuddyProvider::from_discovery(store.clone(), "host".into(), Ok(discovery));
+    let mut provider =
+        CodeBuddyProvider::from_discovery(store.clone(), "host".into(), Ok(discovery));
+    if mode == "permission-timeout" {
+        provider = provider.with_limits_for_test(Limits {
+            prompt_timeout: std::time::Duration::from_millis(300),
+            ..Limits::default()
+        });
+    }
     (control, workspace, store, provider)
 }
 

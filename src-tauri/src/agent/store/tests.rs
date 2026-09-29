@@ -36,26 +36,54 @@ struct V10PlatformProjection {
     evidence_type: String,
     evidence_at: i64,
 }
-fn request(agent: &str, root: &str) -> CanonicalRequest {
+fn request_with_profile(
+    agent: &str,
+    root: &str,
+    execution_profile: serde_json::Value,
+) -> CanonicalRequest {
     let input: CreateExecutionInput =
         serde_json::from_value(json!({"agent_id":agent,"request_key":"key",
-        "prompt":"中文 ' ; --", "execution_profile":{"z":2,"a":1},"workspace_id":"w",
+        "prompt":"中文 ' ; --", "execution_profile":execution_profile,"workspace_id":"w",
         "canonical_workspace_root":root,"mode":"workspace_write"}))
         .unwrap();
     canonicalize_request(input).unwrap()
+}
+fn request(agent: &str, root: &str) -> CanonicalRequest {
+    request_with_profile(
+        agent,
+        root,
+        json!({"model":"fixture-model","reasoning":"high"}),
+    )
 }
 fn insert(c: &mut Connection, id: &str, agent: &str, root: &str) {
     let tx = c.transaction().unwrap();
     insert_execution(&tx, id, 123, &request(agent, root)).unwrap();
     tx.commit().unwrap();
 }
-fn insert_pre_v6(c: &Connection, id: &str, agent: &str, root: &str, thread_id: Option<&str>) {
-    let request = request(agent, root);
+fn insert_pre_v6_with_profile(
+    c: &Connection,
+    id: &str,
+    agent: &str,
+    root: &str,
+    thread_id: Option<&str>,
+    execution_profile: serde_json::Value,
+) {
+    let request = request_with_profile(agent, root, execution_profile);
     let request_hash = legacy_pre_workspace_generation_hash(request.input()).unwrap();
     c.execute(
         "INSERT INTO executions (id,agent_id,request_key,request_hash,prompt,execution_profile_json,workspace_id,canonical_workspace_root,provider,mode,thread_id,status,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'codex','workspace_write',?9,'dispatch_pending',123,123)",
         params![id, agent, request.input().request_key, request_hash, request.input().prompt, request.execution_profile_json(), request.input().workspace_id, root, thread_id],
     ).unwrap();
+}
+fn insert_pre_v6(c: &Connection, id: &str, agent: &str, root: &str, thread_id: Option<&str>) {
+    insert_pre_v6_with_profile(
+        c,
+        id,
+        agent,
+        root,
+        thread_id,
+        json!({"model":"fixture-model","reasoning":"high"}),
+    );
 }
 fn runtime(c: &Connection, id: &str) {
     c.execute("INSERT INTO runtime_instances (id,owner_host_instance_id,state,created_at,updated_at) VALUES (?1,'host','unknown',1,1)", [id]).unwrap();
@@ -1338,7 +1366,9 @@ fn migrated_v6_legacy_hash_retries_only_at_generation_one_without_rewrite() {
         c.execute_batch(schema).unwrap();
     }
     c.pragma_update(None, "user_version", 6).unwrap();
-    insert_pre_v6(&c, "legacy", "agent", "root", None);
+    // 本测试只验证 legacy hash / workspace generation 兼容；profile 必须与当前默认一致，
+    // 否则按新契约应当是 request-key conflict。
+    insert_pre_v6_with_profile(&c, "legacy", "agent", "root", None, json!({}));
     let before: String = c
         .query_row(
             "SELECT request_hash FROM executions WHERE id='legacy'",
@@ -1385,7 +1415,7 @@ fn migrated_v6_legacy_hash_retries_only_at_generation_one_without_rewrite() {
                             id: "w".into(),
                             root: "root".into(),
                             generation: 2,
-                        }
+                        },
                     ),
                     3,
                 )
@@ -1395,7 +1425,6 @@ fn migrated_v6_legacy_hash_retries_only_at_generation_one_without_rewrite() {
         );
     });
 }
-
 #[test]
 fn foreign_keys_and_runtime_immutability_are_enforced_by_sqlite() {
     let dir = tempfile::tempdir().unwrap();

@@ -871,7 +871,7 @@ fn v3_request_key_conflicts_on_every_frozen_identity_change() {
     input.parent_execution_id = Some("other-parent".into());
     variants.push(input);
     let mut input = original.input().clone();
-    input.execution_profile = json!({"different":true});
+    input.execution_profile = json!({"model":"different-model"});
     variants.push(input);
     for input in variants {
         assert_eq!(
@@ -945,7 +945,7 @@ fn frozen_agent_snapshot_and_canonical_workspace_exclusivity() {
     ] {
         let mut value = json!({"agent_id":"a","request_key":"next","prompt":"p","execution_profile":{},"workspace_id":"w","canonical_workspace_root":"root","mode":"workspace_write"});
         value[field] = if field == "execution_profile" {
-            json!({"different":true})
+            json!({"model":"different-model"})
         } else if field == "mode" {
             json!("read_only")
         } else {
