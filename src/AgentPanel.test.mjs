@@ -1392,13 +1392,13 @@ test('sidebar tasks retain only titles and compact times while hover keeps Summa
   for (const item of visible) {
     assert.equal(item.querySelectorAll('.project-task-summary, .project-task-usage').length, 0);
   }
-  await act(async () => visible[0].querySelector('.project-task-link').focus());
-  assert.match(document.querySelector('.project-task-preview').textContent, /完整统计/);
-  assert.match(document.querySelector('.project-task-preview').textContent, /Codex/);
-  assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：12,531/);
-  await act(async () => visible[1].querySelector('.project-task-link').focus());
-  assert.match(document.querySelector('.project-task-preview').textContent, /部分统计/);
-  assert.match(document.querySelector('.project-task-preview').textContent, /≈12,531/);
+  let preview = await focusTaskPreview(visible[0].querySelector('.project-task-link'), '完整统计');
+  assert.match(preview.textContent, /完整统计/);
+  assert.match(preview.textContent, /Codex/);
+  assert.match(preview.textContent, /总 Token：12,531/);
+  preview = await focusTaskPreview(visible[1].querySelector('.project-task-link'), '部分统计');
+  assert.match(preview.textContent, /部分统计/);
+  assert.match(preview.textContent, /≈12,531/);
   // 逐项检查 Token 行的装饰图标和原有文本语义，不依赖图标库生成的 class。
   for (const [index, expected] of [
     [0, '总 Token：12,531'],
@@ -1415,16 +1415,22 @@ test('sidebar tasks retain only titles and compact times while hover keeps Summa
     assert.equal(tokenRow.textContent, expected);
     assert.ok(tokenRow.querySelector(':scope > svg[aria-hidden="true"]'), 'Token 图标仅作装饰');
   }
-  await act(async () => visible[4].querySelector('.project-task-link').focus());
-  assert.match(document.querySelector('.project-task-preview').textContent, /历史任务/);
-  assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：—/);
+  const historicalPreview = await focusTaskPreview(
+    visible[4].querySelector('.project-task-link'),
+    '历史任务',
+  );
+  assert.match(historicalPreview.textContent, /历史任务/);
+  assert.match(historicalPreview.textContent, /总 Token：—/);
   assert.equal(listQueries, 0);
   assert.equal(calls.every(call => call.action === 'list'), true);
   await click('查看更多', group);
   assert.equal(listQueries, 1);
   const custom = group.querySelectorAll('.project-task')[5];
-  await act(async () => custom.querySelector('.project-task-link').focus());
-  assert.match(document.querySelector('.project-task-preview').textContent, /custom-agent/);
+  const customPreview = await focusTaskPreview(
+    custom.querySelector('.project-task-link'),
+    '自定义 Provider',
+  );
+  assert.match(customPreview.textContent, /custom-agent/);
   assert.equal(listQueries, 1);
   assert.equal(calls.every(call => call.action === 'list'), true);
 });
