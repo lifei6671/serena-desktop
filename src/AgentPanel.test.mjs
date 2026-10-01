@@ -1395,7 +1395,10 @@ test('sidebar tasks retain only titles and compact times while hover keeps Summa
     [3, '总 Token：0'],
     [4, '总 Token：—'],
   ]) {
-    await act(async () => visible[index].querySelector('.project-task-link').focus());
+    await act(async () => {
+      visible[index].querySelector('.project-task-link').focus();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
     const tokenRow = [...document.querySelectorAll('.project-task-preview p')]
       .find(item => item.textContent.startsWith('总 Token：'));
     assert.ok(tokenRow, 'hover 浮层保留总 Token 信息行');
