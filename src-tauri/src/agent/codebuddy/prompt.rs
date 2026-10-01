@@ -359,16 +359,38 @@ pub(super) async fn run(
                     cancel_send = Some(Box::pin(requests.cancel_session(session_id.clone())));
                 }
             }}.await;
-            // terminal、EOF、timeout 均先有界交付已物理提交的安全决策，不能因 biased select 丢弃。
+            // terminal、EOF、timeout 均先有界收敛 permission response 的物理 flush，
+            // 再交付已提交的拒绝 Activity；否则 peer 的 terminal 可能先于 writer flush 被观察到。
             let _ = tokio::time::timeout(requests.shared.limits.request_timeout, async {
-                if let Some(publication) = permission_publication.take() { publication.await; }
-                while let Ok(event) = permission_events.try_recv() {
-                    activity_after = event.activity_sequence;
-                    queue.clear();
-                    if let Some(previous) = publishing.take() { previous.await; }
-                    event.project(&store).await;
+                loop {
+                    if let Some(publication) = permission_publication.take() {
+                        publication.await;
+                    }
+                    while let Ok(event) = permission_events.try_recv() {
+                        activity_after = event.activity_sequence;
+                        queue.clear();
+                        if let Some(previous) = publishing.take() {
+                            previous.await;
+                        }
+                        event.project(&store).await;
+                    }
+                    if !requests.shared.permission_response_pending() {
+                        // permission_flushed 在同一锁内先清 pending 再发送 event；
+                        // pending=false 后再 drain 一次即可覆盖这个交接窗口。
+                        while let Ok(event) = permission_events.try_recv() {
+                            activity_after = event.activity_sequence;
+                            queue.clear();
+                            if let Some(previous) = publishing.take() {
+                                previous.await;
+                            }
+                            event.project(&store).await;
+                        }
+                        break;
+                    }
+                    tokio::task::yield_now().await;
                 }
-            }).await;
+            })
+            .await;
             prompt_result.map(|(response, _, frames)| (response, publishing.is_some(), frames))
         }?;
         // SDK exact response 到达后做最后一次 drain；此后不再修改正文快照。

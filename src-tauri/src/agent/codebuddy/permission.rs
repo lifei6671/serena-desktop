@@ -191,6 +191,17 @@ impl Shared {
         }
     }
 
+    /// exact server response 已生成但尚未完成物理 flush 时保持 pending，
+    /// Prompt owner 在消费 terminal 前用它收敛 permission publication 顺序。
+    pub(crate) fn permission_response_pending(&self) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .permission
+            .as_ref()
+            .is_some_and(|context| context.pending.is_some())
+    }
+
     /// Dispatcher 同步验证 typed 请求与已知工具，不读数据库也不等待 telemetry。
     pub(crate) fn permission_response(
         &self,
@@ -475,8 +486,10 @@ mod tests {
             serde_json::to_value(response).unwrap()["outcome"]["optionId"],
             "yes"
         );
+        assert!(shared.permission_response_pending());
         let sequence = shared.state.lock().unwrap().notification_sequence;
         shared.permission_flushed().unwrap();
+        assert!(!shared.permission_response_pending());
         assert!(matches!(
             events.try_recv(),
             Err(mpsc::error::TryRecvError::Empty)

@@ -1977,14 +1977,21 @@ async fn native_cancel_timeout_pipe_failure_and_staged_claim() {
             assert!(completion.result.is_err());
             assert!(row.provider_terminal_status.is_none());
             assert!(row.interrupt_timeout_at.is_some());
-            assert_eq!(
-                row.interrupt_diagnostic.as_deref(),
-                Some(if mode == "cancel-timeout" {
-                    "CODEBUDDY_CANCEL_TIMEOUT"
-                } else {
-                    "CODEBUDDY_CANCEL_SEND_FAILED"
-                })
-            );
+            let diagnostic = row.interrupt_diagnostic.as_deref();
+            if mode == "cancel-timeout" {
+                assert_eq!(diagnostic, Some("CODEBUDDY_CANCEL_TIMEOUT"));
+            } else {
+                // Windows anonymous pipe may accept the buffered write after the peer closes its
+                // read handle; either an immediate write error or the bounded flush deadline is
+                // valid transport evidence. Both paths must converge without terminal authority.
+                assert!(
+                    matches!(
+                        diagnostic,
+                        Some("CODEBUDDY_CANCEL_SEND_FAILED" | "CODEBUDDY_CANCEL_TIMEOUT")
+                    ),
+                    "{diagnostic:?}"
+                );
+            }
             assert_eq!(
                 control.path().join("cancel.json").exists(),
                 mode == "cancel-timeout"
