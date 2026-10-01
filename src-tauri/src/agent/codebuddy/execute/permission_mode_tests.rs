@@ -64,16 +64,23 @@ impl ProviderAcceptanceSink for ModeAcceptance {
 /// 所有模式用同一个 public execute 入口，保留真实请求、SQLite 和 Runtime evidence。
 async fn execute_permission_case(
     provider: Arc<CodeBuddyProvider>,
+    store: StateStore,
     control: PathBuf,
     continued: bool,
 ) -> Result<ProviderRunResult, crate::agent::provider::port::ProviderExecutionFailure> {
+    let execution_id: String = if continued { "c" } else { "e" }.into();
     provider
         .execute(
             ProviderExecutionContext {
-                execution_id: if continued { "c" } else { "e" }.into(),
+                execution_id: execution_id.clone(),
             },
             Arc::new(ModeAcceptance { control, continued }),
-            Arc::new(SlowTelemetry),
+            Arc::new(
+                crate::agent::telemetry_projector::ExecutionTelemetryProjector::new(
+                    store,
+                    execution_id,
+                ),
+            ),
         )
         .await
 }
@@ -127,7 +134,12 @@ async fn native_advertised_auto_keeps_current_mode_for_fresh_and_continue() {
             // peer 收到任何隐式 set_mode 会立即失败；默认路径必须直接进入 prompt。
             let result = tokio::time::timeout(
                 Duration::from_secs(15),
-                execute_permission_case(provider.clone(), control.path().into(), continued),
+                execute_permission_case(
+                    provider.clone(),
+                    store.clone(),
+                    control.path().into(),
+                    continued,
+                ),
             )
             .await
             .unwrap()
@@ -161,9 +173,14 @@ async fn native_absent_auto_keeps_original_mode_and_provider_admission() {
     for continued in [false, true] {
         let (control, _workspace, store, provider) =
             permission_setup(&binary, continued, "no-auto", false).await;
-        let result = execute_permission_case(provider.clone(), control.path().into(), continued)
-            .await
-            .unwrap();
+        let result = execute_permission_case(
+            provider.clone(),
+            store.clone(),
+            control.path().into(),
+            continued,
+        )
+        .await
+        .unwrap();
         assert_eq!(result.outcome, ProviderOutcome::Completed);
         assert!(!control.path().join("set-mode.json").exists());
         assert_profile_and_methods(control.path(), &store, continued).await;
@@ -180,9 +197,10 @@ async fn native_current_mode_permission_still_rejects_once() {
         for catalog in ["modes", "config"] {
             let (control, _workspace, store, provider) =
                 permission_setup(&binary, continued, catalog, true).await;
-            let result = execute_permission_case(provider, control.path().into(), continued)
-                .await
-                .unwrap();
+            let result =
+                execute_permission_case(provider, store.clone(), control.path().into(), continued)
+                    .await
+                    .unwrap();
             assert_eq!(result.outcome, ProviderOutcome::Cancelled);
             let response: Value = serde_json::from_str(
                 &std::fs::read_to_string(control.path().join("permission-response.json")).unwrap(),
