@@ -94,9 +94,9 @@ pub(super) async fn approved_runtime(store: &StateStore, id: &str) -> Result<boo
     }
     #[cfg(target_os = "macos")]
     {
-        return Ok(durable
+        Ok(durable
             .as_ref()
-            .is_some_and(super::macos_recovery::complete));
+            .is_some_and(super::macos_recovery::complete))
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {

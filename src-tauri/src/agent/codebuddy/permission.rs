@@ -123,10 +123,10 @@ pub(super) fn validate_tool_fields(raw: &Value) -> Result<(), Failure> {
 /// 更新只替换显式字段，不借同名工具共享数据；不保存 raw output 或 title。
 fn merge(snapshot: &mut ToolCallUpdateFields, update: &ToolCallUpdateFields) {
     if let Some(kind) = &update.kind {
-        snapshot.kind = Some(kind.clone());
+        snapshot.kind = Some(*kind);
     }
     if let Some(status) = &update.status {
-        snapshot.status = Some(status.clone());
+        snapshot.status = Some(*status);
     }
     if let Some(name) = &update.name {
         snapshot.name = Some(name.clone());
@@ -315,10 +315,9 @@ impl PermissionContext {
         ] {
             if let (Some(expected), Some(actual)) =
                 (expected, params.get("_meta").and_then(|m| m.get(key)))
+                && actual.as_str() != Some(expected.as_str())
             {
-                if actual.as_str() != Some(expected.as_str()) {
-                    return Ok(());
-                }
+                return Ok(());
             }
         }
         if matches!(

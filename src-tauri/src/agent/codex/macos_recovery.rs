@@ -182,7 +182,7 @@ pub(crate) fn terminate_observed_group(
     kill_wait: Duration,
 ) -> Result<(), String> {
     // 恢复前 leader 必须仍以同一 PID/PGID/SID/token 存活，且明确属于原组。
-    match identity_matches(&expected) {
+    match identity_matches(expected) {
         Ok(true) => {}
         Ok(false) => return observation_error("leader 身份与持久化证据不匹配"),
         Err(error) => {
@@ -242,7 +242,7 @@ pub(crate) fn terminate_observed_group(
     }
 
     // grace 到期时再次精确匹配原 leader，匹配失败绝不发送 SIGKILL。
-    match identity_matches(&expected) {
+    match identity_matches(expected) {
         Ok(true) => {}
         Ok(false) => return observation_error("SIGKILL 前 leader 身份不匹配"),
         Err(error) => {

@@ -97,9 +97,11 @@ async fn codebuddy_macos_managed_handshake_and_cleanup() {
             format!("cb-macos-fixture-{mode}"),
         )
         .unwrap();
-        let mut limits = Limits::default();
         // 编译后首次原生执行在整套测试负载下可能超过 250ms；超时场景仍明确等待有界 2s。
-        limits.request_timeout = Duration::from_secs(2);
+        let limits = Limits {
+            request_timeout: Duration::from_secs(2),
+            ..Limits::default()
+        };
         let result = Runtime::start(request, limits).await;
         let failure_code = result.as_ref().err().map(|failure| failure.code());
         match mode {

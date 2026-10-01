@@ -984,30 +984,31 @@ async fn non_codex_execution_rejects_every_codex_private_usage_entry_without_row
         );
     }
 
-    let connection = store.connection.lock().unwrap();
-    for table in [
-        "execution_usage",
-        "codex_execution_usage_state",
-        "codex_thread_usage_epochs",
-    ] {
-        let count: i64 = connection
-            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
-                row.get(0)
-            })
-            .unwrap();
-        assert_eq!(count, 0, "{table}");
+    {
+        let connection = store.connection.lock().unwrap();
+        for table in [
+            "execution_usage",
+            "codex_execution_usage_state",
+            "codex_thread_usage_epochs",
+        ] {
+            let count: i64 = connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "{table}");
+        }
+        assert!(
+            usage::codex_execution_usage_state_record(&connection, "fake-usage")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            usage::codex_thread_usage_epoch_record(&connection, "fake-usage", "runtime", "thread")
+                .unwrap()
+                .is_none()
+        );
     }
-    assert!(
-        usage::codex_execution_usage_state_record(&connection, "fake-usage")
-            .unwrap()
-            .is_none()
-    );
-    assert!(
-        usage::codex_thread_usage_epoch_record(&connection, "fake-usage", "runtime", "thread")
-            .unwrap()
-            .is_none()
-    );
-    drop(connection);
     assert_eq!(
         store.execution("fake-usage".into()).await.unwrap().unwrap(),
         before_execution

@@ -114,16 +114,17 @@ async fn effective_profile_rejects_empty_and_identity_mismatches() {
         .await
         .unwrap();
     bind(&store, "execution", "runtime", "codex");
-    let connection = store.connection.lock().unwrap();
-    connection
-        .execute(
-            "INSERT INTO runtime_instances
-             (id,owner_host_instance_id,provider,state,created_at,updated_at)
-             VALUES ('other-runtime','host','codex','running',1,1)",
-            [],
-        )
-        .unwrap();
-    drop(connection);
+    {
+        let connection = store.connection.lock().unwrap();
+        connection
+            .execute(
+                "INSERT INTO runtime_instances
+                 (id,owner_host_instance_id,provider,state,created_at,updated_at)
+                 VALUES ('other-runtime','host','codex','running',1,1)",
+                [],
+            )
+            .unwrap();
+    }
 
     let cases = [
         (

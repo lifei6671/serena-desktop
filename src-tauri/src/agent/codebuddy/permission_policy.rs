@@ -101,10 +101,10 @@ fn paths_valid(authority: &Authority, tool: &ToolCallUpdateFields) -> bool {
             }
         }
     }
-    if let Some(input) = &tool.raw_input {
-        if !input_paths(input, &mut paths) {
-            return false;
-        }
+    if let Some(input) = &tool.raw_input
+        && !input_paths(input, &mut paths)
+    {
+        return false;
     }
     !paths.is_empty()
         && paths
@@ -431,17 +431,16 @@ fn command_valid(authority: &Authority, tool: &ToolCallUpdateFields) -> bool {
             return false;
         }
         let value = arg.split_once('=').map_or(arg.as_str(), |(_, value)| value);
-        if Path::new(value).is_absolute()
+        let looks_like_path = Path::new(value).is_absolute()
             || value.contains('/')
             || value.contains('\\')
             || value == ".."
-            || !value.starts_with('-')
+            || !value.starts_with('-');
+        if looks_like_path
+            && !command_path(value).is_some_and(|p| workspace_path(authority, &p))
+            && !(readonly && readonly_system_path(value))
         {
-            if !command_path(value).is_some_and(|p| workspace_path(authority, &p))
-                && !(readonly && readonly_system_path(value))
-            {
-                return false;
-            }
+            return false;
         }
     }
     !output_next
