@@ -120,6 +120,9 @@ pub struct ProviderCatalogEntry {
     pub display_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// 直接投影 adapter 的协议事实，不按 Provider ID 推导。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     pub enabled: bool,
     pub health: super::provider::registry::ProviderHealth,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -661,6 +664,7 @@ impl AgentProductService {
                 id: descriptor.id,
                 display_name: descriptor.display_name,
                 version: descriptor.version,
+                protocol: descriptor.protocol,
                 enabled,
                 health,
                 diagnostic_code,

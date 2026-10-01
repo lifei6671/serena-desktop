@@ -1124,15 +1124,17 @@ h3 {
 .agent-role-routing h2 { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
 .agent-role-routing > p { margin: 0 0 12px; }
 .agent-role-grid { display: grid; gap: 10px; }
-.agent-role-row { display: grid; grid-template-columns: minmax(56px, .55fr) repeat(3, minmax(150px, 1fr)); align-items: center; gap: 12px; min-width: 0; font-size: 13px; }
+.agent-role-row { position: relative; display: grid; grid-template-columns: minmax(56px, .55fr) repeat(3, minmax(150px, 1fr)); align-items: center; gap: 12px; min-width: 0; font-size: 13px; }
 .agent-role-row > label { flex-shrink: 0; }
 .agent-role-row > button { min-width: 0; max-width: 100%; width: 100%; background: white; }
-.agent-role-row > [role="status"] { grid-column: 2 / -1; font-size: 12px; }
+/* 保存提示仅供读屏使用，脱离布局且裁剪为不可见；持久错误仍占可见状态行。 */
+.agent-role-row > .agent-role-saving-status { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.agent-role-row > [role="status"]:not(.agent-role-saving-status) { grid-column: 2 / -1; font-size: 12px; }
 @media (max-width: 980px) {
   .agent-role-row { grid-template-columns: minmax(56px, .55fr) minmax(150px, 1fr); }
-  /* 窄屏保持角色标签在左列，三个配置项与状态在右列纵向排列。 */
+  /* 窄屏保持角色标签在左列，三个配置项与持久状态在右列纵向排列。 */
   .agent-role-row > label { grid-column: 1; grid-row: 1; }
-  .agent-role-row > button, .agent-role-row > [role="status"] { grid-column: 2; }
+  .agent-role-row > button, .agent-role-row > [role="status"]:not(.agent-role-saving-status) { grid-column: 2; }
 }
 .agent-providers h2 { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
 .agent-providers > p { margin: 0 0 12px; }

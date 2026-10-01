@@ -23,6 +23,7 @@ impl AgentProvider for RejectedDispatchProvider {
             id: ProviderId::new("codex".into()).unwrap(),
             display_name: "Rejected dispatch fixture".into(),
             version: None,
+            protocol: None,
         }
     }
     /// 只有 execute 准入可用，避免测试进入无关生命周期。

@@ -207,6 +207,8 @@ export interface ProviderCatalogEntry {
   diagnosticCode?: string | null;
   displayName?: string | null;
   version?: string | null;
+  /** Provider-owned 协议契约，仅供展示。 */
+  protocol?: string | null;
   enabled: boolean;
   health: "available" | "unavailable";
   availableForNewExecution: boolean;

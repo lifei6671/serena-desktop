@@ -25,6 +25,11 @@ registerHooks({
   }
 });
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
+// 载入角色行的实际 CSS，验证保存提示脱离布局；JSDOM 不计算真实 grid 几何尺寸。
+const roleStyles = dom.window.document.createElement('style');
+const stylesheet = readFileSync('src/styles.css', 'utf8');
+roleStyles.textContent = stylesheet.slice(stylesheet.indexOf('.agent-role-grid'), stylesheet.indexOf('.agent-providers h2'));
+dom.window.document.head.append(roleStyles);
 // JSDOM has no layout; actual tooltip positioning is checked in Chromium.
 globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
@@ -78,7 +83,7 @@ async function mount(rows, handler, props = {}, catalog = { providers: [], roleR
 }
 function button(text, within = document) { return [...within.querySelectorAll('button')].find(b => b.textContent === text); }
 
-/** Catalog fixture 只声明后端已有字段；协议始终缺失。 */
+/** Catalog fixture 只声明后端已有字段；协议可缺失。 */
 function catalogProvider(overrides = {}) {
   return { id: 'codex', displayName: 'Codex', version: '1.2.3', enabled: true, health: 'available',
     availableForNewExecution: true,
@@ -93,11 +98,12 @@ function cardValues(card) {
 
 // 逐项验证正常 Idle、停用、健康失败与 draining，避免合并独立状态。
 for (const scenario of [
-  { name: 'idle available + stopped', provider: {}, rows: [], enabled: '已启用', health: '可用', runtime: '已停止', active: '0' },
-  { name: 'disabled without active execution', provider: { enabled: false }, rows: [], enabled: '已停用', health: '可用', runtime: '已停止', active: '0' },
-  { name: 'unavailable independently of enabled', provider: { health: 'unavailable' }, rows: [], enabled: '已启用', health: '不可用', runtime: '已停止', active: '0' },
-  { name: 'disabled and unavailable remain separate', provider: { enabled: false, health: 'unavailable' }, rows: [], enabled: '已停用', health: '不可用', runtime: '已停止', active: '0' },
+  { name: 'idle available', provider: {}, rows: [], enabled: '已启用', health: '可用', runtime: '空闲', active: '0' },
+  { name: 'disabled without active execution', provider: { enabled: false }, rows: [], enabled: '已停用', health: '可用', runtime: '空闲', active: '0' },
+  { name: 'unavailable independently of enabled', provider: { health: 'unavailable' }, rows: [], enabled: '已启用', health: '不可用', runtime: '—', active: '0' },
+  { name: 'disabled and unavailable remain separate', provider: { enabled: false, health: 'unavailable' }, rows: [], enabled: '已停用', health: '不可用', runtime: '—', active: '0' },
   { name: 'draining while execution remains active', provider: { enabled: false }, rows: [row({ status: 'running', attention: 'none' })], enabled: '正在停用', health: '可用', runtime: '运行中', active: '1' },
+  { name: 'unavailable hides runtime activity state', provider: { health: 'unavailable' }, rows: [row({ status: 'running', attention: 'none' })], enabled: '已启用', health: '不可用', runtime: '—', active: '1' },
 ]) {
   test(`provider card: ${scenario.name}`, async () => {
     await mount(scenario.rows, undefined, {}, { providers: [catalogProvider(scenario.provider)], roleRouting: {} });
@@ -143,9 +149,42 @@ test('unknown provider uses id and missing version/protocol fallbacks with the s
   for (const card of cards) {
     assert.equal(cardValues(card).版本, '—');
     assert.equal(cardValues(card).协议, '—');
-    assert.equal(cardValues(card).Runtime, '已停止');
+    assert.equal(cardValues(card).Runtime, '空闲');
     assert.equal(card.querySelectorAll('dl > div').length, 6);
   }
+});
+
+/** 协议和版本都只能来自 catalog，包括未知 Provider；缺失时才降级。 */
+test('provider metadata projects version and protocol without provider identity inference', async () => {
+  await mount([], undefined, {}, { providers: [
+    catalogProvider({ id: 'codebuddy', displayName: 'CodeBuddy', version: '2.160.0', protocol: 'ACP v1' }),
+    catalogProvider({ id: 'future', displayName: 'Future', version: '9.8.7', protocol: 'Custom RPC v3' }),
+    catalogProvider({ id: 'fake', displayName: 'Fake', version: null, protocol: ' ' }),
+  ], roleRouting: {} });
+  const cards = [...document.querySelectorAll('.agent-provider-card')];
+  assert.equal(cardValues(cards[0]).版本, '2.160.0');
+  assert.equal(cardValues(cards[0]).协议, 'ACP v1');
+  assert.equal(cardValues(cards[1]).协议, 'Custom RPC v3');
+  assert.equal(cardValues(cards[2]).版本, '—');
+  assert.equal(cardValues(cards[2]).协议, '—');
+});
+
+/** 后台 probe 发布的 metadata 在既有 1.5s catalog poll 中更新卡片。 */
+test('catalog polling publishes later provider version and protocol metadata', async t => {
+  const timers = [];
+  const original = globalThis.setInterval;
+  globalThis.setInterval = (callback, delay, ...args) => {
+    if (delay === 1500) { timers.push(callback); return 99001; }
+    return original(callback, delay, ...args);
+  };
+  t.after(() => { globalThis.setInterval = original; });
+  const catalog = { providers: [catalogProvider({ id: 'codebuddy', displayName: 'CodeBuddy', version: null, protocol: 'ACP v1' })], roleRouting: {} };
+  await mount([], undefined, {}, async () => structuredClone(catalog));
+  assert.equal(cardValues(document.querySelector('.agent-provider-card')).版本, '—');
+  catalog.providers[0].version = '2.160.0';
+  await act(async () => { for (const callback of timers) callback(); await Promise.resolve(); });
+  assert.equal(cardValues(document.querySelector('.agent-provider-card')).版本, '2.160.0');
+  assert.equal(cardValues(document.querySelector('.agent-provider-card')).协议, 'ACP v1');
 });
 
 test('catalog failure preserves sidebar and detail access without composer', async () => {
@@ -206,6 +245,25 @@ function deferredRoleResponse() {
   return { promise, resolve, reject };
 }
 
+/** 保存提示必须保留无障碍状态语义，同时不占角色行的可见布局。 */
+function assertRoleSavingStatus(roleRow) {
+  const status = roleRow.querySelector('[role="status"]');
+  assert.ok(status);
+  assert.equal(status.textContent, '正在保存…');
+  assert.equal(status.classList.contains('agent-role-saving-status'), true);
+  assert.equal(status.hidden, false);
+  assert.notEqual(status.getAttribute('aria-hidden'), 'true');
+  const style = getComputedStyle(status);
+  assert.equal(style.position, 'absolute');
+  assert.equal(style.width, '1px');
+  assert.equal(style.height, '1px');
+  assert.equal(style.overflow, 'hidden');
+  assert.equal(style.clip, 'rect(0px, 0px, 0px, 0px)');
+  assert.notEqual(style.display, 'none');
+  assert.notEqual(style.visibility, 'hidden');
+  assert.equal(style.gridColumn, '');
+}
+
 /** 返回完整后端 settings，测试不以 draft 充当提交结果。 */
 function roleSettings(roleRouting = {}) {
   return { providers: {}, roleRouting: { development: null, testing: null, review: null, analysis: null, general: null, ...roleRouting } };
@@ -259,6 +317,59 @@ test('role defaults remember independent model and reasoning values when provide
   assert.match(model().textContent, /Codex Model/);
   assert.match(reasoning().textContent, /High/);
 });
+
+test('role route pending status stays accessible and out of flow until saving completes', async () => {
+  const mutation = deferredRoleResponse();
+  const calls = [];
+  api.agentProviderSetRoleRoute = (role, value) => { calls.push([role, value]); return mutation.promise; };
+  await mount([], undefined, {}, { providers: [catalogProvider()], roleRouting: {} });
+  const trigger = document.querySelector('#agent-role-development');
+  const roleRow = trigger.closest('.agent-role-row');
+  const controls = [...roleRow.querySelectorAll('label, button')];
+  await chooseRole('development', 'Codex');
+  await flushConfigurationCatalog();
+  assertRoleSavingStatus(roleRow);
+  assert.deepEqual([...roleRow.querySelectorAll('label, button')], controls);
+  assert.equal(trigger.disabled, true);
+  assert.deepEqual(calls, [['development', 'codex']]);
+  await act(async () => mutation.resolve(roleSettings({ development: 'codex' })));
+  assert.equal(roleRow.querySelector('[role="status"]'), null);
+  assert.equal(trigger.disabled, false);
+  assert.equal(trigger.textContent, 'Codex');
+});
+
+// 模型与推理强度分别进入 defaults pending，均不得增加可见状态行。
+for (const scenario of [
+  { field: '默认模型', option: 'Model B', defaults: { model: 'model-b', reasoning: 'high' } },
+  { field: '推理强度', option: 'Low', defaults: { model: 'model-a', reasoning: 'low' } },
+]) {
+  test(`${scenario.field} pending status stays accessible and out of flow until saving completes`, async () => {
+    const mutation = deferredRoleResponse();
+    const calls = [];
+    const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: { model: 'model-a', reasoning: 'high' } } } };
+    const configuration = async providerId => ({ providerId, models: ['a', 'b'].map(id => ({
+      id: `model-${id}`, name: `Model ${id.toUpperCase()}`, isDefault: id === 'a', hidden: false,
+      reasoningOptions: [{ id: 'high', name: 'High' }, { id: 'low', name: 'Low' }], defaultReasoning: 'high',
+    })), defaultModel: 'model-a', reasoningOptions: [] });
+    const save = (...args) => { calls.push(structuredClone(args)); return mutation.promise; };
+    await mount([], undefined, {}, catalog, configuration, save);
+    await flushConfigurationCatalog();
+    const roleRow = document.querySelector('#agent-role-development').closest('.agent-role-row');
+    const controls = [...roleRow.querySelectorAll('label, button')];
+    await chooseConfiguration(`开发${scenario.field}`, scenario.option);
+    assertRoleSavingStatus(roleRow);
+    assert.deepEqual([...roleRow.querySelectorAll('label, button')], controls);
+    for (const label of ['开发默认模型', '开发推理强度']) {
+      assert.equal(roleRow.querySelector(`[aria-label="${label}"]`).disabled, true);
+    }
+    assert.deepEqual(calls, [['development', 'codex', scenario.defaults]]);
+    await act(async () => mutation.resolve({ ...roleSettings({ development: 'codex' }), roleDefaults: { development: { codex: scenario.defaults } } }));
+    assert.equal(roleRow.querySelector('[role="status"]'), null);
+    const trigger = roleRow.querySelector(`[aria-label="开发${scenario.field}"]`);
+    assert.equal(trigger.disabled, false);
+    assert.equal(trigger.textContent, scenario.option);
+  });
+}
 
 test('model and reasoning Select mutations send the complete pair and commit authoritative settings', async () => {
   const calls = [];
@@ -360,6 +471,17 @@ test('configuration catalog reports stable no-workspace and unavailable states w
   await flushConfigurationCatalog();
   assert.equal(queries, 1);
   assert.match(document.querySelector('.agent-role-routing').textContent, /目录不可用，已保留设置/);
+  // 持久错误仍是可见的状态行，不能套用临时保存提示的隐藏样式。
+  const status = document.querySelector('#agent-role-development').closest('.agent-role-row').querySelector('[role="status"]');
+  assert.equal(status.textContent, '目录不可用，已保留设置');
+  assert.equal(status.classList.contains('agent-role-saving-status'), false);
+  assert.equal(status.hidden, false);
+  assert.notEqual(status.getAttribute('aria-hidden'), 'true');
+  const style = getComputedStyle(status);
+  assert.notEqual(style.position, 'absolute');
+  assert.notEqual(style.display, 'none');
+  assert.notEqual(style.visibility, 'hidden');
+  assert.equal(style.gridColumn, '2 / -1');
   assert.deepEqual(catalog.roleDefaults.development.codex, saved);
 });
 
@@ -455,6 +577,7 @@ test('long role configuration menus use one scroll viewport and hide inactive st
 test('role configuration CSS keeps narrow controls in the right column', () => {
   const css = readFileSync('src/styles.css', 'utf8');
   assert.match(css, /\.agent-role-row\s*\{[^}]*grid-template-columns:\s*minmax\(56px,\s*\.55fr\)\s+repeat\(3,\s*minmax\(150px,\s*1fr\)\)/);
+  assert.match(css, /\.agent-role-row\s*>\s*\[role="status"\]:not\(\.agent-role-saving-status\)\s*\{[^}]*grid-column:\s*2\s*\/\s*-1/);
   const narrowStart = css.indexOf('@media (max-width: 980px)');
   const narrowEnd = css.indexOf('.agent-providers h2', narrowStart);
   assert.notEqual(narrowStart, -1);
@@ -462,7 +585,10 @@ test('role configuration CSS keeps narrow controls in the right column', () => {
   const narrow = css.slice(narrowStart, narrowEnd);
   assert.match(narrow, /\.agent-role-row\s*\{[^}]*grid-template-columns:\s*minmax\(56px,\s*\.55fr\)\s+minmax\(150px,\s*1fr\)/);
   assert.match(narrow, /\.agent-role-row\s*>\s*label\s*\{[^}]*grid-column:\s*1/);
-  assert.match(narrow, /\.agent-role-row\s*>\s*button,\s*\.agent-role-row\s*>\s*\[role="status"\]\s*\{[^}]*grid-column:\s*2/);
+  assert.match(narrow, /\.agent-role-row\s*>\s*button,\s*\.agent-role-row\s*>\s*\[role="status"\]:not\(\.agent-role-saving-status\)\s*\{[^}]*grid-column:\s*2/);
+  // 所有视口中的可见状态行都明确排除 transient pending，窄屏也不覆盖其脱流样式。
+  assert.doesNotMatch(css, /\.agent-role-row\s*>\s*\[role="status"\](?!:not\(\.agent-role-saving-status\))/);
+  assert.doesNotMatch(narrow, /\.agent-role-saving-status[^}]*position\s*:\s*(?:static|relative)/);
 });
 
 test('role editor clears persisted binding with explicit null and restores persisted catalog on remount', async () => {
@@ -1260,7 +1386,22 @@ test('sidebar tasks retain only titles and compact times while hover keeps Summa
   assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：12,531/);
   await act(async () => visible[1].querySelector('.project-task-link').focus());
   assert.match(document.querySelector('.project-task-preview').textContent, /部分统计/);
-  assert.match(document.querySelector('.project-task-preview').textContent, /12,531 · 统计不完整/);
+  assert.match(document.querySelector('.project-task-preview').textContent, /≈12,531/);
+  // 逐项检查 Token 行的装饰图标和原有文本语义，不依赖图标库生成的 class。
+  for (const [index, expected] of [
+    [0, '总 Token：12,531'],
+    [1, '总 Token：≈12,531'],
+    [2, '总 Token：—'],
+    [3, '总 Token：0'],
+    [4, '总 Token：—'],
+  ]) {
+    await act(async () => visible[index].querySelector('.project-task-link').focus());
+    const tokenRow = [...document.querySelectorAll('.project-task-preview p')]
+      .find(item => item.textContent.startsWith('总 Token：'));
+    assert.ok(tokenRow, 'hover 浮层保留总 Token 信息行');
+    assert.equal(tokenRow.textContent, expected);
+    assert.ok(tokenRow.querySelector(':scope > svg[aria-hidden="true"]'), 'Token 图标仅作装饰');
+  }
   await act(async () => visible[4].querySelector('.project-task-link').focus());
   assert.match(document.querySelector('.project-task-preview').textContent, /历史任务/);
   assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：—/);
@@ -1353,7 +1494,7 @@ test('CB9-002 keeps unsupported CodeBuddy Usage unknown without hiding lifecycle
   await act(async () => task('Codex 完整统计').querySelector('.project-task-link').focus());
   assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：13/);
   await act(async () => task('Codex 部分统计').querySelector('.project-task-link').focus());
-  assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：8 · 统计不完整/);
+  assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：≈8/);
   await act(async () => task('CodeBuddy 运行中').querySelector('.project-task-link').focus());
   const preview = document.querySelector('.project-task-preview').textContent;
   assert.match(preview, /CodeBuddy.*总 Token：—/);

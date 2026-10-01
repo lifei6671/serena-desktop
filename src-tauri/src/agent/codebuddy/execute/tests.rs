@@ -6,10 +6,10 @@ use crate::agent::{
     provider::{ProviderExecutionContext, ProviderStartupContext, port::AgentProvider},
 };
 use serde_json::{Value, json};
-use std::{
-    os::windows::process::CommandExt,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 struct Sink(PathBuf);
 
@@ -356,6 +356,14 @@ async fn native_permission_cancel_race_and_safe_projection() {
                 identity.1.clone(),
                 identity.2.clone(),
                 None,
+                crate::agent::codebuddy::permission_policy::Authority {
+                    lease: crate::workspace_resolver::WorkspaceLease {
+                        workspace_id: "test".into(),
+                        canonical_root: std::env::current_dir().unwrap(),
+                        generation: 1,
+                    },
+                    mode: "workspace_write".into(),
+                },
             )
             .unwrap();
         shared.activate_permission();
@@ -526,12 +534,9 @@ fn build(dir: &Path) -> PathBuf {
             .arg(format!("{name}={}", library.display()));
     }
     let binary = dir.join("peer.exe");
-    let output = command
-        .arg("-o")
-        .arg(&binary)
-        .creation_flags(0x0800_0000)
-        .output()
-        .unwrap();
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    let output = command.arg("-o").arg(&binary).output().unwrap();
     assert!(
         output.status.success(),
         "{}",
@@ -1150,8 +1155,24 @@ async fn native_execute_eof_and_evidence_persistence_failure() {
                 .await
                 .unwrap();
             let resumed = store.execution("e".into()).await.unwrap().unwrap();
-            assert_eq!(resumed.status, "completed");
+            // Windows 可重新查询已销毁 Job；macOS 原 leader 已消失且证据写入失败，不能补造证明。
+            assert_eq!(
+                resumed.status,
+                if cfg!(windows) {
+                    "completed"
+                } else {
+                    "unknown"
+                }
+            );
             assert_eq!(resumed.final_result_json, row.final_result_json);
+            assert_eq!(
+                store
+                    .workspace_claim(resumed.canonical_workspace_root)
+                    .await
+                    .unwrap()
+                    .is_some(),
+                !cfg!(windows)
+            );
         } else {
             assert!(row.provider_terminal_status.is_none());
             assert_eq!(row.result_completeness, "unknown");
@@ -1322,7 +1343,7 @@ async fn native_initialize_transient_failures_do_not_pollute_registry() {
 
 #[tokio::test]
 /// host crash window：已暂存 exact terminal 时 Job 尚活，startup 终止后保留安全结果。
-async fn native_staged_live_job_startup_preserves_terminal_and_result() {
+async fn native_staged_runtime_startup_preserves_terminal_and_result() {
     let bin = tempfile::tempdir().unwrap();
     let binary = build(bin.path());
     let (control, _workspace, store, provider) = setup(&binary, "read").await;
@@ -1379,7 +1400,10 @@ async fn native_staged_live_job_startup_preserves_terminal_and_result() {
     let live = store.runtime(runtime.clone()).await.unwrap().unwrap();
     assert_eq!(live.state, "running");
     assert_ne!(live.termination_evidence_state, "complete");
-    assert!(active_job_processes(live.job_name.as_deref().unwrap()) > 0);
+    assert!(active_runtime_processes(&live) > 0);
+    // macOS 同一测试进程仍持有 direct child，先完成原 owner 的回收；跨 Host live-group 由独立 fixture 验证。
+    #[cfg(target_os = "macos")]
+    completion.session.shutdown().await.unwrap();
     // CLI 缺失的 registered skeleton 仍恢复当前 owned Runtime；不重新 launch。
     let missing = CodeBuddyProvider::from_discovery(
         store.clone(),
@@ -1413,6 +1437,7 @@ async fn native_staged_live_job_startup_preserves_terminal_and_result() {
             .termination_evidence_state,
         "complete"
     );
+    #[cfg(windows)]
     drop(completion.session);
 }
 
@@ -1469,7 +1494,9 @@ async fn native_caller_drop_after_flush_converges_without_replay() {
 }
 
 /// 真实 QueryInformationJobObject 仅用于 native crash-window 断言，不制造持久化证据。
-fn active_job_processes(name: &str) -> u32 {
+#[cfg(windows)]
+fn active_runtime_processes(runtime: &crate::agent::store::RuntimeRecord) -> u32 {
+    let name = runtime.job_name.as_deref().unwrap();
     use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
     use windows_sys::Win32::System::{JobObjects::*, SystemServices::JOB_OBJECT_QUERY};
     let name: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
@@ -1499,19 +1526,21 @@ async fn native_post_accept_preflush_failure_is_uncertain_then_interrupted() {
     let bin = tempfile::tempdir().unwrap();
     let binary = build(bin.path());
     let (control, _workspace, store, provider) = setup(&binary, "closed-input").await;
+    let outcome = provider
+        .execute(
+            ProviderExecutionContext {
+                execution_id: "e".into(),
+            },
+            Arc::new(Sink(control.path().into())),
+            Arc::new(SlowTelemetry),
+        )
+        .await;
+    assert!(outcome.is_err());
     assert!(
-        provider
-            .execute(
-                ProviderExecutionContext {
-                    execution_id: "e".into()
-                },
-                Arc::new(Sink(control.path().into())),
-                Arc::new(SlowTelemetry)
-            )
-            .await
-            .is_err()
+        control.path().join("accepted").exists(),
+        "outcome={outcome:?}; wire={:?}",
+        request_methods(control.path())
     );
-    assert!(control.path().join("accepted").exists());
     assert!(!control.path().join("prompt.json").exists());
     let row = store.execution("e".into()).await.unwrap().unwrap();
     assert_eq!(row.status, "interrupted");
@@ -1942,7 +1971,7 @@ async fn native_cancel_timeout_pipe_failure_and_staged_claim() {
                 .await
                 .unwrap()
                 .unwrap();
-            assert!(active_job_processes(runtime.job_name.as_deref().unwrap()) > 0);
+            assert!(active_runtime_processes(&runtime) > 0);
         } else {
             assert!(completion.result.is_err());
             assert!(row.provider_terminal_status.is_none());
@@ -2036,14 +2065,23 @@ async fn native_cancel_terminal_evidence_failure_and_startup() {
         .await
         .unwrap();
     let done = store.execution("e".into()).await.unwrap().unwrap();
-    assert_eq!(done.status, "cancelled");
+    // 已销毁 Job 可重查；macOS 不能用已消失 leader 补写丢失的历史证据。
+    assert_eq!(
+        done.status,
+        if cfg!(windows) {
+            "cancelled"
+        } else {
+            "unknown"
+        }
+    );
     assert_eq!(done.final_result_json, row.final_result_json);
-    assert!(
+    assert_eq!(
         store
             .workspace_claim(done.canonical_workspace_root)
             .await
             .unwrap()
-            .is_none()
+            .is_some(),
+        !cfg!(windows)
     );
 }
 
@@ -2144,8 +2182,9 @@ async fn native_cancel_startup_after_intent_or_send() {
             .await
             .unwrap();
         let (keep, cancelled) = oneshot::channel();
+        let mut keep = Some(keep);
         let mut prepared = Some(session);
-        let task = if sent {
+        let mut task = if sent {
             let session = prepared.take().unwrap();
             let state = store.clone();
             let sink = Arc::new(Sink(control.path().into()));
@@ -2194,6 +2233,19 @@ async fn native_cancel_startup_after_intent_or_send() {
             .unwrap();
             assert!(control.path().join("cancel.json").exists());
         }
+        // macOS fixture 的 direct child 仍属于本测试；由原 owner 回收后才模拟下一 Host。
+        #[cfg(target_os = "macos")]
+        {
+            drop(keep.take());
+            if let Some(task) = task.take() {
+                let completion = task.await.unwrap();
+                assert!(completion.result.is_err());
+                completion.session.shutdown().await.unwrap();
+            }
+            if let Some(session) = prepared.take() {
+                session.shutdown().await.unwrap();
+            }
+        }
         let missing = CodeBuddyProvider::from_discovery(
             store.clone(),
             "new-host".into(),
@@ -2213,7 +2265,7 @@ async fn native_cancel_startup_after_intent_or_send() {
                 .unwrap()
                 .is_none()
         );
-        if let Some(task) = task {
+        if let Some(task) = task.take() {
             let completion = task.await.unwrap();
             assert!(completion.result.is_err());
             let _ = completion.session.shutdown().await;
@@ -2221,6 +2273,23 @@ async fn native_cancel_startup_after_intent_or_send() {
         if let Some(session) = prepared {
             let _ = session.shutdown().await;
         }
-        drop(keep);
+        drop(keep.take());
     }
 }
+
+/// macOS 测试读取当前进程组成员，不把该观测当作持久化 evidence。
+#[cfg(target_os = "macos")]
+fn active_runtime_processes(runtime: &crate::agent::store::RuntimeRecord) -> u32 {
+    crate::agent::codex::macos_launcher::process_group_members(
+        runtime.containment_process_group_id.unwrap() as libc::pid_t,
+    )
+    .unwrap()
+    .len() as u32
+}
+
+#[path = "permission_mode_tests.rs"]
+mod permission_mode_tests;
+
+// 本地 allow 决策必须保持正常 durable Activity/terminal/release 路径。
+#[path = "permission_policy_tests.rs"]
+mod permission_policy_tests;

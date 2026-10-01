@@ -54,8 +54,8 @@ fn effective_model_page() -> Value {
             "description": "",
             "isDefault": true,
             "hidden": false,
-            "defaultReasoningEffort": "high",
-            "supportedReasoningEfforts": [{"reasoningEffort":"high","description":""}],
+            "defaultReasoningEffort": "low",
+            "supportedReasoningEfforts": [{"reasoningEffort":"low","description":""},{"reasoningEffort":"high","description":""}],
         }],
         "nextCursor": null,
     })
@@ -69,7 +69,7 @@ async fn receive_after_model_list(s: &mut BufReader<DuplexStream>) -> Value {
     recv(s).await
 }
 
-/// Codex 必须从 exact model/list 解析完整的显式或默认 effective profile。
+/// Codex 必须从 exact model/list 解析完整的模型并保留未指定 reasoning。
 #[test]
 fn codex_effective_profile_resolves_explicit_and_default_values() {
     let model =
@@ -79,7 +79,7 @@ fn codex_effective_profile_resolves_explicit_and_default_values() {
             description: None,
             is_default,
             hidden: false,
-            reasoning_options: ["medium", "high"]
+            reasoning_options: ["low", "high"]
                 .into_iter()
                 .map(|id| crate::agent::provider::ExecutionConfigurationOption {
                     id: id.into(),
@@ -90,7 +90,7 @@ fn codex_effective_profile_resolves_explicit_and_default_values() {
             default_reasoning: default_reasoning.map(str::to_owned),
         };
     let models = vec![
-        model("gpt-default", true, Some("medium")),
+        model("gpt-default", true, Some("low")),
         model("gpt-explicit", false, Some("high")),
     ];
     assert_eq!(
@@ -98,25 +98,39 @@ fn codex_effective_profile_resolves_explicit_and_default_values() {
             &models,
             &ExecutionProfile {
                 model: Some("gpt-explicit".into()),
-                reasoning: Some("medium".into()),
+                reasoning: Some("high".into()),
             },
         )
         .unwrap(),
         ExecutionProfile {
             model: Some("gpt-explicit".into()),
-            reasoning: Some("medium".into()),
+            reasoning: Some("high".into()),
         }
     );
     assert_eq!(
         resolve_codex_effective_profile_models(&models, &ExecutionProfile::default()).unwrap(),
         ExecutionProfile {
             model: Some("gpt-default".into()),
-            reasoning: Some("medium".into()),
+            reasoning: None,
+        }
+    );
+    assert_eq!(
+        resolve_codex_effective_profile_models(
+            &models,
+            &ExecutionProfile {
+                model: Some("gpt-explicit".into()),
+                reasoning: None,
+            }
+        )
+        .unwrap(),
+        ExecutionProfile {
+            model: Some("gpt-explicit".into()),
+            reasoning: None
         }
     );
 }
 
-/// Codex 对缺失/隐藏模型、非法 reasoning、非唯一默认值和缺失默认 reasoning 均 fail closed。
+/// Codex 对缺失/隐藏模型、非法 reasoning、非唯一默认模型 均 fail closed。
 #[test]
 fn codex_effective_profile_rejects_unproven_values() {
     let model = |id: &str, is_default: bool, hidden: bool, default_reasoning: Option<&str>| {
@@ -157,7 +171,6 @@ fn codex_effective_profile_rejects_unproven_values() {
             model("two", true, false, Some("high")),
         ],
         vec![model("hidden", true, true, Some("high"))],
-        vec![model("missing-default", true, false, None)],
     ] {
         assert_eq!(
             resolve_codex_effective_profile_models(&models, &ExecutionProfile::default())
@@ -418,7 +431,13 @@ impl tokio::io::AsyncWrite for DelayedTurnFlush {
     }
 }
 
+/// 现有执行场景默认不指定推理强度。
 async fn slice_case(case: &'static str) {
+    slice_case_with_reasoning(case, None).await;
+}
+
+/// 共用 Fresh/Continue RPC 场景验证推理强度与数据库事实。
+async fn slice_case_with_reasoning(case: &'static str, reasoning: Option<&'static str>) {
     let failed = case.starts_with("failed");
     let late_deadline = case.ends_with("late-deadline");
     let invalid_ack = matches!(
@@ -511,6 +530,18 @@ async fn slice_case(case: &'static str) {
         created.execution_id
     );
     let connection = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
+    // 冻结本场景的请求配置，Continue 的产品默认配置也由此显式指定。
+    if reasoning.is_some() {
+        connection
+            .execute(
+                "UPDATE executions SET execution_profile_json=?1 WHERE id=?2",
+                rusqlite::params![
+                    json!({"reasoning": reasoning}).to_string(),
+                    created.execution_id
+                ],
+            )
+            .unwrap();
+    }
     if case != "resume" {
         connection.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES ('R1','fixture','running',1,1)",[]).unwrap();
     }
@@ -560,6 +591,8 @@ async fn slice_case(case: &'static str) {
             assert_eq!(req["params"]["cwd"], request2.canonical_workspace_root);
             assert_eq!(req["params"]["approvalPolicy"], "never");
             assert_eq!(req["params"]["model"], "gpt-effective");
+            assert!(req["params"].get("effort").is_none());
+            assert!(req["params"].get("reasoning").is_none());
             assert_eq!(req["params"]["dynamicTools"][0]["type"], "namespace");
             assert_eq!(req["params"]["dynamicTools"][0]["name"], "codex_app");
             assert_eq!(req["params"]["dynamicTools"].as_array().unwrap().len(), 1);
@@ -587,7 +620,7 @@ async fn slice_case(case: &'static str) {
                 .unwrap(),
             (case != "continue-old-turn").then_some(ExecutionProfile {
                 model: Some("gpt-effective".into()),
-                reasoning: Some("high".into()),
+                reasoning: reasoning.map(str::to_owned),
             }),
             "fresh 必须先于 thread/start 写入，continue 在 resume 校验完成前保持 NULL",
         );
@@ -610,7 +643,11 @@ async fn slice_case(case: &'static str) {
         assert_eq!(req["params"]["threadId"], "THREAD");
         assert_eq!(req["params"]["approvalPolicy"], "never");
         assert_eq!(req["params"]["model"], "gpt-effective");
-        assert_eq!(req["params"]["effort"], "high");
+        assert_eq!(
+            req["params"].get("effort"),
+            reasoning.map(|value| json!(value)).as_ref()
+        );
+        assert!(req["params"].get("reasoning").is_none());
         assert_eq!(
             fake_store
                 .execution(id.clone())
@@ -624,9 +661,27 @@ async fn slice_case(case: &'static str) {
                 .unwrap(),
             Some(ExecutionProfile {
                 model: Some("gpt-effective".into()),
-                reasoning: Some("high".into()),
+                reasoning: reasoning.map(str::to_owned),
             }),
             "effective profile 必须先于 exact turn/start 可观察",
+        );
+        // 直接检查数据库 JSON，未指定必须是 null，不能固化目录的 low。
+        let database = rusqlite::Connection::open(
+            std::path::Path::new(&request2.canonical_workspace_root).join("agent-state.db"),
+        )
+        .unwrap();
+        let stored: String = database
+            .query_row(
+                "SELECT effective_execution_profile_json FROM executions WHERE id=?1",
+                [&id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&stored)
+                .unwrap()
+                .get("reasoning"),
+            Some(&json!(reasoning))
         );
         assert_eq!(
             req["params"]["sandboxPolicy"],
@@ -1323,25 +1378,27 @@ async fn slice_case(case: &'static str) {
                             .unwrap()
                             .is_some()
                     );
-                    let duplicate = if case == "continue-old-turn" {
-                        fake_store
-                            .product_create_continuation(
-                                "UNUSED".into(),
-                                "SOURCE".into(),
-                                request2.request_key.clone(),
-                                request2.prompt.clone(),
-                                now(),
-                            )
-                            .await
-                            .unwrap()
-                    } else {
-                        AgentTaskManager::new(fake_store.clone(), "not-a-binary.exe".into())
-                            .execute(request2.clone())
-                            .await
-                            .unwrap()
-                    };
-                    assert!(!duplicate.created);
-                    assert_eq!(duplicate.execution_id, id);
+                    if reasoning.is_none() {
+                        let duplicate = if case == "continue-old-turn" {
+                            fake_store
+                                .product_create_continuation(
+                                    "UNUSED".into(),
+                                    "SOURCE".into(),
+                                    request2.request_key.clone(),
+                                    request2.prompt.clone(),
+                                    now(),
+                                )
+                                .await
+                                .unwrap()
+                        } else {
+                            AgentTaskManager::new(fake_store.clone(), "not-a-binary.exe".into())
+                                .execute(request2.clone())
+                                .await
+                                .unwrap()
+                        };
+                        assert!(!duplicate.created);
+                        assert_eq!(duplicate.execution_id, id);
+                    }
                     reply(&mut s,&req,json!({"data":if round==0 {json!([{"id":"still-active"}])}else{json!([])},"nextCursor":null})).await;
                 }
             }
@@ -1534,22 +1591,24 @@ async fn slice_case(case: &'static str) {
     assert_eq!(row.thread_id.as_deref(), Some("THREAD"));
     assert_eq!(row.turn_id.as_deref(), Some("TURN"));
     assert_eq!(row.runtime_instance_id.as_deref(), Some("R1"));
-    let duplicate = if case == "continue-old-turn" {
-        store
-            .product_create_continuation(
-                "UNUSED-FINAL".into(),
-                "SOURCE".into(),
-                request.request_key.clone(),
-                request.prompt.clone(),
-                now(),
-            )
-            .await
-            .unwrap()
-    } else {
-        manager.execute(request).await.unwrap()
-    };
-    assert!(!duplicate.created);
-    assert_eq!(duplicate.execution_id, created.execution_id);
+    if reasoning.is_none() {
+        let duplicate = if case == "continue-old-turn" {
+            store
+                .product_create_continuation(
+                    "UNUSED-FINAL".into(),
+                    "SOURCE".into(),
+                    request.request_key.clone(),
+                    request.prompt.clone(),
+                    now(),
+                )
+                .await
+                .unwrap()
+        } else {
+            manager.execute(request).await.unwrap()
+        };
+        assert!(!duplicate.created);
+        assert_eq!(duplicate.execution_id, created.execution_id);
+    }
     if case == "resume" {
         assert!(
             manager
@@ -2668,5 +2727,14 @@ fn real_fixed_root_title_smoke() {
             row.thread_id.unwrap(),
             row.turn_id.unwrap()
         );
+    });
+}
+
+/// Fresh 和 Continue 的显式 high 必须覆盖目录 low，并进入 wire 和数据库。
+#[test]
+fn fresh_and_continue_explicit_reasoning_wire_and_persistence() {
+    run(async {
+        slice_case_with_reasoning("success", Some("high")).await;
+        slice_case_with_reasoning("continue-old-turn", Some("high")).await;
     });
 }

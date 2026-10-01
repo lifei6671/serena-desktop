@@ -2,10 +2,10 @@
 use super::{
     client::Handshake,
     discovery::ResolvedLaunchSpec,
+    platform_launcher::{LaunchRequest, UncCurrentDirectoryPolicy},
     protocol::{Failure, Limits, SessionFrame},
     runtime::Runtime,
     store::{CodeBuddyStore, Mutation, Ownership, PrivateState, new_conversation_id},
-    windows_launcher::{LaunchRequest, UncCurrentDirectoryPolicy},
 };
 use crate::agent::{
     coordinator::now,
@@ -17,9 +17,9 @@ use crate::agent::{
     store::{ExecutionRecord, StateStore},
 };
 use agent_client_protocol::schema::v1::{
-    NewSessionRequest, NewSessionResponse, SessionConfigKind, SessionConfigOption,
-    SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigSelectOptions, SessionId,
-    SetSessionConfigOptionRequest, SetSessionModeRequest,
+    CurrentModeUpdate, NewSessionRequest, NewSessionResponse, SessionConfigKind,
+    SessionConfigOption, SessionConfigOptionCategory, SessionConfigOptionValue,
+    SessionConfigSelectOptions, SessionId, SetSessionConfigOptionRequest, SetSessionModeRequest,
 };
 use serde_json::Value;
 use std::{
@@ -27,7 +27,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// 没有全局 auto 默认；调用方只能明确请求本次目录实际 advertise 的值。
+/// 本次 Session 的显式内部配置；未指定 mode/option 时保留 Provider 当前模式。
 #[derive(Default)]
 pub(crate) struct DesiredConfiguration {
     pub(crate) mode: Option<String>,
@@ -203,6 +203,7 @@ pub(super) async fn prepare_owned(
             models: extensions.models,
         };
         catalog.replay(&session_id, &early_frames)?;
+        // 默认保留 Provider 当前模式；显式 mode/option 才通过 typed ACP 配置。
         catalog.configure(requests, &desired).await?;
         let after_config = requests.shared.take_session(&session_id)?;
         catalog.replay(&session_id, &after_config)?;
@@ -259,6 +260,7 @@ pub(super) async fn start_owned(
     )
     .map_err(|_| Failure::Launch)?;
     let cwd = request.projected_cwd().as_path().to_owned();
+    #[cfg(windows)]
     let session = super::recovery::current_session().map_err(|_| Failure::Launch)?;
     let private_store = CodeBuddyStore(store.clone());
     let mut private = private_store
@@ -276,11 +278,22 @@ pub(super) async fn start_owned(
         .reserve_runtime_attempt(execution_id.clone(), runtime_id.clone(), now())
         .await
         .map_err(|_| Failure::State)?;
+    #[cfg(windows)]
     store
         .prepare_codebuddy_runtime(
             runtime_id.clone(),
             owner,
             session,
+            resolved.executable.to_string_lossy().into_owned(),
+            now(),
+        )
+        .await
+        .map_err(|_| Failure::State)?;
+    #[cfg(target_os = "macos")]
+    store
+        .prepare_codebuddy_macos_runtime(
+            runtime_id.clone(),
+            owner,
             resolved.executable.to_string_lossy().into_owned(),
             now(),
         )
@@ -366,6 +379,24 @@ pub(super) fn check_replay_bound(frames: &[SessionFrame], limits: Limits) -> Res
 }
 
 impl SessionCatalog {
+    /// 仅 typed modes 或 category=mode 的 select 是权限模式 authority，不猜 option id。
+    fn advertises_mode(&self, mode: &str) -> bool {
+        self.response
+            .modes
+            .as_ref()
+            .is_some_and(|m| m.available_modes.iter().any(|v| v.id.to_string() == mode))
+            || self
+                .response
+                .config_options
+                .as_ref()
+                .is_some_and(|options| {
+                    options.iter().any(|option| {
+                        option.category == Some(SessionConfigOptionCategory::Mode)
+                            && select_contains(&option.kind, mode)
+                    })
+                })
+    }
+
     /// 从 exact Session 当前 ACK 状态解析本次实际模型与推理强度；任何缺失或冲突都拒绝派发。
     pub(super) fn effective_execution_profile(&self) -> Result<ExecutionProfile, Failure> {
         self.validate()?;
@@ -431,7 +462,27 @@ impl SessionCatalog {
                 return Err(Failure::Malformed);
             }
             let update = &frame.params["update"];
-            if update["sessionUpdate"] == "config_option_update" {
+            if update["sessionUpdate"] == "current_mode_update" {
+                let mode = serde_json::from_value::<CurrentModeUpdate>(update.clone())
+                    .map_err(|_| Failure::Malformed)?;
+                let id = mode.current_mode_id.to_string();
+                if !self.advertises_mode(&id) {
+                    return Err(Failure::Configuration);
+                }
+                // typed 模式通知与 config ACK 一样同步两种目录；confirm 不得忽略撤销 auto。
+                if let Some(modes) = &mut self.response.modes {
+                    modes.current_mode_id = mode.current_mode_id;
+                }
+                if let Some(options) = &mut self.response.config_options {
+                    for option in options {
+                        if option.category == Some(SessionConfigOptionCategory::Mode)
+                            && let SessionConfigKind::Select(select) = &mut option.kind
+                        {
+                            select.current_value = id.clone().into();
+                        }
+                    }
+                }
+            } else if update["sessionUpdate"] == "config_option_update" {
                 let options = update
                     .get("configOptions")
                     .and_then(Value::as_array)
@@ -516,7 +567,7 @@ impl SessionCatalog {
         Ok(())
     }
 
-    /// 仅显式配置触发请求；auto 也必须由当前目录证明，绝不猜 config id fallback。
+    /// 本次显式配置复用 typed 请求，未指定权限模式时不覆盖 Provider 当前值。
     pub(super) async fn configure(
         &mut self,
         requests: &super::client::Requests,
@@ -525,22 +576,7 @@ impl SessionCatalog {
         self.validate()?;
         let session_id = self.response.session_id.clone();
         if let Some(mode) = &desired.mode {
-            let advertised = self
-                .response
-                .modes
-                .as_ref()
-                .is_some_and(|m| m.available_modes.iter().any(|v| v.id.to_string() == *mode))
-                || self
-                    .response
-                    .config_options
-                    .as_ref()
-                    .is_some_and(|options| {
-                        options.iter().any(|option| {
-                            option.category == Some(SessionConfigOptionCategory::Mode)
-                                && select_contains(&option.kind, mode)
-                        })
-                    });
-            if mode.is_empty() || !advertised {
+            if mode.is_empty() || !self.advertises_mode(mode) {
                 return Err(Failure::Configuration);
             }
             if self
@@ -699,11 +735,12 @@ impl SessionCatalog {
     pub(super) fn confirm_desired(&self, desired: &DesiredConfiguration) -> Result<(), Failure> {
         self.validate()?;
         if let Some(mode) = &desired.mode
-            && (self
-                .response
-                .modes
-                .as_ref()
-                .is_some_and(|m| m.current_mode_id.to_string() != *mode)
+            && (!self.advertises_mode(mode)
+                || self
+                    .response
+                    .modes
+                    .as_ref()
+                    .is_some_and(|m| m.current_mode_id.to_string() != *mode)
                 || self
                     .response
                     .config_options
@@ -1023,5 +1060,5 @@ fn current_equals(option: &SessionConfigOption, value: &SessionConfigOptionValue
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 pub(super) mod tests;

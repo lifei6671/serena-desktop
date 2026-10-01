@@ -265,6 +265,15 @@ impl Shared {
             return Err(error);
         }
         validate_envelope(raw)?;
+        if raw["method"] == "session/request_permission" {
+            permission::validate_tool_fields(&raw["params"]["toolCall"])?;
+            if raw["params"]
+                .get("_meta")
+                .is_some_and(|v| !v.is_null() && !v.is_object())
+            {
+                return Err(Failure::Malformed);
+            }
+        }
         let mut state = self.state.lock().unwrap();
         // SDK 对部分 control notification 会在 handler 前消费；本卡只投递 session/update。
         // 其余 notification 明确诊断/忽略，不占用需要 dispatcher ack 的窗口，也不回复。
@@ -285,6 +294,12 @@ impl Shared {
             if method == "session/prompt" {
                 state.prompt_response_received = true;
                 state.permission = None;
+            }
+            if method == "session/set_mode"
+                && raw.get("result").is_some_and(|result| !result.is_object())
+            {
+                // SDK 空响应结构会接受 []/null；权限模式 ACK 必须是 exact 请求的对象响应。
+                return Err(Failure::Malformed);
             }
             if method == "initialize"
                 && let Some(result) = raw.get("result")
@@ -412,7 +427,7 @@ impl Shared {
             + method.len();
         let mut state = self.state.lock().unwrap();
         if let Some(context) = &mut state.permission {
-            context.notification(&params, self.limits.queue_count)?;
+            context.notification(&params, self.limits.queue_count, self.limits.queue_bytes)?;
         }
         if state.frames.len() >= self.limits.queue_count {
             return Err(Failure::QueueCount);

@@ -86,6 +86,7 @@ fn provider(id: &str, can_execute: bool) -> Arc<CatalogProvider> {
             id: ProviderId::new(id.into()).unwrap(),
             display_name: format!("Catalog {id}"),
             version: None,
+            protocol: None,
         },
         capabilities: ProviderCapabilities {
             can_execute,
@@ -151,11 +152,16 @@ async fn codex_available_enabled_json_fixture() {
     let mut expected: Value =
         serde_json::from_str(include_str!("fixtures/provider_catalog_codex.json")).unwrap();
     // Fresh Execute、Activity、Cancel 与 Job recovery 仅在通过 native Windows Gate 的平台声明。
-    expected["providers"][0]["capabilities"]["canExecute"] = json!(cfg!(windows));
-    expected["providers"][0]["capabilities"]["canContinue"] = json!(cfg!(windows));
-    expected["providers"][0]["capabilities"]["activity"] = json!(cfg!(windows));
-    expected["providers"][0]["capabilities"]["canRecover"] = json!(cfg!(windows));
-    expected["providers"][0]["capabilities"]["canCancel"] = json!(cfg!(windows));
+    expected["providers"][0]["capabilities"]["canExecute"] =
+        json!(cfg!(any(windows, target_os = "macos")));
+    expected["providers"][0]["capabilities"]["canContinue"] =
+        json!(cfg!(any(windows, target_os = "macos")));
+    expected["providers"][0]["capabilities"]["activity"] =
+        json!(cfg!(any(windows, target_os = "macos")));
+    expected["providers"][0]["capabilities"]["canRecover"] =
+        json!(cfg!(any(windows, target_os = "macos")));
+    expected["providers"][0]["capabilities"]["canCancel"] =
+        json!(cfg!(any(windows, target_os = "macos")));
     assert_eq!(value, expected);
     assert!(durable_snapshot(directory.path()).iter().all(Vec::is_empty));
 }
@@ -229,6 +235,7 @@ async fn codebuddy_catalog_and_refresh_preserve_capability_truth() {
                 &registered
             ));
             assert_eq!(registered.descriptor().version.as_deref(), version);
+            assert_eq!(registered.descriptor().protocol.as_deref(), Some("ACP v1"));
             // 刷新只替换目标 adapter，Codex 注册、descriptor、capability 与 health 保持原值。
             assert!(Arc::ptr_eq(
                 &codex,
@@ -246,15 +253,16 @@ async fn codebuddy_catalog_and_refresh_preserve_capability_truth() {
             let mut expected = json!({
                 "id": "codebuddy",
                 "displayName": "CodeBuddy",
+                "protocol": "ACP v1",
                 "enabled": enabled,
                 "health": if found { "available" } else { "unavailable" },
-                "availableForNewExecution": cfg!(windows) && found && enabled,
+                "availableForNewExecution": cfg!(any(windows, target_os = "macos")) && found && enabled,
                 "capabilities": {
-                    "canExecute": cfg!(windows),
-                    "canContinue": cfg!(windows),
-                    "canCancel": cfg!(windows),
-                    "canRecover": cfg!(windows),
-                    "activity": cfg!(windows),
+                    "canExecute": cfg!(any(windows, target_os = "macos")),
+                    "canContinue": cfg!(any(windows, target_os = "macos")),
+                    "canCancel": cfg!(any(windows, target_os = "macos")),
+                    "canRecover": cfg!(any(windows, target_os = "macos")),
+                    "activity": cfg!(any(windows, target_os = "macos")),
                     "tokenUsage": false
                 }
             });
@@ -434,7 +442,10 @@ async fn admission_diagnostic_serializes_exact_code_and_blocks_new_execution() {
         .find(|entry| entry["id"] == ordinary_id.as_str())
         .unwrap();
     assert_eq!(ordinary["health"], "available");
-    assert_eq!(ordinary["availableForNewExecution"], cfg!(windows));
+    assert_eq!(
+        ordinary["availableForNewExecution"],
+        cfg!(any(windows, target_os = "macos"))
+    );
     assert!(ordinary.get("diagnosticCode").is_none());
 }
 
@@ -577,4 +588,35 @@ async fn success_and_read_failure_have_no_side_effects() {
         ProviderHealth::Available
     );
     assert!(!service.manager.runtime_pool.stop.is_cancelled());
+}
+
+/// 目录按 adapter 事实投影任意身份的 metadata，缺失协议不制造默认值。
+#[tokio::test]
+async fn catalog_projects_provider_owned_version_and_protocol() {
+    for protocol in [Some("Custom RPC v3"), None] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = StateStore::open(directory.path().into()).await.unwrap();
+        let mut service = AgentProductService::new(store);
+        let mut adapter =
+            Arc::try_unwrap(provider("future-provider", true)).unwrap_or_else(|_| unreachable!());
+        adapter.descriptor.version = Some("2.160.0".into());
+        adapter.descriptor.protocol = protocol.map(str::to_owned);
+        let mut registry = ProviderRegistry::new();
+        registry
+            .register(Arc::new(adapter), ProviderHealth::Available)
+            .unwrap();
+        service.manager.use_registry(registry);
+        let supervisor = supervisor(directory.path(), &ManagerConfig::default());
+        let snapshot = service.provider_catalog(&supervisor).unwrap();
+        let entry = &snapshot.providers[0];
+        assert_eq!(entry.version.as_deref(), Some("2.160.0"));
+        assert_eq!(entry.protocol.as_deref(), protocol);
+        let value = serde_json::to_value(entry).unwrap();
+        assert_eq!(value["version"], "2.160.0");
+        if let Some(protocol) = protocol {
+            assert_eq!(value["protocol"], protocol);
+        } else {
+            assert!(value.get("protocol").is_none());
+        }
+    }
 }

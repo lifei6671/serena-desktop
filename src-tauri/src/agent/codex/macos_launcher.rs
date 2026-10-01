@@ -9,9 +9,9 @@ use std::{
 };
 
 /// executable、argv 及各自终止 NUL 的最大总字节数。
-pub(super) const MAX_COMMAND_BYTES: usize = 128 * 1024;
+pub(crate) const MAX_COMMAND_BYTES: usize = 128 * 1024;
 /// Runtime ID 的最大 UTF-8 字节数。
-pub(super) const MAX_RUNTIME_ID_BYTES: usize = 128;
+pub(crate) const MAX_RUNTIME_ID_BYTES: usize = 128;
 
 /// macOS Codex launcher 在创建进程前需要的固定输入。
 #[derive(Debug)]
@@ -31,14 +31,14 @@ pub(crate) struct MacosLaunchError {
 
 /// macOS 内核进程启动时间令牌，只在当前私有进程契约内比较。
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct ProcessStartToken {
-    pub(super) seconds: u64,
-    pub(super) microseconds: u64,
+pub(crate) struct ProcessStartToken {
+    pub(crate) seconds: u64,
+    pub(crate) microseconds: u64,
 }
 
 impl ProcessStartToken {
     /// 编码为持久化层唯一接受的 Darwin BSD 启动时间版本格式。
-    pub(super) fn encode(&self) -> String {
+    pub(crate) fn encode(&self) -> String {
         format!(
             "darwin_proc_bsd_start_v1:{}:{}",
             self.seconds, self.microseconds
@@ -46,7 +46,7 @@ impl ProcessStartToken {
     }
 
     /// 严格解码版本化启动令牌，拒绝未知版本、字段数量和无效时间值。
-    pub(super) fn decode(encoded: &str) -> Result<Self, &'static str> {
+    pub(crate) fn decode(encoded: &str) -> Result<Self, &'static str> {
         let mut fields = encoded.split(':');
         if fields.next() != Some("darwin_proc_bsd_start_v1") {
             return Err("CODEX_PROCESS_IDENTITY_FAILED");
@@ -73,26 +73,26 @@ impl ProcessStartToken {
 
 /// launcher 创建时冻结的 leader 身份与 containment 信息。
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct ProcessIdentity {
-    pub(super) pid: libc::pid_t,
-    pub(super) pgid: libc::pid_t,
-    pub(super) sid: libc::pid_t,
-    pub(super) start_token: ProcessStartToken,
+pub(crate) struct ProcessIdentity {
+    pub(crate) pid: libc::pid_t,
+    pub(crate) pgid: libc::pid_t,
+    pub(crate) sid: libc::pid_t,
+    pub(crate) start_token: ProcessStartToken,
 }
 
 impl ProcessIdentity {
     /// 只有 PID、PGID、SID 和启动令牌全部一致时才匹配原进程。
-    pub(super) fn matches(&self, observed: &Self) -> bool {
+    pub(crate) fn matches(&self, observed: &Self) -> bool {
         self == observed
     }
 }
 
 /// 隐藏 Darwin libproc 结构的私有进程身份适配器。
-pub(super) struct MacosProcessIdentityAdapter;
+pub(crate) struct MacosProcessIdentityAdapter;
 
 impl MacosProcessIdentityAdapter {
     /// 从 Darwin 内核读取 leader 身份，不向上层暴露 libproc 结构。
-    pub(super) fn observe(pid: libc::pid_t) -> io::Result<ProcessIdentity> {
+    pub(crate) fn observe(pid: libc::pid_t) -> io::Result<ProcessIdentity> {
         // SAFETY: proc_bsdinfo 是 C POD 输出缓冲区，零初始化后再交给内核完整填充。
         let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
         let size = std::mem::size_of_val(&info) as libc::c_int;
@@ -138,18 +138,18 @@ impl MacosProcessIdentityAdapter {
 
 /// 已成功创建且仍由调用方完整持有的 child 与三条 stdio pipe。
 pub(crate) struct CreatedChild {
-    pub(super) stdin: ChildStdin,
-    pub(super) stdout: ChildStdout,
-    pub(super) stderr: ChildStderr,
-    pub(super) process: Child,
-    pub(super) pid: libc::pid_t,
-    pub(super) pgid: libc::pid_t,
+    pub(crate) stdin: ChildStdin,
+    pub(crate) stdout: ChildStdout,
+    pub(crate) stderr: ChildStderr,
+    pub(crate) process: Child,
+    pub(crate) pid: libc::pid_t,
+    pub(crate) pgid: libc::pid_t,
 }
 
 /// 已完成父子双侧身份验证的 launcher 结果。
-pub(super) struct LaunchedChild {
-    pub(super) child: CreatedChild,
-    pub(super) identity: ProcessIdentity,
+pub(crate) struct LaunchedChild {
+    pub(crate) child: CreatedChild,
+    pub(crate) identity: ProcessIdentity,
 }
 
 /// launcher 失败及创建后仍需收口的 ownership。
@@ -221,7 +221,7 @@ fn classify_proc_pidinfo_read(
 }
 
 /// 在创建任何进程前验证 launcher 输入边界。
-pub(super) fn validate(request: &MacosLaunchRequest) -> Result<(), MacosLaunchError> {
+pub(crate) fn validate(request: &MacosLaunchRequest) -> Result<(), MacosLaunchError> {
     if request.runtime_instance_id.is_empty()
         || request.runtime_instance_id.len() > MAX_RUNTIME_ID_BYTES
         || request.runtime_instance_id.contains(['/', '\\', '\0'])
@@ -263,7 +263,7 @@ pub(super) fn validate(request: &MacosLaunchRequest) -> Result<(), MacosLaunchEr
 }
 
 /// 枚举指定 Process Group 的当前成员；空 Vec 是唯一的 group-empty 结果。
-pub(super) fn process_group_members(pgid: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
+pub(crate) fn process_group_members(pgid: libc::pid_t) -> io::Result<Vec<libc::pid_t>> {
     clear_errno();
     // SAFETY: null buffer 与零长度是 libproc 查询成员数量的约定调用方式。
     let count = unsafe { libc::proc_listpgrppids(pgid, ptr::null_mut(), 0) };
@@ -321,7 +321,15 @@ pub(super) fn process_group_members(pgid: libc::pid_t) -> io::Result<Vec<libc::p
 }
 
 /// 使用固定 executable 与逐项 argv 创建独立 macOS Session，并在父侧验证身份。
-pub(super) fn launch(request: &MacosLaunchRequest) -> Result<LaunchedChild, MacosLaunchFailure> {
+pub(crate) fn launch(request: &MacosLaunchRequest) -> Result<LaunchedChild, MacosLaunchFailure> {
+    launch_with_path(request, None)
+}
+
+/// 共用进程组 launcher，仅为调用方的子进程覆盖 PATH，不改变 Host 环境。
+pub(crate) fn launch_with_path(
+    request: &MacosLaunchRequest,
+    path: Option<&OsStr>,
+) -> Result<LaunchedChild, MacosLaunchFailure> {
     validate(request).map_err(|error| MacosLaunchFailure {
         code: error.code,
         message: error.message,
@@ -335,6 +343,10 @@ pub(super) fn launch(request: &MacosLaunchRequest) -> Result<LaunchedChild, Maco
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    if let Some(path) = path {
+        command.env("PATH", path);
+    }
 
     // SAFETY: 闭包只调用 setsid/getpid/getpgid/getsid 并构造固定 errno，不访问其他线程状态。
     unsafe {

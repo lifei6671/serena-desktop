@@ -31,6 +31,7 @@ impl AgentProvider for ReadOnlyProvider {
             .unwrap(),
             display_name: "Read-only fixture".into(),
             version: None,
+            protocol: None,
         }
     }
     /// 未证明的能力保持 false；查询不得通过运行 Provider 来探测能力。

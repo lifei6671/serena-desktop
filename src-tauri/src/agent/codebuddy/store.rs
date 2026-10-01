@@ -132,7 +132,7 @@ impl CodeBuddyStore {
         ownership: Ownership,
         recovery_runtime_instance_id: String,
         owner: String,
-        session: u32,
+        session: Option<u32>,
         executable: String,
     ) -> Result<PrivateState, String> {
         self.0

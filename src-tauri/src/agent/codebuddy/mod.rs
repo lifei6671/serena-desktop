@@ -1,4 +1,4 @@
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 #[allow(dead_code, reason = "CB7-004 内部 Activity mapper，能力仍冻结")]
 mod activity;
 #[allow(
@@ -6,16 +6,16 @@ mod activity;
     reason = "CB6-003 建立 transport primitive，CB7 才接产品执行"
 )]
 pub(crate) mod client;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod continued;
 pub(crate) mod discovery;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 #[allow(
     dead_code,
     reason = "CB7-002 准备 primitive，CB7-005 才接 execute lifecycle"
 )]
 pub(crate) mod fresh;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 #[allow(
     dead_code,
     reason = "CB7-003 内部 prompt primitive，CB7-005 才接生命周期"
@@ -25,7 +25,7 @@ pub(crate) mod prompt;
 pub(crate) mod protocol;
 pub(crate) mod provider;
 pub(crate) mod recovery;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod result_recovery;
 #[cfg(windows)]
 #[allow(dead_code, reason = "CB6-003 仅 managed handshake，不接产品 session")]
@@ -57,5 +57,23 @@ pub(crate) fn discover() -> Result<discovery::DiscoveryResult, discovery::Discov
     discovery::discover(discovery::DiscoveryInput::system())
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod execute;
+
+// 平台差异停留在进程与身份边界，ACP 业务流程共用。
+#[cfg(windows)]
+pub(crate) use windows_launcher as platform_launcher;
+#[cfg(target_os = "macos")]
+pub(crate) mod macos_discovery;
+#[cfg(target_os = "macos")]
+pub(crate) mod macos_launcher;
+#[cfg(target_os = "macos")]
+pub(crate) use macos_launcher as platform_launcher;
+#[cfg(target_os = "macos")]
+pub(crate) mod macos_recovery;
+#[cfg(target_os = "macos")]
+#[path = "macos_runtime.rs"]
+pub(crate) mod runtime;
+
+// 本地审批策略不拥有进程或 terminal authority。
+mod permission_policy;

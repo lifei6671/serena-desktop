@@ -18,9 +18,9 @@ use super::discovery::ResolvedLaunchSpec;
 
 /// 字段不公开，生产代码只能通过本模块的受验证 Job observation 获得此证据。
 pub(crate) struct TerminationEvidence {
-    original: RuntimeRecord,
-    kind: &'static str,
-    at: i64,
+    pub(super) original: RuntimeRecord,
+    pub(super) kind: &'static str,
+    pub(super) at: i64,
 }
 impl TerminationEvidence {
     /// Store 只读原始 ownership snapshot，不能创建或修改 sealed evidence。
@@ -65,6 +65,10 @@ pub(crate) fn valid_identity(r: &RuntimeRecord, session: u32) -> Result<(), Stri
 
 /// 仅消费 CodeBuddy 已提交的两种 complete evidence；另一 Provider 不能幂等成功。
 fn complete(r: &RuntimeRecord) -> bool {
+    #[cfg(target_os = "macos")]
+    if r.runtime_platform == "macos" {
+        return super::macos_recovery::complete(r);
+    }
     r.provider == "codebuddy"
         && r.state == "terminated"
         && r.termination_evidence_state == "complete"
@@ -77,6 +81,9 @@ fn complete(r: &RuntimeRecord) -> bool {
 
 /// 每次授权动作前重读 durable Runtime，并重新验证当前 Windows Session 与完整 Job identity。
 pub(super) async fn approved_runtime(store: &StateStore, id: &str) -> Result<bool, String> {
+    if !store.codebuddy_runtime_binding_valid(id.to_owned()).await? {
+        return Ok(false);
+    }
     let durable = store.runtime(id.to_owned()).await?;
     #[cfg(windows)]
     {
@@ -85,7 +92,13 @@ pub(super) async fn approved_runtime(store: &StateStore, id: &str) -> Result<boo
                 && current_session().is_ok_and(|session| valid_identity(runtime, session).is_ok())
         }))
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(durable
+            .as_ref()
+            .is_some_and(super::macos_recovery::complete));
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = durable;
         Ok(false)
@@ -124,7 +137,7 @@ async fn recover_using(
     if !store.codebuddy_runtime_binding_valid(id.clone()).await? {
         return Err("CODEBUDDY_RUNTIME_BINDING_CONFLICT".into());
     }
-    if complete(&r) {
+    if complete(&r) && approved_runtime(store, &id).await? {
         return Ok(());
     }
     let result = async {
@@ -143,10 +156,13 @@ async fn recover_using(
 }
 
 /// unsupported host 不生成证据或降级为 PID 检查。
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn observe(_r: RuntimeRecord, _timeout: Duration) -> Result<TerminationEvidence, String> {
     Err("CODEBUDDY_WINDOWS_JOB_REQUIRED".into())
 }
+
+#[cfg(target_os = "macos")]
+use super::macos_recovery::observe;
 
 #[cfg(windows)]
 #[path = "recovery_windows.rs"]
@@ -332,7 +348,7 @@ pub(super) async fn reconcile_execution_with_launch(
             .await?
             .ok_or("EXECUTION_NOT_FOUND")?;
     }
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     let recovered_result = if staged {
         None
     } else {
@@ -345,7 +361,7 @@ pub(super) async fn reconcile_execution_with_launch(
             }
         }
     };
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     let recovered_result: Option<()> = None;
     // inspection 可能原子推进 generic revision/result，finalize 必须重新读取最新快照。
     row = store
@@ -386,7 +402,7 @@ pub(super) async fn reconcile_execution_with_launch(
         };
         (terminal, result, completeness)
     } else {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         let (result, completeness) = match recovered_result {
             Some(super::result_recovery::RecoveredResult::Partial(result)) => {
                 (Some(result), ResultCompleteness::Partial)
@@ -395,7 +411,7 @@ pub(super) async fn reconcile_execution_with_launch(
                 (None, ResultCompleteness::Unknown)
             }
         };
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         let (result, completeness) = (None, ResultCompleteness::Unknown);
         (Status::Interrupted, result, completeness)
     };

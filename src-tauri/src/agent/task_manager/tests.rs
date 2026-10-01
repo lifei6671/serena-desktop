@@ -195,6 +195,7 @@ impl AgentProvider for FakeProvider {
             id: self.id.clone(),
             display_name: "Routing Fake".into(),
             version: None,
+            protocol: None,
         }
     }
 
@@ -1978,11 +1979,11 @@ async fn codebuddy_missing_cli_keeps_execute_unaccepted_and_runtime_absent() {
     assert_eq!(
         provider.capabilities(),
         ProviderCapabilities {
-            can_execute: cfg!(windows),
-            can_continue: cfg!(windows),
-            can_cancel: cfg!(windows),
-            can_recover: cfg!(windows),
-            activity: cfg!(windows),
+            can_execute: cfg!(any(windows, target_os = "macos")),
+            can_continue: cfg!(any(windows, target_os = "macos")),
+            can_cancel: cfg!(any(windows, target_os = "macos")),
+            can_recover: cfg!(any(windows, target_os = "macos")),
+            activity: cfg!(any(windows, target_os = "macos")),
             token_usage: false,
         }
     );
@@ -2008,7 +2009,7 @@ async fn codebuddy_missing_cli_keeps_execute_unaccepted_and_runtime_absent() {
             .await
             .unwrap_err(),
         ProviderExecutionFailure::State(
-            if cfg!(windows) {
+            if cfg!(any(windows, target_os = "macos")) {
                 "CODEBUDDY_ACP_LAUNCH_FAILED"
             } else {
                 "AGENT_PROVIDER_CAPABILITY_UNSUPPORTED"

@@ -172,7 +172,7 @@ impl StateStore {
         expected_ownership: Ownership,
         recovery_runtime_instance_id: String,
         owner: String,
-        session: u32,
+        session: Option<u32>,
         executable: String,
     ) -> Result<PrivateState, String> {
         if recovery_runtime_instance_id.is_empty()
@@ -209,10 +209,12 @@ impl StateStore {
                      AND job_kill_on_close=1 AND job_breakaway_allowed=0 AND job_policy_verified_at IS NOT NULL
                      AND runtime_platform='windows' AND containment_type='windows_job'
                      AND process_identity_scheme='windows_filetime_v1')",
-                    params![r1, format!("Local\\SerenaDesktop.CodeBuddy.{r1}"), i64::from(session)],
+                    params![r1, format!("Local\\SerenaDesktop.CodeBuddy.{r1}"), session.map(i64::from)],
                     |row| row.get(0),
                 )
                 .map_err(|e| e.to_string())?;
+            #[cfg(target_os = "macos")]
+            let r1_approved = if session.is_none() { super::codebuddy_runtime::complete_macos_runtime(&tx, r1)? } else { r1_approved };
             if !r1_approved {
                 return Err("RUNTIME_EVIDENCE_REQUIRED".into());
             }
@@ -223,6 +225,7 @@ impl StateStore {
                 params![expected.execution_id, recovery_runtime_instance_id, now],
             )
             .map_err(|e| e.to_string())?;
+            if let Some(session) = session {
             tx.execute(
                 "INSERT INTO runtime_instances(id,provider,owner_host_instance_id,job_name,job_session_id,
                  job_creation_mode,job_handle_inheritable,job_kill_on_close,job_breakaway_allowed,
@@ -238,6 +241,12 @@ impl StateStore {
                 ],
             )
             .map_err(|e| e.to_string())?;
+            } else {
+                #[cfg(not(target_os = "macos"))]
+                return Err("CODEBUDDY_RUNTIME_PLATFORM_UNSUPPORTED".into());
+                #[cfg(target_os = "macos")]
+                tx.execute("INSERT INTO runtime_instances(id,provider,owner_host_instance_id,executable_path,state,created_at,updated_at,runtime_platform,containment_type,process_identity_scheme) VALUES (?1,'codebuddy',?2,?3,'preparing',?4,?4,'macos','macos_process_group','darwin_proc_bsd_start_v1')",params![recovery_runtime_instance_id,owner,executable,now]).map_err(|error|error.to_string())?;
+            }
             apply(
                 &mut state,
                 Mutation::BeginInspection { recovery_runtime_instance_id },
@@ -302,6 +311,8 @@ impl StateStore {
                  AND process_identity_scheme='windows_filetime_v1')",
                 params![r2,format!("Local\\SerenaDesktop.CodeBuddy.{r2}")],|row|row.get(0)
             ).map_err(|e| e.to_string())?;
+            #[cfg(target_os = "macos")]
+            let r2_approved = r2_approved || super::codebuddy_runtime::complete_macos_runtime(&tx, r2)?;
             if !r2_approved {
                 return Err("CODEBUDDY_RECOVERY_RUNTIME_EVIDENCE_REQUIRED".into());
             }

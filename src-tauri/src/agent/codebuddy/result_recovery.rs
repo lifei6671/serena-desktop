@@ -2,13 +2,13 @@
 
 use super::{
     discovery::ResolvedLaunchSpec,
+    platform_launcher::{LaunchRequest, UncCurrentDirectoryPolicy},
     protocol::{Failure, Limits, SessionFrame},
     runtime::Runtime,
     store::{
         CodeBuddyStore, InspectionOutcome, Ownership, PrivateState, PromptState, RecoveryState,
         new_conversation_id,
     },
-    windows_launcher::{LaunchRequest, UncCurrentDirectoryPolicy},
 };
 use crate::agent::store::{ExecutionRecord, StateStore};
 use agent_client_protocol::schema::v1::{ContentBlock, LoadSessionRequest};
@@ -97,7 +97,10 @@ async fn launch_and_inspect(
     )
     .map_err(|_| "CODEBUDDY_RECOVERY_LAUNCH_INVALID")?;
     let cwd = request.projected_cwd().as_path().to_owned();
-    let session = super::recovery::current_session()?;
+    #[cfg(windows)]
+    let session = Some(super::recovery::current_session()?);
+    #[cfg(target_os = "macos")]
+    let session = None;
     let private_store = CodeBuddyStore(store.clone());
     let ownership = Ownership {
         execution_revision: row.revision,

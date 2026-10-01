@@ -155,6 +155,7 @@ mod tests {
                 id: ProviderId::new("ordered".into()).unwrap(),
                 display_name: "Ordered".into(),
                 version: None,
+                protocol: None,
             }
         }
 

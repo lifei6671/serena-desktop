@@ -87,6 +87,7 @@ pub(super) async fn prepare_owned(
             models: extensions.models,
         };
         catalog.replay(&source_session_id, &replay)?;
+        // 默认保留 Provider 当前模式；显式 mode/option 才通过 typed ACP 配置。
         catalog.configure(requests, &desired).await?;
         let tail = requests.shared.take_continuation_tail(&source_session_id)?;
         check_replay_bound(&tail, limits)?;

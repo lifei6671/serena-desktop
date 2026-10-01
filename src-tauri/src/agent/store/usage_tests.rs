@@ -1017,3 +1017,191 @@ async fn non_codex_execution_rejects_every_codex_private_usage_entry_without_row
         before_claim
     );
 }
+
+/// 直接快照没有 baseline；null、零、完整 breakdown 与 Provider 身份独立持久化。
+#[tokio::test]
+async fn direct_usage_round_trip_identity_duplicate_freeze_and_private_isolation() {
+    use crate::agent::usage::{UsageCompleteness, UsageSnapshot};
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    execution(&store, "direct", directory.path()).await;
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET provider='codebuddy' WHERE id='direct'",
+            [],
+        )
+        .unwrap();
+    let before = store.execution("direct".into()).await.unwrap().unwrap();
+    let mut snapshot = UsageSnapshot {
+        execution_id: "direct".into(),
+        provider_id: ProviderId::new("codebuddy".into()).unwrap(),
+        input_tokens: None,
+        cached_input_tokens: None,
+        cache_write_input_tokens: None,
+        output_tokens: Some(0),
+        reasoning_tokens: None,
+        total_tokens: Some(0),
+        model_context_window: None,
+        completeness: UsageCompleteness::Partial,
+        revision: 999,
+        updated_at: 2,
+    };
+    let mut mismatch = snapshot.clone();
+    mismatch.provider_id = ProviderId::new("codex".into()).unwrap();
+    assert_eq!(
+        store
+            .project_direct_execution_usage(mismatch)
+            .await
+            .unwrap_err(),
+        "USAGE_PROVIDER_MISMATCH"
+    );
+    store
+        .project_direct_execution_usage(snapshot.clone())
+        .await
+        .unwrap();
+    let read = || {
+        usage::execution_usage_record(&store.connection.lock().unwrap(), "direct")
+            .unwrap()
+            .unwrap()
+    };
+    let initial = read();
+    assert_eq!(initial.usage_revision, 1);
+    assert_eq!(initial.total_tokens, Some(0));
+    assert_eq!(initial.input_tokens, None);
+    snapshot.updated_at = 3;
+    store
+        .project_direct_execution_usage(snapshot.clone())
+        .await
+        .unwrap();
+    assert_eq!(read(), initial);
+    // 各 breakdown 原样保存，total 故意不等于其和，公共层不能重算。
+    snapshot.input_tokens = Some(11);
+    snapshot.cached_input_tokens = Some(3);
+    snapshot.cache_write_input_tokens = Some(0);
+    snapshot.output_tokens = Some(7);
+    snapshot.reasoning_tokens = Some(2);
+    snapshot.total_tokens = Some(99);
+    snapshot.completeness = UsageCompleteness::Complete;
+    store
+        .project_direct_execution_usage(snapshot.clone())
+        .await
+        .unwrap();
+    let full = read();
+    assert_eq!(full.usage_revision, 2);
+    assert_eq!(full.total_tokens, Some(99));
+    assert_eq!(full.cached_input_tokens, Some(3));
+    assert_eq!(full.cache_write_input_tokens, Some(0));
+    assert_eq!(full.reasoning_tokens, Some(2));
+    let round_trip = UsageSnapshot::try_from(full.clone()).unwrap();
+    assert_eq!(round_trip.input_tokens, snapshot.input_tokens);
+    snapshot.updated_at = 4;
+    store
+        .project_direct_execution_usage(snapshot.clone())
+        .await
+        .unwrap();
+    assert_eq!(read(), full);
+    snapshot.total_tokens = Some(98);
+    assert_eq!(
+        store
+            .project_direct_execution_usage(snapshot.clone())
+            .await
+            .unwrap_err(),
+        usage::USAGE_TELEMETRY_FROZEN
+    );
+    snapshot.total_tokens = Some(-1);
+    assert_eq!(
+        store
+            .project_direct_execution_usage(snapshot)
+            .await
+            .unwrap_err(),
+        "USAGE_EVENT_INVALID"
+    );
+    assert_eq!(read(), full);
+    let after = store.execution("direct".into()).await.unwrap().unwrap();
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after, before);
+    assert_eq!(after.status, before.status);
+    // 重启后 public final 的 freeze 与 semantic duplicate 仍然成立，不依赖内存状态。
+    let restarted = StateStore::open(directory.path().into()).await.unwrap();
+    restarted
+        .project_direct_execution_usage(round_trip.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted
+            .execution_usage("direct".into())
+            .await
+            .unwrap()
+            .unwrap(),
+        round_trip
+    );
+    let mut late = round_trip;
+    late.output_tokens = Some(8);
+    assert_eq!(
+        restarted
+            .project_direct_execution_usage(late)
+            .await
+            .unwrap_err(),
+        usage::USAGE_TELEMETRY_FROZEN
+    );
+    let connection = store.connection.lock().unwrap();
+    for table in ["codex_execution_usage_state", "codex_thread_usage_epochs"] {
+        let count: i64 = connection
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+}
+
+/// 直接 writer 不允许覆盖来自其他 Provider 的已存在行，即使 Execution 身份吻合。
+#[tokio::test]
+async fn direct_usage_rejects_foreign_persisted_provider_and_preserves_null_total() {
+    use crate::agent::usage::{UsageCompleteness, UsageSnapshot};
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    execution(&store, "direct-null", directory.path()).await;
+    let snapshot = UsageSnapshot {
+        execution_id: "direct-null".into(),
+        provider_id: ProviderId::new("codex".into()).unwrap(),
+        input_tokens: Some(1),
+        cached_input_tokens: None,
+        cache_write_input_tokens: None,
+        output_tokens: None,
+        reasoning_tokens: None,
+        total_tokens: None,
+        model_context_window: None,
+        completeness: UsageCompleteness::Partial,
+        revision: 0,
+        updated_at: 2,
+    };
+    store
+        .project_direct_execution_usage(snapshot.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        usage::execution_usage_record(&store.connection.lock().unwrap(), "direct-null")
+            .unwrap()
+            .unwrap()
+            .total_tokens,
+        None
+    );
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE execution_usage SET provider_id='codebuddy' WHERE execution_id='direct-null'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .project_direct_execution_usage(snapshot)
+            .await
+            .unwrap_err(),
+        "USAGE_PROVIDER_MISMATCH"
+    );
+}

@@ -136,7 +136,7 @@ pub fn descriptors() -> Vec<Tool> {
         ("work_query", "【做什么】\n只查询 Work 业务容器，不执行任务。\n\n【什么时候使用】\nget(workRunId) 查询单个 Work；list(workspaceId?, limit?) 查询 Work 列表。\n\n【关键约束】\n只读；不要求当前活动 Workspace，也不建立 Workspace Binding。", schema::<WorkQuery>(), work_output.clone(), true, false),
         ("work_update", "【做什么】\nbegin 创建 Work，finish 提交 Host Acceptance，cancel 关闭 Work。\n\n【什么时候使用】\nbegin(workspaceId, title, goal?) 创建业务任务容器；finish(workRunId, outcome, acceptance?) 在关联执行全部收敛后完成 Work；cancel(workRunId) 关闭 Work。\n\n【关键约束】\nbegin 必须显式携带 workspaceId，并由 Registry 解析后冻结；Work 不拥有 Workspace Claim；cancel 只关闭 Work，不会替代 agent_execute cancel 或 command_execute cancel。finish/cancel 不可逆。", schema::<WorkUpdate>(), work_output, false, false),
         ("agent_query", "【做什么】\n只读查询 Provider 目录、用户角色路由/默认执行配置或 observe Work 内 Execution。\n\n【什么时候使用】\nproviders() 读取 Provider Catalog、roleRouting 和 roleDefaults，只接受 action，无需 workspaceId，不启动 Runtime、不刷新 health、不修改策略；get(executionId, includeResult?) 读取单个 Execution；list(workRunId, limit?) 查询 Work 内执行；observe(executionId, knownRevision?/knownControlRevision?/knownActivityRevision?/wakeOn?/waitMs?/includeResult?) 有界等待变化。耗时任务优先 observe，Final Result 仅按需 includeResult，可重复读取。\n\n【关键约束】\nobserve 默认 15000ms、范围 0..=20000，0 为即时 snapshot；wakeOn 默认 control。knownRevision 是 knownControlRevision 的 legacy alias，后者优先。activity 模式会因 activity 或 control/terminal/result 变化唤醒，必须读取 wakeReason 与 activityRevision，不能只看 unchanged。返回的是 latest snapshot，可能 coalesce 并跳过中间 Activity revision，不是逐事件流；Activity revision 是 opaque，旧 v1 token 只会 initial mismatch，不迁移。", schema::<AgentQuery>(), query_output_schema(), true, false),
-        ("agent_execute", "【做什么】\n执行需要自主代码修改、工程分析和多步骤迭代的复合编码任务。\n\n【什么时候使用】\n调用方已明确任务目标和约束，但仍需 Agent 阅读代码、修改实现、根据中间结果调整并完成验证时使用；若只是运行已确定的命令，优先使用 command_execute。每个 WorkRun 只有第一个 Execution 使用 start(workRunId, workspaceId, requestKey, prompt, context?)；WorkRun 已有 Execution 后，后续执行必须使用 continue(workRunId, parentExecutionId, requestKey, prompt, context?)。cancel(workRunId, executionId) 取消指定 Execution；resume_pending(workRunId, executionId) 只恢复允许首次派发的原 Execution。\n\n【关键约束】\nstart 必须显式携带 workspaceId，并由 Registry 解析后冻结，且同一 WorkRun 只能成功 start 一次；WorkRun 仅校验其一致性。对同一 requestKey 的完全相同 start 重试仍幂等返回原 Execution。WorkRun 已存在 Execution 时不得换新 requestKey 再 start：关联 Execution 仍未终态时先 observe/cancel，已具备 continuation 资格时使用 continue。continue 创建新 Execution，可复用 Thread；context 传递 Host 验证的 path+sha256 引用。start/continue 重试保留原 requestKey 和请求；cancel 取消指定 Execution，resume_pending 仅显式恢复允许首次派发的原 Execution。command_execute 能完成的确定性命令不应转交 Agent。", schema::<AgentExecute>(), super::registry::agent_output_schema(), false, true),
+        ("agent_execute", "【做什么】\n执行需要自主代码修改、工程分析和多步骤迭代的复合编码任务。\n\n【什么时候使用】\n调用方已明确任务目标和约束，但仍需 Agent 阅读代码、修改实现、根据中间结果调整并完成验证时使用；若只是运行已确定的命令，优先使用 command_execute。每个 WorkRun 只有第一个 Execution 使用 start(workRunId, workspaceId, requestKey, prompt, taskRole, providerId, context?)；WorkRun 已有 Execution 后，后续执行必须使用 continue(workRunId, parentExecutionId, requestKey, prompt, context?)。cancel(workRunId, executionId) 取消指定 Execution；resume_pending(workRunId, executionId) 只恢复允许首次派发的原 Execution。\n\n【关键约束】\nstart 必须同时显式携带 taskRole 和 providerId；编码实现传 development，测试传 testing，评审传 review，分析传 analysis，并按 agent_query providers 返回的 roleRouting 选择匹配 Provider。general 也必须显式传 general + providerId，不从 prompt 自动猜测。continue/cancel/resume_pending 不接受 taskRole/providerId，continue 继承父 Execution 的冻结角色、Provider 和执行配置。start 必须显式携带 workspaceId，并由 Registry 解析后冻结，且同一 WorkRun 只能成功 start 一次；WorkRun 仅校验其一致性。对同一 requestKey 的完全相同 start 重试仍幂等返回原 Execution。WorkRun 已存在 Execution 时不得换新 requestKey 再 start：关联 Execution 仍未终态时先 observe/cancel，已具备 continuation 资格时使用 continue。continue 创建新 Execution，可复用 Thread；context 传递 Host 验证的 path+sha256 引用。start/continue 重试保留原 requestKey 和请求；cancel 取消指定 Execution，resume_pending 仅显式恢复允许首次派发的原 Execution。command_execute 能完成的确定性命令不应转交 Agent。", schema::<AgentExecute>(), super::registry::agent_output_schema(), false, true),
     ].into_iter().map(|(name, description, input, output, read_only, open_world)| {
         let mut tool=Tool::new(name, description, input.as_object().unwrap().clone());
         tool.annotations=Some(ToolAnnotations::default().read_only(read_only).destructive(!read_only).idempotent(read_only).open_world(open_world));
@@ -311,19 +311,12 @@ impl Broker {
                         request_key,
                         prompt,
                         context,
-                        routing,
+                        task_role,
+                        provider_id,
                     } => {
-                        routing_intent = match routing {
-                            StartRoutingIntent::LegacyGeneral => {
-                                product::StartRoutingIntent::LegacyGeneral
-                            }
-                            StartRoutingIntent::Explicit {
-                                task_role,
-                                provider_id,
-                            } => product::StartRoutingIntent::Explicit {
-                                task_role,
-                                provider_id,
-                            },
+                        routing_intent = product::StartRoutingIntent::Explicit {
+                            task_role,
+                            provider_id,
                         };
                         AgentExecuteAction::Start {
                             work_run_id,

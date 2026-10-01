@@ -92,6 +92,7 @@ async fn registered_and_unavailable_provider_descriptors_project_in_all_read_pat
                     id: ProviderId::new(id.into()).unwrap(),
                     display_name: name.into(),
                     version: version.map(str::to_owned),
+                    protocol: None,
                 })),
                 health,
             )
@@ -214,6 +215,7 @@ async fn fake_provider_create_and_restart_preserve_product_identity_and_unknown_
                     id: ProviderId::new("fake-acp".into()).unwrap(),
                     display_name: "Fake ACP".into(),
                     version: Some("1.2.3".into()),
+                    protocol: None,
                 })),
                 ProviderHealth::Available,
             )
@@ -279,6 +281,7 @@ fn mismatched_descriptor_falls_back_to_persisted_identity() {
             id: ProviderId::new("other-acp".into()).unwrap(),
             display_name: "Other ACP".into(),
             version: Some("9".into()),
+            protocol: None,
         }),
     );
     assert_eq!(

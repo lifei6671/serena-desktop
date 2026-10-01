@@ -479,7 +479,8 @@ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, side
               {!!loadedCatalog && unavailableReasoning && <SelectItem disabled value={`value:${defaults.reasoning}`}>{defaults.reasoning} · 当前不可用</SelectItem>}
             </SelectContent>
           </Select>
-          {(edit?.pending || defaultsPending) && <span role="status" className="agent-muted">正在保存…</span>}
+          {/* 临时保存状态保留读屏播报，但不参与 grid 布局，避免角色行高度抖动。 */}
+          {(edit?.pending || defaultsPending) && <span role="status" className="agent-role-saving-status">正在保存…</span>}
           {configurationUnavailable && <span role="status" className="agent-muted">目录不可用，已保留设置</span>}
         </div>;
       })}</div>}

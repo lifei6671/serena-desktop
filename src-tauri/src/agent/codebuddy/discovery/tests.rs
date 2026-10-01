@@ -1,4 +1,6 @@
 use super::*;
+// Windows fixture 在所有测试 Host 上验证同一解析路径。
+use super::discover_windows as discover;
 
 /// 把目录列表编码为当前平台 PATH 字符串，测试不修改进程环境。
 fn path_value(paths: &[&Path]) -> OsString {
@@ -285,4 +287,29 @@ fn diagnostic_provenance_is_minimal_and_redacted() {
     assert!(!diagnostic.contains("diagnostic-secret"));
     assert!(!diagnostic.contains("node_modules/@tencent-ai"));
     assert!(!diagnostic.contains("@ECHO"));
+}
+
+/// macOS 安全目录固定覆盖用户安装和两种 Homebrew 前缀，不读取 Windows 环境变量。
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_safe_dirs_cover_home_and_both_homebrew_prefixes() {
+    let dirs = safe_common_dirs(&[
+        ("HOME".into(), "/Users/fixture 用户".into()),
+        ("APPDATA".into(), "/ignored/windows".into()),
+    ]);
+    assert_eq!(
+        dirs,
+        [
+            PathBuf::from("/Users/fixture 用户/.local/bin"),
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/usr/local/bin"),
+        ]
+    );
+    assert_eq!(
+        safe_common_dirs(&[("HOME".into(), "relative-home".into())]),
+        [
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/usr/local/bin")
+        ]
+    );
 }

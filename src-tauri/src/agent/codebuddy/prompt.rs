@@ -187,7 +187,15 @@ pub(super) async fn run(
         // permit 来自上方 durable exact owner 核验；guard 在所有返回路径撤销上下文。
         let (_permission, mut permission_events) = requests.shared.register_permission(
             current.runtime_instance_id.clone().ok_or(Failure::State)?, row.id.clone(),
-            session_id.clone(), current.conversation_request_id.clone(), current.provider_request_id.clone())?;
+            session_id.clone(), current.conversation_request_id.clone(), current.provider_request_id.clone(),
+            super::permission_policy::Authority {
+                lease: crate::workspace_resolver::WorkspaceLease {
+                    workspace_id: row.workspace_id.clone(),
+                    canonical_root: row.canonical_workspace_root.clone().into(),
+                    generation: row.workspace_generation,
+                },
+                mode: row.mode.clone(),
+            })?;
         let mut flushed = false;
         let mut activity_after = 0;
         let mut activity = ActivityMapper::new(
@@ -645,5 +653,5 @@ impl Collector {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests;

@@ -142,6 +142,61 @@ fn insert_unknown_state(tx: &Transaction<'_>, row: &ExecutionRecord) -> Result<(
 }
 
 impl StateStore {
+    /// 直接持久化已绑定当前 Execution 的快照；不接触 Provider 私有计数与 lifecycle。
+    pub(crate) async fn project_direct_execution_usage(
+        &self,
+        snapshot: UsageSnapshot,
+    ) -> Result<(), String> {
+        // 公共边界复用严格数字校验；revision 由 Store 拥有，不能信任事件提供的值。
+        let snapshot =
+            UsageSnapshot::from_json(&serde_json::to_value(snapshot).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+        #[cfg(test)]
+        if self.take_observability_failure(ObservabilityFault::UsageProjection) {
+            return Err("INJECTED_USAGE_PROJECTION_FAILURE".into());
+        }
+        self.write(move |tx| {
+            let row = execution_record(tx, &snapshot.execution_id).map_err(|e| e.to_string())?
+                .ok_or("EXECUTION_NOT_FOUND")?;
+            let provider = snapshot.provider_id.as_str();
+            if row.provider != provider { return Err("USAGE_PROVIDER_MISMATCH".into()); }
+            let existing = execution_usage_record(tx, &row.id).map_err(|e| e.to_string())?;
+            let completeness = match snapshot.completeness {
+                crate::agent::usage::UsageCompleteness::Unknown => "unknown",
+                crate::agent::usage::UsageCompleteness::Partial => "partial",
+                crate::agent::usage::UsageCompleteness::Complete => "complete",
+            };
+            if let Some(existing) = &existing {
+                if existing.provider_id != provider { return Err("USAGE_PROVIDER_MISMATCH".into()); }
+                if existing.input_tokens == snapshot.input_tokens
+                    && existing.cached_input_tokens == snapshot.cached_input_tokens
+                    && existing.cache_write_input_tokens == snapshot.cache_write_input_tokens
+                    && existing.output_tokens == snapshot.output_tokens
+                    && existing.reasoning_tokens == snapshot.reasoning_tokens
+                    && existing.total_tokens == snapshot.total_tokens
+                    && existing.model_context_window == snapshot.model_context_window
+                    && existing.completeness == completeness { return Ok(()); }
+                // authoritative final 一经写入就冻结；重复是 no-op，迟到不同值不能覆盖。
+                if existing.completeness == "complete" { return Err(USAGE_TELEMETRY_FROZEN.into()); }
+            }
+            let revision = existing.as_ref().map_or(Ok(1), |v| v.usage_revision.checked_add(1)
+                .ok_or("USAGE_REVISION_OVERFLOW"))?;
+            tx.execute(
+                "INSERT INTO execution_usage(execution_id,provider_id,input_tokens,cached_input_tokens,
+                cache_write_input_tokens,output_tokens,reasoning_tokens,total_tokens,model_context_window,
+                completeness,usage_revision,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+                ON CONFLICT(execution_id) DO UPDATE SET input_tokens=excluded.input_tokens,
+                cached_input_tokens=excluded.cached_input_tokens,cache_write_input_tokens=excluded.cache_write_input_tokens,
+                output_tokens=excluded.output_tokens,reasoning_tokens=excluded.reasoning_tokens,
+                total_tokens=excluded.total_tokens,model_context_window=excluded.model_context_window,
+                completeness=excluded.completeness,usage_revision=excluded.usage_revision,updated_at=excluded.updated_at",
+                params![row.id,provider,snapshot.input_tokens,snapshot.cached_input_tokens,
+                    snapshot.cache_write_input_tokens,snapshot.output_tokens,snapshot.reasoning_tokens,
+                    snapshot.total_tokens,snapshot.model_context_window,completeness,revision,snapshot.updated_at],
+            ).map(|_| ()).map_err(|e| e.to_string())
+        }).await
+    }
+
     /// 在 Provider terminal 后固定 Codex Usage grace 的首次边界；不触碰 public Usage 或 Execution lifecycle。
     pub(crate) async fn enter_codex_usage_terminal_grace(
         &self,
@@ -300,6 +355,9 @@ impl StateStore {
         #[cfg(test)]
         if self.take_observability_failure(ObservabilityFault::UsageProjection) {
             return Err("INJECTED_USAGE_PROJECTION_FAILURE".into());
+        }
+        if !matches!(event, UsageEvent::Cumulative(_)) {
+            return Err(USAGE_PROVIDER_UNSUPPORTED.into());
         }
         let execution_id = event.execution_id().to_string();
         let provider_id = event.provider_id().as_str().to_string();

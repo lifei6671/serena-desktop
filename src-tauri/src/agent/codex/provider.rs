@@ -167,18 +167,16 @@ fn resolve_codex_effective_profile_models(
                 .iter()
                 .any(|option| option.id == reasoning) =>
         {
-            reasoning
+            Some(reasoning.to_owned())
         }
         Some(_) => return Err("EXECUTION_PROFILE_UNAVAILABLE".into()),
-        None => model
-            .default_reasoning
-            .as_deref()
-            .ok_or_else(|| "EXECUTION_PROFILE_UNAVAILABLE".to_string())?,
+        // 未指定时交给 Codex 自身配置；目录默认值不是本次执行事实。
+        None => None,
     };
 
     Ok(ExecutionProfile {
         model: Some(model.id.clone()),
-        reasoning: Some(reasoning.to_owned()),
+        reasoning,
     })
 }
 
@@ -1352,6 +1350,7 @@ impl AgentProvider for CodexProvider {
             id: ProviderId::new("codex".into()).expect("static Codex provider id is valid"),
             display_name: "Codex".into(),
             version: Some(super::protocol::VERSION.into()),
+            protocol: None,
         }
     }
 

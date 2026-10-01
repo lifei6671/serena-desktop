@@ -1,7 +1,7 @@
 use crate::agent::{
     provider::{
         port::{AgentEventSink, ProviderFuture},
-        telemetry::AgentTelemetryEvent,
+        telemetry::{AgentTelemetryEvent, UsageEvent},
     },
     store::StateStore,
 };
@@ -42,7 +42,15 @@ impl AgentEventSink for ExecutionTelemetryProjector {
                     }
                 }
                 AgentTelemetryEvent::Usage(usage) if usage.execution_id() == self.execution_id => {
-                    if self.store.project_execution_usage(usage).await.is_err() {
+                    let result = match usage {
+                        UsageEvent::Cumulative(_) => {
+                            self.store.project_execution_usage(usage).await
+                        }
+                        UsageEvent::Direct(snapshot) => {
+                            self.store.project_direct_execution_usage(snapshot).await
+                        }
+                    };
+                    if result.is_err() {
                         eprintln!("Agent usage projection dropped");
                     }
                 }

@@ -39,6 +39,7 @@ impl AgentProvider for FakeProvider {
             id: ProviderId::new("fake".into()).unwrap(),
             display_name: "Fake Provider".into(),
             version: Some("1.0.0".into()),
+            protocol: None,
         }
     }
 

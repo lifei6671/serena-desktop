@@ -1,4 +1,4 @@
-//! CodeBuddy Code ACP CLI 的无进程 Windows discovery。
+//! CodeBuddy Code ACP CLI 的无进程平台 discovery。
 
 use std::{
     collections::HashMap,
@@ -61,7 +61,7 @@ impl VersionMetadata {
     }
 }
 
-/// 后续 Job-at-creation launcher 消费的本机解析结果，不等同于 Catalog 默认描述。
+/// 后续平台受管 launcher 消费的本机解析结果，不等同于 Catalog 默认描述。
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct ResolvedLaunchSpec {
     pub(crate) executable: PathBuf,
@@ -162,8 +162,20 @@ struct PathEntry {
     source: DiscoverySource,
 }
 
-/// 按冻结优先级解析 CodeBuddy Code CLI，整个过程只进行环境、Registry 和文件读取。
+/// macOS 只解析原生 ARM64 CLI，整个过程不启动任何进程。
+#[cfg(target_os = "macos")]
 pub(crate) fn discover(input: DiscoveryInput) -> Result<DiscoveryResult, DiscoveryError> {
+    super::macos_discovery::discover(input)
+}
+
+/// 非 macOS 保持原 Windows resolver；非产品平台的 fixture 仍可验证解析契约。
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn discover(input: DiscoveryInput) -> Result<DiscoveryResult, DiscoveryError> {
+    discover_windows(input)
+}
+
+/// 按冻结 Windows 优先级解析 CLI，只进行环境、Registry 和文件读取。
+fn discover_windows(input: DiscoveryInput) -> Result<DiscoveryResult, DiscoveryError> {
     let entries = project_paths(&input);
     let projection: Vec<_> = entries.iter().map(|entry| entry.path.clone()).collect();
     if let Some(candidate) = input.explicit_executable.as_deref()
@@ -518,6 +530,7 @@ fn registry_paths() -> (Option<OsString>, Option<OsString>) {
 }
 
 /// 从标准环境变量导出有限 common dirs，不递归扫描或硬编码用户绝对路径。
+#[cfg(not(target_os = "macos"))]
 fn safe_common_dirs(environment: &[(OsString, OsString)]) -> Vec<PathBuf> {
     let environment = environment_map(environment);
     let mut directories = Vec::new();
@@ -532,6 +545,23 @@ fn safe_common_dirs(environment: &[(OsString, OsString)]) -> Vec<PathBuf> {
             directories.push(PathBuf::from(program_files).join("nodejs"));
         }
     }
+    directories
+}
+
+/// Finder 最小 PATH 下仍扫描用户 bin 和固定 Homebrew 安装位置。
+#[cfg(target_os = "macos")]
+fn safe_common_dirs(environment: &[(OsString, OsString)]) -> Vec<PathBuf> {
+    let mut directories = Vec::new();
+    if let Some((_, home)) = environment.iter().find(|(key, _)| key == "HOME") {
+        let home = PathBuf::from(home);
+        if home.is_absolute() {
+            directories.push(home.join(".local/bin"));
+        }
+    }
+    directories.extend([
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+    ]);
     directories
 }
 

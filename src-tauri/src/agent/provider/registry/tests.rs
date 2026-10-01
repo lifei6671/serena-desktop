@@ -22,6 +22,7 @@ impl FakeProvider {
                 id: ProviderId::new(id.into()).unwrap(),
                 display_name: display_name.into(),
                 version: None,
+                protocol: None,
             },
             capabilities: ProviderCapabilities {
                 can_execute,

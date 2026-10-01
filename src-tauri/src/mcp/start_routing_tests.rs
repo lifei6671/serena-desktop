@@ -34,6 +34,7 @@ impl AgentProvider for RoutingProvider {
             id: self.id.clone(),
             display_name: "Routing fixture".into(),
             version: None,
+            protocol: None,
         }
     }
     /// 用独立能力事实验证 health 与 canExecute 的错误优先级。
@@ -308,14 +309,28 @@ async fn explicit_routing_error_priority_has_no_creation_side_effects() {
     }
 }
 
-/// legacy 必须读取当前 general route，缺失时不能使用默认 Codex。
+/// general 也必须显式给出 pair；角色不会由包含开发字样的 Prompt 改写。
 #[tokio::test]
-async fn legacy_general_route_is_required_and_ignores_prompt_classification() {
+async fn explicit_general_route_is_required_and_ignores_prompt_classification() {
     let f = RoutingFixture::new(ProviderHealth::Available, true, None).await;
     let work = f.begin().await;
     let mut request = start(&work);
-    request.as_object_mut().unwrap().remove("taskRole");
-    request.as_object_mut().unwrap().remove("providerId");
+    for fields in [
+        ["taskRole", "providerId"],
+        ["taskRole", ""],
+        ["providerId", ""],
+    ] {
+        let mut invalid = request.clone();
+        for field in fields.into_iter().filter(|field| !field.is_empty()) {
+            invalid.as_object_mut().unwrap().remove(field);
+        }
+        if invalid.get("taskRole").is_none() || invalid.get("providerId").is_none() {
+            let before = f.rows();
+            assert_eq!(f.execute(invalid).await["error"]["code"], "INVALID_PARAMS");
+            assert_eq!(f.rows(), before);
+        }
+    }
+    request["taskRole"] = json!("general");
     f.policy(|settings| {
         settings.role_routing.insert("general".into(), None);
     })
@@ -631,4 +646,143 @@ async fn waiting_start_rechecks_agent_enabled_after_management_acquisition() {
     assert_eq!(response["error"]["code"], "AGENT_DISABLED");
     assert_eq!(f.rows(), before);
     assert_eq!(f.provider.calls.load(Ordering::SeqCst), 0);
+}
+
+/// 公共 development+codex 冻结角色默认 high；无角色默认时 reasoning 保持 None。
+#[tokio::test]
+async fn development_codex_freezes_explicit_high_only_when_role_default_exists() {
+    for reasoning in [Some("high"), None] {
+        let f = RoutingFixture::new(ProviderHealth::Available, true, None).await;
+        f.policy(|settings| {
+            settings.role_routing.insert(
+                "development".into(),
+                Some(ProviderId::new("codex".into()).unwrap()),
+            );
+            settings.providers.insert(
+                "codex".into(),
+                crate::config::AgentProviderPolicy { enabled: true },
+            );
+            if let Some(reasoning) = reasoning {
+                settings
+                    .role_defaults
+                    .entry("development".into())
+                    .or_default()
+                    .insert(
+                        "codex".into(),
+                        crate::config::AgentRoleProviderDefaults {
+                            model: None,
+                            reasoning: Some(reasoning.into()),
+                        },
+                    );
+            }
+        })
+        .await;
+        let work = f.begin().await;
+        let mut request = start(&work);
+        request["taskRole"] = json!("development");
+        request["providerId"] = json!("codex");
+        let response = f.execute(request).await;
+        assert_eq!(response["ok"], true, "{response}");
+        let row = f
+            .store
+            .product_read(None, None, None, 10)
+            .await
+            .unwrap()
+            .remove(0);
+        assert_eq!(row.task_role, "development");
+        assert_eq!(row.execution.provider, "codex");
+        let profile: Value = serde_json::from_str(&row.execution.execution_profile_json).unwrap();
+        assert_eq!(profile["reasoning"], json!(reasoning));
+    }
+}
+
+/// 真正通过 HTTP tools/list 与 tools/call 验证公开 schema 和 pair 必填，无需上游 Serena。
+#[tokio::test]
+async fn http_start_exposes_required_pair_and_rejects_omissions() {
+    let f = RoutingFixture::new(ProviderHealth::Available, true, None).await;
+    let work = f.begin().await;
+    f.broker.start().await.unwrap();
+    let client = ()
+        .serve(StreamableHttpClientTransport::from_uri(format!(
+            "http://127.0.0.1:{}/mcp",
+            f.broker.config().broker.port
+        )))
+        .await
+        .unwrap();
+    let tools = client.list_tools(None).await.unwrap().tools;
+    let tool = tools
+        .iter()
+        .find(|tool| tool.name == "agent_execute")
+        .unwrap();
+    let schema = serde_json::to_value(&tool.input_schema).unwrap();
+    let start_branch = schema["oneOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|branch| branch["properties"]["action"]["const"] == "start")
+        .unwrap();
+    for field in ["taskRole", "providerId"] {
+        assert!(start_branch["properties"].get(field).is_some());
+        assert!(
+            start_branch["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(field))
+        );
+    }
+    let description = tool.description.as_deref().unwrap();
+    for phrase in [
+        "development",
+        "testing",
+        "review",
+        "analysis",
+        "roleRouting",
+        "general + providerId",
+    ] {
+        assert!(description.contains(phrase));
+    }
+    for missing in [
+        ["taskRole", "providerId"],
+        ["taskRole", ""],
+        ["providerId", ""],
+    ] {
+        let mut args = start(&work);
+        for field in missing.into_iter().filter(|field| !field.is_empty()) {
+            args.as_object_mut().unwrap().remove(field);
+        }
+        let before = f.rows();
+        let response = client
+            .call_tool(
+                CallToolRequestParams::new("agent_execute")
+                    .with_arguments(args.as_object().unwrap().clone()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.is_error, Some(true));
+        assert_eq!(
+            response.structured_content.unwrap()["error"]["code"],
+            "INVALID_PARAMS"
+        );
+        assert_eq!(f.rows(), before);
+    }
+    let mut args = start(&work);
+    args["taskRole"] = json!("general");
+    let response = client
+        .call_tool(
+            CallToolRequestParams::new("agent_execute")
+                .with_arguments(args.as_object().unwrap().clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.is_error, Some(false));
+    let row = f
+        .store
+        .product_read(None, None, None, 10)
+        .await
+        .unwrap()
+        .remove(0);
+    assert_eq!(row.task_role, "general");
+    assert_eq!(row.execution.provider, "fixture");
+    client.cancel().await.unwrap();
+    f.broker.stop().await.unwrap();
 }

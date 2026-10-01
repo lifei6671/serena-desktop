@@ -48,6 +48,8 @@ pub struct ProviderDescriptor {
     pub id: ProviderId,
     pub display_name: String,
     pub version: Option<String>,
+    /// Provider-owned 协议契约，仅供展示，不参与准入。
+    pub protocol: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -75,6 +75,7 @@ impl AgentProvider for BlockingCatalogProvider {
             id: self.id.clone(),
             display_name: "Blocking Catalog".into(),
             version: None,
+            protocol: None,
         }
     }
 

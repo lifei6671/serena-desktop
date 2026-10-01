@@ -494,7 +494,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     let stale = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-stale","workspaceId":"A","requestKey":"key","prompt":"p"}),
+        json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"work-stale","workspaceId":"A","requestKey":"key","prompt":"p"}),
     )
     .await;
     assert_eq!(stale["error"]["code"], "WORKSPACE_CONTEXT_MISMATCH");
@@ -519,7 +519,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     let unknown = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-unknown","workspaceId":"unknown","requestKey":"key","prompt":"p"}),
+        json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"work-unknown","workspaceId":"unknown","requestKey":"key","prompt":"p"}),
     )
     .await;
     assert_eq!(unknown["error"]["code"], "WORKSPACE_NOT_FOUND");
@@ -544,7 +544,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     let mismatch = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-mismatch","workspaceId":"B","requestKey":"key","prompt":"p"}),
+        json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"work-mismatch","workspaceId":"B","requestKey":"key","prompt":"p"}),
     )
     .await;
     assert_eq!(mismatch["error"]["code"], "WORKSPACE_CONTEXT_MISMATCH");
@@ -571,7 +571,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     let missing_context = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-no-context","requestKey":"key","prompt":"p"}),
+        json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"work-no-context","requestKey":"key","prompt":"p"}),
     )
     .await;
     assert_eq!(
@@ -589,7 +589,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
         let invalid = call(
             &broker,
             "agent_execute",
-            json!({"action":"start","workRunId":"work-no-context","workspaceId":workspace_id,"requestKey":"key","prompt":"p"}),
+            json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"work-no-context","workspaceId":workspace_id,"requestKey":"key","prompt":"p"}),
         )
         .await;
         assert_eq!(invalid["error"]["code"], "INVALID_PARAMS");
@@ -918,7 +918,7 @@ async fn http_work_projection_guards_errors_and_reopen_preserve_public_contract(
         ),
         (
             "agent_execute",
-            json!({"action":"start","workRunId":"missing","workspaceId":"W","requestKey":"k","prompt":"p"}),
+            json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"missing","workspaceId":"W","requestKey":"k","prompt":"p"}),
             "WORK_NOT_FOUND",
         ),
     ] {
@@ -1939,7 +1939,7 @@ fn typed_registry_validation_rejects_cross_action_fields_and_preserves_context_a
         ),
         (
             "agent_execute",
-            json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","delegationContextJson":"{}"}),
+            json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","delegationContextJson":"{}"}),
         ),
         (
             "agent_execute",
@@ -1947,7 +1947,7 @@ fn typed_registry_validation_rejects_cross_action_fields_and_preserves_context_a
         ),
         (
             "agent_execute",
-            json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"unknown":true}}),
+            json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"unknown":true}}),
         ),
     ] {
         assert!(registry::validate(name, &args).is_err(), "{name} {args}");
@@ -1986,23 +1986,23 @@ fn typed_registry_validation_rejects_cross_action_fields_and_preserves_context_a
     assert_eq!(
         registry::validate(
             "agent_execute",
-            &json!({"action":"start","workRunId":"w","requestKey":"k","prompt":"p"})
+            &json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"w","requestKey":"k","prompt":"p"})
         )
         .unwrap_err(),
         "WORKSPACE_CONTEXT_REQUIRED"
     );
     for workspace_id in [json!(""), json!(false)] {
         assert!(
-            registry::validate("agent_execute", &json!({"action":"start","workRunId":"w","workspaceId":workspace_id,"requestKey":"k","prompt":"p"}))
+            registry::validate("agent_execute", &json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"w","workspaceId":workspace_id,"requestKey":"k","prompt":"p"}))
                 .unwrap_err()
                 .starts_with("INVALID_PARAMS")
         );
     }
     // Continue 的 Authority 仅来自 parentExecutionId；公共 DTO 不接受第二个 Workspace 输入。
     assert!(registry::validate("agent_execute", &json!({"action":"continue","workRunId":"w","parentExecutionId":"e","workspaceId":"W","requestKey":"k","prompt":"p"})).is_err());
-    assert!(registry::validate("agent_execute",&json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"summary":null}})).is_err());
+    assert!(registry::validate("agent_execute",&json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"summary":null}})).is_err());
     // This is structurally valid transport input. Phase 6 must reject its values.
-    assert!(registry::validate("agent_execute",&json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"files":[{"path":"../escape","sha256":"bad"}]}})).is_ok());
+    assert!(registry::validate("agent_execute",&json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"files":[{"path":"../escape","sha256":"bad"}]}})).is_ok());
     assert_eq!(
         registry::validate("agent", &json!({"action":"list"})).unwrap_err(),
         "UNKNOWN_TOOL"

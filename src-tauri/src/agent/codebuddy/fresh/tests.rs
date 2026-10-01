@@ -420,7 +420,7 @@ async fn durable_ordering_early_routing_and_acceptance_without_prompt() {
 }
 
 #[tokio::test]
-/// 无配置、显式配置和每个 pre-accept 故障均经过生产 prepare；unknown new 绝不重放。
+/// Provider 当前模式、显式配置和每个 pre-accept 故障均经生产 prepare；unknown new 不重放。
 async fn preparation_success_and_failure_matrix() {
     let bin_dir = tempfile::tempdir().unwrap();
     let base = build(bin_dir.path());

@@ -1805,7 +1805,13 @@ session/request_permission
 
 CodeBuddy 自身也有独立 Permission Mode。
 
-首版不在启动 CLI 参数中预设 permission mode。若产品默认选择 auto，必须先完成 minimal session/new，确认返回的 modes/configOptions 实际 advertise 该选项，再发送匹配目录字段的 typed ACP session/set_mode / session/set_config_option，并在成功后进入 ProviderAcceptance。不能预设 option id 或把 auto 当成所有版本的必备能力。
+首版不在启动 CLI 参数或环境变量中预设 permission mode。默认保留 Provider `session/new` / `session/load` 返回的 current/default mode；即使 typed `modes.availableModes` 或 `configOptions category=mode` advertise `auto`，也不填充 `DesiredConfiguration.mode`，不发送 `session/set_mode(auto)`。auto 不再是 provider-internal default，也不是所有版本的必备能力。
+
+SerenaDesktop 已提供本地 deterministic Permission Policy，普通模式下的 `session/request_permission` 由该策略选择 advertised AllowOnce/RejectOnce。Host 真实 CodeBuddy 2.160.0 证据表明，主动设置 auto 会先触发 CodeBuddy 自身 auto classifier，rustc 的 classifier 连续 60s timeout，导致重复审批 authority。默认保留 Provider 当前模式用于避免 SerenaDesktop 再引入这层 classifier；不改用户配置，也不强制覆盖用户已设置或已加载 Session 的 auto 模式。
+
+Continue 保持已冻结的 exact source `session/load` 契约（不追加 session/new/resume），在 load 返回、lineage/replay 校验成功后与 Fresh 采用相同语义。source Provider / Session / conversation / request identity 不被改写，child Runtime 仍独立持有 ownership。
+
+显式内部 `desired.mode` / `desired.option` 配置能力仍是 typed ACP contract：先确认当前目录 advertise 请求值，再通过 `SessionCatalog::configure` 发送 typed `session/set_mode` / `session/set_config_option`，不能猜 option id。必须等待合法 ACK，随后 replay 所有 exact Session 配置/模式更新并 confirm desired，acceptance-ready 边界再验，最后才允许 ProviderAcceptance 和 prompt。error、timeout、malformed 或 replay 撤销/回退显式 desired 均 fail-closed，不重试未知副作用。公共 ExecutionProfile、role defaults、model/reasoning、Provider health 与 configuration catalog 查询语义不变。Windows/macOS 使用同一逻辑，不增加启动参数、环境变量或用户配置。
 
 ## 18.1 未解决 Permission 的默认行为
 
@@ -1820,6 +1826,8 @@ SerenaDesktop 首版不建立远程实时权限审批工作流。
 5. 允许 CodeBuddy 自己调整路径或最终失败。
 
 具体 PermissionOption 到拒绝结果的映射，在 Contract Probe 中针对固定 CodeBuddy 版本冻结。
+
+收到 `session/request_permission` 时，保留 exact Runtime / Session / Execution / active Prompt / tool identity 校验，并由第一版本地自动 Permission Policy 选择 advertised typed AllowOnce/RejectOnce（见本文末尾同名章节）。只允许单次决定，不选 allow_always；无法合法选择单次选项时 fail-closed。默认保留 Provider 当前模式；显式 mode 设置仍受当前 Session typed 目录与 ACK/replay/confirm 约束。
 
 Permission deny 只是 Client 权限决策，不是 Provider terminal evidence。CodeBuddy 可能在权限请求之前已经产生文件或命令副作用，因此收敛规则固定为：
 
@@ -3111,3 +3119,25 @@ ACP：
 - Rust Transport Architecture：https://github.com/agentclientprotocol/rust-sdk/blob/main/md/transport-architecture.md
 
 当前 ACP stable wire protocol 为 v1。CodeBuddy 官方支持 codebuddy --acp，默认 stdio NDJSON；HTTP ACP 虽已提供，但首版 SerenaDesktop 不使用。CodeBuddy v2.153.0 已增加 ACP 等协议的一致性测试，但 SerenaDesktop 仍需以实际固定 binary 的 Contract Probe 作为发布兼容证据。
+
+## 第一版本地自动 Permission Policy（2026-09-30）
+
+CodeBuddy 默认保留 ACP Provider current/default session mode，不自动配置 `auto`。`session/request_permission` 由 Host 本地确定性规则审批，不调用 LLM，不使用 `-y` / `bypassPermissions`，不选择 AllowAlways/RejectAlways。目标体验对齐 `workspace_write + networkAccess=true`，**这不是 OS sandbox**。
+
+权限来自已核验 ExecutionRecord 的 `workspace_id/canonical_workspace_root/workspace_generation/mode` 冻结快照，不使用 active workspace 或重新查询 Registry。exact session/conversation/request 下的初始 ToolCall 注册有界结构化 snapshot；partial update 只能更新已知工具；terminal 删除。permission request 显式字段覆盖当前 exact tool 字段。raw command/path 不进入安全 Activity、Remote MCP 或日志。
+
+| 类型 | read_only | workspace_write |
+| --- | --- | --- |
+| Fetch | AllowOnce | AllowOnce |
+| Read/Search | 所有目标可验证且在冻结 workspace | 同左 |
+| Edit/Delete/Move | RejectOnce | 至少一个目标，locations/Diff/raw 明确路径全部通过 canonical escape 检查 |
+| Execute | 只读辅助及 git status/diff/log/show | 有限开发命令 allowlist 与只读命令 |
+| Think/SwitchMode/Other | RejectOnce | RejectOnce |
+
+开发命令包含 rustc、cargo check/test/build/fmt/clippy/doc/metadata/fetch、npm/pnpm/yarn test/build/lint/typecheck/check/ci/install、go test/build/vet/fmt/mod download、pytest/python -m pytest、git status/diff/log/show/fetch。curl/wget、sudo/su、远程 shell/复制、publish/push、reset/clean/checkout/switch/restore 默认拒绝。分号/管道/后台/重定向/命令替换/多行/任意 shell wrapper 拒绝；只允许单一 workspace `cd … && safe-command`。
+
+路径通过 WorkspaceLease + WorkspacePathResolver 的平台组件身份、canonical nearest-existing parent 校验，防止符号链接/junction 或不存在目标父目录绕行。OS temp 仅用于明确编译输出，不能成为文件工具 writable root。只读系统范围采用有限目录白名单。无法解析的命令或路径 fail closed。
+
+所有 optionId 必须非空且全局唯一。allow 只选择唯一 typed AllowOnce，否则退回唯一 RejectOnce；无合法拒绝项返回 PermissionOptions。只有实际 RejectOnce 物理 flush 后投影 CODEBUDDY_PERMISSION_DENIED；AllowOnce 不清空正常 Activity，也不改变 terminal/release authority。
+
+命令 allowlist 是体验层；被允许的构建脚本、测试、工具配置、插件与子进程仍可越过 workspace。该策略不能保证恶意被批准命令的文件或网络行为；长期仍需要独立 Sandbox Layer。现有 macOS process group / Windows Job containment 保持不变。

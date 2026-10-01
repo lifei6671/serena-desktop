@@ -17,8 +17,13 @@ impl StateStore {
         if profile.model.is_none() && profile.reasoning.is_none() {
             return Err("EFFECTIVE_EXECUTION_PROFILE_INCOMPLETE".into());
         }
-        let profile_json =
-            serde_json::to_string(&profile).map_err(|_| "EFFECTIVE_EXECUTION_PROFILE_INVALID")?;
+        let mut profile_value = profile.to_value();
+        // Codex 未指定 reasoning 也是执行事实，显式保存 null；其他 Provider 保持稀疏表示。
+        if provider == "codex" && profile.reasoning.is_none() {
+            profile_value["reasoning"] = serde_json::Value::Null;
+        }
+        let profile_json = serde_json::to_string(&profile_value)
+            .map_err(|_| "EFFECTIVE_EXECUTION_PROFILE_INVALID")?;
 
         self.write(move |transaction| {
             let execution: Option<(String, Option<String>, Option<String>)> = transaction

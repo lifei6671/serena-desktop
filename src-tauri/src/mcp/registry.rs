@@ -1252,11 +1252,11 @@ mod tests {
         for (name, expected) in [
             (
                 "agent_query",
-                "dde10c05e7dbd11dce929030b8271fe88315ee2d813e90225b755eb0acd6c9d4",
+                "9256d4208651ec8246af8d8979d2eef106487de2124f0e316c4f9a7645968f66",
             ),
             (
                 "agent_execute",
-                "d9f562430843fcb9ae663cff5b895afef93ab45c23bd29b4af16cf85fd199fa1",
+                "0f60159b5a896a0bd79668a04281e1ba326f1dda5f9a9fbd5992cf493ff36139",
             ),
         ] {
             let tool = tools.iter().find(|tool| tool.name == name).unwrap();

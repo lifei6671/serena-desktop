@@ -5,6 +5,43 @@ use agent_client_protocol::UntypedMessage;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream, ReadHalf, WriteHalf};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
+#[tokio::test]
+/// typed set_mode 仅接受对象 ACK，不能将 SDK 宽松接受的数组/null 当作配置完成。
+async fn set_mode_ack_rejects_nonobject_results() {
+    use agent_client_protocol::schema::v1::SetSessionModeRequest;
+    for result in [
+        json!({}),
+        json!([]),
+        Value::Null,
+        json!(42),
+        json!("invalid"),
+    ] {
+        let valid = result.is_object();
+        let (client, mut peer) = pair(Limits::default()).await;
+        let requests = client.requests.clone();
+        let pending = tokio::spawn(async move {
+            requests
+                .request(SetSessionModeRequest::new("exact-session", "auto"))
+                .await
+        });
+        let request = peer.next().await;
+        assert_eq!(request["method"], "session/set_mode");
+        assert_eq!(
+            request["params"],
+            json!({"sessionId":"exact-session","modeId":"auto"})
+        );
+        peer.respond(&request, result).await;
+        let response = pending.await.unwrap();
+        if valid {
+            response.unwrap();
+        } else {
+            assert!(matches!(response, Err(Failure::Malformed)));
+            assert_eq!(client.requests.shared.failure(), Some(Failure::Malformed));
+        }
+        client.shutdown().await;
+    }
+}
+
 /// CB7-002 Host 裁决：typed SDK 与极窄扩展 snapshot 共同完整保留真实目录。
 /// 仅 fake peer 回放 session/new response，不发送 prompt 或启动 Provider。
 #[tokio::test]
@@ -351,12 +388,12 @@ async fn initialize_sanitized_fixture_and_missing_capability_keep_health_and_cap
         );
         assert_eq!(registry.health(&id).unwrap(), ProviderHealth::Available);
         assert_eq!(registry.capabilities(&id).unwrap(), before);
-        assert_eq!(before.can_continue, cfg!(windows));
+        assert_eq!(before.can_continue, cfg!(any(windows, target_os = "macos")));
         assert!(!before.token_usage);
-        assert_eq!(before.can_cancel, cfg!(windows));
-        assert_eq!(before.can_recover, cfg!(windows));
-        assert_eq!(before.can_execute, cfg!(windows));
-        assert_eq!(before.activity, cfg!(windows));
+        assert_eq!(before.can_cancel, cfg!(any(windows, target_os = "macos")));
+        assert_eq!(before.can_recover, cfg!(any(windows, target_os = "macos")));
+        assert_eq!(before.can_execute, cfg!(any(windows, target_os = "macos")));
+        assert_eq!(before.activity, cfg!(any(windows, target_os = "macos")));
         client.shutdown().await;
     }
 }
@@ -532,7 +569,21 @@ async fn write_and_flush_closed_pipe_keep_first_failure_and_health_local() {
             // permission typed response 同样不能把 enqueue/完整 write 当作成功决策。
             let shared = Shared::new(Limits::default());
             let (_lease, mut events) = shared
-                .register_permission("r".into(), "e".into(), "s".into(), "c".into(), None)
+                .register_permission(
+                    "r".into(),
+                    "e".into(),
+                    "s".into(),
+                    "c".into(),
+                    None,
+                    crate::agent::codebuddy::permission_policy::Authority {
+                        lease: crate::workspace_resolver::WorkspaceLease {
+                            workspace_id: "test".into(),
+                            canonical_root: std::env::current_dir().unwrap(),
+                            generation: 1,
+                        },
+                        mode: "workspace_write".into(),
+                    },
+                )
                 .unwrap();
             shared.activate_permission();
             known_permission_tool(&shared);
@@ -986,7 +1037,21 @@ async fn permission_sdk_typed_exact_ids_and_safe_handoff() {
         let (client, mut peer) = pair(Limits::default()).await;
         let shared = &client.requests.shared;
         let (_lease, mut events) = shared
-            .register_permission("r".into(), "e".into(), "s".into(), "c".into(), None)
+            .register_permission(
+                "r".into(),
+                "e".into(),
+                "s".into(),
+                "c".into(),
+                None,
+                crate::agent::codebuddy::permission_policy::Authority {
+                    lease: crate::workspace_resolver::WorkspaceLease {
+                        workspace_id: "test".into(),
+                        canonical_root: std::env::current_dir().unwrap(),
+                        generation: 1,
+                    },
+                    mode: "workspace_write".into(),
+                },
+            )
             .unwrap();
         shared.activate_permission();
         known_permission_tool(shared);
@@ -1010,7 +1075,21 @@ fn permission_option_order_and_unique_reject_kind() {
     for order in [[0, 1, 2], [2, 0, 1], [1, 2, 0]] {
         let shared = Shared::new(Limits::default());
         let (_lease, _events) = shared
-            .register_permission("r".into(), "e".into(), "s".into(), "c".into(), None)
+            .register_permission(
+                "r".into(),
+                "e".into(),
+                "s".into(),
+                "c".into(),
+                None,
+                crate::agent::codebuddy::permission_policy::Authority {
+                    lease: crate::workspace_resolver::WorkspaceLease {
+                        workspace_id: "test".into(),
+                        canonical_root: std::env::current_dir().unwrap(),
+                        generation: 1,
+                    },
+                    mode: "workspace_write".into(),
+                },
+            )
             .unwrap();
         shared.activate_permission();
         known_permission_tool(&shared);
@@ -1052,6 +1131,14 @@ fn permission_tool_identity_metadata_and_runtime_isolation() {
                 "s".into(),
                 "c".into(),
                 Some("provider-request".into()),
+                crate::agent::codebuddy::permission_policy::Authority {
+                    lease: crate::workspace_resolver::WorkspaceLease {
+                        workspace_id: "test".into(),
+                        canonical_root: std::env::current_dir().unwrap(),
+                        generation: 1,
+                    },
+                    mode: "workspace_write".into(),
+                },
             )
             .unwrap();
         shared.activate_permission();
@@ -1084,6 +1171,14 @@ fn permission_tool_identity_metadata_and_runtime_isolation() {
                     "s".into(),
                     "c".into(),
                     None,
+                    crate::agent::codebuddy::permission_policy::Authority {
+                        lease: crate::workspace_resolver::WorkspaceLease {
+                            workspace_id: "test".into(),
+                            canonical_root: std::env::current_dir().unwrap(),
+                            generation: 1,
+                        },
+                        mode: "workspace_write".into(),
+                    },
                 )
                 .unwrap();
             other.activate_permission();
@@ -1128,7 +1223,21 @@ async fn permission_identity_and_options_fail_closed() {
         let (client, mut peer) = pair(Limits::default()).await;
         let shared = &client.requests.shared;
         let (lease, mut events) = shared
-            .register_permission("r".into(), "e".into(), "s".into(), "c".into(), None)
+            .register_permission(
+                "r".into(),
+                "e".into(),
+                "s".into(),
+                "c".into(),
+                None,
+                crate::agent::codebuddy::permission_policy::Authority {
+                    lease: crate::workspace_resolver::WorkspaceLease {
+                        workspace_id: "test".into(),
+                        canonical_root: std::env::current_dir().unwrap(),
+                        generation: 1,
+                    },
+                    mode: "workspace_write".into(),
+                },
+            )
             .unwrap();
         if case != "before" {
             shared.activate_permission();
@@ -1192,7 +1301,21 @@ async fn permission_physical_flush_failure_and_deadline() {
             ..Limits::default()
         });
         let (_lease, mut events) = shared
-            .register_permission("r".into(), "e".into(), "s".into(), "c".into(), None)
+            .register_permission(
+                "r".into(),
+                "e".into(),
+                "s".into(),
+                "c".into(),
+                None,
+                crate::agent::codebuddy::permission_policy::Authority {
+                    lease: crate::workspace_resolver::WorkspaceLease {
+                        workspace_id: "test".into(),
+                        canonical_root: std::env::current_dir().unwrap(),
+                        generation: 1,
+                    },
+                    mode: "workspace_write".into(),
+                },
+            )
             .unwrap();
         shared.activate_permission();
         known_permission_tool(&shared);
@@ -1432,7 +1555,21 @@ async fn permission_blocked_pipe_closes_original_client_without_safe_event() {
     .unwrap();
     let shared = client.requests.shared.clone();
     let (_lease, mut events) = shared
-        .register_permission("r".into(), "e".into(), "s".into(), "c".into(), None)
+        .register_permission(
+            "r".into(),
+            "e".into(),
+            "s".into(),
+            "c".into(),
+            None,
+            crate::agent::codebuddy::permission_policy::Authority {
+                lease: crate::workspace_resolver::WorkspaceLease {
+                    workspace_id: "test".into(),
+                    canonical_root: std::env::current_dir().unwrap(),
+                    generation: 1,
+                },
+                mode: "workspace_write".into(),
+            },
+        )
         .unwrap();
     shared.activate_permission();
     known_permission_tool(&shared);
@@ -1479,4 +1616,151 @@ async fn cancel_guard_suppresses_wire_after_exact_prompt_response() {
     assert!(writer.inner.get_ref().is_empty());
     assert!(receiver.await.is_err());
     assert!(shared.failure().is_none());
+}
+
+/// 显式 mode 继续复用真实 typed transport 与 catalog；默认切换不能弱化此安全边界。
+mod permission_mode_tests {
+    use super::*;
+    use crate::agent::codebuddy::fresh::{DesiredConfiguration, SessionCatalog};
+    use crate::agent::codebuddy::protocol::SessionFrame;
+
+    /// modes 与任意 option id 的两种目录都 advertise auto，但当前模式保留 default。
+    fn catalog(style: &str) -> SessionCatalog {
+        let mut response = json!({"sessionId":"exact-session"});
+        if style == "modes" {
+            response["modes"] = json!({"currentModeId":"default","availableModes":[{"id":"default","name":"Default"},{"id":"auto","name":"Auto"}]});
+        } else {
+            response["configOptions"] = json!([{"id":"permission-73","name":"Mode","category":"mode","type":"select","currentValue":"default","options":[{"value":"default","name":"Default"},{"value":"auto","name":"Auto"}]}]);
+        }
+        SessionCatalog {
+            response: serde_json::from_value(response).unwrap(),
+            models: None,
+        }
+    }
+
+    /// 显式 auto 必须等待对象 ACK；错误、超时和 malformed 均保留旧模式并拒绝确认。
+    #[tokio::test]
+    async fn explicit_auto_configuration_waits_for_ack_and_fails_closed() {
+        for style in ["modes", "config"] {
+            for fault in [
+                "none", "error", "timeout", "array", "scalar", "null", "string",
+            ] {
+                let (client, mut peer) = pair(Limits {
+                    request_timeout: Duration::from_millis(100),
+                    ..Limits::default()
+                })
+                .await;
+                let requests = client.requests.clone();
+                let mut catalog = catalog(style);
+                let desired = DesiredConfiguration {
+                    mode: Some("auto".into()),
+                    ..Default::default()
+                };
+                let pending = tokio::spawn(async move {
+                    let result = catalog.configure(&requests, &desired).await;
+                    (result, catalog, desired)
+                });
+                let request = peer.next().await;
+                assert_eq!(request["method"], "session/set_mode");
+                assert_eq!(
+                    request["params"],
+                    json!({"sessionId":"exact-session","modeId":"auto"})
+                );
+                assert!(!pending.is_finished());
+                match fault {
+                    "error" => peer.send(json!({"jsonrpc":"2.0","id":request["id"],"error":{"code":-32603,"message":"rejected"}})).await,
+                    "timeout" => {},
+                    _ => peer.respond(&request, match fault {
+                        "none" => json!({}), "array" => json!([]), "scalar" => json!(42), "null" => Value::Null, _ => json!("invalid")
+                    }).await,
+                }
+                let (result, catalog, desired) = pending.await.unwrap();
+                if fault == "none" {
+                    result.unwrap();
+                    catalog.confirm_desired(&desired).unwrap();
+                } else {
+                    assert_eq!(
+                        result,
+                        Err(match fault {
+                            "error" => Failure::Remote,
+                            "timeout" => Failure::Timeout,
+                            _ => Failure::Malformed,
+                        })
+                    );
+                    assert_eq!(
+                        catalog.confirm_desired(&desired),
+                        Err(Failure::Configuration)
+                    );
+                    catalog
+                        .confirm_desired(&DesiredConfiguration::default())
+                        .unwrap();
+                }
+                client.shutdown().await;
+            }
+        }
+    }
+
+    /// 合法 ACK 后的回退、撤销、移除与坏帧仍由 replay/confirm 拒绝；default 不强求 auto。
+    #[tokio::test]
+    async fn explicit_auto_replay_and_confirm_reject_mode_changes() {
+        for (style, fault) in [
+            ("modes", "rollback"),
+            ("modes", "malformed"),
+            ("config", "rollback"),
+            ("config", "revoke"),
+            ("config", "remove"),
+        ] {
+            let (client, mut peer) = pair(Limits::default()).await;
+            let requests = client.requests.clone();
+            let mut catalog = catalog(style);
+            let desired = DesiredConfiguration {
+                mode: Some("auto".into()),
+                ..Default::default()
+            };
+            let pending = tokio::spawn(async move {
+                catalog.configure(&requests, &desired).await.unwrap();
+                (catalog, desired)
+            });
+            let request = peer.next().await;
+            peer.respond(&request, json!({})).await;
+            let (mut catalog, desired) = pending.await.unwrap();
+            catalog.confirm_desired(&desired).unwrap();
+            let update = if style == "modes" {
+                json!({"sessionUpdate":"current_mode_update","currentModeId":if fault == "malformed" { json!(42) } else { json!("default") }})
+            } else {
+                let mut options = serde_json::to_value(&catalog.response.config_options).unwrap();
+                if fault == "remove" {
+                    options = json!([]);
+                } else {
+                    options[0]["currentValue"] = json!("default");
+                    if fault == "revoke" {
+                        options[0]["options"] = json!([{"value":"default","name":"Default"}]);
+                    }
+                }
+                json!({"sessionUpdate":"config_option_update","configOptions":options})
+            };
+            let frames = [SessionFrame {
+                sequence: 1,
+                session_id: "exact-session".into(),
+                method: "session/update".into(),
+                params: json!({"sessionId":"exact-session","update":update}),
+                bytes: 0,
+                expires: tokio::time::Instant::now() + Duration::from_secs(10),
+            }];
+            let replay = catalog.replay("exact-session", &frames);
+            if fault == "malformed" {
+                assert_eq!(replay, Err(Failure::Malformed));
+            } else {
+                replay.unwrap();
+                assert_eq!(
+                    catalog.confirm_desired(&desired),
+                    Err(Failure::Configuration)
+                );
+                catalog
+                    .confirm_desired(&DesiredConfiguration::default())
+                    .unwrap();
+            }
+            client.shutdown().await;
+        }
+    }
 }

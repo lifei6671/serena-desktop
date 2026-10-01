@@ -13,7 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
-# 官方 ACP 只消费 SerenaDesktop 受管流；不启用进程或实验协议能力。
+# 官方 ACP 只消费受管流；生产构建不启用实验协议能力。
 agent-client-protocol = { version = "=2.2.0", default-features = false }
 futures = "0.3"
 # 在私有协议 driver 内禁止 SDK trace 输出原始 wire 内容。
@@ -59,6 +59,8 @@ winreg = "0.56.0"
 libc = "0.2.189"
 
 [dev-dependencies]
+# 仅 Contract Probe 测试通过 Cargo dev feature union 读取 typed end-turn Usage。
+agent-client-protocol = { version = "=2.2.0", default-features = false, features = ["unstable_end_turn_token_usage"] }
 rcgen = "0.14.10"
 tauri = { version = "2.11.5", features = ["test"] }
 tokio = { version = "1.53.1", features = ["test-util"] }

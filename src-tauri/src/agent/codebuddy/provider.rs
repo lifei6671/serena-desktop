@@ -1,4 +1,4 @@
-//! CodeBuddy Windows Fresh Execute 与历史 Runtime recovery；能力由已验证的平台边界声明。
+//! CodeBuddy 跨平台 Fresh Execute 与历史 Runtime recovery；能力由已验证的平台边界声明。
 
 use std::{
     path::Path,
@@ -39,6 +39,8 @@ pub(crate) struct CodeBuddyProvider {
     discovery: Option<DiscoveryResult>,
     discovery_error: Option<DiscoveryError>,
     admission_diagnostic: Arc<RuntimeAdmissionDiagnostic>,
+    /// 独立展示 metadata；更新不触碰 discovery/admission authority。
+    product_version: Arc<Mutex<Option<String>>>,
     #[cfg(test)]
     test_limits: Option<super::protocol::Limits>,
 }
@@ -62,17 +64,17 @@ impl RuntimeAdmissionDiagnostic {
 }
 
 impl CodeBuddyProvider {
-    /// 使用非持久化受管 Job 查询一次 ACP Session 目录，并在返回前完整关闭。
-    #[cfg(windows)]
+    /// 使用非持久化受管 Runtime 查询一次 ACP Session 目录，并在返回前完整关闭。
+    #[cfg(any(windows, target_os = "macos"))]
     async fn read_configuration_catalog(
         &self,
         context: ProviderConfigurationCatalogContext,
     ) -> Result<crate::agent::provider::ExecutionConfigurationCatalog, ProviderError> {
         use super::{
             fresh::SessionCatalog,
+            platform_launcher::{LaunchRequest, UncCurrentDirectoryPolicy},
             protocol::{Failure, Limits},
             runtime::Runtime,
-            windows_launcher::{LaunchRequest, UncCurrentDirectoryPolicy},
         };
         use agent_client_protocol::schema::v1::NewSessionRequest;
         let resolved = self.resolved_launch_spec().ok_or(ProviderError {
@@ -118,7 +120,7 @@ impl CodeBuddyProvider {
     }
 
     /// 内部准备入口复用生产 fresh primitive，供独立准备与 crash-window 测试。
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     #[allow(dead_code, reason = "内部准备入口供独立 lifecycle 验证")]
     pub(crate) async fn prepare_fresh(
         &self,
@@ -137,18 +139,42 @@ impl CodeBuddyProvider {
         .await
     }
 
-    /// 从一次无进程 discovery 构造 Provider，失败结果仍保留 registered skeleton。
+    /// 静态 discovery 冻结准入事实；macOS 另开有界后台版本 probe。
     pub(super) fn from_discovery(
         store: crate::agent::store::StateStore,
         owner: String,
         discovery: Result<DiscoveryResult, DiscoveryError>,
     ) -> Self {
+        let product_version = Arc::new(Mutex::new(
+            discovery
+                .as_ref()
+                .ok()
+                .and_then(|value| value.metadata.product_version.clone()),
+        ));
+        #[cfg(target_os = "macos")]
+        if let Ok(discovery) = &discovery
+            && discovery.metadata.product_version.is_none()
+        {
+            let resolved = discovery.launch_spec.clone();
+            let metadata = product_version.clone();
+            // 每个注册实例只 probe 一次；catalog poll 读取此实例的更新，不启动新进程。
+            let _ = std::thread::Builder::new()
+                .name("codebuddy-version".into())
+                .spawn(move || {
+                    let version = super::runtime::probe_product_version(
+                        &resolved,
+                        std::time::Duration::from_secs(3),
+                    );
+                    *metadata.lock().unwrap() = version;
+                });
+        }
         match discovery {
             Ok(discovery) => Self {
                 store,
                 owner,
                 discovery: Some(discovery),
                 discovery_error: None,
+                product_version,
                 admission_diagnostic: Arc::new(RuntimeAdmissionDiagnostic::default()),
                 #[cfg(test)]
                 test_limits: None,
@@ -158,6 +184,7 @@ impl CodeBuddyProvider {
                 owner,
                 discovery: None,
                 discovery_error: Some(error),
+                product_version,
                 admission_diagnostic: Arc::new(RuntimeAdmissionDiagnostic::default()),
                 #[cfg(test)]
                 test_limits: None,
@@ -218,8 +245,8 @@ pub(crate) fn register_codebuddy_provider_with_discovery(
     )
 }
 
-/// 非 Windows 平台没有受管 Cancel runtime 能力。
-#[cfg(not(windows))]
+/// 未实现的平台没有受管 Cancel runtime 能力。
+#[cfg(not(any(windows, target_os = "macos")))]
 fn unsupported() -> ProviderError {
     ProviderError {
         code: ProviderErrorCode::AgentProviderCapabilityUnsupported,
@@ -227,7 +254,7 @@ fn unsupported() -> ProviderError {
 }
 
 /// 将配置目录失败压缩为稳定 Provider 错误，不暴露 ACP payload。
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn catalog_failure(failure: super::protocol::Failure) -> ProviderError {
     let code = if matches!(
         failure,
@@ -248,21 +275,20 @@ impl AgentProvider for CodeBuddyProvider {
         ProviderDescriptor {
             id: ProviderId::new("codebuddy".into()).expect("static CodeBuddy provider id is valid"),
             display_name: "CodeBuddy".into(),
-            version: self
-                .discovery
-                .as_ref()
-                .and_then(|discovery| discovery.metadata.product_version.clone()),
+            version: self.product_version.lock().unwrap().clone(),
+            // 与 ManagedClient initialize 要求并校验的 ProtocolVersion::V1 契约一致。
+            protocol: Some("ACP v1".into()),
         }
     }
 
-    /// Windows Fresh/Continue/Activity/Job recovery/Cancel 已通过 Gate；其他平台保持关闭。
+    /// Windows Job 与 macOS process-group 共用 Fresh/Continue/Activity/Recovery/Cancel。
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
-            can_execute: cfg!(windows),
-            can_continue: cfg!(windows),
-            can_cancel: cfg!(windows),
-            can_recover: cfg!(windows),
-            activity: cfg!(windows),
+            can_execute: cfg!(any(windows, target_os = "macos")),
+            can_continue: cfg!(any(windows, target_os = "macos")),
+            can_cancel: cfg!(any(windows, target_os = "macos")),
+            can_recover: cfg!(any(windows, target_os = "macos")),
+            activity: cfg!(any(windows, target_os = "macos")),
             token_usage: false,
         }
     }
@@ -275,11 +301,11 @@ impl AgentProvider for CodeBuddyProvider {
         'a,
         Result<crate::agent::provider::ExecutionConfigurationCatalog, ProviderError>,
     > {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             Box::pin(async move { self.read_configuration_catalog(context).await })
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             let _ = context;
             Box::pin(async { Err(unsupported()) })
@@ -296,7 +322,7 @@ impl AgentProvider for CodeBuddyProvider {
         &'a self,
         context: ProviderContinuationContext,
     ) -> ProviderFuture<'a, Result<ProviderContinuationDecision, ProviderError>> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             Box::pin(async move {
                 let source = super::store::CodeBuddyStore(self.store.clone())
@@ -312,7 +338,7 @@ impl AgentProvider for CodeBuddyProvider {
                 })
             })
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             let _ = context;
             Box::pin(async { Ok(ProviderContinuationDecision::Ineligible) })
@@ -326,7 +352,7 @@ impl AgentProvider for CodeBuddyProvider {
         acceptance: Arc<dyn ProviderAcceptanceSink>,
         telemetry: Arc<dyn AgentEventSink>,
     ) -> ProviderFuture<'a, Result<ProviderRunResult, ProviderExecutionFailure>> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             let store = self.store.clone();
             let owner = self.owner.clone();
@@ -362,7 +388,7 @@ impl AgentProvider for CodeBuddyProvider {
                 result
             })
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             let _ = (context, acceptance, telemetry);
             Box::pin(async {
@@ -378,7 +404,7 @@ impl AgentProvider for CodeBuddyProvider {
         &'a self,
         context: ProviderCancelContext,
     ) -> ProviderFuture<'a, Result<(), ProviderError>> {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             Box::pin(async move {
                 let failed = || ProviderError {
@@ -400,7 +426,7 @@ impl AgentProvider for CodeBuddyProvider {
                 Ok(())
             })
         }
-        #[cfg(not(windows))]
+        #[cfg(not(any(windows, target_os = "macos")))]
         {
             let _ = context;
             Box::pin(async { Err(unsupported()) })
@@ -428,3 +454,7 @@ impl AgentProvider for CodeBuddyProvider {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "provider/macos_tests.rs"]
+mod macos_tests;

@@ -17,14 +17,14 @@ export function providerCardPresentation(provider: ProviderCatalogEntry, rows: E
       ? `${name} 的 ACP 协议或必需能力与当前 SerenaDesktop 不兼容。请升级 CodeBuddy 或 SerenaDesktop 后重新检测。`
       : null,
     version: provider.version?.trim() || "—",
-    // Catalog 尚未提供协议元数据，不根据 Provider 身份猜测。
-    protocol: "—",
+    // 只展示 Provider 自己声明的协议，不根据身份猜测。
+    protocol: provider.protocol?.trim() || "—",
     enabledLabel: provider.enabled ? "已启用" : draining ? "正在停用" : "已停用",
     enabledTone: draining ? "amber" : "slate",
     healthLabel: provider.health === "available" ? "可用" : provider.health === "unavailable" ? "不可用" : "未提供",
     healthTone: provider.health === "available" ? "green" : provider.health === "unavailable" ? "red" : "slate",
-    runtime: activeExecutions > 0 ? "running" : "stopped",
-    runtimeLabel: activeExecutions > 0 ? "运行中" : "已停止",
+    runtime: provider.health === "unavailable" ? "unavailable" : activeExecutions > 0 ? "running" : "idle",
+    runtimeLabel: provider.health === "unavailable" ? "—" : activeExecutions > 0 ? "运行中" : "空闲",
     activeExecutions,
   };
 }
@@ -133,7 +133,7 @@ export function usageTotalLabel(row: Pick<ExecutionView, "usage">) {
   const { completeness, totalTokens } = row.usage;
   if (completeness === "unknown" || totalTokens === null || totalTokens === undefined) return "—";
   const total = formatTokenCount(totalTokens);
-  return completeness === "partial" ? `${total} · ${usageCompletenessLabel(completeness)}` : total;
+  return completeness === "partial" ? `≈${total}` : total;
 }
 
 /** 将后端 completeness 枚举转换为展示文本，不从数字字段重新推导。 */

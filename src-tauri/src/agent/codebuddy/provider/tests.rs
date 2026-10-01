@@ -52,6 +52,7 @@ async fn missing_cli_registers_unavailable_skeleton() {
             id: id.clone(),
             display_name: "CodeBuddy".into(),
             version: None,
+            protocol: Some("ACP v1".into()),
         }
     );
     assert_eq!(registry.health(&id).unwrap(), ProviderHealth::Unavailable);
@@ -62,11 +63,11 @@ async fn missing_cli_registers_unavailable_skeleton() {
     assert_eq!(
         provider.capabilities(),
         ProviderCapabilities {
-            can_execute: cfg!(windows),
-            can_continue: cfg!(windows),
-            can_cancel: cfg!(windows),
-            can_recover: cfg!(windows),
-            activity: cfg!(windows),
+            can_execute: cfg!(any(windows, target_os = "macos")),
+            can_continue: cfg!(any(windows, target_os = "macos")),
+            can_cancel: cfg!(any(windows, target_os = "macos")),
+            can_recover: cfg!(any(windows, target_os = "macos")),
+            activity: cfg!(any(windows, target_os = "macos")),
             token_usage: false,
         }
     );
@@ -93,11 +94,11 @@ async fn found_cli_registers_available_platform_capabilities() {
     assert_eq!(
         registered.capabilities(),
         ProviderCapabilities {
-            can_execute: cfg!(windows),
-            can_continue: cfg!(windows),
-            can_cancel: cfg!(windows),
-            can_recover: cfg!(windows),
-            activity: cfg!(windows),
+            can_execute: cfg!(any(windows, target_os = "macos")),
+            can_continue: cfg!(any(windows, target_os = "macos")),
+            can_cancel: cfg!(any(windows, target_os = "macos")),
+            can_recover: cfg!(any(windows, target_os = "macos")),
+            activity: cfg!(any(windows, target_os = "macos")),
             token_usage: false,
         }
     );
@@ -106,7 +107,7 @@ async fn found_cli_registers_available_platform_capabilities() {
     let policy = ProviderAdmissionPolicy::new(Default::default());
     policy.set_enabled_for_test("codebuddy", true);
     let admission = policy.admit(&registry, &id, ProviderAdmissionCapability::Execute);
-    assert_eq!(admission.is_ok(), cfg!(windows));
+    assert_eq!(admission.is_ok(), cfg!(any(windows, target_os = "macos")));
     if let Err(error) = admission {
         assert_eq!(
             error.code,
@@ -114,7 +115,10 @@ async fn found_cli_registers_available_platform_capabilities() {
         );
     }
     let continuation = policy.admit(&registry, &id, ProviderAdmissionCapability::Continue);
-    assert_eq!(continuation.is_ok(), cfg!(windows));
+    assert_eq!(
+        continuation.is_ok(),
+        cfg!(any(windows, target_os = "macos"))
+    );
 }
 
 /// 缺 source private row/sessionId 时 Provider validation 必须 Ineligible，不推造身份。
@@ -189,6 +193,7 @@ async fn descriptor_uses_only_product_version_metadata() {
             id: ProviderId::new("codebuddy".into()).unwrap(),
             display_name: "CodeBuddy".into(),
             version: None,
+            protocol: Some("ACP v1".into()),
         }
     );
     discovery.metadata.product_version = Some("2.158.0".into());
@@ -200,6 +205,7 @@ async fn descriptor_uses_only_product_version_metadata() {
             id: ProviderId::new("codebuddy".into()).unwrap(),
             display_name: "CodeBuddy".into(),
             version: Some("2.158.0".into()),
+            protocol: Some("ACP v1".into()),
         }
     );
 }
@@ -374,7 +380,7 @@ async fn lifecycle_methods_never_start_unimplemented_behavior() {
     assert_eq!(
         execute,
         Err(ProviderExecutionFailure::State(
-            if cfg!(windows) {
+            if cfg!(any(windows, target_os = "macos")) {
                 "EXECUTION_NOT_FOUND"
             } else {
                 "AGENT_PROVIDER_CAPABILITY_UNSUPPORTED"
@@ -390,7 +396,7 @@ async fn lifecycle_methods_never_start_unimplemented_behavior() {
             .await
             .unwrap_err()
             .code,
-        if cfg!(windows) {
+        if cfg!(any(windows, target_os = "macos")) {
             ProviderErrorCode::AgentProviderOperationFailed
         } else {
             ProviderErrorCode::AgentProviderCapabilityUnsupported
@@ -416,7 +422,7 @@ async fn authority() -> (tempfile::TempDir, crate::agent::store::StateStore) {
 }
 
 /// CB8：历史 control 与 CLI health 无关；直调错误 provider 的 Execution 必须拒绝。
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 #[tokio::test]
 async fn cancel_unavailable_registered_history_and_wrong_provider() {
     use crate::agent::execution::{CreateExecutionInput, canonicalize_request};

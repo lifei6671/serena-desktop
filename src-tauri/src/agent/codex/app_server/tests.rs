@@ -679,66 +679,73 @@ fn both_turn_start_paths_enable_network_without_broadening_filesystem_access() {
     });
 }
 
-/// thread/start 只接收 model，turn/start 同时接收 frozen model 与 effort。
+/// thread/start 只接收 model；turn/start 仅在显式指定时发送 effort。
 #[test]
 fn configured_thread_and_turn_send_only_frozen_model_and_effort() {
-    run(async {
-        let (client, server) = pair();
-        let fake = tokio::spawn(async move {
-            let mut io = BufReader::new(server);
-            handshake(&mut io).await;
-            let models = recv(&mut io).await;
-            assert_eq!(models["method"], "model/list");
-            reply(&mut io, &models, json!({"data":[{"id":"preset-visible","model":"visible-wire","displayName":"Visible","description":"","isDefault":true,"hidden":false,"defaultReasoningEffort":"high","supportedReasoningEfforts":[{"reasoningEffort":"high","description":""}]}],"nextCursor":null})).await;
-            let thread = recv(&mut io).await;
-            assert_eq!(thread["method"], "thread/start");
-            assert_eq!(thread["params"]["model"], "visible-wire");
-            assert!(thread["params"].get("effort").is_none());
-            reply(
-                &mut io,
-                &thread,
-                json!({"thread":{"id":"T","turns":[],"historyMode":"paginated"}}),
-            )
-            .await;
-            let turn = recv(&mut io).await;
-            assert_eq!(turn["method"], "turn/start");
-            assert_eq!(turn["params"]["model"], "visible-wire");
-            assert_eq!(turn["params"]["effort"], "high");
-            reply(
-                &mut io,
-                &turn,
-                json!({"turn":{"id":"U","status":"inProgress","items":[]}}),
-            )
-            .await;
+    for reasoning in [None, Some("high")] {
+        run(async move {
+            let (client, server) = pair();
+            let fake = tokio::spawn(async move {
+                let mut io = BufReader::new(server);
+                handshake(&mut io).await;
+                let models = recv(&mut io).await;
+                assert_eq!(models["method"], "model/list");
+                reply(&mut io, &models, json!({"data":[{"id":"preset-visible","model":"visible-wire","displayName":"Visible","description":"","isDefault":true,"hidden":false,"defaultReasoningEffort":"high","supportedReasoningEfforts":[{"reasoningEffort":"high","description":""}]}],"nextCursor":null})).await;
+                let thread = recv(&mut io).await;
+                assert_eq!(thread["method"], "thread/start");
+                assert_eq!(thread["params"]["model"], "visible-wire");
+                assert!(thread["params"].get("effort").is_none());
+                assert!(thread["params"].get("reasoning").is_none());
+                reply(
+                    &mut io,
+                    &thread,
+                    json!({"thread":{"id":"T","turns":[],"historyMode":"paginated"}}),
+                )
+                .await;
+                let turn = recv(&mut io).await;
+                assert_eq!(turn["method"], "turn/start");
+                assert_eq!(turn["params"]["model"], "visible-wire");
+                assert_eq!(
+                    turn["params"].get("effort"),
+                    reasoning.map(|value| json!(value)).as_ref()
+                );
+                assert!(turn["params"].get("reasoning").is_none());
+                reply(
+                    &mut io,
+                    &turn,
+                    json!({"turn":{"id":"U","status":"inProgress","items":[]}}),
+                )
+                .await;
+            });
+            client.initialize().await.unwrap();
+            let selected = client.model_list(None).await.unwrap().models.remove(0).id;
+            assert_eq!(selected, "visible-wire");
+            let profile = crate::agent::execution::ExecutionProfile {
+                model: Some(selected),
+                reasoning: reasoning.map(str::to_owned),
+            };
+            client
+                .thread_start_configured(
+                    "C:\\workspace",
+                    crate::agent::execution::ExecutionMode::ReadOnly,
+                    &profile,
+                )
+                .await
+                .unwrap();
+            client
+                .turn_start_configured(
+                    "T",
+                    "E",
+                    "prompt",
+                    crate::agent::execution::ExecutionMode::ReadOnly,
+                    "C:\\workspace",
+                    &profile,
+                )
+                .await
+                .unwrap();
+            fake.await.unwrap();
         });
-        client.initialize().await.unwrap();
-        let selected = client.model_list(None).await.unwrap().models.remove(0).id;
-        assert_eq!(selected, "visible-wire");
-        let profile = crate::agent::execution::ExecutionProfile {
-            model: Some(selected),
-            reasoning: Some("high".into()),
-        };
-        client
-            .thread_start_configured(
-                "C:\\workspace",
-                crate::agent::execution::ExecutionMode::ReadOnly,
-                &profile,
-            )
-            .await
-            .unwrap();
-        client
-            .turn_start_configured(
-                "T",
-                "E",
-                "prompt",
-                crate::agent::execution::ExecutionMode::ReadOnly,
-                "C:\\workspace",
-                &profile,
-            )
-            .await
-            .unwrap();
-        fake.await.unwrap();
-    });
+    }
 }
 
 /// model/list 保留分页、hidden 与模型专属 reasoning 事实。
