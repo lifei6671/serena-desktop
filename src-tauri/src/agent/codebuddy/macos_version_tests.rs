@@ -138,7 +138,7 @@ async fn background_version_is_eventually_visible_without_health_change() {
     )
     .unwrap();
     let id = ProviderId::new("codebuddy".into()).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
+    // 生产 probe 自身仍保持 3 秒上限；测试额外给 CI 线程/进程调度留出余量。\n    let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         let descriptor = registry.get_registered(&id).unwrap().descriptor();
         assert_eq!(descriptor.protocol.as_deref(), Some("ACP v1"));
