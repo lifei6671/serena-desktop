@@ -238,6 +238,18 @@ async function flushConfigurationCatalog() {
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
 }
 
+/** 等待指定任务的受控 HoverCard Portal 提交，避免测试绑定 Radix 的内部调度时序。 */
+async function focusTaskPreview(link, title) {
+  await act(async () => link.focus());
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const preview = [...document.querySelectorAll('.project-task-preview')]
+      .find(item => item.querySelector('strong')?.textContent === title);
+    if (preview) return preview;
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  }
+  assert.fail(`任务预览未出现：${title}`);
+}
+
 /** 延迟 IPC/轮询 fixture，显式控制跨角色响应与旧快照的返回顺序。 */
 function deferredRoleResponse() {
   let resolve, reject;
@@ -1395,11 +1407,9 @@ test('sidebar tasks retain only titles and compact times while hover keeps Summa
     [3, '总 Token：0'],
     [4, '总 Token：—'],
   ]) {
-    await act(async () => {
-      visible[index].querySelector('.project-task-link').focus();
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-    const tokenRow = [...document.querySelectorAll('.project-task-preview p')]
+    const title = visible[index].querySelector('.project-task-title').textContent;
+    const preview = await focusTaskPreview(visible[index].querySelector('.project-task-link'), title);
+    const tokenRow = [...preview.querySelectorAll('p')]
       .find(item => item.textContent.startsWith('总 Token：'));
     assert.ok(tokenRow, 'hover 浮层保留总 Token 信息行');
     assert.equal(tokenRow.textContent, expected);
