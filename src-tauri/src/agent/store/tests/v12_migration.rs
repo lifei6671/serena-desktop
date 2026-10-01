@@ -79,7 +79,7 @@ fn frozen_v11_to_v12_preserves_every_historical_field() {
         connection
             .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        13
+        14
     );
     for (table, old) in tables.iter().zip(&before) {
         let after = rows_by_column(&connection, table);

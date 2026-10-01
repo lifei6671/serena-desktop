@@ -103,6 +103,11 @@ async fn setup(
 
 /// wire helper 保留 update._meta 的 Host shape，不把 meta 移到 envelope。
 fn chunk(session: &str, conversation: &str, kind: &str, text: &str) -> Value {
+    if kind == "tool_call" {
+        return json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session,"update":{
+            "sessionUpdate":"tool_call","toolCallId":"tool","title":"fixture tool","kind":"other",
+            "status":"pending","content":[],"_meta":{CONVERSATION:conversation}}}});
+    }
     json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":session,"update":{
         "sessionUpdate":kind,"content":{"type":"text","text":text},"_meta":{CONVERSATION:conversation}}}})
 }

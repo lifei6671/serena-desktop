@@ -446,6 +446,8 @@ mod tests {
     #[test]
     fn allow_flush_and_partial_snapshots_preserve_normal_activity() {
         let root = tempfile::tempdir().unwrap();
+        let authority = authority(root.path());
+        let inside = authority.lease.canonical_root.join("new.txt");
         let shared = Shared::new(Limits::default());
         let (_lease, mut events) = shared
             .register_permission(
@@ -454,7 +456,7 @@ mod tests {
                 "s".into(),
                 "c".into(),
                 Some("p".into()),
-                authority(root.path()),
+                authority,
             )
             .unwrap();
         shared.activate_permission();
@@ -462,7 +464,7 @@ mod tests {
         shared
             .notification("session/update".into(), initial)
             .unwrap();
-        let update = json!({"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"t","kind":"edit","rawInput":{"file_path":root.path().join("new.txt")}}});
+        let update = json!({"sessionId":"s","update":{"sessionUpdate":"tool_call_update","toolCallId":"t","kind":"edit","rawInput":{"file_path":inside}}});
         shared
             .notification("session/update".into(), update.clone())
             .unwrap();

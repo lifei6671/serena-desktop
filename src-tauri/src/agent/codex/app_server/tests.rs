@@ -105,6 +105,26 @@ async fn run_provider_with_injected_runtime_mismatch(
         let mut server = BufReader::new(server);
         handshake(&mut server).await;
         let request = recv(&mut server).await;
+        assert_eq!(request["method"], "model/list");
+        reply(
+            &mut server,
+            &request,
+            json!({
+                "data": [{
+                    "id": "fixture-default",
+                    "model": "fixture-default",
+                    "displayName": "Fixture Default",
+                    "description": "",
+                    "isDefault": true,
+                    "hidden": false,
+                    "defaultReasoningEffort": "low",
+                    "supportedReasoningEfforts": [{"reasoningEffort":"low","description":""}],
+                }],
+                "nextCursor": null,
+            }),
+        )
+        .await;
+        let request = recv(&mut server).await;
         assert_eq!(request["method"], "thread/start");
         reply(
             &mut server,

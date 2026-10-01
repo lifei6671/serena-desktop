@@ -400,7 +400,7 @@ fn frozen_v11_fixture_reopens_and_reads_without_rewriting_values() {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            13
+            14
         );
         for (table, expected) in tables.iter().zip(&before) {
             let actual = table_rows(&connection, table);
@@ -408,15 +408,24 @@ fn frozen_v11_fixture_reopens_and_reads_without_rewriting_values() {
                 assert_eq!(actual.len(), expected.len(), "{table}");
                 for (actual_row, expected_row) in actual.iter().zip(expected) {
                     assert_eq!(&actual_row[..expected_row.len()], expected_row, "{table}");
-                    assert_eq!(
-                        actual_row.last(),
-                        Some(&Value::Text(if *table == "executions" {
-                            "general".into()
-                        } else {
-                            "codex".into()
-                        })),
-                        "{table}"
-                    );
+                    if *table == "executions" {
+                        assert_eq!(
+                            actual_row.get(expected_row.len()),
+                            Some(&Value::Text("general".into())),
+                            "{table}.task_role"
+                        );
+                        assert_eq!(
+                            actual_row.last(),
+                            Some(&Value::Null),
+                            "{table}.effective_execution_profile_json"
+                        );
+                    } else {
+                        assert_eq!(
+                            actual_row.last(),
+                            Some(&Value::Text("codex".into())),
+                            "{table}.provider"
+                        );
+                    }
                 }
             } else {
                 assert_eq!(&actual, expected, "{table}");

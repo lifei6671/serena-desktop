@@ -137,13 +137,18 @@ fn quotes_absolute_unicode_argv_without_shell() {
 fn external_path_projects_local_and_unc_without_changing_authority() {
     let directory = tempfile::tempdir().unwrap();
     let frozen = canonicalize_workspace_root(directory.path()).unwrap();
-    let ordinary = directory.path().to_owned();
     let projected =
         ExternalProcessPath::verify(&frozen, UncCurrentDirectoryPolicy::Supported).unwrap();
-    assert_eq!(projected.as_path(), ordinary);
+    let projected_wide = projected
+        .as_path()
+        .as_os_str()
+        .encode_wide()
+        .collect::<Vec<_>>();
+    assert!(!projected_wide.starts_with(&wide_ascii(r"\\?\")));
+    verify_projected_identity(&frozen, projected.as_path()).unwrap();
     assert_eq!(
-        project_external_path(&ordinary, UncCurrentDirectoryPolicy::Supported).unwrap(),
-        ordinary
+        project_external_path(projected.as_path(), UncCurrentDirectoryPolicy::Supported).unwrap(),
+        projected.as_path()
     );
 
     let verbatim_unc = Path::new(r"\\?\UNC\server\share\workspace");
@@ -201,8 +206,16 @@ fn node_script_projects_verbatim_local_drive_and_keeps_ordinary_path() {
             .collect::<Vec<_>>()
             .starts_with(&wide_ascii(r"\\?\"))
     );
-    assert_eq!(project_external_script_path(&canonical).unwrap(), ordinary);
-    assert_eq!(project_external_script_path(&ordinary).unwrap(), ordinary);
+    let projected = project_external_script_path(&canonical).unwrap();
+    assert!(
+        !projected
+            .as_os_str()
+            .encode_wide()
+            .collect::<Vec<_>>()
+            .starts_with(&wide_ascii(r"\\?\"))
+    );
+    verify_projected_file_identity(&canonical, &projected).unwrap();
+    verify_projected_file_identity(&ordinary, &projected).unwrap();
 }
 
 /// Node 主脚本投影必须复验文件 identity，并拒绝所有越界或不可验证路径。
@@ -355,10 +368,20 @@ fn resolved_launch_spec_wires_without_starting_acp_and_rejects_wrappers() {
     )
     .unwrap();
     assert_eq!(request.executable, canonical_executable);
-    assert_eq!(request.args[0], script.as_os_str());
+    assert_eq!(
+        request.args[0],
+        project_external_script_path(&canonical_script)
+            .unwrap()
+            .as_os_str()
+    );
     assert_eq!(request.args[1], OsStr::new("--acp"));
     assert_eq!(resolved.args[0], canonical_script.as_os_str());
-    assert_eq!(request.projected_cwd().as_path(), directory.path());
+    assert_eq!(
+        request.projected_cwd().as_path(),
+        project_external_path(&frozen, UncCurrentDirectoryPolicy::Supported)
+            .unwrap()
+            .as_path()
+    );
     assert!(
         environment_strings(&request.environment).contains(&OsString::from(format!(
             "Path={}",
@@ -703,8 +726,9 @@ fn run_real_node_tree_if_available(fixture: &Path) {
             .collect::<Vec<_>>()
             .starts_with(&wide_ascii(r"\\?\"))
     );
+    let expected_projected_script = project_external_script_path(&canonical_script).unwrap();
     let (projected_argv, error) = finish(launch(&projected_request).unwrap().child);
-    assert_eq!(projected_argv, projected_script.to_string_lossy());
+    assert_eq!(projected_argv, expected_projected_script.to_string_lossy());
     assert!(error.is_empty(), "{error}");
 
     let script = directory.path().join("contained-tree.js");

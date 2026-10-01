@@ -114,6 +114,77 @@ fn query_output_schema() -> Value {
     for field in nullable_usage_fields {
         usage["properties"][field]["type"] = json!(["integer", "null"]);
     }
+
+    // ExecutionView 的这些 Option 字段在 serde wire 中稳定存在并以 null 表示缺失；
+    // schemars serialize 模式会把部分 required Option 收窄成非 null，需要显式校正。
+    let execution = &mut output["definitions"]["ExecutionView"];
+    for field in [
+        "threadId",
+        "threadName",
+        "turnId",
+        "providerSessionLabel",
+        "providerTerminalStatus",
+        "errorCode",
+        "errorMessage",
+    ] {
+        execution["properties"][field] = json!({"type":["string","null"]});
+    }
+    execution["properties"]["completedAt"] = json!({"type":["integer","null"]});
+    execution["properties"]["effectiveExecutionProfile"] = json!({
+        "anyOf":[
+            {"$ref":"#/definitions/ExecutionProfileProduct"},
+            {"type":"null"}
+        ]
+    });
+    execution["properties"]["nextAction"] = json!({
+        "anyOf":[
+            {"$ref":"#/definitions/NextAction"},
+            {"type":"null"}
+        ]
+    });
+    let required = execution["required"]
+        .as_array_mut()
+        .expect("ExecutionView required fields");
+    for field in [
+        "threadId",
+        "threadName",
+        "turnId",
+        "providerSessionLabel",
+        "providerTerminalStatus",
+        "errorCode",
+        "errorMessage",
+        "completedAt",
+        "effectiveExecutionProfile",
+        "nextAction",
+    ] {
+        if !required.contains(&json!(field)) {
+            required.push(json!(field));
+        }
+    }
+
+    let progress = &mut output["definitions"]["Progress"];
+    progress["properties"]["activityPhase"] =
+        json!({"type":["string","null"],"enum":["provider","tool",null]});
+    progress["properties"]["toolCategory"] = json!({
+        "type":["string","null"],
+        "enum":["build","test","command","read","edit","tool",null]
+    });
+    progress["properties"]["lastActivityAt"] = json!({"type":["integer","null"]});
+    progress["properties"]["activityAgeMs"] = json!({"type":["integer","null"],"minimum":0});
+    progress["properties"]["silenceLevel"] = json!({
+        "type":["string","null"],
+        "enum":["fresh","quiet","prolonged",null]
+    });
+    progress["properties"]["summaryCode"] = json!({"type":["string","null"]});
+    progress["required"] = json!([
+        "phase",
+        "activityPhase",
+        "toolCategory",
+        "lastActivityAt",
+        "activityAgeMs",
+        "silenceLevel",
+        "summaryCode"
+    ]);
     output
 }
 pub fn descriptors() -> Vec<Tool> {

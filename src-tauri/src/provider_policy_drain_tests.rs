@@ -172,6 +172,15 @@ async fn cb2_005_pending_reenable_resume_and_running_drain_matrix() {
         let req = receive(&mut wire, "initialize").await;
         send(&mut wire, json!({"id":req["id"],"result":{"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"}})).await;
         receive(&mut wire, "initialized").await;
+        let req = receive(&mut wire, "model/list").await;
+        send(&mut wire, json!({"id":req["id"],"result":{
+            "data":[{
+                "id":"fixture-default","model":"fixture-default","displayName":"Fixture Default",
+                "description":"","isDefault":true,"hidden":false,"defaultReasoningEffort":"low",
+                "supportedReasoningEfforts":[{"reasoningEffort":"low","description":""}]
+            }],
+            "nextCursor":null
+        }})).await;
         let req = receive(&mut wire, "thread/start").await;
         send(&mut wire, json!({"id":req["id"],"result":{"thread":{"id":"THREAD","turns":[],"historyMode":"paginated"}}})).await;
         let req = receive(&mut wire, "turn/start").await;

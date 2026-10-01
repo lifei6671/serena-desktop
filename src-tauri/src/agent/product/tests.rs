@@ -1176,6 +1176,19 @@ async fn fake_service_with_turn_started(
                     json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"})
                 }
                 "initialized" => continue,
+                "model/list" => json!({
+                    "data": [{
+                        "id": "fixture-default",
+                        "model": "fixture-default",
+                        "displayName": "Fixture Default",
+                        "description": "",
+                        "isDefault": true,
+                        "hidden": false,
+                        "defaultReasoningEffort": "low",
+                        "supportedReasoningEfforts": [{"reasoningEffort":"low","description":""}],
+                    }],
+                    "nextCursor": null,
+                }),
                 "thread/start" | "thread/resume" => {
                     if m == "thread/start" {
                         assert_eq!(v["params"]["sandbox"], "workspace-write");

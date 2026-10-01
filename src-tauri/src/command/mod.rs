@@ -1672,7 +1672,7 @@ mod tests {
                 relative_cwd: None,
                 env: BTreeMap::new(),
                 timeout_ms: Some(10_000),
-                execution_mode: Some(ExecutionMode::Auto),
+                execution_mode: Some(ExecutionMode::Sync),
                 yield_time_ms: Some(5_000),
             })
             .await;

@@ -1252,7 +1252,7 @@ mod tests {
         for (name, expected) in [
             (
                 "agent_query",
-                "9256d4208651ec8246af8d8979d2eef106487de2124f0e316c4f9a7645968f66",
+                "9d3f271eef3746cb567e8e23ce72182088a0de4d16d1849cb66b07ab444884e5",
             ),
             (
                 "agent_execute",

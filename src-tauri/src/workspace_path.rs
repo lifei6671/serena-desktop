@@ -223,7 +223,9 @@ mod tests {
         let lease = lease(&root);
         let resolver = WorkspacePathResolver::new(&lease);
         assert_eq!(
-            resolver.resolve_absolute(&root.join("new/file")).unwrap(),
+            resolver
+                .resolve_absolute(&lease.canonical_root.join("new/file"))
+                .unwrap(),
             lease.canonical_root.join("new/file")
         );
         assert!(

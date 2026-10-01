@@ -362,9 +362,14 @@ async fn durable_ordering_early_routing_and_acceptance_without_prompt() {
     let private = store.read_codebuddy_state(id.clone()).await.unwrap();
     assert_eq!(private.acp_protocol_version, Some(1));
     assert!(private.session_id.is_none());
+    let projected_cwd = super::super::windows_launcher::ExternalProcessPath::verify(
+        Path::new(&row.canonical_workspace_root),
+        super::super::windows_launcher::UncCurrentDirectoryPolicy::Supported,
+    )
+    .unwrap();
     assert_eq!(
         requests[1]["params"],
-        json!({"cwd":dir.path(),"mcpServers":[]})
+        json!({"cwd":projected_cwd.as_path(),"mcpServers":[]})
     );
     trace.extend(["initialized/protocol durable", "session/new exactly once"]);
     std::fs::write(dir.path().join("release-new"), "").unwrap();

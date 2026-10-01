@@ -1098,8 +1098,10 @@ impl AgentProductService {
             let task_role: AgentTaskRole =
                 serde_json::from_value(Value::String(s.task_role.clone()))
                     .map_err(|_| "AGENT_TASK_ROLE_CONTRACT_ERROR".to_string())?;
-            let execution_profile = ExecutionProfile::from_json(&r.execution_profile_json)
-                .map_err(|error| format!("Invalid persisted execution profile: {error}"))?;
+            // 历史版本允许 Provider 私有 requested profile；只读 Product 投影不能因此使旧记录不可查询。
+            // 原始 JSON 仍原样保存在数据库，控制/续跑路径继续执行各自的严格兼容性校验。
+            let execution_profile =
+                ExecutionProfile::from_json(&r.execution_profile_json).unwrap_or_default();
             let effective_execution_profile = r
                 .effective_execution_profile_json
                 .as_deref()

@@ -491,6 +491,22 @@ mod tests {
         }
     }
 
+    /// 把 canonical Windows 路径投影成外部进程实际看到的普通长路径，避免 8.3 临时目录别名污染测试。
+    fn external_canonical(path: &Path) -> std::path::PathBuf {
+        let canonical = std::fs::canonicalize(path).unwrap();
+        #[cfg(windows)]
+        {
+            let value = canonical.to_string_lossy();
+            if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+                return std::path::PathBuf::from(format!(r"\\{rest}"));
+            }
+            if let Some(rest) = value.strip_prefix(r"\\?\") {
+                return std::path::PathBuf::from(rest);
+            }
+        }
+        canonical
+    }
+
     /// 测试与生产一致地使用 typed ACP 请求。
     fn decision(authority: &Authority, kind: &str, input: Value) -> Decision {
         let request: RequestPermissionRequest = serde_json::from_value(json!({"sessionId":"session", "toolCall":{"toolCallId":"tool","kind":kind,"rawInput":input},"options":[]})).unwrap();
@@ -505,7 +521,7 @@ mod tests {
             decision(
                 &auth,
                 "edit",
-                json!({"file_path":root.path().join("new/file.rs")})
+                json!({"file_path":external_canonical(root.path()).join("new/file.rs")})
             ),
             Decision::AutoAllowOnce
         );
@@ -573,11 +589,8 @@ mod tests {
         }
         let command = format!(
             "rustc --test '{}' -o '{}'",
-            root.path().join("test.rs").display(),
-            std::fs::canonicalize(temp.path())
-                .unwrap()
-                .join("test-bin")
-                .display()
+            external_canonical(root.path()).join("test.rs").display(),
+            external_canonical(temp.path()).join("test-bin").display()
         );
         assert_eq!(
             decision(&auth, "execute", json!({"command":command})),
@@ -727,11 +740,10 @@ mod tests {
             "rustc file.rs -g -O --edition=2024".to_owned(),
             format!(
                 "rustc --test '{}' -o '{}'",
-                source.display(),
-                std::fs::canonicalize(temp.path())
-                    .unwrap()
-                    .join("test-bin")
-                    .display()
+                external_canonical(source.parent().unwrap())
+                    .join(source.file_name().unwrap())
+                    .display(),
+                external_canonical(temp.path()).join("test-bin").display()
             ),
         ] {
             assert_eq!(
@@ -855,7 +867,12 @@ mod tests {
             decision(
                 &auth,
                 "execute",
-                json!({"command":format!("cd sub && rustc --test input.rs -o '{}'",inside.display())})
+                json!({"command":format!(
+                    "cd sub && rustc --test input.rs -o '{}'",
+                    external_canonical(inside.parent().unwrap())
+                        .join(inside.file_name().unwrap())
+                        .display()
+                )})
             ),
             Decision::AutoAllowOnce
         );
@@ -873,7 +890,11 @@ mod tests {
             decision(
                 &auth,
                 "execute",
-                json!({"command":format!("rustc --test '{}' -o '{}'",inside.display(),std::env::temp_dir().join("test-bin").display())})
+                json!({"command":format!(
+                    "rustc --test '{}' -o '{}'",
+                    external_canonical(inside.parent().unwrap()).join(inside.file_name().unwrap()).display(),
+                    external_canonical(&std::env::temp_dir()).join("test-bin").display()
+                )})
             ),
             Decision::AutoAllowOnce
         );
