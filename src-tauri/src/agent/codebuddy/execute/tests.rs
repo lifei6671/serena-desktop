@@ -2159,7 +2159,10 @@ async fn native_cancel_accepted_before_prompt_flush() {
                 .is_some()
         );
         release.send(()).unwrap();
-        let result = tokio::time::timeout(std::time::Duration::from_secs(10), task)
+        // 外层 watchdog 必须覆盖生产 request_timeout 与 shutdown cleanup 余量。
+        let settle_timeout = crate::agent::codebuddy::protocol::Limits::default().request_timeout
+            + std::time::Duration::from_secs(10);
+        let result = tokio::time::timeout(settle_timeout, task)
             .await
             .unwrap()
             .unwrap();
