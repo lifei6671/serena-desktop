@@ -56,7 +56,7 @@ pub enum ServerStatus {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SerenaProcessMetrics {
+pub(crate) struct DesktopProcessMetrics {
     pub(crate) pid: u32,
     pub(crate) cpu_percent: f32,
     pub(crate) memory_bytes: u64,
@@ -75,13 +75,7 @@ impl ProcessMetricsSampler {
         }
     }
 
-    fn reset(&mut self) {
-        if self.sampled_pid.take().is_some() {
-            self.system = System::new();
-        }
-    }
-
-    fn sample(&mut self, pid: u32) -> Option<SerenaProcessMetrics> {
+    fn sample(&mut self, pid: u32) -> Option<DesktopProcessMetrics> {
         if self.sampled_pid != Some(pid) {
             self.system = System::new();
             self.sampled_pid = Some(pid);
@@ -98,7 +92,7 @@ impl ProcessMetricsSampler {
                 .without_tasks(),
         );
         let process = self.system.process(sys_pid)?;
-        Some(SerenaProcessMetrics {
+        Some(DesktopProcessMetrics {
             pid,
             cpu_percent: process.cpu_usage(),
             memory_bytes: process.memory(),
@@ -415,18 +409,12 @@ impl SupervisorState {
             .unwrap_or(0)
     }
 
-    pub(crate) fn process_metrics(&self, process_id: Option<u32>) -> Option<SerenaProcessMetrics> {
-        let mut sampler = self
-            .process_metrics_sampler
+    /// 采样 SerenaDesktop 主进程本身；Serena 受管服务 PID 不属于桌面资源指标。
+    pub(crate) fn desktop_process_metrics(&self) -> Option<DesktopProcessMetrics> {
+        self.process_metrics_sampler
             .lock()
-            .expect("process metrics sampler mutex poisoned");
-        match process_id {
-            Some(pid) => sampler.sample(pid),
-            None => {
-                sampler.reset();
-                None
-            }
-        }
+            .expect("process metrics sampler mutex poisoned")
+            .sample(std::process::id())
     }
 
     pub fn snapshot(&self) -> SupervisorSnapshot {
@@ -905,10 +893,6 @@ impl SupervisorState {
             runtime.last_error = None;
             runtime.config.clone()
         };
-        self.process_metrics_sampler
-            .lock()
-            .expect("process metrics sampler mutex poisoned")
-            .reset();
         // Re-probe on every start: a cached detection is not a launch guarantee.
         let installation = discovery::detect(&config, &self.paths);
         self.commit_detection(&config, Some(installation.clone()));
@@ -1507,6 +1491,22 @@ mod tests {
             first,
             second,
         )
+    }
+
+    /// Desktop 资源统计必须绑定宿主进程，不能跟随 Serena Python/CLI 子进程。
+    #[test]
+    fn desktop_process_metrics_use_current_host_pid_without_serena_runtime() {
+        let (_directory, supervisor, _, _) = workspace_write_guard_fixture();
+        let snapshot = supervisor.snapshot();
+        assert_eq!(snapshot.server_status, ServerStatus::Stopped);
+        assert!(snapshot.process_id.is_none());
+
+        let metrics = supervisor
+            .desktop_process_metrics()
+            .expect("current SerenaDesktop process must be observable");
+        assert_eq!(metrics.pid, std::process::id());
+        assert!(metrics.memory_bytes > 0);
+        assert!(metrics.cpu_percent >= 0.0);
     }
 
     /// Provider mutation 必须等待 Supervisor 的既有 operation mutex。

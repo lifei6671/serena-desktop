@@ -87,7 +87,7 @@ export interface SerenaInstallation {
   version: string;
 }
 
-export interface SerenaProcessMetrics {
+export interface DesktopProcessMetrics {
   pid: number;
   cpuPercent: number;
   memoryBytes: number;
@@ -109,7 +109,7 @@ export interface AppState {
   activeInstallation: SerenaInstallation | null;
   serverStatus: ServerStatus;
   managedProcessPresent: boolean;
-  processMetrics: SerenaProcessMetrics | null;
+  processMetrics: DesktopProcessMetrics | null;
   activePort: number;
   endpoint: string;
   dashboardUrl: string;

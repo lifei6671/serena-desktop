@@ -21,7 +21,7 @@ pub struct AppState {
     active_installation: Option<crate::serena::SerenaInstallation>,
     server_status: crate::serena::ServerStatus,
     managed_process_present: bool,
-    process_metrics: Option<crate::serena::SerenaProcessMetrics>,
+    process_metrics: Option<crate::serena::DesktopProcessMetrics>,
     active_port: u16,
     endpoint: String,
     dashboard_url: String,
@@ -35,7 +35,7 @@ pub struct AppState {
 pub fn build_app_state(app: &AppHandle, known_autostart: Option<bool>) -> AppState {
     let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
     let snapshot = supervisor.snapshot();
-    let process_metrics = supervisor.process_metrics(snapshot.process_id);
+    let process_metrics = supervisor.desktop_process_metrics();
     let (autostart_enabled, autostart_error) = resolve_autostart(known_autostart, || {
         app.autolaunch()
             .is_enabled()

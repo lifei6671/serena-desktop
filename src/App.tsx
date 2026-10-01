@@ -174,7 +174,7 @@ function App() {
           </span>
           <span className="footer-port mono">端口：{state.activePort}</span>
         </span>
-        <span className="footer-metrics mono" aria-label="Serena 进程资源">
+        <span className="footer-metrics mono" aria-label="SerenaDesktop 进程资源">
           <span>PID: {state.processMetrics?.pid ?? "—"}</span>
           <span>CPU: {formatCpuPercent(state.processMetrics?.cpuPercent)}</span>
           <span>内存: {formatMemoryBytes(state.processMetrics?.memoryBytes)}</span>

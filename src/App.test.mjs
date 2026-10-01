@@ -313,6 +313,7 @@ test('Service Status renders component icons, truthful actions and independent p
     assert.equal(document.querySelector('footer .footer-runtime').getAttribute('aria-label'), 'Serena 服务状态：运行中，端口：19121');
     assert.equal(document.querySelector('footer .footer-port').textContent, '端口：19121');
     assert.deepEqual([...document.querySelectorAll('footer .footer-metrics span')].map(item => item.textContent), ['PID: 14208', 'CPU: 1.8%', '内存: 72 MB']);
+    assert.equal(document.querySelector('footer .footer-metrics').getAttribute('aria-label'), 'SerenaDesktop 进程资源');
     assert.doesNotMatch(summary.textContent, /当前工作区|Active status workspace/);
     assert.match(page().textContent, /本机命令与服务/);
     assert.match(page().textContent, /环境与版本/);
@@ -457,7 +458,7 @@ test('Service Status renders component icons, truthful actions and independent p
 
     // 本机检测结果不随项目工作区或能力运行状态改变。
     await act(async () => root.unmount()); root = null;
-    snapshot.serverStatus = 'stopped'; snapshot.managedProcessPresent = false; snapshot.processMetrics = null;
+    snapshot.serverStatus = 'stopped'; snapshot.managedProcessPresent = false;
     snapshot.dashboardEnabled = false; snapshot.lastError = 'Actual Serena error';
     snapshot.git = { available: false, status: 'error', version: null, path: null, error: 'Actual Git error' };
     broker.running = false; broker.activeWorkspace = null; broker.codegraph = null;
@@ -475,7 +476,7 @@ test('Service Status renders component icons, truthful actions and independent p
     assert.equal(page().querySelector('.status-last-error'), null);
     assert.equal(document.querySelector('footer .footer-status').textContent, '服务状态已停止');
     assert.ok(document.querySelector('footer .footer-status').classList.contains('status-stopped'));
-    assert.deepEqual([...document.querySelectorAll('footer .footer-metrics span')].map(item => item.textContent), ['PID: —', 'CPU: —', '内存: —']);
+    assert.deepEqual([...document.querySelectorAll('footer .footer-metrics span')].map(item => item.textContent), ['PID: 14208', 'CPU: 1.8%', '内存: 72 MB']);
     assert.equal(button('停止 Serena'), undefined);
     assert.equal(button('启动 Serena'), undefined);
     assert.equal(button('打开 Dashboard'), undefined);
