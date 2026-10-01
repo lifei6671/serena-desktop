@@ -1459,7 +1459,8 @@ async fn native_caller_drop_after_flush_converges_without_replay() {
             )
             .await
     });
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
+    // 完整测试套件并发编译/拉起多个原生 fixture 时，macOS runner 可能短暂超过 15s。
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(45);
     while !control.path().join("prompt.json").exists() {
         assert!(tokio::time::Instant::now() < deadline);
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -2130,7 +2131,7 @@ async fn native_cancel_accepted_before_prompt_flush() {
                 )
                 .await
         });
-        tokio::time::timeout(std::time::Duration::from_secs(5), ready.notified())
+        tokio::time::timeout(std::time::Duration::from_secs(30), ready.notified())
             .await
             .unwrap();
         provider

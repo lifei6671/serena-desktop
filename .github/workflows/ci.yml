@@ -134,7 +134,9 @@ jobs:
 
       - name: Test Rust
         working-directory: src-tauri
-        run: cargo test --locked
+        run: |
+          ulimit -n 10240
+          cargo test --locked -- --test-threads=4
 
       - name: Check workspace diff
         run: git diff --check

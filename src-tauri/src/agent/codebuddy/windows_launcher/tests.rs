@@ -710,7 +710,10 @@ fn run_real_node_tree_if_available(fixture: &Path) {
     let frozen = canonicalize_workspace_root(directory.path()).unwrap();
     let resolved = ResolvedLaunchSpec {
         executable: canonical_node,
-        args: vec![canonical_script.into_os_string(), OsString::from("--acp")],
+        args: vec![
+            canonical_script.clone().into_os_string(),
+            OsString::from("--acp"),
+        ],
         path_projection: vec![node.parent().unwrap().to_owned()],
     };
     let projected_request = LaunchRequest::from_resolved(
