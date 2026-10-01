@@ -83,6 +83,12 @@ async fn probe_connection_and_timeout_errors_are_sanitized() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let url = format!("http://{address}/?proxy=PRIVATE_CODE");
+    // 明确 accept 后保持连接静默，避免仅 bind 未 accept 在不同 OS/CI 网络栈上被归类成普通 network error。
+    let silent_server = tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        drop(socket);
+    });
     let client = reqwest::Client::builder()
         .no_proxy()
         .timeout(Duration::from_millis(50))
@@ -93,7 +99,9 @@ async fn probe_connection_and_timeout_errors_are_sanitized() {
     let evidence = stage.network(&error);
     assert!(evidence.contains("category=timeout"), "{evidence}");
     assert!(!evidence.contains("PRIVATE_CODE"));
-    drop(listener);
+    // abort 会同时释放 listener 和已接受 socket；同一地址随后必须走 connect error。
+    silent_server.abort();
+    let _ = silent_server.await;
     let error = client
         .get(url)
         .timeout(Duration::from_secs(5))
