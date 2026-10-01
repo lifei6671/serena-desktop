@@ -19,12 +19,25 @@ const McpLogs = lazy(() => import("./McpLogs").then(module => ({ default: module
 
 const appLogo = new URL("../src-tauri/icons/128x128.png", import.meta.url).href;
 
-const statusCopy: Record<ServerStatus, string> = {
+const serviceStatusCopy: Record<ServerStatus, string> = {
   stopped: "已停止",
   starting: "启动中",
   running: "运行中",
-  error: "启动异常",
+  error: "启动失败",
 };
+
+function formatCpuPercent(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value.toFixed(1)}%`
+    : "—";
+}
+
+function formatMemoryBytes(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "—";
+  const megabytes = value / (1024 * 1024);
+  if (megabytes >= 1024) return `${(megabytes / 1024).toFixed(1)} GB`;
+  return `${megabytes.toFixed(megabytes < 10 ? 1 : 0)} MB`;
+}
 
 function App() {
   const [tab, setTab] = useState<"console" | "serena" | "settings" | "logs" | "agent" | "task" | "remote">("console");
@@ -153,11 +166,19 @@ function App() {
       </main>
 
       <footer>
-        <span className={`footer-status status-${state.serverStatus}`}>
-          <i />
-          Serena：{statusCopy[state.serverStatus]}
+        <span className="footer-runtime" aria-label={`Serena 服务状态：${serviceStatusCopy[state.serverStatus]}，端口：${state.activePort}`}>
+          <span className={`footer-status status-${state.serverStatus}`}>
+            <span className="footer-status-label">服务状态</span>
+            <i aria-hidden="true" />
+            <span className="footer-status-value">{serviceStatusCopy[state.serverStatus]}</span>
+          </span>
+          <span className="footer-port mono">端口：{state.activePort}</span>
         </span>
-        <span className="mono">Serena 内部端口：{state.activePort}</span>
+        <span className="footer-metrics mono" aria-label="Serena 进程资源">
+          <span>PID: {state.processMetrics?.pid ?? "—"}</span>
+          <span>CPU: {formatCpuPercent(state.processMetrics?.cpuPercent)}</span>
+          <span>内存: {formatMemoryBytes(state.processMetrics?.memoryBytes)}</span>
+        </span>
       </footer>
     </div>
   );

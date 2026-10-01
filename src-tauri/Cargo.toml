@@ -48,6 +48,7 @@ hickory-proto = "0.26.3"
 ignore = "0.4.31"
 globset = "0.4.18"
 regex = "1.13.1"
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"

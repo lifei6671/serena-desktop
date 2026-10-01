@@ -284,7 +284,7 @@ test('Service Status renders component icons, truthful actions and independent p
   const project = { id: 'status-workspace', name: 'Active status workspace', root: 'E:/status-workspace', generation: 1 };
   const installation = { state: 'standard', source: 'managed', version: 'serena-actual-1.8.2', path: 'C:/Serena/runtime/serena.exe', context: 'desktop-context', error: null };
   const config = { agentProviders: providerSettingsFixture(), agentEnabled: false, broker: { enabled: true, port: 19120, allowLan: false }, workspaces: [project], workspaceRegistryRevision: 1, serenaPath: null, port: 19121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
-  const snapshot = { config, git: { available: true, status: 'available', version: 'git-actual-2.51.3', path: 'C:/Git/cmd/git.exe', error: null }, serverStatus: 'running', installation, activeInstallation: installation, managedRuntimePresent: true, managedProcessPresent: true, activePort: 19121, endpoint: 'http://127.0.0.1:19121/mcp', dashboardEnabled: true, dashboardUrl: 'http://127.0.0.1:24283/dashboard/', autostartEnabled: false, codegraphVersion: 'codegraph-actual-1.9.4', lastError: null };
+  const snapshot = { config, git: { available: true, status: 'available', version: 'git-actual-2.51.3', path: 'C:/Git/cmd/git.exe', error: null }, serverStatus: 'running', installation, activeInstallation: installation, managedRuntimePresent: true, managedProcessPresent: true, processMetrics: { pid: 14208, cpuPercent: 1.84, memoryBytes: 72 * 1024 * 1024 }, activePort: 19121, endpoint: 'http://127.0.0.1:19121/mcp', dashboardEnabled: true, dashboardUrl: 'http://127.0.0.1:24283/dashboard/', autostartEnabled: false, codegraphVersion: 'codegraph-actual-1.9.4', lastError: null };
   const broker = { running: true, port: 19120, listenAddress: '127.0.0.1', lanEndpoints: [], projects: [project], projectSources: [], syncWarnings: [], activeWorkspace: project, codegraph: { status: 'ready', workspaceId: project.id, root: project.root, generation: 1 } };
   let probes = 0;
   let detections = 0;
@@ -308,7 +308,11 @@ test('Service Status renders component icons, truthful actions and independent p
     const summary = page().querySelector('[aria-label="当前状态"]');
     assert.match(summary.textContent, /运行中/);
     assert.ok(summary.textContent.includes('http://127.0.0.1:19120/mcp'));
-    assert.equal(document.querySelector('footer .mono').textContent, 'Serena 内部端口：19121');
+    assert.equal(document.querySelector('footer .footer-status').textContent, '服务状态运行中');
+    assert.ok(document.querySelector('footer .footer-status').classList.contains('status-running'));
+    assert.equal(document.querySelector('footer .footer-runtime').getAttribute('aria-label'), 'Serena 服务状态：运行中，端口：19121');
+    assert.equal(document.querySelector('footer .footer-port').textContent, '端口：19121');
+    assert.deepEqual([...document.querySelectorAll('footer .footer-metrics span')].map(item => item.textContent), ['PID: 14208', 'CPU: 1.8%', '内存: 72 MB']);
     assert.doesNotMatch(summary.textContent, /当前工作区|Active status workspace/);
     assert.match(page().textContent, /本机命令与服务/);
     assert.match(page().textContent, /环境与版本/);
@@ -453,7 +457,7 @@ test('Service Status renders component icons, truthful actions and independent p
 
     // 本机检测结果不随项目工作区或能力运行状态改变。
     await act(async () => root.unmount()); root = null;
-    snapshot.serverStatus = 'stopped'; snapshot.managedProcessPresent = false;
+    snapshot.serverStatus = 'stopped'; snapshot.managedProcessPresent = false; snapshot.processMetrics = null;
     snapshot.dashboardEnabled = false; snapshot.lastError = 'Actual Serena error';
     snapshot.git = { available: false, status: 'error', version: null, path: null, error: 'Actual Git error' };
     broker.running = false; broker.activeWorkspace = null; broker.codegraph = null;
@@ -469,7 +473,9 @@ test('Service Status renders component icons, truthful actions and independent p
     assert.match(page().querySelector('tbody tr').textContent, /Serena.*已停止/);
     assert.equal(page().querySelector('tbody tr .status-component-state').dataset.tone, 'inactive');
     assert.equal(page().querySelector('.status-last-error'), null);
-    assert.match(document.querySelector('footer .footer-status').textContent, /Serena：已停止/);
+    assert.equal(document.querySelector('footer .footer-status').textContent, '服务状态已停止');
+    assert.ok(document.querySelector('footer .footer-status').classList.contains('status-stopped'));
+    assert.deepEqual([...document.querySelectorAll('footer .footer-metrics span')].map(item => item.textContent), ['PID: —', 'CPU: —', '内存: —']);
     assert.equal(button('停止 Serena'), undefined);
     assert.equal(button('启动 Serena'), undefined);
     assert.equal(button('打开 Dashboard'), undefined);
@@ -614,7 +620,7 @@ test('Agent management preserves Desktop selected workspace and has no composer 
 test('homepage keeps the real service and endpoint data in its compact shell', async () => {
   const workspace = { id: 'W', name: 'serena-desktop', root: 'E:/serena-desktop', generation: 1 };
   const config = { agentProviders: providerSettingsFixture(), agentEnabled: false, broker: { enabled: true, port: 9120, allowLan: true }, workspaces: [workspace], desktopSelectedWorkspaceId: workspace.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
-  const snapshot = { config, desktopSelectedWorkspace: workspace, git: { available: true, status: 'available', version: '2.50.0' }, serverStatus: 'running', installation: null, activeInstallation: { state: 'standard', version: '1.7.0' }, managedRuntimePresent: true, managedProcessPresent: true, activePort: 9121, autostartEnabled: false, codegraphVersion: '1.6.0' };
+  const snapshot = { config, desktopSelectedWorkspace: workspace, git: { available: true, status: 'available', version: '2.50.0' }, serverStatus: 'running', installation: null, activeInstallation: { state: 'standard', version: '1.7.0' }, managedRuntimePresent: true, managedProcessPresent: true, processMetrics: { pid: 3210, cpuPercent: 2.36, memoryBytes: 80 * 1024 * 1024 }, activePort: 9121, autostartEnabled: false, codegraphVersion: '1.6.0' };
   api.getState = async () => structuredClone(snapshot);
   api.broker = async () => ({ running: true, port: 9120, listenAddress: '0.0.0.0', lanEndpoints: ['http://10.0.0.2:9120/mcp', 'http://192.168.1.2:9120/mcp'], projects: [{ ...workspace, configured: true }], projectSources: [], syncWarnings: [], activeWorkspace: workspace, codegraph: { status: 'ready' } });
   let capabilityObserves = 0;
@@ -636,7 +642,10 @@ test('homepage keeps the real service and endpoint data in its compact shell', a
   assert.equal(capabilityObserves, 0);
   assert.equal(document.querySelector('.connection-endpoint-card code').textContent, 'http://127.0.0.1:9120/mcp');
   assert.equal(document.querySelectorAll('.lan-endpoint-row').length, 2);
-  assert.equal(document.querySelector('footer .mono').textContent, 'Serena 内部端口：9121');
+  assert.equal(document.querySelector('footer .footer-status').textContent, '服务状态运行中');
+  assert.ok(document.querySelector('footer .footer-status').classList.contains('status-running'));
+  assert.equal(document.querySelector('footer .footer-port').textContent, '端口：9121');
+  assert.deepEqual([...document.querySelectorAll('footer .footer-metrics span')].map(item => item.textContent), ['PID: 3210', 'CPU: 2.4%', '内存: 80 MB']);
 
   const wait = async ms => act(async () => { await new Promise(resolve => setTimeout(resolve, ms)); });
   const importButton = document.querySelector('.sync-project-button');

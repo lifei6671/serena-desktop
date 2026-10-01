@@ -36,6 +36,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -51,6 +52,58 @@ pub enum ServerStatus {
     Starting,
     Running,
     Error,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SerenaProcessMetrics {
+    pub(crate) pid: u32,
+    pub(crate) cpu_percent: f32,
+    pub(crate) memory_bytes: u64,
+}
+
+struct ProcessMetricsSampler {
+    system: System,
+    sampled_pid: Option<u32>,
+}
+
+impl ProcessMetricsSampler {
+    fn new() -> Self {
+        Self {
+            system: System::new(),
+            sampled_pid: None,
+        }
+    }
+
+    fn reset(&mut self) {
+        if self.sampled_pid.take().is_some() {
+            self.system = System::new();
+        }
+    }
+
+    fn sample(&mut self, pid: u32) -> Option<SerenaProcessMetrics> {
+        if self.sampled_pid != Some(pid) {
+            self.system = System::new();
+            self.sampled_pid = Some(pid);
+        }
+
+        let sys_pid = Pid::from_u32(pid);
+        let pids = [sys_pid];
+        self.system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&pids),
+            true,
+            ProcessRefreshKind::nothing()
+                .with_cpu()
+                .with_memory()
+                .without_tasks(),
+        );
+        let process = self.system.process(sys_pid)?;
+        Some(SerenaProcessMetrics {
+            pid,
+            cpu_percent: process.cpu_usage(),
+            memory_bytes: process.memory(),
+        })
+    }
 }
 
 struct ManagedProcess {
@@ -172,6 +225,7 @@ pub(crate) struct WorkspaceStartCreation {
 
 pub struct SupervisorState {
     runtime: Arc<Mutex<Runtime>>,
+    process_metrics_sampler: Mutex<ProcessMetricsSampler>,
     operation: Mutex<()>,
     provider_policy: crate::agent::provider::control::ProviderAdmissionPolicy,
     capability_manager: Arc<WorkspaceCapabilityManager>,
@@ -250,6 +304,7 @@ impl SupervisorState {
             Arc::new(CodeGraphCapabilityProvider::new());
         Ok(Self {
             runtime,
+            process_metrics_sampler: Mutex::new(ProcessMetricsSampler::new()),
             operation: Mutex::new(()),
             provider_policy,
             capability_manager: Arc::new(WorkspaceCapabilityManager::new(Arc::new(
@@ -358,6 +413,20 @@ impl SupervisorState {
             .get(&WorkspaceWriteGuardIdentity::from(lease))
             .copied()
             .unwrap_or(0)
+    }
+
+    pub(crate) fn process_metrics(&self, process_id: Option<u32>) -> Option<SerenaProcessMetrics> {
+        let mut sampler = self
+            .process_metrics_sampler
+            .lock()
+            .expect("process metrics sampler mutex poisoned");
+        match process_id {
+            Some(pid) => sampler.sample(pid),
+            None => {
+                sampler.reset();
+                None
+            }
+        }
     }
 
     pub fn snapshot(&self) -> SupervisorSnapshot {
@@ -836,6 +905,10 @@ impl SupervisorState {
             runtime.last_error = None;
             runtime.config.clone()
         };
+        self.process_metrics_sampler
+            .lock()
+            .expect("process metrics sampler mutex poisoned")
+            .reset();
         // Re-probe on every start: a cached detection is not a launch guarantee.
         let installation = discovery::detect(&config, &self.paths);
         self.commit_detection(&config, Some(installation.clone()));

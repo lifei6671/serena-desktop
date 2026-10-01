@@ -126,7 +126,8 @@ h3 {
   overflow: hidden;
 }
 .sidebar {
-  grid-row: 1 / -1;
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -791,7 +792,7 @@ h3 {
 .detected-path-copy .settings-button-icon,
 .detected-path-copy .settings-button-icon > svg { width: 12px; height: 12px; }
 .app-shell > footer {
-  grid-column: 2;
+  grid-column: 1 / -1;
   grid-row: 2;
   min-width: 0;
   display: flex;
@@ -803,25 +804,78 @@ h3 {
   color: var(--console-muted);
   font-size: 12px;
 }
-.footer-status {
+.footer-runtime,
+.footer-status,
+.footer-metrics {
   display: flex;
   align-items: center;
-  gap: 7px;
+}
+.footer-runtime {
+  min-width: 0;
+  gap: 14px;
+}
+.footer-status {
+  gap: 6px;
+  white-space: nowrap;
+}
+.footer-status-label {
+  color: var(--console-muted);
+}
+.footer-status-value {
+  color: var(--console-muted);
+  font-weight: 600;
 }
 .footer-status i {
-  width: 6px;
-  height: 6px;
+  position: relative;
+  width: 7px;
+  height: 7px;
+  flex: none;
   border-radius: 50%;
-  background: var(--console-faint);
+  background: currentColor;
+  color: #94a3b8;
 }
-.footer-status.status-running i {
-  background: var(--signal-green);
+.footer-status.status-running i,
+.footer-status.status-running .footer-status-value {
+  color: var(--signal-green);
 }
-.footer-status.status-starting i {
-  background: var(--signal-amber);
+.footer-status.status-starting i,
+.footer-status.status-starting .footer-status-value {
+  color: #2563eb;
 }
-.footer-status.status-error i {
-  background: var(--signal-red);
+.footer-status.status-error i,
+.footer-status.status-error .footer-status-value {
+  color: var(--signal-red);
+}
+.footer-status.status-running i::after,
+.footer-status.status-starting i::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+  animation: footer-status-breathe 1.8s ease-out infinite;
+}
+.footer-status.status-starting i::after {
+  animation-duration: 1.15s;
+}
+@keyframes footer-status-breathe {
+  0% { opacity: .3; transform: scale(.55); }
+  70%, 100% { opacity: 0; transform: scale(1.65); }
+}
+.footer-port,
+.footer-metrics {
+  font-variant-numeric: tabular-nums;
+}
+.footer-metrics {
+  gap: 16px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .footer-status.status-running i::after,
+  .footer-status.status-starting i::after {
+    animation: none;
+    content: none;
+  }
 }
 .boot-screen {
   display: grid;
