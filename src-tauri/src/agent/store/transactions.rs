@@ -1,7 +1,8 @@
 //! All business mutations use BEGIN IMMEDIATE and the same transition core.
 use super::*;
 use crate::agent::activity::{
-    ActivityPhase, ProgressPhase, ToolCategory, derive_activity_revision, derive_summary_code,
+    ActivityPhase, PROVIDER_PERMISSION_DENIED, ProgressPhase, ToolCategory,
+    derive_activity_revision, resolve_summary_code,
 };
 use crate::agent::execution::state::*;
 use serde_json::{Value, json};
@@ -112,6 +113,11 @@ impl StateStore {
                 .ok_or("EXECUTION_NOT_FOUND")?;
             let mutation = if row.status == "dispatch_pending"
                 && row.dispatch_state == "not_dispatched"
+                && row.runtime_instance_id.is_none()
+                && row.provider_terminal_status.is_none()
+                // Runtime prepare 也可能产生副作用，必须由原 owner 清理后提交证据。
+                && !super::runtime_attempts::runtime_attempt_exists(tx, &id)
+                    .map_err(|e| e.to_string())?
             {
                 Some(Mutation::CancelBeforeDispatch)
             } else if row.provider_terminal_status.is_none()
@@ -180,6 +186,31 @@ impl StateStore {
             .await
     }
 
+    /// exact permission 同一事务保存固定诊断及真实 Activity current/history；不写终态证据。
+    pub(crate) async fn project_codebuddy_permission_denied(
+        &self,
+        id: String,
+        identity: (String, String, String),
+        observed_at: i64,
+    ) -> Result<(), String> {
+        self.write(move |tx| {
+            let row = execution_record(tx, &id).map_err(|e| e.to_string())?.ok_or("EXECUTION_NOT_FOUND")?;
+            let (runtime, session, conversation) = identity;
+            let exact: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM codebuddy_execution_state WHERE execution_id=?1 AND runtime_instance_id=?2 AND session_id=?3 AND conversation_request_id=?4 AND prompt_state='sent')",
+                params![id,runtime,session,conversation], |r| r.get(0)).map_err(|e| e.to_string())?;
+            if !exact || row.provider != "codebuddy" || row.runtime_instance_id.as_deref() != Some(&runtime)
+                || row.provider_terminal_status.is_some() {
+                return Err("EXECUTION_PROTOCOL_IDENTITY_MISMATCH".into());
+            }
+            owns_claim(tx, &id)?;
+            // 低优先级 hint 不覆盖已有故障，也不写任何 terminal/release 列。
+            tx.execute("UPDATE executions SET error_code='CODEBUDDY_PERMISSION_DENIED',error_message='Provider permission denied',revision=revision+1,updated_at=?2 WHERE id=?1 AND (error_code IS NULL OR error_code='CODEBUDDY_PERMISSION_DENIED')",
+                params![id,observed_at]).map_err(|e| e.to_string())?;
+            project_activity_semantics(tx, &id, progress_phase(row.status.as_str(), row.dispatch_state.as_str())?,
+                Some(ActivityPhase::Provider), None, observed_at, ActivityUpdate::PermissionDenied)
+        }).await
+    }
+
     async fn project_execution_activity_inner(
         &self,
         id: String,
@@ -219,7 +250,7 @@ impl StateStore {
                 Some(phase),
                 tool_category,
                 observed_at,
-                true,
+                ActivityUpdate::Observed,
             )
         })
         .await
@@ -322,6 +353,7 @@ impl StateStore {
                 || !matches!(row.status.as_str(), "dispatch_pending" | "running" | "cancel_requested" | "cancelling" | "finalizing" | "reconciling") {
                 return Err("EXECUTION_PROTOCOL_IDENTITY_MISMATCH".into());
             }
+            require_runtime_provider(tx, &row.provider, &runtime)?;
             if row.thread_id.as_ref() == Some(&thread) && row.turn_id == turn { return Ok(()); }
             tx.execute("UPDATE executions SET thread_id=?2,turn_id=COALESCE(turn_id,?3),revision=revision+1,updated_at=?4 WHERE id=?1", params![id,thread,turn,now]).map_err(|e| e.to_string())?;
             // Usage 私有状态只在同一已验证 runtime/thread 且尚未绑定 turn 时同步；冲突仅降级 Usage，绝不反向污染 Execution 生命周期。
@@ -436,6 +468,24 @@ impl StateStore {
 
     /// Classify durable Claims before publishing the startup Product service.
     pub async fn recover_claims(&self, now: i64) -> Result<Vec<ClaimRecovery>, String> {
+        self.recover_claims_scoped(None, now).await
+    }
+
+    /// Provider 启动恢复只选择所属 Claim；分类与释放仍复用相同 generic 事务。
+    pub(crate) async fn recover_provider_claims(
+        &self,
+        provider: String,
+        now: i64,
+    ) -> Result<Vec<ClaimRecovery>, String> {
+        self.recover_claims_scoped(Some(provider), now).await
+    }
+
+    /// 可选 Provider 仅限制选择，不改变任何 Claim authority。
+    async fn recover_claims_scoped(
+        &self,
+        provider: Option<String>,
+        now: i64,
+    ) -> Result<Vec<ClaimRecovery>, String> {
         self.write(move |tx| {
             // Claims are the authority for recovery, including legacy terminal rows.
             let mut statement = tx
@@ -451,6 +501,13 @@ impl StateStore {
             let mut recovered = Vec::new();
             for id in ids {
                 let mut row = load(tx, &id)?;
+                // Claim 始终先完成权威加载；合法的其他 Provider 只能在任何状态写入前只读跳过。
+                if provider
+                    .as_ref()
+                    .is_some_and(|requested| requested != &row.provider)
+                {
+                    continue;
+                }
                 if row.dispatch == DispatchState::Dispatching {
                     transition_execution(
                         tx,
@@ -463,6 +520,36 @@ impl StateStore {
                         now,
                     )?;
                     row = load(tx, &id)?;
+                }
+                // 启动扫描先拒绝跨 Provider Runtime，避免随后恢复进程或释放旧 Claim。
+                if let Some(runtime) = row.runtime.as_deref()
+                    && runtime_provider(tx, runtime)?
+                        .is_some_and(|provider| provider != row.provider)
+                {
+                    if !row.status.terminal() && row.status != Status::Unknown {
+                        if row.status != Status::Reconciling {
+                            transition_execution(
+                                tx,
+                                &id,
+                                row.revision,
+                                Mutation::Event(Transition::Reconcile),
+                                now,
+                            )?;
+                            row = load(tx, &id)?;
+                        }
+                        transition_execution(
+                            tx,
+                            &id,
+                            row.revision,
+                            Mutation::Event(Transition::MarkUnknown),
+                            now,
+                        )?;
+                    }
+                    recovered.push(ClaimRecovery::Inconsistent {
+                        execution_id: id,
+                        code: "RUNTIME_PROVIDER_MISMATCH",
+                    });
+                    continue;
                 }
                 if row.status.terminal() {
                     if row.release_state == "complete"
@@ -499,6 +586,11 @@ impl StateStore {
                         row.dispatch,
                         DispatchState::Uncertain | DispatchState::Dispatched
                     ) && row.status != Status::Reconciling
+                        && !(row.status == Status::Finalizing
+                            && row.result.is_some()
+                            && row.terminal.is_some()
+                            && row.terminal_runtime == row.runtime
+                            && row.terminal_at.is_some())
                     {
                         transition_execution(
                             tx,
@@ -524,20 +616,21 @@ fn create(
     now: i64,
 ) -> Result<CreateOutcome, String> {
     let input = request.input();
-    let prior: Option<(String, String)> = tx
+    let prior: Option<String> = tx
         .query_row(
-            "SELECT id, request_hash FROM executions WHERE agent_id=?1 AND request_key=?2",
+            "SELECT id FROM executions WHERE agent_id=?1 AND request_key=?2",
             params![input.agent_id, input.request_key],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| r.get(0),
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    if let Some((execution_id, hash)) = prior {
-        return if hash == request.request_hash() {
+    if let Some(execution_id) = prior {
+        let row = execution_record(tx, &execution_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("EXECUTION_NOT_FOUND")?;
+        return if request_matches_prior(tx, &row, request)? {
             Ok(CreateOutcome {
-                execution: execution_record(tx, &execution_id)
-                    .map_err(|e| e.to_string())?
-                    .ok_or("EXECUTION_NOT_FOUND")?,
+                execution: row,
                 execution_id,
                 created: false,
             })
@@ -549,12 +642,13 @@ fn create(
     if busy {
         return Err("AGENT_BUSY".into());
     }
+    // 同一 lineage 必须保留请求已冻结的 Provider，不能把非 Codex continuation 误判为漂移。
     let snapshot_mismatch: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM executions WHERE agent_id=?1 AND
          (workspace_id IS NOT ?2 OR canonical_workspace_root IS NOT ?3
           OR (?7 IS NULL AND thread_id IS NOT ?4)
-          OR execution_profile_json IS NOT ?5 OR mode IS NOT ?6 OR provider != 'codex'))",
+          OR execution_profile_json IS NOT ?5 OR mode IS NOT ?6 OR provider IS NOT ?8))",
             params![
                 input.agent_id,
                 input.workspace_id,
@@ -566,6 +660,7 @@ fn create(
                     crate::agent::execution::ExecutionMode::WorkspaceWrite => "workspace_write",
                 },
                 input.parent_execution_id,
+                input.provider.as_str(),
             ],
             |r| r.get(0),
         )
@@ -594,7 +689,64 @@ fn create(
     })
 }
 
+/// 在持久化行上核对 hash 对应的身份字段，漂移时拒绝复用。
+fn row_identity_matches_request(
+    row: &ExecutionRecord,
+    request: &CanonicalRequest,
+    compare_parent: bool,
+) -> bool {
+    let input = request.input();
+    row.agent_id == input.agent_id
+        && row.request_key == input.request_key
+        && row.prompt == input.prompt
+        && row.execution_profile_json == request.execution_profile_json()
+        && row.workspace_id == input.workspace_id
+        && row.canonical_workspace_root == input.canonical_workspace_root
+        && row.workspace_generation == input.workspace_generation
+        && row.provider == input.provider.as_str()
+        && row.mode
+            == match input.mode {
+                crate::agent::execution::ExecutionMode::ReadOnly => "read_only",
+                crate::agent::execution::ExecutionMode::WorkspaceWrite => "workspace_write",
+            }
+        && (!compare_parent || row.parent_execution_id == input.parent_execution_id)
+}
+
+/// 仅 General 历史行可使用无 role 的旧 hash；v3 exact 始终先判断。
+fn request_matches_prior(
+    tx: &Connection,
+    row: &ExecutionRecord,
+    request: &CanonicalRequest,
+) -> Result<bool, String> {
+    if row.request_hash == request.request_hash() {
+        return Ok(row_identity_matches_request(row, request, true)
+            && persisted_task_role(tx, &row.id)? == request.input().task_role.as_str());
+    }
+    if request.input().task_role != crate::agent::execution::AgentTaskRole::General
+        || persisted_task_role(tx, &row.id)? != "general"
+        || !row_identity_matches_request(row, request, true)
+    {
+        return Ok(false);
+    }
+    crate::agent::execution::matches_current_or_legacy_workspace_generation_hash(
+        &row.request_hash,
+        row.workspace_generation,
+        request,
+    )
+}
+
+/// 角色只从当前事务中的持久化列读取，不能信任重建的请求默认值。
+fn persisted_task_role(tx: &Connection, id: &str) -> Result<String, String> {
+    let role: String = tx
+        .query_row("SELECT task_role FROM executions WHERE id=?1", [id], |r| {
+            r.get(0)
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(role)
+}
+
 struct Row {
+    provider: String,
     status: Status,
     dispatch: DispatchState,
     revision: i64,
@@ -611,6 +763,8 @@ struct Row {
     release_state: String,
     release_kind: Option<String>,
     release_json: Option<String>,
+    result: Option<String>,
+    completeness: String,
 }
 
 /// 当前 Activity 只从 executions 读取，history 从不反向参与权威投影。
@@ -681,6 +835,13 @@ fn progress_phase(status: &str, dispatch: &str) -> Result<ProgressPhase, String>
 }
 
 /// 在既有事务内投影 Activity；只有语义变化才写 current sequence 与 history。
+enum ActivityUpdate {
+    Observed,
+    PermissionDenied,
+    Lifecycle,
+}
+
+/// 普通新活动重置摘要；生命周期保留底层安全语义并应用终结优先级。
 fn project_activity_semantics(
     tx: &Transaction<'_>,
     id: &str,
@@ -688,16 +849,21 @@ fn project_activity_semantics(
     phase: Option<ActivityPhase>,
     tool_category: Option<ToolCategory>,
     observed_at: i64,
-    refresh_heartbeat: bool,
+    update: ActivityUpdate,
 ) -> Result<(), String> {
     let current = load_activity_state(tx, id)?;
+    let explicit = match update {
+        ActivityUpdate::Observed => None,
+        ActivityUpdate::PermissionDenied => Some(PROVIDER_PERMISSION_DENIED),
+        ActivityUpdate::Lifecycle => current.summary_code.as_deref(),
+    };
     let summary_code =
-        derive_summary_code(progress, phase, tool_category).map_err(str::to_owned)?;
+        resolve_summary_code(progress, phase, tool_category, explicit).map_err(str::to_owned)?;
     let semantic_change = current.phase != phase
         || current.tool_category != tool_category
         || current.summary_code.as_deref() != summary_code;
     if !semantic_change {
-        if refresh_heartbeat {
+        if !matches!(update, ActivityUpdate::Lifecycle) {
             tx.execute(
                 "UPDATE executions SET last_activity_at=CASE
                      WHEN last_activity_at IS NULL OR last_activity_at < ?2 THEN ?2
@@ -764,7 +930,7 @@ fn project_lifecycle_activity_semantics(
         current.phase,
         current.tool_category,
         observed_at,
-        false,
+        ActivityUpdate::Lifecycle,
     )
 }
 
@@ -772,13 +938,37 @@ fn load(tx: &Transaction<'_>, id: &str) -> Result<Row, String> {
     tx.query_row("SELECT status,dispatch_state,revision,runtime_instance_id,thread_id,turn_id,runtime_termination_evidence_at,
         provider_terminal_status,provider_terminal_evidence_runtime_instance_id,provider_terminal_evidence_at,
         background_cleanup_state,background_cleanup_runtime_instance_id,background_cleanup_evidence_at,
-        release_evidence_state,release_evidence_kind,release_evidence_json FROM executions WHERE id=?1", [id], |r| {
+        release_evidence_state,release_evidence_kind,release_evidence_json,provider,final_result_json,result_completeness FROM executions WHERE id=?1", [id], |r| {
         let parse = |index| -> rusqlite::Result<serde_json::Value> { Ok(serde_json::Value::String(r.get(index)?)) };
-        Ok(Row { status: serde_json::from_value(parse(0)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0,rusqlite::types::Type::Text,Box::new(e)))?,
+        Ok(Row { result:r.get(17)?,completeness:r.get(18)?,provider:r.get(16)?,status: serde_json::from_value(parse(0)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0,rusqlite::types::Type::Text,Box::new(e)))?,
             dispatch: serde_json::from_value(parse(1)?).map_err(|e| rusqlite::Error::FromSqlConversionFailure(1,rusqlite::types::Type::Text,Box::new(e)))?,
             revision:r.get(2)?,runtime:r.get(3)?,thread:r.get(4)?,turn:r.get(5)?,runtime_evidence_at:r.get(6)?,terminal:r.get(7)?,terminal_runtime:r.get(8)?,terminal_at:r.get(9)?,
             cleanup:r.get(10)?,cleanup_runtime:r.get(11)?,cleanup_at:r.get(12)?,release_state:r.get(13)?,release_kind:r.get(14)?,release_json:r.get(15)? })
     }).map_err(|e| e.to_string())
+}
+
+/// 从本事务中的 Runtime 行读取 Provider；缺行继续由现有 Runtime 证据门禁处理。
+fn runtime_provider(tx: &Transaction<'_>, runtime: &str) -> Result<Option<String>, String> {
+    tx.query_row(
+        "SELECT provider FROM runtime_instances WHERE id=?1",
+        [runtime],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|error| error.to_string())
+}
+
+/// Provider 仅验证 ownership，不构成 Runtime termination 或 Claim release 依据。
+fn require_runtime_provider(
+    tx: &Transaction<'_>,
+    execution_provider: &str,
+    runtime: &str,
+) -> Result<(), String> {
+    match runtime_provider(tx, runtime)? {
+        Some(provider) if provider == execution_provider => Ok(()),
+        Some(_) => Err("RUNTIME_PROVIDER_MISMATCH".into()),
+        None => Err("RUNTIME_NOT_FOUND".into()),
+    }
 }
 
 enum Mutation {
@@ -811,7 +1001,12 @@ fn delete_claim(tx: &Transaction<'_>, id: &str) -> Result<(), String> {
 }
 
 /// 只验证与平台元数据一致的持久化终止证据，不读取实时 OS 状态。
-fn terminated_runtime(tx: &Transaction<'_>, runtime: &str) -> Result<i64, String> {
+fn terminated_runtime(
+    tx: &Transaction<'_>,
+    runtime: &str,
+    execution_provider: &str,
+) -> Result<i64, String> {
+    require_runtime_provider(tx, execution_provider, runtime)?;
     let at: Option<i64> = tx.query_row("SELECT termination_evidence_at FROM runtime_instances WHERE id=?1 AND state='terminated'
         AND termination_evidence_state='complete' AND termination_evidence_at IS NOT NULL AND (
           (runtime_platform='windows' AND containment_type='windows_job'
@@ -825,8 +1020,8 @@ fn terminated_runtime(tx: &Transaction<'_>, runtime: &str) -> Result<i64, String
           OR
           (runtime_platform='macos' AND containment_type='macos_process_group'
            AND process_identity_scheme='darwin_proc_bsd_start_v1'
-           AND codex_pid IS NOT NULL AND codex_process_start_token IS NOT NULL
-           AND containment_process_group_id=codex_pid AND containment_session_id=codex_pid
+           AND process_id IS NOT NULL AND process_start_token IS NOT NULL
+           AND containment_process_group_id=process_id AND containment_session_id=process_id
            AND containment_verified_at IS NOT NULL
            AND termination_evidence_type IN ('macos_live_process_group_empty','macos_recovered_process_group_empty'))
         )",
@@ -869,8 +1064,13 @@ fn transition_execution(
         }
         Mutation::Finalize(finalization) => {
             if matches!(finalization.basis, ReleaseBasis::RuntimeTerminated)
-                && (row.status != Status::Reconciling
-                    || finalization.terminal != Status::Interrupted)
+                && !((row.status == Status::Reconciling
+                    && finalization.terminal == Status::Interrupted)
+                    || (row.status == Status::Finalizing
+                        && row.terminal.as_deref() == Some(finalization.terminal.as_str())
+                        && row.terminal_runtime == row.runtime
+                        && row.terminal_at.is_some()
+                        && row.result.is_some()))
             {
                 return Err("RUNTIME_TERMINATION_REQUIRES_RECONCILING_TO_INTERRUPTED".into());
             }
@@ -881,6 +1081,7 @@ fn transition_execution(
             }
             owns_claim(tx, id)?;
             let original = row.runtime.as_deref().ok_or("RUNTIME_EVIDENCE_REQUIRED")?;
+            require_runtime_provider(tx, &row.provider, original)?;
             let (kind, at) = match finalization.basis {
                 ReleaseBasis::SameRuntimeCleanup => {
                     if row.terminal.is_none()
@@ -895,7 +1096,19 @@ fn transition_execution(
                     ("same_runtime_cleanup", row.cleanup_at.unwrap())
                 }
                 ReleaseBasis::RuntimeTerminated => {
-                    let at = terminated_runtime(tx, original)?;
+                    // 正常终态只能消费此前同事务暂存的值，caller 不得替换结果。
+                    if row.status == Status::Finalizing {
+                        let result = serde_json::to_string(&finalization.result)
+                            .map_err(|e| e.to_string())?;
+                        let completeness = serde_json::to_value(finalization.completeness)
+                            .map_err(|e| e.to_string())?;
+                        if row.result.as_deref() != Some(result.as_str())
+                            || completeness.as_str() != Some(row.completeness.as_str())
+                        {
+                            return Err("STAGED_PROVIDER_RESULT_CONFLICT".into());
+                        }
+                    }
+                    let at = terminated_runtime(tx, original, &row.provider)?;
                     tx.execute("UPDATE executions SET runtime_termination_evidence_runtime_instance_id=?2,runtime_termination_evidence_at=?3 WHERE id=?1",params![id,original,at]).map_err(|e|e.to_string())?;
                     ("runtime_terminated", at)
                 }
@@ -925,7 +1138,13 @@ fn transition_execution(
                 "UPDATE executions SET final_result_json=?2,result_completeness=?3 WHERE id=?1",
                 params![
                     id,
-                    finalization.result.map(|v| v.to_string()),
+                    if matches!(finalization.basis, ReleaseBasis::RuntimeTerminated)
+                        && row.status == Status::Finalizing
+                    {
+                        row.result.clone()
+                    } else {
+                        finalization.result.map(|v| v.to_string())
+                    },
                     completeness.as_str().unwrap()
                 ],
             )
@@ -985,10 +1204,8 @@ fn transition_execution(
             match event {
                 Transition::Running => next = Status::Running,
                 Transition::RequestCancel => {
-                    // A dispatched request with no Turn yet keeps its cancellation intent.
-                    if row.status == Status::DispatchPending
-                        && row.dispatch != DispatchState::NotDispatched
-                    {
+                    // 尚未 Running 时只持久化 intent，包括已经 prepare 的 Runtime。
+                    if row.status == Status::DispatchPending {
                     } else {
                         next = Status::CancelRequested;
                     }
@@ -1025,6 +1242,7 @@ fn transition_execution(
                     if !status.terminal() || row.runtime.as_deref() != Some(&runtime_id) {
                         return Err("PROVIDER_EVIDENCE_RUNTIME_MISMATCH".into());
                     }
+                    require_runtime_provider(tx, &row.provider, &runtime_id)?;
                     if row
                         .terminal
                         .as_deref()
@@ -1047,6 +1265,45 @@ fn transition_execution(
                         next = Status::Finalizing;
                     }
                 }
+                Transition::ProviderTerminalResult {
+                    runtime_id,
+                    status,
+                    result,
+                    completeness,
+                } => {
+                    if !status.terminal()
+                        || row.runtime.as_deref() != Some(&runtime_id)
+                        || row.dispatch != DispatchState::Dispatched
+                        || !matches!(
+                            row.status,
+                            Status::Running
+                                | Status::CancelRequested
+                                | Status::Cancelling
+                                | Status::Finalizing
+                        )
+                    {
+                        return Err("PROVIDER_TERMINAL_RESULT_CONTEXT_INVALID".into());
+                    }
+                    require_runtime_provider(tx, &row.provider, &runtime_id)?;
+                    owns_claim(tx, id)?;
+                    // JSON null 表示已暂存的空公共结果；SQL NULL 表示尚未暂存。
+                    let result = serde_json::to_string(&result).map_err(|e| e.to_string())?;
+                    let completeness =
+                        serde_json::to_value(completeness).map_err(|e| e.to_string())?;
+                    let completeness =
+                        completeness.as_str().ok_or("INVALID_RESULT_COMPLETENESS")?;
+                    if row.terminal.is_some()
+                        && (row.terminal.as_deref() != Some(status.as_str())
+                            || row.terminal_runtime.as_deref() != Some(runtime_id.as_str())
+                            || row.result.as_deref() != Some(result.as_str())
+                            || row.completeness != completeness)
+                    {
+                        return Err("PROVIDER_TERMINAL_EVIDENCE_CONFLICT".into());
+                    }
+                    tx.execute("UPDATE executions SET provider_terminal_status=?2,provider_terminal_evidence_runtime_instance_id=?3,provider_terminal_evidence_at=COALESCE(provider_terminal_evidence_at,?4),final_result_json=?5,result_completeness=?6 WHERE id=?1",
+                        params![id,status.as_str(),runtime_id,now,result,completeness]).map_err(|e|e.to_string())?;
+                    next = Status::Finalizing;
+                }
                 Transition::CleanupEmpty { runtime_id } => {
                     if row.runtime.as_deref() != Some(&runtime_id)
                         || row.terminal.is_none()
@@ -1054,7 +1311,27 @@ fn transition_execution(
                     {
                         return Err("CLEANUP_EVIDENCE_RUNTIME_MISMATCH".into());
                     }
+                    require_runtime_provider(tx, &row.provider, &runtime_id)?;
                     tx.execute("UPDATE executions SET background_cleanup_state='empty',background_cleanup_runtime_instance_id=?2,background_cleanup_evidence_at=?3 WHERE id=?1",params![id,runtime_id,now]).map_err(|e|e.to_string())?;
+                }
+                Transition::ResumeStagedTerminal => {
+                    if row.status != Status::Reconciling
+                        || row.result.is_none()
+                        || row.terminal_at.is_none()
+                        || row.terminal_runtime != row.runtime
+                        || !matches!(
+                            row.terminal.as_deref(),
+                            Some("completed" | "failed" | "cancelled" | "interrupted")
+                        )
+                    {
+                        return Err("STAGED_PROVIDER_TERMINAL_REQUIRED".into());
+                    }
+                    terminated_runtime(
+                        tx,
+                        row.runtime.as_deref().ok_or("RUNTIME_REQUIRED")?,
+                        &row.provider,
+                    )?;
+                    next = Status::Finalizing;
                 }
                 Transition::Reconcile => {
                     if row.status == Status::Unknown {
@@ -1073,7 +1350,8 @@ fn transition_execution(
                             evidence_at,
                         } => {
                             if row.runtime.as_deref() != Some(&runtime_id)
-                                || terminated_runtime(tx, &runtime_id)? != evidence_at
+                                || terminated_runtime(tx, &runtime_id, &row.provider)?
+                                    != evidence_at
                                 || row
                                     .runtime_evidence_at
                                     .is_some_and(|previous| evidence_at <= previous)
@@ -1100,7 +1378,12 @@ fn transition_execution(
                         return Err("INVALID_DISPATCH_TRANSITION".into());
                     }
                     if to == DispatchState::Dispatching {
-                        if row.status != Status::DispatchPending || row.runtime.is_some() {
+                        if row.status != Status::DispatchPending
+                            || row
+                                .runtime
+                                .as_ref()
+                                .is_some_and(|original| Some(original) != runtime_id.as_ref())
+                        {
                             return Err("DISPATCH_REJECTED".into());
                         }
                         owns_claim(tx, id)?;
@@ -1109,6 +1392,7 @@ fn transition_execution(
                         if !running {
                             return Err("RUNTIME_NOT_RUNNING".into());
                         }
+                        require_runtime_provider(tx, &row.provider, &selected)?;
                         runtime = Some(selected);
                     } else if runtime_id.is_some() {
                         return Err("EXECUTION_RUNTIME_IMMUTABLE".into());
@@ -1142,8 +1426,17 @@ fn transition_execution(
     if release.is_some() {
         crash_checkpoint("before_terminal");
     }
-    let changed=tx.execute("UPDATE executions SET status=?2,dispatch_state=?3,runtime_instance_id=?4,revision=revision+1,updated_at=?5 WHERE id=?1 AND revision=?6 AND status=?7 AND dispatch_state=?8",
-        params![id,next.as_str(),dispatch.as_str(),runtime,now,revision,row.status.as_str(),row.dispatch.as_str()]).map_err(|e|e.to_string())?;
+    // 未改变的原 binding 不重复写 FK：即使旧 Runtime 行丢失，generic unknown 仍能保留 Claim。
+    // 真正的 Dispatch binding 与状态/CAS 保持在同一 IMMEDIATE 事务，失败整体回滚。
+    if runtime != row.runtime {
+        tx.execute(
+            "UPDATE executions SET runtime_instance_id=?2 WHERE id=?1 AND revision=?3",
+            params![id, runtime, revision],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    let changed=tx.execute("UPDATE executions SET status=?2,dispatch_state=?3,revision=revision+1,updated_at=?4 WHERE id=?1 AND revision=?5 AND status=?6 AND dispatch_state=?7",
+        params![id,next.as_str(),dispatch.as_str(),now,revision,row.status.as_str(),row.dispatch.as_str()]).map_err(|e|e.to_string())?;
     if changed != 1 {
         return Err("EXECUTION_REVISION_CONFLICT".into());
     }

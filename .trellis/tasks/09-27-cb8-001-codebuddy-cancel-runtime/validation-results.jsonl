@@ -1,0 +1,24 @@
+{"command":"cargo test --manifest-path src-tauri/Cargo.toml codebuddy --lib -- --test-threads=1","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"final-codebuddy.log","exit":101}
+{"command":"cargo test --manifest-path src-tauri/Cargo.toml agent::store::transactions::tests --lib -- --test-threads=1","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"final-agent-store-transactions-tests.log","exit":0}
+{"command":"cargo test --manifest-path src-tauri/Cargo.toml agent::codex::provider::cancellation_tests --lib -- --test-threads=1","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"final-agent-codex-provider-cancellation_tests.log","exit":0}
+{"command":"cargo test --manifest-path src-tauri/Cargo.toml agent::task_manager::tests --lib -- --test-threads=1","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"final-agent-task_manager-tests.log","exit":0}
+{"command":"cargo test --manifest-path src-tauri/Cargo.toml agent::provider::control --lib -- --test-threads=1","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"final-agent-provider-control.log","exit":0}
+{"command":"cargo test --manifest-path src-tauri/Cargo.toml agent::product::provider_catalog_tests --lib -- --test-threads=1","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"final-agent-product-provider_catalog_tests.log","exit":0}
+{"command":"cargo test --manifest-path src-tauri/Cargo.toml mcp::orchestration_tests::provider_query_tests --lib -- --test-threads=1","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"final-mcp-orchestration_tests-provider_query_tests.log","exit":0}
+{"command":"cargo test --manifest-path src-tauri/Cargo.toml telemetry --lib -- --test-threads=1","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"final-telemetry.log","exit":0}
+{"command":"cargo test --manifest-path src-tauri/Cargo.toml same_runtime --lib -- --test-threads=1","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"final-same_runtime.log","exit":0}
+{"command":"cargo test --manifest-path src-tauri/Cargo.toml usage --lib -- --test-threads=1","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"final-usage.log","exit":0}
+{"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"verified-codebuddy.log","command":"cargo test --manifest-path src-tauri/Cargo.toml codebuddy --lib -- --test-threads=1","exit":101}
+{"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"fmt.log","command":"cargo fmt --manifest-path src-tauri/Cargo.toml -- --check","exit":0}
+{"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"check.log","command":"cargo check --manifest-path src-tauri/Cargo.toml --lib","exit":0}
+{"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"clippy.log","command":"cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests -- -D warnings","exit":101}
+{"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","command":"cargo test --manifest-path src-tauri/Cargo.toml codebuddy --lib -- --test-threads=1","exit":0,"log":"final-codebuddy-pass.log"}
+{"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","exit":0,"command":"cargo fmt --manifest-path src-tauri/Cargo.toml -- --check","log":"final-fmt.log"}
+{"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","exit":0,"command":"git diff --check","log":"final-diff-check.log"}
+{"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","log":"repair1-race.log","exit":0,"command":"cargo test --manifest-path src-tauri/Cargo.toml cancel_between_exact_response --lib -- --test-threads=1"}
+{"exit":101,"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","command":"cargo test --manifest-path src-tauri/Cargo.toml codebuddy --lib -- --test-threads=1","log":"repair1-full-codebuddy.log"}
+{"log":"repair1-verified-codebuddy.log","exit":0,"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","command":"cargo test --manifest-path src-tauri/Cargo.toml codebuddy --lib -- --test-threads=1"}
+{"log":"repair1-fmt.log","exit":0,"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","command":"cargo fmt --manifest-path src-tauri/Cargo.toml -- --check"}
+{"log":"repair1-check.log","exit":0,"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","command":"cargo check --manifest-path src-tauri/Cargo.toml --lib"}
+{"log":"repair1-clippy.log","exit":101,"cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop","command":"cargo clippy --manifest-path src-tauri/Cargo.toml --lib --tests -- -D warnings"}
+{"exit":0,"log":"repair1-diff-check.log","command":"git diff --check","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop"}

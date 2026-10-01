@@ -1,0 +1,51 @@
+{
+  "verification": "fmt PASS; first product check running via bootstrap; no test PASS yet",
+  "targetHash": "f18f8623540e8d5f8b4855d48a16a1bfab041cb9baca9e8a78c1859da39cdda5",
+  "files": [
+    {
+      "sha256": "25b6d9a535630ab93b3b13506d6910bdc96e30123ee1fd7e86f829cc13171c0d",
+      "path": "src-tauri/Cargo.lock"
+    },
+    {
+      "sha256": "aec3c6fc28484a3171ff05bd2599ed67df28e2fb0cbf8e95bb44b0761fd49645",
+      "path": "src-tauri/Cargo.toml"
+    },
+    {
+      "sha256": "63e928a4c65018ee473b36fcbb3cc40b6fddfa5e96767c0caaf018ecd8d80e94",
+      "path": "src-tauri/src/agent/codebuddy/client_tests.rs"
+    },
+    {
+      "sha256": "551183acb7e5e5742a4672b58521915ed4c667c455ee672e1e364d4790eeeb35",
+      "path": "src-tauri/src/agent/codebuddy/client.rs"
+    },
+    {
+      "sha256": "77d1202c9ce00d7c07d4af916fac0b248946bc8c9d68384eec468669e603e7f9",
+      "path": "src-tauri/src/agent/codebuddy/mod.rs"
+    },
+    {
+      "sha256": "318669d1335a6231683167160f6f06550071c4654c4fa846b5097ab12950cb03",
+      "path": "src-tauri/src/agent/codebuddy/protocol.rs"
+    },
+    {
+      "sha256": "c79b8e3f7b1aa6803e064e619b4df962cfbf75720d15929e8f1fe201f2e38335",
+      "path": "src-tauri/src/agent/codebuddy/runtime_tests.rs"
+    },
+    {
+      "sha256": "7d88790a2a353602993b4e1532209874ae8ca36326b6cd09598f4b984d67df08",
+      "path": "src-tauri/src/agent/codebuddy/runtime.rs"
+    },
+    {
+      "sha256": "966684a20a48f29201b7ccdbc0504dce7eb47712cb961ce1c7123e1959a55497",
+      "path": "src-tauri/tests/fixtures/codebuddy_acp_child.rs"
+    },
+    {
+      "sha256": "eacb5e540c7cfe79a6fce36b8466439a610cdf3926a13173cb1eb3c62d4cc2cb",
+      "path": "src-tauri/tests/fixtures/codebuddy_early_update.jsonl"
+    },
+    {
+      "sha256": "8d751ab183d24ebd5a5e7edfbdbf8ccae86e8eea840977e3e48e8d0a6247916a",
+      "path": "src-tauri/tests/fixtures/codebuddy_initialize.json"
+    }
+  ],
+  "baseline": "a9eee0b495b74dc5247771e1fe671b0c53cb6c5f"
+}

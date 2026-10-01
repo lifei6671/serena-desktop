@@ -1,0 +1,290 @@
+{
+  "baseline": "6749972982388cbd47633fe170e0d3797bfc05f3",
+  "head": "6749972982388cbd47633fe170e0d3797bfc05f3",
+  "branch": "feat/codebuddy",
+  "target": "84AB6CD3814F428929412094498AA98D22982F49E7AD080BBD70F80EF152E4DD",
+  "reviewMode": "CHILD_AGENT",
+  "strategy": "FULL_SCOPE",
+  "repairRound": 1,
+  "files": [
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/check.jsonl",
+      "sha256": "DB4102156D1D864CA572359CD82A6B3DCC6FAE3533C5708B4FDC858D8FFEAB9A"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/design.md",
+      "sha256": "3AA0ABB45514E68CCA43E9B4A3D6B4E8B638AC7060C04F95895F5E86E06465AD"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/implement.jsonl",
+      "sha256": "DB4102156D1D864CA572359CD82A6B3DCC6FAE3533C5708B4FDC858D8FFEAB9A"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/implement.md",
+      "sha256": "9282945F699B4D53D093CD11694C5EEE5C28A81C3F77F334101E889B8E4E38A7"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/prd.md",
+      "sha256": "EDDB2138DC5FD1412CBB69916EACA10786C568F05C44DB6902F1EB8AC3D20ECD"
+    },
+    {
+      "path": "src-tauri/src/agent/activity.rs",
+      "sha256": "FADE150D5F5AC55B0A55005283E474467DFBF12DF3B10EF7CCB1F1BA7AA50807"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/client_tests.rs",
+      "sha256": "C53FE6489794CCD7C623A6B80CDBAD0C68B077FC056EC3C19A6BC04D53A257E8"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/client.rs",
+      "sha256": "D303DCA674D9CCB9185E12CD58ECA4F14524EA99E6FFA355D932A76D8B43E9AF"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/execute/tests.rs",
+      "sha256": "3024E2E963D613311F2F8B9133725462A0F4BE94C0FF61C7766CE57A20B30637"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/permission.rs",
+      "sha256": "C954E7D8C03C77C7165293AD18CDADFF5D28C2937B82B97DEDB30109785D5F93"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/prompt.rs",
+      "sha256": "D516BBB507AC0E4698771DE00D6AFA969FB333B6296CD2391D5B8FA21095BD8D"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/prompt/activity_tests.rs",
+      "sha256": "84846AD10959A1D0CA498613848384BDBE58B5BEEB6AFBB9299557D9C822C936"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/prompt/tests.rs",
+      "sha256": "C7BCA96F9D2B8B92C3C0B9747C0450607EE002F291C96AF90DE11E604B36327E"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/protocol.rs",
+      "sha256": "EF8008570D670BEDAE389B1C447F1BF530238B8B6EB2F54CF670D7698B928FB7"
+    },
+    {
+      "path": "src-tauri/src/agent/product.rs",
+      "sha256": "24154D6F5D0B716CE587381D80D1525B20891368614CC6951FD6691105BD36E1"
+    },
+    {
+      "path": "src-tauri/src/agent/product/observe_tests.rs",
+      "sha256": "93DDBCADF9C00C9B523E6D9AEEAFDC7DA23E789AD66036E12FE9583A0DD38EEE"
+    },
+    {
+      "path": "src-tauri/src/agent/product/tests.rs",
+      "sha256": "FB3FAF994832854E9813CEA5AF30B6E2F5C1D55BF125D30CD66A9C6BD327307B"
+    },
+    {
+      "path": "src-tauri/src/agent/store/transactions.rs",
+      "sha256": "BD8F50CAE12F815B7E40C515736C05BB95259E44269D84B99FF5202AC28DD237"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/codebuddy_execute_child.rs",
+      "sha256": "738EEBE3755476637701DC68C57BC82C66A0DAFAC981D9DE572FFBEA114C7B5E"
+    },
+    {
+      "path": "src/AgentPanel.test.mjs",
+      "sha256": "10CA59A7F52820322396375DFD59E33B5E9F089D80E78E60DE8D75C62FBD2D86"
+    },
+    {
+      "path": "src/agentPresentation.ts",
+      "sha256": "D06CB3A73CC11B60FE04161D5DE5921B9978CC9BBE3574BC261C90109B8BA18B"
+    }
+  ],
+  "context": [
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/check-initial.log",
+      "sha256": "9CCEB2D512834E6EBD0653A36F3C5DDC314290E06F56E112CA44346945BA491D"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/codebuddy-complete.log",
+      "sha256": "EB0A522AC0855290A95E95B5DA0F0B35444A47246C6795E35C23DFC2D13E4AD9"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/codebuddy-final.log",
+      "sha256": "A1886DC14DDB39CD1B262CA7700C5E7FADF8AEF3A5C10C6A65D6DE99AF14253A"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/codebuddy-full.log",
+      "sha256": "9E80042216D0CC41D64BDE0AA7501A62853D248156F46F9150EB069E8071D405"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/codebuddy-private-repair.log",
+      "sha256": "D0D7BB127D849ADA128EB4FE0BDA349561C0B8728195039B8AC0EEBA12C5F948"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/contract-observations.md",
+      "sha256": "35AA95AC276EFAE6D3CCC2547AB084FFAC58E79F25F16CCA6CDB543A975206F8"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/final-agent-codex-provider-cancellation_tests.log",
+      "sha256": "AB136FBFC0F16DD807F7B56E78B65DBF7972586D4B71418B4E6F622265870F6A"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/final-agent-product-observe_tests.log",
+      "sha256": "AE0777FA96265212B8F936FBF8EF3E770DBA2893B6F4873AE1059808795690A8"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/final-agent-product-provider_catalog_tests.log",
+      "sha256": "8CB6829656922ABCBD5D1A25570BB1CABC5775DAA7B876E6071BBFD10312A1C1"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/final-agent-provider-control.log",
+      "sha256": "F9CA935CC2A93E3CDACF926D98832EFE163A4669477AA69447D4D6D621D15A54"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/final-agent-store-transactions-tests.log",
+      "sha256": "E638FC2927DCC506E1B05A29A2234D37D18CC49BB6ADA0ECA6766738A3BFEE84"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/final-agent-task_manager-tests.log",
+      "sha256": "92E06F5AA0105BAC200DD28E1D626DF06BB5F9C1F0262B55237A7DD6B4DF4F37"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/final-check.log",
+      "sha256": "662DCB505637E20906968EFC39CC32760F9636F2D566F18288B25559A6FD5B12"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/final-clippy.log",
+      "sha256": "8664FE61E9CF3C687C175CA9C107F0C32D7E870FFB2AE5B61415AF9DF905A023"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/final-diff-check.log",
+      "sha256": "3D5B9B8BCF4F76DFE7AE5478269F91395D152A7E22E8D70703006DD48F59FB73"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/final-fmt.log",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/final-mcp-orchestration_tests-provider_query_tests.log",
+      "sha256": "4068DE95A17BECB77212F25773A56FB1BB28B6B020DB1D8A7A0FDEFAE469F971"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/final-telemetry.log",
+      "sha256": "B97F913EB783E2DFC46814D5B06412A64C943B048356A4235BD9B239385F9588"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/freeze-round0.json",
+      "sha256": "290D49AD96B5A39EC6D88272B7190629085475A064914F004831A9811187C650"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/implementation-verification.md",
+      "sha256": "05C788DA9BC341701346799FD635069F75669EBAD34BAAA65E16549F946F0B7D"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/permission-initial.log",
+      "sha256": "A02E20A83D7776B248A303BBAF11BAAED33B9BD40EDE694BFCE50DBEE17EECDA"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/repair1-activity-node.log",
+      "sha256": "EE9EC3B4D5CBF303A48F610A31893F4E38FA20B6F09216A00D561478C0574E8B"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/repair1-activity.log",
+      "sha256": "684595830287C0E43147ECCE4EE1AE5E5416E84E0476C2D7C22589BCFE1AD7C9"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/repair1-agent-panel.log",
+      "sha256": "8D0A6A968D064455998D90FEB7B61E2054D9DE2DC16A5440F1B59A3EAD9B34BC"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/repair1-codebuddy.log",
+      "sha256": "D9068A779B1886B45ABB3DC6877A93F300FB098E95A812565A6798D350BFE6F4"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/repair1-focused.log",
+      "sha256": "38F0BC03A0311E5E0B0FD7054E754D16B58612302DF99428F40B25F59C2A9063"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/repair1-focused2.log",
+      "sha256": "F53A8DB9B878E63A491C56F14CA3BE9BEB65CECD7CF8BFF444455E148B20A347"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/repair1-product.log",
+      "sha256": "03082DE55802FC6DF986133AB5F17813316ED5698F7816AE3E078DB453970447"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/review-context.md",
+      "sha256": "8C57498DB5C7938078F8F50ADC2401F68F50F4B0115736A848CEF0104F06B2FE"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/review-round0.md",
+      "sha256": "F3DD3B0E3D4E87A10F6A30561C59678AD9089DEA9CCE202F8077CCB813A23B5B"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/round1-check.log",
+      "sha256": "BC5D6F258B505974368F78BD33CEDD6A9219ABC58EC12B2AC3655092F91AE8D7"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/round1-clippy.log",
+      "sha256": "8664FE61E9CF3C687C175CA9C107F0C32D7E870FFB2AE5B61415AF9DF905A023"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/round1-diff-check.log",
+      "sha256": "26DA62156D27AC6A5A85C1D652D16F7598C7BBE6A5A828C75453E53896B80C1C"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/round1-eslint.log",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/round1-fmt.log",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/round1-tsc.log",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/scope-status.txt",
+      "sha256": "B2FC59DF4BE0AD1E1B5456357295F7289D0589BE39B25C530268138EB72B8322"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/telemetry-private-repair.log",
+      "sha256": "3565AB1A36B5A8CB8C8C95BA3CAE0B856AAB1D4EE29CD863747A424064F443B2"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/validation-results.jsonl",
+      "sha256": "A1D6C1BA5117827AA6F5F76F51840527566C3CB643F1E32F9C9FE60551E7A0A0"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/verification.md",
+      "sha256": "8D17E152882AC5C19DAB2BF47EB32C919C09E18A7CA0507CF39429B1FC572587"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/verified-agent-product-tests-observe_tests.log",
+      "sha256": "9B8D5AF975064547B8E3CE7E73F3EE13C9B577C9341C0C6E40E8A554C9A3A1EE"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/verified-agent-store-transactions-tests.log",
+      "sha256": "392085C2DD3937C22A3CA0BBF59B603944540D0DCD724E96BB4125DC7C9773A6"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/verified-check.log",
+      "sha256": "49E845B826F3A234AC6B6BCE6674B5FE342382A12EACD6A1A0073246FA425D51"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/verified-clippy.log",
+      "sha256": "8664FE61E9CF3C687C175CA9C107F0C32D7E870FFB2AE5B61415AF9DF905A023"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/verified-fmt.log",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/verified-same_runtime.log",
+      "sha256": "3C175851B4637F894B9D8B8D26F4BB15F171A87D8EF90D191943B646DFB34C1A"
+    },
+    {
+      "path": ".trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/verified-usage.log",
+      "sha256": "6FA387C5D72EC678640914A8C2D55AFC3C42D35C02FEB0A3899D8BCB5F96C720"
+    }
+  ],
+  "exclusions": [
+    "task.json administrative lifecycle fields",
+    "final review reports generated after freeze"
+  ],
+  "provenance": "Clean starting workspace; all listed edits delivery-owned; no commits or staged changes"
+}

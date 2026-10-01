@@ -1,0 +1,2 @@
+{"file": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/design.md", "reason": "用户授权的私有 store 边界与 OCC 设计"}
+{"file": "docs/technical-design-multi-agent-provider-codebuddy-v0.1.md", "reason": "identity 与 recovery authority"}

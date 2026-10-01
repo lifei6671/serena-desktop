@@ -1,0 +1,28 @@
+{
+  "id": "cb6-004-codebuddy-provider-private-state",
+  "name": "cb6-004-codebuddy-provider-private-state",
+  "title": "CB6-004 CodeBuddy Provider-Private State Store",
+  "description": "独立 schema v13 与 CodeBuddy 私有 identity/provenance typed store；保持 SQL ownership，完成迁移与 OCC 回归及隔离只读评审。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-09-27",
+  "completedAt": "2026-09-27",
+  "branch": "feat/codebuddy",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "CB6-004 closeout completed; native Windows fmt/check and 72 distinct tests passed; independent FULL_SCOPE review PASSED, 14/14 hashes FRESH, no P0/P1/P2. Clippy sole unchanged usage_tests.rs:987 await_holding_lock baseline recorded per user instruction; Linux NOT_RUN; no commit/push.",
+  "meta": {
+    "closeoutTarget": "9D4F32914CEC2D486D581C9DEB3AFE2FA3F715C8C4A5A24CBFEB9AD0E30CBB56"
+  }
+}

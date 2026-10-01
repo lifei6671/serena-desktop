@@ -1,0 +1,7 @@
+{
+  "command": "Get-CimInstance Win32_Process (read-only parent/PID inspection)",
+  "status": "UNAVAILABLE",
+  "exit_code": 1,
+  "first_error": "Access denied",
+  "conclusion": "Does not establish descendant orphan freedom; no unrelated process was terminated."
+}

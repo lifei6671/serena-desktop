@@ -1,0 +1,10 @@
+{
+  "targetId": "e241bf797c7843c3d80cb20c38a170990c2c8a53a979c3b00430d29844ae30ac",
+  "changedSinceReview": [],
+  "oldEvidenceChanged": [],
+  "gate": "PASSED",
+  "coverage": "COMPLETE",
+  "freshness": "FRESH",
+  "realRepair": "NOT_RUN",
+  "repairSentinelExists": false
+}

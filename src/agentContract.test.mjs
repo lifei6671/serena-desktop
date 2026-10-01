@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import ts from 'typescript';
-import { activityLabel, activitySilenceLabel, formatTokenCount, providerLabel, recentActivity, resultText, taskSummary, usageCompletenessLabel, executionStatus, executionTime, executionDuration, executionWorkspace } from './agentPresentation.ts';
+import { activityLabel, activitySilenceLabel, formatTokenCount, providerCardPresentation, providerLabel, recentActivity, resultText, taskSummary, usageCompletenessLabel, usageTotalLabel, executionStatus, executionTime, executionDuration, executionWorkspace } from './agentPresentation.ts';
 
 test('history uses local full dates, friendly elapsed time and frozen workspace identity', () => {
   assert.equal(executionTime(new Date(2026, 8, 9, 22, 14).getTime()), '2026-09-09 22:14');
@@ -50,6 +50,8 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
     const providerId: string = row.provider.id;
     const providerVersion: string | null = row.provider.version;
     const providerSessionLabel: string | null = row.providerSessionLabel;
+    const requestedModel: string | null = row.executionProfile.model;
+    const effectiveProfile: { model: string | null; reasoning: string | null } | null = row.effectiveExecutionProfile;
     const providerVersionAcceptsNullable: ExecutionView['provider']['version'] = nullableString;
     const providerSessionLabelAcceptsNullable: ExecutionView['providerSessionLabel'] = nullableString;
     const inputTokens: number | null = row.usage.inputTokens;
@@ -75,6 +77,10 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
     const noProvider: ExecutionView = {} as Omit<ExecutionView, 'provider'>;
     // @ts-expect-error usage 是必填 Product projection
     const noUsage: ExecutionView = {} as Omit<ExecutionView, 'usage'>;
+    // @ts-expect-error requested profile 是必填历史快照
+    const noExecutionProfile: ExecutionView = {} as Omit<ExecutionView, 'executionProfile'>;
+    // @ts-expect-error effective profile 字段必填，但值允许 null
+    const noEffectiveExecutionProfile: ExecutionView = {} as Omit<ExecutionView, 'effectiveExecutionProfile'>;
     // @ts-expect-error summaryCode 是 required nullable Product 字段
     const noSummaryCode: ExecutionView['progress'] = {} as Omit<ExecutionView['progress'], 'summaryCode'>;
     // @ts-expect-error activity is a hint, never a lifecycle phase
@@ -82,10 +88,11 @@ test('ExecutionView requires snapshot strings; actions cannot accept output-only
     void [threadName, errorCode, errorMessage, threadNameAcceptsNullable, errorCodeAcceptsNullable,
       errorMessageAcceptsNullable, noThreadName, noErrorCode, noErrorMessage,
       pendingPhase, activityPhase, toolCategory, lastActivityAt, activityAgeMs, silenceLevel, summaryCode,
-      providerId, providerVersion, providerSessionLabel, inputTokens, cachedInputTokens, cacheWriteInputTokens, outputTokens, reasoningTokens,
+      providerId, providerVersion, providerSessionLabel, requestedModel, effectiveProfile, inputTokens, cachedInputTokens, cacheWriteInputTokens, outputTokens, reasoningTokens,
       totalTokens, modelContextWindow, completeness, usageRevision, usageUpdatedAt, providerVersionAcceptsNullable, providerSessionLabelAcceptsNullable,
       inputTokensAcceptNullable, cachedInputTokensAcceptNullable, cacheWriteInputTokensAcceptNullable, outputTokensAcceptNullable, reasoningTokensAcceptNullable,
-      totalTokensAcceptNullable, modelContextWindowAcceptNullable, usageUpdatedAtAcceptsNullable, summaryCodeAcceptsNullable, noProvider, noUsage, noSummaryCode, invalidPhase];
+      totalTokensAcceptNullable, modelContextWindowAcceptNullable, usageUpdatedAtAcceptsNullable, summaryCodeAcceptsNullable, noProvider, noUsage,
+      noExecutionProfile, noEffectiveExecutionProfile, noSummaryCode, invalidPhase];
     const prompt: string = row.prompt;
     const revision: string = row.revision;
     const controlRevision: string = row.controlRevision;
@@ -148,6 +155,12 @@ test('provider, activity and usage presentation preserve Product facts', () => {
   assert.deepEqual(['fresh', 'quiet', 'prolonged', null].map(silenceLevel => activitySilenceLabel({ progress: { ...baseProgress, silenceLevel } })), ['刚刚有活动', '暂时没有新活动', '一段时间没有新活动', '暂无活动数据']);
   assert.deepEqual([recentActivity({ progress: { ...baseProgress, activityAgeMs: 0 } }, 1_000_000), recentActivity({ progress: { ...baseProgress, activityAgeMs: 5_000 } }, 1_000_000), recentActivity({ progress: { ...baseProgress, activityAgeMs: 60_000 } }, 1_000_000), recentActivity({ progress: { ...baseProgress, activityAgeMs: 3_600_000 } }, 1_000_000)], ['刚刚', '5秒前', '1分钟前', '1小时前']);
   assert.deepEqual([formatTokenCount(null), formatTokenCount(0), formatTokenCount(12_531)], ['—', '0', '12,531']);
+  assert.deepEqual([
+    usageTotalLabel({ usage: { completeness: 'complete', totalTokens: 12_531 } }),
+    usageTotalLabel({ usage: { completeness: 'partial', totalTokens: 12_531 } }),
+    usageTotalLabel({ usage: { completeness: 'partial', totalTokens: 0 } }),
+    usageTotalLabel({ usage: { completeness: 'unknown', totalTokens: null } }),
+  ], ['12,531', '≈12,531', '≈0', '—']);
   assert.deepEqual(['unknown', 'partial', 'complete'].map(usageCompletenessLabel), ['未知', '统计不完整', '完整']);
   assert.doesNotMatch(`${activitySilenceLabel({ progress: { ...baseProgress, silenceLevel: 'prolonged' } })} ${activityLabel({ progress: { ...baseProgress, summaryCode: null } })}`, /stalled|卡住|失败/iu);
 });
@@ -158,4 +171,17 @@ test('pending dispatch labels never imply a provider invocation', () => {
   assert.equal(executionStatus({...pending,attention:'pending_explicit_resume'}).label, '等待恢复');
   assert.equal(executionStatus({...pending,dispatchState:'dispatching',progress:{phase:'dispatching'}}).label, '正在派发');
   assert.equal(executionStatus({...pending,dispatchState:'uncertain',progress:{phase:'reconciling'}}).label, '正在恢复执行状态');
+});
+
+/** metadata 完全投影 Provider-owned 事实；缺失、空白与自定义协议保持通用行为。 */
+test('provider card presentation projects optional metadata without identity branches', () => {
+  for (const id of ['codebuddy', 'codex', 'fake', 'future-provider']) {
+    const base = { id, displayName: id, enabled: true, health: 'available' };
+    assert.equal(providerCardPresentation(base, []).protocol, '—');
+    assert.equal(providerCardPresentation(base, []).version, '—');
+    const view = providerCardPresentation({ ...base, version: ' 2.160.0 ', protocol: ' Custom RPC v3 ' }, []);
+    assert.equal(view.version, '2.160.0');
+    assert.equal(view.protocol, 'Custom RPC v3');
+    assert.equal(providerCardPresentation({ ...base, protocol: ' ' }, []).protocol, '—');
+  }
 });

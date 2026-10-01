@@ -2,6 +2,9 @@
 #[cfg(all(test, any(windows, target_os = "macos")))]
 use super::codex::provider::CodexProvider;
 use super::{
+    codebuddy::provider::{
+        register_codebuddy_provider, register_codebuddy_provider_with_discovery,
+    },
     codex::provider::register_codex_provider_with_discovery,
     coordinator::WorkspaceExecutionCoordinator,
     execution::{CreateExecutionInput, ExecutionMode, canonicalize_request},
@@ -11,6 +14,7 @@ use super::{
     provider::{
         ProviderCancelContext, ProviderError, ProviderErrorCode, ProviderExecutionContext,
         ProviderId, ProviderStartupContext,
+        control::{ProviderAdmissionCapability, ProviderAdmissionPolicy},
         port::{
             ProviderAcceptanceSink, ProviderContinuationContext, ProviderContinuationDecision,
             ProviderExecutionFailure, ProviderReconcileItem,
@@ -26,7 +30,8 @@ use super::{
     },
     telemetry_projector::ExecutionTelemetryProjector,
 };
-use crate::serena::{SupervisorState, WorkspaceStartCreation};
+use crate::config::AgentProviderSettings;
+use crate::serena::WorkspaceStartCreation;
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -44,6 +49,7 @@ pub struct AgentTaskManager {
     owner: String,
     pub(crate) runtime_pool: std::sync::Arc<super::codex::pool::CodexRuntimePool>,
     registry: Arc<Mutex<Option<Arc<ProviderRegistry>>>>,
+    admission: ProviderAdmissionPolicy,
     auto_recovery: Arc<AutoRecoveryWorker>,
     terminal_notifier: Arc<dyn AgentTerminalNotifier>,
     #[cfg(test)]
@@ -165,9 +171,11 @@ impl ProviderAcceptanceSink for HostAcceptanceSink {
     }
 }
 
-fn provider_error_code(code: ProviderErrorCode) -> &'static str {
+/// 把 Provider 领域错误映射为稳定 Product code，供本地目录 IPC 复用。
+pub(crate) fn provider_error_code(code: ProviderErrorCode) -> &'static str {
     match code {
         ProviderErrorCode::AgentProviderNotFound => "AGENT_PROVIDER_NOT_FOUND",
+        ProviderErrorCode::AgentProviderDisabled => "AGENT_PROVIDER_DISABLED",
         ProviderErrorCode::AgentProviderUnavailable => "AGENT_PROVIDER_UNAVAILABLE",
         ProviderErrorCode::AgentProviderCapabilityUnsupported => {
             "AGENT_PROVIDER_CAPABILITY_UNSUPPORTED"
@@ -213,13 +221,8 @@ impl AgentTaskManager {
         let provider_id = ProviderId::new(provider_value.into())
             .map_err(|_| "AGENT_CONTINUE_NOT_ALLOWED".to_string())?;
         let provider = self
-            .registry()
-            .map_err(continuation_provider_error)?
-            .get_registered(&provider_id)
+            .admit_provider(&provider_id, ProviderAdmissionCapability::Continue)
             .map_err(continuation_provider_error)?;
-        if !provider.capabilities().can_continue {
-            return Err("AGENT_CONTINUE_NOT_ALLOWED".into());
-        }
         match provider
             .validate_continuation(ProviderContinuationContext {
                 source_execution_id: source_execution_id.into(),
@@ -290,6 +293,21 @@ impl AgentTaskManager {
         executable: PathBuf,
         terminal_notifier: Arc<dyn AgentTerminalNotifier>,
     ) -> Self {
+        Self::new_with_terminal_notifier_and_provider_settings(
+            store,
+            executable,
+            terminal_notifier,
+            AgentProviderSettings::default(),
+        )
+    }
+
+    /// 注入已经验证的本地 Provider 设置；该快照不新增远程或运行时 mutation authority。
+    pub(crate) fn new_with_terminal_notifier_and_provider_settings(
+        store: StateStore,
+        executable: PathBuf,
+        terminal_notifier: Arc<dyn AgentTerminalNotifier>,
+        provider_settings: impl Into<ProviderAdmissionPolicy>,
+    ) -> Self {
         Self {
             store,
             executable,
@@ -297,6 +315,7 @@ impl AgentTaskManager {
             owner: Self::id("host"),
             runtime_pool: Default::default(),
             registry: Default::default(),
+            admission: provider_settings.into(),
             auto_recovery: Default::default(),
             terminal_notifier,
             #[cfg(test)]
@@ -407,9 +426,12 @@ impl AgentTaskManager {
             self.runtime_pool.clone(),
             discovery,
         )?;
+        // CodeBuddy discovery 失败只影响其自身 health，不能阻断 Desktop 或 Codex 注册。
+        register_codebuddy_provider(&mut registry, self.store.clone(), self.owner.clone())?;
         Ok(registry)
     }
-    fn registry(&self) -> Result<Arc<ProviderRegistry>, ProviderError> {
+    /// Product 只读复用唯一 Registry；Registry 初始化与派发语义保持原样。
+    pub(crate) fn registry(&self) -> Result<Arc<ProviderRegistry>, ProviderError> {
         let mut current = self.registry.lock().unwrap();
         if let Some(registry) = current.as_ref() {
             return Ok(registry.clone());
@@ -417,6 +439,116 @@ impl AgentTaskManager {
         let registry = Arc::new(self.build_registry()?);
         *current = Some(registry.clone());
         Ok(registry)
+    }
+
+    /// 只重新执行 admission discovery，不创建 Execution、Session 或 Agent Runtime。
+    /// macOS 复用受管 CLI probe 的 ownership 记录；只导出 schema，不启动 app-server。
+    pub(crate) async fn refresh_provider_health(
+        &self,
+        id: ProviderId,
+    ) -> Result<super::provider::registry::ProviderHealth, String> {
+        let registry = self
+            .registry()
+            .map_err(|e| provider_error_code(e.code).to_string())?;
+        registry
+            .get_registered(&id)
+            .map_err(|e| provider_error_code(e.code).to_string())?;
+        let mut refreshed = ProviderRegistry::new();
+        match id.as_str() {
+            "codex" => register_codex_provider_with_discovery(
+                &mut refreshed,
+                self.store.clone(),
+                self.owner.clone(),
+                self.runtime_pool.clone(),
+                self.discover_backend().await,
+            ),
+            // CodeBuddy refresh 只重复无进程 discovery，不创建 ACP 或 Runtime。
+            "codebuddy" => register_codebuddy_provider_with_discovery(
+                &mut refreshed,
+                self.store.clone(),
+                self.owner.clone(),
+                super::codebuddy::discover(),
+            ),
+            _ => {
+                return Err("AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into());
+            }
+        }
+        .map_err(|e| provider_error_code(e.code).to_string())?;
+        let health = refreshed
+            .health(&id)
+            .map_err(|e| provider_error_code(e.code).to_string())?;
+        let provider = refreshed
+            .get_registered(&id)
+            .map_err(|e| provider_error_code(e.code).to_string())?;
+        let mut current = self.registry.lock().unwrap();
+        let mut next = current
+            .as_ref()
+            .expect("registry initialized")
+            .as_ref()
+            .clone();
+        next.replace_registered(provider, health)
+            .map_err(|e| provider_error_code(e.code).to_string())?;
+        *current = Some(Arc::new(next));
+        Ok(health)
+    }
+
+    /// 使用单一 policy owner 解析新工作，避免调用方自行重排 enabled/health/capability。
+    fn admit_provider(
+        &self,
+        provider_id: &ProviderId,
+        capability: ProviderAdmissionCapability,
+    ) -> Result<Arc<dyn super::provider::port::AgentProvider>, ProviderError> {
+        let registry = self.registry()?;
+        self.admission
+            .admit(registry.as_ref(), provider_id, capability)
+    }
+
+    /// Start 创建前只拒绝未注册或 disabled；health/capability 仍在 dispatch 前判定。
+    fn ensure_provider_enabled(&self, provider_id: &ProviderId) -> Result<(), ProviderError> {
+        let registry = self.registry()?;
+        self.admission
+            .registered_enabled(registry.as_ref(), provider_id)
+            .map(|_| ())
+    }
+
+    /// 在不创建 Execution/Claim 的路径读取 Provider-owned 配置目录。
+    pub(crate) async fn provider_configuration_catalog(
+        &self,
+        provider_id: ProviderId,
+        canonical_workspace_root: String,
+    ) -> Result<super::provider::ExecutionConfigurationCatalog, ProviderError> {
+        self.ensure_provider_enabled(&provider_id)?;
+        let provider = self.registry()?.get(&provider_id)?;
+        provider
+            .configuration_catalog(super::provider::ProviderConfigurationCatalogContext {
+                cwd: canonical_workspace_root,
+            })
+            .await
+    }
+
+    /// Product Start 在创建 Execution 与 Claim 前完成 registered→enabled 前缀。
+    #[cfg(test)]
+    fn ensure_product_start_enabled(&self) -> Result<(), super::product::ProductError> {
+        let provider_id =
+            ProviderId::new("codex".into()).expect("static Codex provider id is valid");
+        self.ensure_provider_enabled(&provider_id).map_err(|error| {
+            super::product::ProductError::new(provider_error_code(error.code).into(), None)
+        })
+    }
+
+    /// Resume 在 backend/health 前按 Execution 冻结身份完成 registered→enabled 前缀。
+    async fn ensure_persisted_execution_enabled(
+        &self,
+        execution_id: &str,
+    ) -> Result<(), ProviderExecutionFailure> {
+        let row = self
+            .store
+            .execution(execution_id.to_owned())
+            .await?
+            .ok_or_else(|| "EXECUTION_NOT_FOUND".to_string())?;
+        let provider_id = provider_id(row.provider)?;
+        self.ensure_provider_enabled(&provider_id)
+            .map_err(provider_failure)
     }
     pub(crate) async fn reconcile_startup(&mut self) -> Result<Vec<ProviderReconcileItem>, String> {
         let registry = self
@@ -465,8 +597,15 @@ impl AgentTaskManager {
         Ok(report)
     }
     #[cfg(test)]
-    fn use_registry(&mut self, registry: ProviderRegistry) {
+    /// 测试注入已注册 Provider，验证 Product 与路由读取同一 Registry。
+    pub(crate) fn use_registry(&mut self, registry: ProviderRegistry) {
         *self.registry.lock().unwrap() = Some(Arc::new(registry));
+    }
+
+    /// 测试专用开关用于验证 Drain；生产设置变更入口不属于 CB2-002。
+    #[cfg(test)]
+    pub(crate) fn set_provider_enabled_for_test(&self, provider_id: &str, enabled: bool) {
+        self.admission.set_enabled_for_test(provider_id, enabled);
     }
     pub(crate) fn id(prefix: &str) -> String {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -499,6 +638,9 @@ impl AgentTaskManager {
         &self,
         input: CreateExecutionInput,
     ) -> Result<CreateOutcome, ProviderExecutionFailure> {
+        // Start 必须在创建 Execution/Claim 前拒绝未注册或 disabled Provider。
+        self.ensure_provider_enabled(&input.provider)
+            .map_err(provider_failure)?;
         let mut outcome = self.create(input).await?;
         if !outcome.created {
             return Ok(outcome);
@@ -522,10 +664,77 @@ impl AgentTaskManager {
         self.product_submit_with_work(action, workspace, None).await
     }
 
-    /// Resolver Start 将 Lease 解析与 Execution+Claim 提交放入 Supervisor operation mutex 后再交接 dispatch。
+    /// 在 Broker management 内重读当前路由与准入事实，不使用早先查询的目录快照。
+    fn resolve_start_routing(
+        &self,
+        config: &crate::config::ManagerConfig,
+        intent: super::product::StartRoutingIntent,
+    ) -> Result<super::store::transactions::product::FrozenStartRouting, super::product::ProductError>
+    {
+        use super::{execution::AgentTaskRole, product::StartRoutingIntent};
+        if !config.agent_enabled {
+            return Err("AGENT_DISABLED".to_string().into());
+        }
+        // Start 保留 Provider 的稳定码；不改变 Cancel/Continue 既有错误投影。
+        let provider_error = |error: ProviderError| {
+            let code = provider_error_code(error.code);
+            let mut error = super::product::ProductError::from(code.to_string());
+            error.code = code.into();
+            error
+        };
+        let route = |role: AgentTaskRole| {
+            config
+                .agent_providers
+                .role_routing
+                .get(role.as_str())
+                .and_then(Option::as_ref)
+                .cloned()
+                .ok_or_else(|| {
+                    super::product::ProductError::from("AGENT_ROLE_NOT_CONFIGURED".to_string())
+                })
+        };
+        let (task_role, provider) = match intent {
+            StartRoutingIntent::LegacyGeneral => {
+                (AgentTaskRole::General, route(AgentTaskRole::General)?)
+            }
+            StartRoutingIntent::Explicit {
+                task_role,
+                provider_id,
+            } => {
+                // 显式请求必须先 registered/enabled，再判定角色配置和精确匹配。
+                self.ensure_provider_enabled(&provider_id)
+                    .map_err(provider_error)?;
+                if route(task_role)? != provider_id {
+                    return Err("AGENT_ROLE_PROVIDER_MISMATCH".to_string().into());
+                }
+                (task_role, provider_id)
+            }
+        };
+        self.admit_provider(&provider, ProviderAdmissionCapability::Execute)
+            .map_err(provider_error)?;
+        let defaults = config
+            .agent_providers
+            .role_defaults
+            .get(task_role.as_str())
+            .and_then(|providers| providers.get(provider.as_str()));
+        let execution_profile = super::execution::ExecutionProfile {
+            model: defaults.and_then(|defaults| defaults.model.clone()),
+            reasoning: defaults.and_then(|defaults| defaults.reasoning.clone()),
+        };
+        execution_profile.validate().map_err(|_| {
+            super::product::ProductError::from("AGENT_PROVIDER_CONFIG_INVALID".to_string())
+        })?;
+        Ok(super::store::transactions::product::FrozenStartRouting {
+            provider,
+            task_role,
+            execution_profile,
+        })
+    }
+
+    /// management→operation 覆盖最终 Authority 到提交；交接 Runtime 前释放 management。
     pub(crate) async fn product_submit_resolved_workspace_start(
         &self,
-        supervisor: &SupervisorState,
+        authority: super::product::StartCreationAuthority<'_>,
         action: super::product::Action,
         work: Option<super::store::transactions::product::WorkExecutionContext>,
     ) -> Result<String, super::product::ProductError> {
@@ -542,9 +751,15 @@ impl AgentTaskManager {
         else {
             return Err("AGENT_INVALID_ARGUMENT".to_string().into());
         };
-        let outcome = supervisor.create_workspace_start(
+        let management = authority.management.lock().await;
+        let routing = self.resolve_start_routing(
+            &authority.supervisor.workspace_registry_config(),
+            authority.routing,
+        )?;
+        let outcome = authority.supervisor.create_workspace_start(
             &self.store,
             WorkspaceStartCreation {
+                routing,
                 execution_id: Self::id("execution"),
                 agent_id,
                 request_key,
@@ -554,6 +769,7 @@ impl AgentTaskManager {
                 now: super::coordinator::now(),
             },
         )?;
+        drop(management);
         self.handoff_created_outcome(outcome, false).await
     }
 
@@ -577,21 +793,33 @@ impl AgentTaskManager {
                     agent_id,
                     request_key,
                     prompt,
-                } => Some(
-                    manager
-                        .store
-                        .product_create_fresh_with_work(
-                            Self::id("execution"),
-                            agent_id,
-                            request_key,
-                            prompt,
-                            workspace_id,
-                            workspace,
-                            work,
-                            super::coordinator::now(),
+                } => {
+                    // 无 Broker Authority 的 snapshot-only Start 仅用于历史 fixture。
+                    #[cfg(not(test))]
+                    {
+                        let _ = (workspace_id, agent_id, request_key, prompt, workspace, work);
+                        return Err("AGENT_INVALID_ARGUMENT".to_string().into());
+                    }
+                    #[cfg(test)]
+                    {
+                        manager.ensure_product_start_enabled()?;
+                        Some(
+                            manager
+                                .store
+                                .product_create_fresh_with_work(
+                                    Self::id("execution"),
+                                    agent_id,
+                                    request_key,
+                                    prompt,
+                                    workspace_id,
+                                    workspace,
+                                    work,
+                                    super::coordinator::now(),
+                                )
+                                .await?,
                         )
-                        .await?,
-                ),
+                    }
+                }
                 Action::Continue {
                     execution_id,
                     request_key,
@@ -638,12 +866,20 @@ impl AgentTaskManager {
                     )
                 }
                 Action::ResumePending { execution_id } => {
-                    if let Some(error) = &manager.backend_error {
-                        return Err(super::product::ProductError::new(
-                            error.clone(),
-                            Some(execution_id),
-                        ));
+                    if let Err(error) = manager
+                        .ensure_persisted_execution_enabled(&execution_id)
+                        .await
+                    {
+                        let error = match error {
+                            ProviderExecutionFailure::State(error) => error,
+                            ProviderExecutionFailure::Runtime { code, message } => {
+                                format!("{code}: {message}")
+                            }
+                        };
+                        return Err(super::product::ProductError::new(error, Some(execution_id)));
                     }
+                    // 健康刷新后的 Registry/admission 是当前准入 Authority；
+                    // dispatch 自身会校验 health，不再用启动时的 backend_error 拒绝恢复。
                     let (tx, rx) = tokio::sync::oneshot::channel();
                     let id = execution_id.clone();
                     tokio::spawn(async move {
@@ -835,17 +1071,15 @@ impl AgentTaskManager {
                     .execution(id.clone())
                     .await?
                     .ok_or_else(|| "EXECUTION_NOT_FOUND".to_string())?;
+                let provider_id = provider_id(row.provider.clone())?;
+                let provider = manager
+                    .admit_provider(&provider_id, ProviderAdmissionCapability::Execute)
+                    .map_err(provider_failure)?;
                 let permit = manager.store.guard_pending_dispatch(id.clone()).await?;
-                Ok::<_, ProviderExecutionFailure>((row, permit))
+                Ok::<_, ProviderExecutionFailure>((permit, provider))
             }
             .await?;
-            let (row, _permit) = admission;
-            let provider_id = provider_id(row.provider)?;
-            let provider = manager
-                .registry()
-                .map_err(provider_failure)?
-                .get(&provider_id)
-                .map_err(provider_failure)?;
+            let (_permit, provider) = admission;
             let telemetry = Arc::new(ExecutionTelemetryProjector::new(manager.store.clone(), id.clone()));
 
             #[cfg(all(test, any(windows, target_os = "macos")))]

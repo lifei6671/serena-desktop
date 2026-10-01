@@ -1,0 +1,30 @@
+{
+  "data": {
+    "providers": [
+      {
+        "availableForNewExecution": true,
+        "capabilities": {
+          "activity": true,
+          "canCancel": true,
+          "canContinue": true,
+          "canExecute": true,
+          "canRecover": true,
+          "tokenUsage": false
+        },
+        "displayName": "Codex",
+        "enabled": true,
+        "health": "available",
+        "id": "codex",
+        "version": "codex-cli 0.153.4"
+      }
+    ],
+    "roleRouting": {
+      "analysis": "codex",
+      "development": "codex",
+      "general": "codex",
+      "review": "codex",
+      "testing": "codex"
+    }
+  },
+  "ok": true
+}

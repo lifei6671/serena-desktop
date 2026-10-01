@@ -1,0 +1,45 @@
+{
+  "head": "f36bbc3a07fb6d0b7e4e21ad3af024584720077b",
+  "capturedAt": "2026-09-27",
+  "branch": "feat/codebuddy",
+  "preExistingDirtySummary": {
+    "tracked": [
+      ".gitignore",
+      "src-tauri/src/agent/mod.rs",
+      "src-tauri/src/agent/product/fixtures/provider_catalog_codex.json",
+      "src-tauri/src/agent/product/provider_catalog_tests.rs",
+      "src-tauri/src/agent/task_manager.rs",
+      "src-tauri/src/mcp/provider_query_tests.rs",
+      "src-tauri/src/provider_policy_tests.rs"
+    ],
+    "untracked": [
+      ".trellis/tasks/09-26-*/",
+      ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/",
+      ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/",
+      ".vscode/",
+      ".zed/",
+      "src-tauri/src/agent/codebuddy/"
+    ]
+  },
+  "sourceHashes": {
+    "src-tauri/src/agent/codex/windows_launcher.rs": "baba993c96f850673ff262e1fb7b3b970eda60c6d705a9652c39e05a0e4abd2f",
+    "src-tauri/src/agent/codex/windows_launcher/tests.rs": "4a4a9f4c361766f1ca5a3977b06e924118696792a40b05da93ea783115a79924",
+    "src-tauri/src/agent/codex/runtime.rs": "3a13f4734310ffc045a41ed0aa97cc8f0cd39da5cbc4293a4dfba8f12d05c6d2",
+    "src-tauri/src/agent/codex/runtime/tests.rs": "f455184d5ac9943560676c75431fd28a9b275531b53efa9f370bbd3555d5fc6b",
+    "src-tauri/src/agent/codebuddy/mod.rs": "4077d87b9c1ba2e9eebc217286061d33026a6587e2614d232c8e854a16e9102e",
+    "src-tauri/src/agent/codebuddy/discovery.rs": "749b91c18eb5ec2891eae526e9906eaa897296f1d6afb00d1c577c0bdf443766",
+    "src-tauri/src/config.rs": "c0dda8019dd0002c22e527175de35c59780729278a1ff7a06921426cfa343a03",
+    "src-tauri/tests/fixtures/launcher_child.rs": "bfbf7a38f628a539bae8fa6b7957021c033d768ae67d5873561a68d9714fec26",
+    "src-tauri/Cargo.toml": "34f62032b577ce11cb2a96de5b899b7f30413e57d8303f845a93915ebb750738"
+  },
+  "tooling": {
+    "trellisPython": "UNAVAILABLE: py reports No installed Python found",
+    "codegraph": "UNAVAILABLE: connector requires approval but approval policy is never",
+    "node": "UNAVAILABLE at planning time: no node.exe found"
+  },
+  "notes": [
+    "All pre-existing dirty paths are user/prior-task owned and must be preserved.",
+    "The untracked CodeBuddy files are the completed CB6-001 baseline; only new CB6-002 files and the exact module-wiring hunk are delivery-owned.",
+    "No CB5 probe or real CodeBuddy CLI may be executed."
+  ]
+}

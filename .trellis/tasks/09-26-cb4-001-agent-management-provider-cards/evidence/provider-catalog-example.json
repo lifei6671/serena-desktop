@@ -1,0 +1,42 @@
+{
+  "providers": [
+    {
+      "id": "codex",
+      "displayName": "Codex",
+      "version": "1.2.3",
+      "enabled": true,
+      "health": "available",
+      "availableForNewExecution": true,
+      "capabilities": {
+        "canExecute": true,
+        "canContinue": false,
+        "canCancel": true,
+        "canRecover": false,
+        "activity": true,
+        "tokenUsage": false
+      }
+    },
+    {
+      "id": "future-agent",
+      "displayName": "Catalog future-agent",
+      "enabled": false,
+      "health": "unavailable",
+      "availableForNewExecution": false,
+      "capabilities": {
+        "canExecute": true,
+        "canContinue": false,
+        "canCancel": true,
+        "canRecover": false,
+        "activity": true,
+        "tokenUsage": false
+      }
+    }
+  ],
+  "roleRouting": {
+    "development": "codex",
+    "testing": "future-agent",
+    "review": null,
+    "analysis": "codex",
+    "general": "codex"
+  }
+}

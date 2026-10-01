@@ -1,0 +1,9 @@
+{
+  "eventCount": 0,
+  "fields": [],
+  "windows": [],
+  "exactPromptBound": false,
+  "publicConclusion": "UNSUPPORTED",
+  "tokenUsageCapability": false,
+  "reason": "NO_REAL_USAGE_EVENT"
+}

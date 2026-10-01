@@ -1,0 +1,17 @@
+diff --git a/.trellis/tasks/09-26-acp-compatibility-ux-cutover/evidence/baseline-agentPresentation.ts.txt b/src/agentPresentation.ts
+index ab861ba..4ed0d7c 100644
+--- a/.trellis/tasks/09-26-acp-compatibility-ux-cutover/evidence/baseline-agentPresentation.ts.txt
++++ b/src/agentPresentation.ts
+@@ -12,9 +12,9 @@ export function providerCardPresentation(provider: ProviderCatalogEntry, rows: E
+     name,
+     // 只消费 Product 的恢复投影，不重新推导 Claim Authority。
+     pendingBlockers: rows.filter(row => row.provider.id === provider.id && (row.attention === "pending_explicit_resume" || row.availableActions.canResumePending)),
+-    // 稳定诊断码是唯一文案入口；缺失版本明确表示未知，不猜测支持范围。
+-    unsupportedVersionNotice: provider.diagnosticCode === "CODEBUDDY_VERSION_UNSUPPORTED"
+-      ? `${name} 版本 ${provider.version?.trim() || "（未提供）"} 尚未经过当前 SerenaDesktop 的兼容性验证。当前未启用该版本的 Agent 执行。请使用受支持版本，或升级 SerenaDesktop 后重新检测。`
++    // 稳定诊断码是唯一兼容性文案入口；产品版本仅作元数据展示。
++    unsupportedVersionNotice: provider.diagnosticCode === "CODEBUDDY_ACP_INCOMPATIBLE"
++      ? `${name} 的 ACP 协议或必需能力与当前 SerenaDesktop 不兼容。请升级 CodeBuddy 或 SerenaDesktop 后重新检测。`
+       : null,
+     version: provider.version?.trim() || "—",
+     // Catalog 尚未提供协议元数据，不根据 Provider 身份猜测。

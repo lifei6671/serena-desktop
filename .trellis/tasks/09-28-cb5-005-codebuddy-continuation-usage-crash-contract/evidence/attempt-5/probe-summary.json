@@ -1,0 +1,1055 @@
+{
+  "generatedAt": "2026-09-28T04:06:48.310Z",
+  "scope": "CONTINUATION_ONLY",
+  "continuation": {
+    "conclusion": "PROVEN_SUPPORTED",
+    "recoveryMethod": "session/load",
+    "params": {
+      "sessionId": "01a0e630-dd7f-7628-ae98-21fa6b33cb2c",
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-continuation-attempt5-ypseS9",
+      "mcpServers": []
+    },
+    "initializeR1": {
+      "protocolVersion": 1,
+      "agentCapabilities": {
+        "promptCapabilities": {
+          "image": true,
+          "embeddedContext": true
+        },
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "loadSession": true,
+        "delegateToolsSupport": true,
+        "mainAgentSupport": false,
+        "multitaskSupport": true
+      },
+      "authMethods": [
+        {
+          "id": "iOA",
+          "name": {
+            "redacted": true,
+            "sha256": "a8fd5c9a4dd39ce6ce9f56755c44b9ced6f654162c65ac5552b0f9d0db6738c5",
+            "utf8Bytes": 14
+          },
+          "description": null
+        },
+        {
+          "id": "external",
+          "name": {
+            "redacted": true,
+            "sha256": "9a98a2b3ce3900f6eae573c510ad80f2052753dba831a6d39fa202fce80da1d2",
+            "utf8Bytes": 24
+          },
+          "description": null
+        },
+        {
+          "id": "internal",
+          "name": {
+            "redacted": true,
+            "sha256": "42faca2a609baae061dcd2530a98fd9c3c3c0a547fb29509169614b50368e36d",
+            "utf8Bytes": 17
+          },
+          "description": null
+        },
+        {
+          "id": "selfhosted",
+          "name": {
+            "redacted": true,
+            "sha256": "704063b3ee430df757eb669df2e9265b15cddfa40f3bdda043e4deea2098ebaa",
+            "utf8Bytes": 28
+          },
+          "description": null
+        }
+      ]
+    },
+    "initializeR2": {
+      "protocolVersion": 1,
+      "agentCapabilities": {
+        "promptCapabilities": {
+          "image": true,
+          "embeddedContext": true
+        },
+        "mcpCapabilities": {
+          "http": true,
+          "sse": true
+        },
+        "loadSession": true,
+        "delegateToolsSupport": true,
+        "mainAgentSupport": false,
+        "multitaskSupport": true
+      },
+      "authMethods": [
+        {
+          "id": "iOA",
+          "name": {
+            "redacted": true,
+            "sha256": "a8fd5c9a4dd39ce6ce9f56755c44b9ced6f654162c65ac5552b0f9d0db6738c5",
+            "utf8Bytes": 14
+          },
+          "description": null
+        },
+        {
+          "id": "external",
+          "name": {
+            "redacted": true,
+            "sha256": "9a98a2b3ce3900f6eae573c510ad80f2052753dba831a6d39fa202fce80da1d2",
+            "utf8Bytes": 24
+          },
+          "description": null
+        },
+        {
+          "id": "internal",
+          "name": {
+            "redacted": true,
+            "sha256": "42faca2a609baae061dcd2530a98fd9c3c3c0a547fb29509169614b50368e36d",
+            "utf8Bytes": 17
+          },
+          "description": null
+        },
+        {
+          "id": "selfhosted",
+          "name": {
+            "redacted": true,
+            "sha256": "704063b3ee430df757eb669df2e9265b15cddfa40f3bdda043e4deea2098ebaa",
+            "utf8Bytes": 28
+          },
+          "description": null
+        }
+      ]
+    },
+    "loadResponse": {
+      "models": {
+        "availableModels": [
+          {
+            "modelId": "hy4-preview-f",
+            "name": {
+              "redacted": true,
+              "sha256": "a88256b6be05b65fa3e1677181f5f148a3ed64e1d3504c9b0374d230b6b3bf56",
+              "utf8Bytes": 11
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "7676df397922f249a2a522447091baa052ea34ff7275f32e269dea9afcc9b299",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.00 credits",
+              "maxInputTokens": 1000000
+            }
+          },
+          {
+            "modelId": "hy3",
+            "name": {
+              "redacted": true,
+              "sha256": "8592ab01b75b7bddc1060b34e4da13ff3000af44dfa2a861ae1a47f9dd399034",
+              "utf8Bytes": 3
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "7676df397922f249a2a522447091baa052ea34ff7275f32e269dea9afcc9b299",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.00 credits",
+              "maxInputTokens": 192000
+            }
+          },
+          {
+            "modelId": "hy3-x",
+            "name": {
+              "redacted": true,
+              "sha256": "8592ab01b75b7bddc1060b34e4da13ff3000af44dfa2a861ae1a47f9dd399034",
+              "utf8Bytes": 3
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "70ed7f403d67f64e5d9228e59d2034e7d946c430899b5e9bfdf9564249bc193e",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.05 credits",
+              "maxInputTokens": 192000
+            }
+          },
+          {
+            "modelId": "deepseek-v4.1-flash",
+            "name": {
+              "redacted": true,
+              "sha256": "71311eae1a6274994b9fa2d0d12e4b6065d17f21ce4fee10f226562b74ccba62",
+              "utf8Bytes": 19
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "dfff63ba6249088c73629f9832094d35074472593aa6f4e4c1536d4377612ead",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.11 credits",
+              "maxInputTokens": 1000000
+            }
+          },
+          {
+            "modelId": "glm-5.3",
+            "name": {
+              "redacted": true,
+              "sha256": "a8bfe9eb2a1ce6c15fccd61be96f0eb9a174ea328fb5fbb78dc49cdbd7166550",
+              "utf8Bytes": 7
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "980ba8521da1aa44a4955e8048585361d49c102a07b930d9062f0004d6994808",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.79 credits",
+              "maxInputTokens": 1000000
+            }
+          },
+          {
+            "modelId": "glm-5.3-flash",
+            "name": {
+              "redacted": true,
+              "sha256": "e8f0d28d3c21c3b359dbe88694b49554ec3782fc18161acaf633383c27316cb9",
+              "utf8Bytes": 13
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "7dcaa6a5385c07160e938328c11cd5217bebb05a63c6706378eae0f3463978f2",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.06 credits",
+              "maxInputTokens": 1000000
+            }
+          },
+          {
+            "modelId": "glm-5.2",
+            "name": {
+              "redacted": true,
+              "sha256": "8efd4aa5f78ad9b51f7f26da8cf5ea95ccf9b42550a396b819ef279f2e92ccdc",
+              "utf8Bytes": 7
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "980ba8521da1aa44a4955e8048585361d49c102a07b930d9062f0004d6994808",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.79 credits",
+              "maxInputTokens": 1000000
+            }
+          },
+          {
+            "modelId": "glm-5.1",
+            "name": {
+              "redacted": true,
+              "sha256": "539e801876c705582368be27a5ab236e2698d0927854155a3741613c582b210d",
+              "utf8Bytes": 7
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "980ba8521da1aa44a4955e8048585361d49c102a07b930d9062f0004d6994808",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.79 credits",
+              "maxInputTokens": 200000
+            }
+          },
+          {
+            "modelId": "glm-5v-turbo",
+            "name": {
+              "redacted": true,
+              "sha256": "bab720b599cda34a8bac889b2abf4f36d9719c1ac29d25689689b18a340db35b",
+              "utf8Bytes": 12
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "b6a79702f3b97e41e7ffdaf20dc8fdb794e3ff97251a221dc1a912d7d642599d",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.71 credits",
+              "maxInputTokens": 200000
+            }
+          },
+          {
+            "modelId": "minimax-m3",
+            "name": {
+              "redacted": true,
+              "sha256": "ac72b9b986af393240ee7ab3421bf3687f453613252643018979a060d5f71c94",
+              "utf8Bytes": 10
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "50a19fcbbad6bf6ea2569406e5117df329effa646246f5f69ce89d69fabdc0bb",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.25 credits",
+              "maxInputTokens": 512000
+            }
+          },
+          {
+            "modelId": "minimax-m2.7",
+            "name": {
+              "redacted": true,
+              "sha256": "ea0d72ff356988b6b5e865938b275c04cd56ecb8bf494b4daab4abcb84bf5963",
+              "utf8Bytes": 12
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "a82c9a69c82e0487cde6d24204a1b4e5c35bd2ce8070c5f9532d25ed00f6aaea",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.19 credits",
+              "maxInputTokens": 200000
+            }
+          },
+          {
+            "modelId": "kimi-k3-1",
+            "name": {
+              "redacted": true,
+              "sha256": "0ec81e525758151a8a04925eea6980d942e61ad121200df6fc585c49eacf9b50",
+              "utf8Bytes": 7
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "da15a61da5af4cf56b876e1f5f78dc7762da563ac54a7afef5892f72526bd844",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x1.62 credits",
+              "maxInputTokens": 1000000
+            }
+          },
+          {
+            "modelId": "kimi-k2.8-preview",
+            "name": {
+              "redacted": true,
+              "sha256": "ba7375218cdb94600833f48290884d82cfd25927e0c8526fc4681858dfea2891",
+              "utf8Bytes": 17
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "7c121cceedd1e59b3f7bca4f575be55b1400556e7f0a4d4804964d797a839b3c",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.77 credits",
+              "maxInputTokens": 1000000
+            }
+          },
+          {
+            "modelId": "kimi-k2.7",
+            "name": {
+              "redacted": true,
+              "sha256": "0880ca0fcd6d12de13836a514669bc6d787fc2a3174c80d400062084d7ab364f",
+              "utf8Bytes": 14
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "8225b86216de07fd85d7f121d3b87fb9bd5d4f51cdfbce1f4b1a64f78732e665",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.57 credits",
+              "maxInputTokens": 256000
+            }
+          },
+          {
+            "modelId": "kimi-k2.6",
+            "name": {
+              "redacted": true,
+              "sha256": "e6f6c7f1753c092f3b1122b953b5ca19f6cb6e7a4788f3d167ef9f0605c75b66",
+              "utf8Bytes": 9
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "5d266aaf885584699078bc958f9f875694b7084444be76e798d77e9d19ee6786",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.52 credits",
+              "maxInputTokens": 256000
+            }
+          },
+          {
+            "modelId": "deepseek-v4-pro",
+            "name": {
+              "redacted": true,
+              "sha256": "7019cfe4a5599d946204a08b78a80f1da53a3bc7b6ac2aaa6b30b226e91c0dde",
+              "utf8Bytes": 15
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "7a03141bcccf20f58ab31281ffec2c1bbb23b33c6b00f3524faa950a70e9906f",
+              "utf8Bytes": 13
+            },
+            "_meta": {
+              "supportsImages": true,
+              "supportsReasoning": true,
+              "credits": "x0.51 credits",
+              "maxInputTokens": 1000000
+            }
+          }
+        ],
+        "currentModelId": "hy4-preview-f"
+      },
+      "modes": {
+        "availableModes": [
+          {
+            "id": "default",
+            "name": {
+              "redacted": true,
+              "sha256": "78f8596c0f053db807afed55206d3706b6604dbdd2ab326f0625c99a41a9fbc5",
+              "utf8Bytes": 10
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "6024c1abea6db248b6cd3e53878631900b475151066a5ce25ef31fe8ace4103f",
+              "utf8Bytes": 48
+            }
+          },
+          {
+            "id": "acceptEdits",
+            "name": {
+              "redacted": true,
+              "sha256": "7d3dc49ca9aa50802a828bc29e2643173340ea7ea1e5d1365eb1ae286e529868",
+              "utf8Bytes": 12
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "5ef92d408bd649edf32b05bb9b4999c9ced15355ce51bc5ff4d630178e374d8d",
+              "utf8Bytes": 59
+            }
+          },
+          {
+            "id": "plan",
+            "name": {
+              "redacted": true,
+              "sha256": "fa8ed0bdabdd6bcb1c0746f1d3e15212f7f3439d74339fbaaf16c60c0a80fb8e",
+              "utf8Bytes": 4
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "9288ffed4a22baf2dd388b4a782cc074dcd49256a349c0aaa0e1e7963cebb338",
+              "utf8Bytes": 59
+            }
+          },
+          {
+            "id": "auto",
+            "name": {
+              "redacted": true,
+              "sha256": "0286249762f7c94349cdc0ba3bb2255baf9a80036e2193ead1d77696f888582f",
+              "utf8Bytes": 4
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "1901516b0746cb574f52735ae3a032f888ca60353a7a91847d99044c93195c48",
+              "utf8Bytes": 224
+            }
+          },
+          {
+            "id": "dontAsk",
+            "name": {
+              "redacted": true,
+              "sha256": "916b0a531165cbd76446c74d69ff6108878e17bdae14ba62408bf390899093f9",
+              "utf8Bytes": 9
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "159a512b2d0e11455ef04fc58a53d01d8acf7cd1220181a327ab18b9cb819735",
+              "utf8Bytes": 111
+            }
+          },
+          {
+            "id": "bypassPermissions",
+            "name": {
+              "redacted": true,
+              "sha256": "54559aab644fe5dcde8fcea583c54cbbe3c396bc326106a8ebc91a68a369fab0",
+              "utf8Bytes": 18
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "409bf3a8c5a2ba9927fccd97d305c62e993dd8b1252b14e85063972d9568d5fb",
+              "utf8Bytes": 28
+            }
+          },
+          {
+            "id": "fullAccess",
+            "name": {
+              "redacted": true,
+              "sha256": "1d36da8581e0191965ae1a40304ca0774be7330dee49dd4786d802c9a40e70d8",
+              "utf8Bytes": 11
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "99775bc20403863fbe33c1c5b29b9bc63327db71dc5c108299fb613c39eae855",
+              "utf8Bytes": 71
+            }
+          },
+          {
+            "id": "delegate",
+            "name": {
+              "redacted": true,
+              "sha256": "760ed96061ace03e6cce20c86b70dea6808080f721cb92cd593eb884fff61d8e",
+              "utf8Bytes": 8
+            },
+            "description": {
+              "redacted": true,
+              "sha256": "26014937c0c52b44bb5f75b910f37fa1f2475556b50d60b30764266f0211a051",
+              "utf8Bytes": 37
+            }
+          }
+        ],
+        "currentModeId": "default"
+      },
+      "configOptions": [
+        {
+          "type": "select",
+          "id": "mode",
+          "name": {
+            "redacted": true,
+            "sha256": "ced757b0cc517b2befc8b0f25b8ebef7e49ecab67dad20bc4c8b7a46ecbeea49",
+            "utf8Bytes": 15
+          },
+          "description": {
+            "redacted": true,
+            "sha256": "47149183ad92629ad651d736e7be46df054604df00a976a4107bc3d1679b453b",
+            "utf8Bytes": 64
+          },
+          "category": "mode",
+          "currentValue": "default",
+          "options": [
+            {
+              "value": "default",
+              "name": {
+                "redacted": true,
+                "sha256": "78f8596c0f053db807afed55206d3706b6604dbdd2ab326f0625c99a41a9fbc5",
+                "utf8Bytes": 10
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "6024c1abea6db248b6cd3e53878631900b475151066a5ce25ef31fe8ace4103f",
+                "utf8Bytes": 48
+              }
+            },
+            {
+              "value": "acceptEdits",
+              "name": {
+                "redacted": true,
+                "sha256": "7d3dc49ca9aa50802a828bc29e2643173340ea7ea1e5d1365eb1ae286e529868",
+                "utf8Bytes": 12
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "5ef92d408bd649edf32b05bb9b4999c9ced15355ce51bc5ff4d630178e374d8d",
+                "utf8Bytes": 59
+              }
+            },
+            {
+              "value": "plan",
+              "name": {
+                "redacted": true,
+                "sha256": "fa8ed0bdabdd6bcb1c0746f1d3e15212f7f3439d74339fbaaf16c60c0a80fb8e",
+                "utf8Bytes": 4
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "ae8f8eb573ac0394f6b9bc62305112a50a30e9d8ccfab5fee4ff6b79a0c3ce65",
+                "utf8Bytes": 58
+              }
+            },
+            {
+              "value": "auto",
+              "name": {
+                "redacted": true,
+                "sha256": "0286249762f7c94349cdc0ba3bb2255baf9a80036e2193ead1d77696f888582f",
+                "utf8Bytes": 4
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "1901516b0746cb574f52735ae3a032f888ca60353a7a91847d99044c93195c48",
+                "utf8Bytes": 224
+              }
+            },
+            {
+              "value": "dontAsk",
+              "name": {
+                "redacted": true,
+                "sha256": "916b0a531165cbd76446c74d69ff6108878e17bdae14ba62408bf390899093f9",
+                "utf8Bytes": 9
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "48040392cb03b9a08b693938e68d7c17c1f8f95e0934e6b1f7e409600cb0610e",
+                "utf8Bytes": 122
+              }
+            },
+            {
+              "value": "bypassPermissions",
+              "name": {
+                "redacted": true,
+                "sha256": "54559aab644fe5dcde8fcea583c54cbbe3c396bc326106a8ebc91a68a369fab0",
+                "utf8Bytes": 18
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "409bf3a8c5a2ba9927fccd97d305c62e993dd8b1252b14e85063972d9568d5fb",
+                "utf8Bytes": 28
+              }
+            },
+            {
+              "value": "fullAccess",
+              "name": {
+                "redacted": true,
+                "sha256": "1d36da8581e0191965ae1a40304ca0774be7330dee49dd4786d802c9a40e70d8",
+                "utf8Bytes": 11
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "99775bc20403863fbe33c1c5b29b9bc63327db71dc5c108299fb613c39eae855",
+                "utf8Bytes": 71
+              }
+            },
+            {
+              "value": "delegate",
+              "name": {
+                "redacted": true,
+                "sha256": "760ed96061ace03e6cce20c86b70dea6808080f721cb92cd593eb884fff61d8e",
+                "utf8Bytes": 8
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "26014937c0c52b44bb5f75b910f37fa1f2475556b50d60b30764266f0211a051",
+                "utf8Bytes": 37
+              }
+            }
+          ]
+        },
+        {
+          "type": "select",
+          "id": "model",
+          "name": {
+            "redacted": true,
+            "sha256": "5e2c614c23f02239bc03c6c04fcb681950f9e72bf8fdff6be79c79841cbb10c0",
+            "utf8Bytes": 5
+          },
+          "description": {
+            "redacted": true,
+            "sha256": "fb0d1f77b624efc634206ebe18f8e3b470e4d784f9da08b3283aaf2bf2523f60",
+            "utf8Bytes": 43
+          },
+          "category": "model",
+          "currentValue": "hy4-preview-f",
+          "options": [
+            {
+              "value": "hy4-preview-f",
+              "name": {
+                "redacted": true,
+                "sha256": "a88256b6be05b65fa3e1677181f5f148a3ed64e1d3504c9b0374d230b6b3bf56",
+                "utf8Bytes": 11
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "7676df397922f249a2a522447091baa052ea34ff7275f32e269dea9afcc9b299",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "hy3",
+              "name": {
+                "redacted": true,
+                "sha256": "8592ab01b75b7bddc1060b34e4da13ff3000af44dfa2a861ae1a47f9dd399034",
+                "utf8Bytes": 3
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "7676df397922f249a2a522447091baa052ea34ff7275f32e269dea9afcc9b299",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "hy3-x",
+              "name": {
+                "redacted": true,
+                "sha256": "8592ab01b75b7bddc1060b34e4da13ff3000af44dfa2a861ae1a47f9dd399034",
+                "utf8Bytes": 3
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "70ed7f403d67f64e5d9228e59d2034e7d946c430899b5e9bfdf9564249bc193e",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "deepseek-v4.1-flash",
+              "name": {
+                "redacted": true,
+                "sha256": "71311eae1a6274994b9fa2d0d12e4b6065d17f21ce4fee10f226562b74ccba62",
+                "utf8Bytes": 19
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "dfff63ba6249088c73629f9832094d35074472593aa6f4e4c1536d4377612ead",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "glm-5.3",
+              "name": {
+                "redacted": true,
+                "sha256": "a8bfe9eb2a1ce6c15fccd61be96f0eb9a174ea328fb5fbb78dc49cdbd7166550",
+                "utf8Bytes": 7
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "980ba8521da1aa44a4955e8048585361d49c102a07b930d9062f0004d6994808",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "glm-5.3-flash",
+              "name": {
+                "redacted": true,
+                "sha256": "e8f0d28d3c21c3b359dbe88694b49554ec3782fc18161acaf633383c27316cb9",
+                "utf8Bytes": 13
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "7dcaa6a5385c07160e938328c11cd5217bebb05a63c6706378eae0f3463978f2",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "glm-5.2",
+              "name": {
+                "redacted": true,
+                "sha256": "8efd4aa5f78ad9b51f7f26da8cf5ea95ccf9b42550a396b819ef279f2e92ccdc",
+                "utf8Bytes": 7
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "980ba8521da1aa44a4955e8048585361d49c102a07b930d9062f0004d6994808",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "glm-5.1",
+              "name": {
+                "redacted": true,
+                "sha256": "539e801876c705582368be27a5ab236e2698d0927854155a3741613c582b210d",
+                "utf8Bytes": 7
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "980ba8521da1aa44a4955e8048585361d49c102a07b930d9062f0004d6994808",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "glm-5v-turbo",
+              "name": {
+                "redacted": true,
+                "sha256": "bab720b599cda34a8bac889b2abf4f36d9719c1ac29d25689689b18a340db35b",
+                "utf8Bytes": 12
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "b6a79702f3b97e41e7ffdaf20dc8fdb794e3ff97251a221dc1a912d7d642599d",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "minimax-m3",
+              "name": {
+                "redacted": true,
+                "sha256": "ac72b9b986af393240ee7ab3421bf3687f453613252643018979a060d5f71c94",
+                "utf8Bytes": 10
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "50a19fcbbad6bf6ea2569406e5117df329effa646246f5f69ce89d69fabdc0bb",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "minimax-m2.7",
+              "name": {
+                "redacted": true,
+                "sha256": "ea0d72ff356988b6b5e865938b275c04cd56ecb8bf494b4daab4abcb84bf5963",
+                "utf8Bytes": 12
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "a82c9a69c82e0487cde6d24204a1b4e5c35bd2ce8070c5f9532d25ed00f6aaea",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "kimi-k3-1",
+              "name": {
+                "redacted": true,
+                "sha256": "0ec81e525758151a8a04925eea6980d942e61ad121200df6fc585c49eacf9b50",
+                "utf8Bytes": 7
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "da15a61da5af4cf56b876e1f5f78dc7762da563ac54a7afef5892f72526bd844",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "kimi-k2.8-preview",
+              "name": {
+                "redacted": true,
+                "sha256": "ba7375218cdb94600833f48290884d82cfd25927e0c8526fc4681858dfea2891",
+                "utf8Bytes": 17
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "7c121cceedd1e59b3f7bca4f575be55b1400556e7f0a4d4804964d797a839b3c",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "kimi-k2.7",
+              "name": {
+                "redacted": true,
+                "sha256": "0880ca0fcd6d12de13836a514669bc6d787fc2a3174c80d400062084d7ab364f",
+                "utf8Bytes": 14
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "8225b86216de07fd85d7f121d3b87fb9bd5d4f51cdfbce1f4b1a64f78732e665",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "kimi-k2.6",
+              "name": {
+                "redacted": true,
+                "sha256": "e6f6c7f1753c092f3b1122b953b5ca19f6cb6e7a4788f3d167ef9f0605c75b66",
+                "utf8Bytes": 9
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "5d266aaf885584699078bc958f9f875694b7084444be76e798d77e9d19ee6786",
+                "utf8Bytes": 13
+              }
+            },
+            {
+              "value": "deepseek-v4-pro",
+              "name": {
+                "redacted": true,
+                "sha256": "7019cfe4a5599d946204a08b78a80f1da53a3bc7b6ac2aaa6b30b226e91c0dde",
+                "utf8Bytes": 15
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "7a03141bcccf20f58ab31281ffec2c1bbb23b33c6b00f3524faa950a70e9906f",
+                "utf8Bytes": 13
+              }
+            }
+          ]
+        },
+        {
+          "type": "select",
+          "id": "thought_level",
+          "name": {
+            "redacted": true,
+            "sha256": "380aed53d30dcf50c1129fed8b220d102cce654b69b55d75119c80aa2d86aa00",
+            "utf8Bytes": 13
+          },
+          "description": {
+            "redacted": true,
+            "sha256": "d91bd41109e93b948a9c02c1b3444c330cfb99727626b74a8fdc940dc87a91e8",
+            "utf8Bytes": 46
+          },
+          "category": "thought_level",
+          "currentValue": "enabled",
+          "options": [
+            {
+              "value": "high",
+              "name": {
+                "redacted": true,
+                "sha256": "c4ebc6d4a5832cd9415f906ad03661110c705a72381c8b8b145761d02e2dd23a",
+                "utf8Bytes": 4
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "6307fa1d5b80c4ab21543cdfad79fdfe984d58b952b26b4fb24bf4c4ba37baac",
+                "utf8Bytes": 14
+              }
+            },
+            {
+              "value": "enabled",
+              "name": {
+                "redacted": true,
+                "sha256": "5d876b3e17d4aaffb7737596fff6ea4add28cd72891dfaff2d268626fdbd6536",
+                "utf8Bytes": 12
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "b859e81d8ac694b0ebcb4b7e41f063222ccaf7eba38d0e6b70a699696f929a5a",
+                "utf8Bytes": 28
+              }
+            }
+          ]
+        },
+        {
+          "type": "select",
+          "id": "sandbox",
+          "name": {
+            "redacted": true,
+            "sha256": "67fc62497e85d81bc54ea07aa87dca6868cd470e95d7281155a8eb532ce60009",
+            "utf8Bytes": 7
+          },
+          "description": {
+            "redacted": true,
+            "sha256": "4d0555fe9319bb08be7c117c974767915290d6d343cf2fcbf62afaed965087b2",
+            "utf8Bytes": 57
+          },
+          "category": "sandbox",
+          "currentValue": "false",
+          "options": [
+            {
+              "value": "true",
+              "name": {
+                "redacted": true,
+                "sha256": "eab805dc93647797e6d7715cd0161b8786b0ba2a9a6fbbde0e7826135ae858ef",
+                "utf8Bytes": 19
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "764b75efe50bf38601032ff696695d5c068a3eae4499465200e15e600e01e571",
+                "utf8Bytes": 88
+              }
+            },
+            {
+              "value": "false",
+              "name": {
+                "redacted": true,
+                "sha256": "a0f60aee5eb931789e7efa17db8e555331c93fd956d5d4cc828537711a8b9a2c",
+                "utf8Bytes": 17
+              },
+              "description": {
+                "redacted": true,
+                "sha256": "e7662ab751757e14dc39d9576bce72c40fbf69ba7ae7ff2c5834dc9e664b0236",
+                "utf8Bytes": 62
+              }
+            }
+          ]
+        },
+        {
+          "type": "boolean",
+          "id": "multitask",
+          "name": {
+            "redacted": true,
+            "sha256": "251439d6af9f597cdd1e519e57beb759bcd61bb07e5b5ced379503b6b8813825",
+            "utf8Bytes": 9
+          },
+          "description": {
+            "redacted": true,
+            "sha256": "c563a043add40e73b0b7051b67692eb68418045bd7c498e36cdbabcf9c5ab75a",
+            "utf8Bytes": 64
+          },
+          "category": "_codebuddy.ai/multitask",
+          "currentValue": false
+        }
+      ],
+      "multitaskOn": false
+    },
+    "sessionId": "01a0e630-dd7f-7628-ae98-21fa6b33cb2c",
+    "r1ExitedBeforeR2": true,
+    "r2DirectChildReaped": true,
+    "loadAdvertised": true,
+    "replayUpdateCountBeforeP3": 11,
+    "replayUpdateTypes": [
+      "config_option_update",
+      "session_info_update",
+      "session_info_update",
+      "user_message_chunk",
+      "agent_thought_chunk",
+      "agent_message_chunk",
+      "session_info_update",
+      "usage_update",
+      "available_commands_update",
+      "available_commands_update",
+      "available_commands_update"
+    ],
+    "loadReplayEndSequence": 122,
+    "loadResponseSessionStatus": "NOT_PRESENT",
+    "replayExists": true,
+    "replayAllExactSession": true,
+    "wrongSessionUpdates": [],
+    "p1Terminal": {
+      "rpcId": "24bbcaa2-f295-4af0-b802-d211c0b321ca",
+      "stopReason": "end_turn"
+    },
+    "p3Terminal": {
+      "rpcId": "1e18ab9a-7ce5-4449-a7c7-d503238c8b9f",
+      "stopReason": "end_turn"
+    },
+    "p3Semantic": {
+      "answerSha256": "cfc83f146338f9cdc0575ad9fa717cc35ad4d5222a6e62d6c4c1f04655e1b893",
+      "answerUtf8Bytes": 115,
+      "markerPresent": true,
+      "cwdPresent": true
+    },
+    "p3PromptContainsMarker": false,
+    "p3PromptContainsCwd": false,
+    "hostReplayedP1": false,
+    "workspaceUnchanged": true,
+    "sessionLineage": "EXACT_S1_HISTORY_REPLAY_AND_MARKER",
+    "cwdLineage": "EXACT_WORKSPACE_PATH_OBSERVED_IN_P3",
+    "resultRecovery": {
+      "targetPrompt": "P1",
+      "exactTargetTerminalRecovered": false,
+      "replayedTextSha256": "280220cc68ea47a62991a8742909a9d85767f8afb9cb60109b5152c69da160c3",
+      "replayedTextUtf8Bytes": 5,
+      "recoveryStrength": "session+partial-result",
+      "resultCompleteness": "partial"
+    }
+  },
+  "usage": {
+    "status": "NOT_RUN_ATTEMPT5"
+  },
+  "crash": {
+    "status": "NOT_RUN_ATTEMPT5"
+  }
+}

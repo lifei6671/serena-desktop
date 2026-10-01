@@ -1,0 +1,216 @@
+[
+  {
+    "scenario": "after",
+    "argv": [
+      "C:\\nvm4w\\nodejs\\node.exe",
+      "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+      "--acp",
+      "--permission-mode",
+      "auto",
+      "--tools",
+      "Write,Bash"
+    ],
+    "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-21o5d2",
+    "pid": 23024,
+    "elapsedMs": 1582,
+    "cleanup": {
+      "streamsClosed": true,
+      "terminated": true,
+      "waited": true,
+      "exitCode": 1,
+      "directChildReaped": true,
+      "stderrJoined": true,
+      "succeeded": true,
+      "errors": [],
+      "stderrBytesDrained": 0,
+      "windowsJobAtCreationProven": false
+    },
+    "workspaceDeleted": true,
+    "workspaceDeleteError": null,
+    "harnessExitCode": 0
+  },
+  {
+    "scenario": "before",
+    "argv": [
+      "C:\\nvm4w\\nodejs\\node.exe",
+      "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+      "--acp",
+      "--permission-mode",
+      "default",
+      "--tools",
+      ""
+    ],
+    "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-IyNvMI",
+    "pid": 47420,
+    "elapsedMs": 1599,
+    "cleanup": {
+      "streamsClosed": true,
+      "terminated": true,
+      "waited": true,
+      "exitCode": 1,
+      "directChildReaped": true,
+      "stderrJoined": true,
+      "succeeded": true,
+      "errors": [],
+      "stderrBytesDrained": 0,
+      "windowsJobAtCreationProven": false
+    },
+    "workspaceDeleted": true,
+    "workspaceDeleteError": null,
+    "harnessExitCode": 0
+  },
+  {
+    "scenario": "permission",
+    "argv": [
+      "C:\\nvm4w\\nodejs\\node.exe",
+      "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+      "--acp",
+      "--permission-mode",
+      "default",
+      "--tools",
+      "Write",
+      "--settings",
+      "{\"permissions\":{\"ask\":[\"Write\",\"Edit\",\"Bash\"]}}"
+    ],
+    "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-0hwEmz",
+    "pid": 7988,
+    "elapsedMs": 1568,
+    "cleanup": {
+      "streamsClosed": true,
+      "terminated": true,
+      "waited": true,
+      "exitCode": 1,
+      "directChildReaped": true,
+      "stderrJoined": true,
+      "succeeded": true,
+      "errors": [],
+      "stderrBytesDrained": 0,
+      "windowsJobAtCreationProven": false
+    },
+    "workspaceDeleted": true,
+    "workspaceDeleteError": null,
+    "harnessExitCode": 0
+  },
+  {
+    "scenario": "before",
+    "argv": [
+      "C:\\nvm4w\\nodejs\\node.exe",
+      "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+      "--acp",
+      "--permission-mode",
+      "default",
+      "--tools",
+      ""
+    ],
+    "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-VahbWC",
+    "pid": 60716,
+    "elapsedMs": 1540,
+    "cleanup": {
+      "streamsClosed": true,
+      "terminated": true,
+      "waited": true,
+      "exitCode": 1,
+      "directChildReaped": true,
+      "stderrJoined": true,
+      "succeeded": true,
+      "errors": [],
+      "stderrBytesDrained": 0,
+      "windowsJobAtCreationProven": false
+    },
+    "workspaceDeleted": true,
+    "workspaceDeleteError": null,
+    "harnessExitCode": 0
+  },
+  {
+    "scenario": "after",
+    "argv": [
+      "C:\\nvm4w\\nodejs\\node.exe",
+      "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+      "--acp",
+      "--permission-mode",
+      "auto",
+      "--tools",
+      "Write,Bash"
+    ],
+    "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-DMy3I5",
+    "pid": 53908,
+    "elapsedMs": 1520,
+    "cleanup": {
+      "streamsClosed": true,
+      "terminated": true,
+      "waited": true,
+      "exitCode": 1,
+      "directChildReaped": true,
+      "stderrJoined": true,
+      "succeeded": true,
+      "errors": [],
+      "stderrBytesDrained": 0,
+      "windowsJobAtCreationProven": false
+    },
+    "workspaceDeleted": true,
+    "workspaceDeleteError": null,
+    "harnessExitCode": 0
+  },
+  {
+    "scenario": "permission",
+    "argv": [
+      "C:\\nvm4w\\nodejs\\node.exe",
+      "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+      "--acp",
+      "--permission-mode",
+      "default",
+      "--tools",
+      "Write",
+      "--settings",
+      "{\"permissions\":{\"ask\":[\"Write\",\"Edit\",\"Bash\"]}}"
+    ],
+    "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-7Yc3Ab",
+    "pid": 35836,
+    "elapsedMs": 1526,
+    "cleanup": {
+      "streamsClosed": true,
+      "terminated": true,
+      "waited": true,
+      "exitCode": 1,
+      "directChildReaped": true,
+      "stderrJoined": true,
+      "succeeded": true,
+      "errors": [],
+      "stderrBytesDrained": 0,
+      "windowsJobAtCreationProven": false
+    },
+    "workspaceDeleted": true,
+    "workspaceDeleteError": null,
+    "harnessExitCode": 0
+  },
+  {
+    "scenario": "diagnostic",
+    "argv": [
+      "C:\\nvm4w\\nodejs\\node.exe",
+      "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+      "--acp",
+      "--permission-mode",
+      "default",
+      "--tools",
+      "Write"
+    ],
+    "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-y55nyL",
+    "pid": 55036,
+    "elapsedMs": 1506,
+    "cleanup": {
+      "streamsClosed": true,
+      "terminated": true,
+      "waited": true,
+      "exitCode": 1,
+      "directChildReaped": true,
+      "stderrJoined": true,
+      "succeeded": true,
+      "errors": [],
+      "stderrBytesDrained": 0,
+      "windowsJobAtCreationProven": false
+    },
+    "workspaceDeleted": true,
+    "workspaceDeleteError": null,
+    "harnessExitCode": 0
+  }
+]

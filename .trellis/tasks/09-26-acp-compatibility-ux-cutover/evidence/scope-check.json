@@ -1,0 +1,10 @@
+{
+  "changedPaths": [
+    "src/AgentPanel.test.mjs",
+    "src/agentPresentation.ts"
+  ],
+  "addedOutsideTask": [],
+  "protectedRustCount": 262,
+  "protectedRustChanges": 0,
+  "totalBaselineFiles": 1004
+}

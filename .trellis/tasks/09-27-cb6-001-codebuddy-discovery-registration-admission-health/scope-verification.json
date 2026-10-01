@@ -1,0 +1,37 @@
+{
+  "task": "CB6-001",
+  "result": "PASS",
+  "allowedModifiedFiles": [
+    "src-tauri/src/agent/mod.rs",
+    "src-tauri/src/agent/codebuddy/mod.rs",
+    "src-tauri/src/agent/codebuddy/discovery.rs",
+    "src-tauri/src/agent/codebuddy/discovery/tests.rs",
+    "src-tauri/src/agent/codebuddy/provider.rs",
+    "src-tauri/src/agent/codebuddy/provider/tests.rs",
+    "src-tauri/src/agent/task_manager.rs",
+    "src-tauri/src/agent/product/fixtures/provider_catalog_codex.json",
+    "src-tauri/src/agent/product/provider_catalog_tests.rs",
+    "src-tauri/src/mcp/provider_query_tests.rs",
+    "src-tauri/src/provider_policy_tests.rs",
+    ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health"
+  ],
+  "preexistingDirtyPreserved": [
+    ".gitignore",
+    ".trellis/tasks/09-26-*",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract",
+    ".vscode",
+    ".zed"
+  ],
+  "forbiddenChanges": {
+    "acpInitializeSessionPrompt": false,
+    "runtimeOrWindowsJob": false,
+    "automaticInstallOrNpxDownload": false,
+    "stateStoreMigration": false,
+    "continueUsageCancelImplementation": false,
+    "uiOrRemoteProtocol": false,
+    "cargoOrSchema": false,
+    "realCodeBuddyOrCb5Probe": false,
+    "commitOrPush": false
+  }
+}
+

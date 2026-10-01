@@ -1,0 +1,6 @@
+{"name":"codebuddy-release","command":"C:/Users/lifei/.cargo/bin/cargo.exe test --lib codebuddy -- --nocapture","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exitCode":0}
+{"name":"task-manager-release","command":"C:/Users/lifei/.cargo/bin/cargo.exe test --lib agent::task_manager -- --nocapture","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exitCode":101}
+{"name":"codex-release","command":"C:/Users/lifei/.cargo/bin/cargo.exe test --lib agent::codex -- --nocapture","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exitCode":101}
+{"name":"fmt-release","command":"C:/Users/lifei/.cargo/bin/cargo.exe fmt --all -- --check","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exitCode":0}
+{"name":"check-release","command":"C:/Users/lifei/.cargo/bin/cargo.exe check --lib --tests","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exitCode":0}
+{"name":"clippy-release","command":"C:/Users/lifei/.cargo/bin/cargo.exe clippy --lib --tests -- -D warnings","cwd":"E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri","exitCode":101}

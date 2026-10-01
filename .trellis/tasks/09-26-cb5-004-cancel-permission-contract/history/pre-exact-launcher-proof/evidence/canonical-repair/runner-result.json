@@ -1,0 +1,11 @@
+{
+  "scenarios": {
+    "before": "NOT_RUN: C_GATE_FAILED",
+    "after": "NOT_RUN: C_GATE_FAILED",
+    "permission": "NOT_RUN: C_GATE_FAILED"
+  },
+  "status": "PARTIAL",
+  "automaticRetries": 0,
+  "sessionNewRepair": false,
+  "windowsJobAtCreationProven": false
+}

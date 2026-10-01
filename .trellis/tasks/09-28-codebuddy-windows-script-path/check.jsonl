@@ -1,0 +1,4 @@
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"复核 canonical Workspace authority 与外部进程边界未漂移"}
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"复核 CB6-001/CB6-002 测试与非目标"}
+{"file":".trellis/tasks/09-28-codebuddy-windows-script-path/prd.md","reason":"复核全部验收条件、范围和验证边界"}
+{"file":".trellis/tasks/09-28-codebuddy-windows-script-path/design.md","reason":"复核投影、identity revalidation、UNC fail-closed 与最小改动"}

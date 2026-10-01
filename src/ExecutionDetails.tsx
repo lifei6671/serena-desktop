@@ -104,6 +104,8 @@ export function ExecutionDetails({ row, workspaceName, loading, error, disabled,
           <div className="agent-detail-live-grid">
             <div><span>执行状态</span><strong className={`agent-status tone-${state.tone}`}><i className={running ? "agent-task-pulse" : undefined} aria-hidden="true" />{state.label}</strong></div>
             <div><span>Provider</span><strong>{provider}</strong></div>
+            <div><span>模型</span><code>{row.effectiveExecutionProfile?.model ?? row.executionProfile.model ?? "Provider 默认"}</code></div>
+            <div><span>推理强度</span><code>{row.effectiveExecutionProfile?.reasoning ?? row.executionProfile.reasoning ?? "Provider 默认"}</code></div>
             <div><span>当前活动</span><strong>{activityLabel(row)}</strong></div>
             <div><span>最近活动</span><strong>{recentActivity(row)}</strong></div>
             <div><span>活跃状态</span><strong>{activitySilenceLabel(row)}</strong></div>

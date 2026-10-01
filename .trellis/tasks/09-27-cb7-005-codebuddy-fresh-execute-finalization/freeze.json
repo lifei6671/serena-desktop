@@ -1,0 +1,321 @@
+{
+  "baseline": "18ddddf1dbe2eab84ecc791acf08cbd37f3efc7b",
+  "head": "18ddddf1dbe2eab84ecc791acf08cbd37f3efc7b",
+  "target": "2FBD721665DBF48125651A8EAE7C0CEF98341A490696099B9A20E3FB2BFFE81C",
+  "sources": [
+    {
+      "path": "src-tauri/src/agent/codebuddy/client_tests.rs",
+      "sha256": "A7ADC150FC3322F0679FAABA81DA7587F869D375C376C380D95A2312424FFA7B"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/client.rs",
+      "sha256": "8C158DEE9D30C8540850F7BED587AFAF2BBC1311F91B4BC193E8157398C1FC8E"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/execute.rs",
+      "sha256": "26FAB38C15B2A546381C2B9419E62A4B499681BB974D6F43D22EBEF09C9869B8"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/execute/tests.rs",
+      "sha256": "71030163846EA68C64AB24EB16227A182F4E52F6A5D0C939549999E04231DE0B"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/fresh.rs",
+      "sha256": "427A1FFE72E289E51FE572E3C2A805B117C18AB7FD4C2BAEEE75694106ED9D6B"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/mod.rs",
+      "sha256": "5E931BB953383875A3A8A1C31C1BB9C44EA473C3E008AE7B1C3834891697E717"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/prompt.rs",
+      "sha256": "EA27484224E760F5846EE11689CAA628283B8585A56C34FC1EC87FAC66FE2DF2"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/provider.rs",
+      "sha256": "F15E9C46A826BCAD1811F5E7D843DCC5BFB22F2486589DF0275A6212ADB76DDE"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/provider/tests.rs",
+      "sha256": "B006D797B6B76B0CB24C1FC9DF7F155005C55B2AE6254B9D3E60BF93F16B1D6D"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/recovery.rs",
+      "sha256": "D8B958E4C79FF002E24174E2C519F6C13F67258A166F44BC83964E20BFAC89FB"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/recovery/tests.rs",
+      "sha256": "6FCBE6E9B5B6A085B82DAC712480642FA97ECF3B95AEBC7C67C67BD91E10EDF6"
+    },
+    {
+      "path": "src-tauri/src/agent/execution/state.rs",
+      "sha256": "128D9DA2D87B50E9F3FE99EC44DA0B8952B1444EB69C4FE6AECEFC149165A233"
+    },
+    {
+      "path": "src-tauri/src/agent/product/fixtures/provider_catalog_codex.json",
+      "sha256": "8CF16CBC220CF5F9A497071BAD73C625C755C5E4B178A74388C0A8B7D1AC4590"
+    },
+    {
+      "path": "src-tauri/src/agent/product/provider_catalog_tests.rs",
+      "sha256": "18837DF8EEDD1F5DB101F32389F08FD95BD44B75F93C308A9CAEF360F9E188A0"
+    },
+    {
+      "path": "src-tauri/src/agent/store/transactions.rs",
+      "sha256": "F1F47FF5AFA679C0E2A84B8CFD1DA431E43F60FE97202073CBB3CFDEDC3318E2"
+    },
+    {
+      "path": "src-tauri/src/agent/store/transactions/tests.rs",
+      "sha256": "21B4D9A641F57FC32FC2B5246DB56B6E77591E1D0F1A382DDAD862313DB5A7F3"
+    },
+    {
+      "path": "src-tauri/src/agent/task_manager/tests.rs",
+      "sha256": "6A8917326C2A8D7E2B4B19A6DD7B42B1D2D3CC4CD5A2D8795D8A1C8C0EEA5D4D"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/codebuddy_execute_child.rs",
+      "sha256": "A6AA28DD39F851DF45801546133AD7452572767AD8678B86CAFB3CB132A2E555"
+    }
+  ],
+  "context": [
+    {
+      "path": ".trellis/spec/guides/cross-layer-thinking-guide.md",
+      "sha256": "1F82D4743A526695148A1DE61AE529E465E09C1C1EFF0E71F25CE178C9E323BE"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/acceptance-matrix.md",
+      "sha256": "7841058785B2E6E4B06DDE359551476598C8586539DAE31848DED91779B0998E"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/baseline.json",
+      "sha256": "8913DA11B8E197EAAB61904D1516C97B4663C269E3211AC428EB4868827E8760"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/check-initial.log",
+      "sha256": "A51A74F85641F70DB5F0A082BBD364D49512C49AFB91777224B1EEDED006CB20"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/check.jsonl",
+      "sha256": "939220D5E2B4E734703B34A53766BADFD7F8AF66D295EB45C9E9761702D8C9EB"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/checkpoint-generic.json",
+      "sha256": "0AEF2AE12A071C133258D60ACFF0C19F716F9B7ACF962C00278379A0127D3C51"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/checkpoint-review.md",
+      "sha256": "0A541DC6D19945F51009542B2128D670B6350C92E19EFAF985C61496438ED777"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/clippy-initial.log",
+      "sha256": "8664FE61E9CF3C687C175CA9C107F0C32D7E870FFB2AE5B61415AF9DF905A023"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/codebuddy-parallel.log",
+      "sha256": "75ADF938640B7FFC41596185DA42AD63ABE43CA68BD97F25B057DC13BF7E3C65"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/design.md",
+      "sha256": "B81397CD165BDCFC6FBFC8031F0A4C8B55585EA449783C739B250DCE63DD569C"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/final-agent-product-provider_catalog_tests.log",
+      "sha256": "94B7776865699A6D1A7091C708DEFE2B81B0EDF770813959DAAB213FEF66A5C8"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/final-check.log",
+      "sha256": "11077601D463E2B8841865F45FE98ED0492E314206677A49349DEEDC06DE3C1A"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/final-clippy.log",
+      "sha256": "9718AF5C2280D9AEFFE0D0B668FD9E4A1916633FE38605DF64E718790D126699"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/final-codebuddy.log",
+      "sha256": "50B9151810ECF88EE264B6B7A8ECB7DEA0D082EB04302F5D1E125F5AE406D58A"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/final-diff-check.log",
+      "sha256": "8844EE242D3258054B724B2EF905423B218EFCA1F9779EC2D7AFAB89F2B87EC9"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/final-fmt.log",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/final-serial-agent-codex.log",
+      "sha256": "F4AEBC9FB5ABDDDFDB15826797566269FF825B8654801EAF00E1DBDF8EA866FB"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/final-serial-agent-product-provider_catalog_tests.log",
+      "sha256": "BEE88E9D25E2A9B7DD912E1A3047DD2F252D218C441E603EF65C184ED901600D"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/final-serial-agent-provider-control.log",
+      "sha256": "90BD74D73D8E08159FB263AE5555273F0C8ADD91FCD0BA2C159B744BB12EEFCA"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/final-serial-codebuddy.log",
+      "sha256": "B03B48B0D26D7725E2C8A6543FD84BD6BB740000076816FD8A2475CCBE542C76"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/freeze-round0.json",
+      "sha256": "B5AEEFF31A70679CFC7CB4210E7291C34350AC0903FDA2297089B7068A58FA1B"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/gate-agent-product-provider_catalog_tests.log",
+      "sha256": "7FD939F25F303A925B93434E9343775CAB2A9561A36633305AE526E51C4FCFAF"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/gate-agent-store-transactions-tests.log",
+      "sha256": "D6E531F39C72EDA25D4F1D5BE7CE0C9F378812708B4351CA00E47C6A37199ACF"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/gate-agent-task_manager-tests.log",
+      "sha256": "C40913AC75C973297AA4B828CB3EDE6687792F4A9D7072167D65F0A89EF91758"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/gate-codebuddy.log",
+      "sha256": "995A461B1143C5220FC977544BFE9B811040032D53B41DF79C3540A91A4B931F"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/gate-same_runtime.log",
+      "sha256": "7217C17AE09103F1607DC70B394B391D404217B6C6CEF63F372A0D61B2D99AA8"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/gate-telemetry.log",
+      "sha256": "2ED9F934F4D26CCD1E0D36C90919FFF7DCAC9613AD83F46B9BF403F79FEC7ACF"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/gate-usage.log",
+      "sha256": "2D1FB2C0DDEB6D47A186D50FA5E9600BA170BD8CFFD4504C66FAA59CED525AC0"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/generic-staged.log",
+      "sha256": "18CFFF1EF892957DE2FCF552857ABC4AF154AB242AD09D369884B144E02B01B4"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/implement.jsonl",
+      "sha256": "939220D5E2B4E734703B34A53766BADFD7F8AF66D295EB45C9E9761702D8C9EB"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/implement.md",
+      "sha256": "4DC3CF77AE6F4BF69E5E20547891952CD32E7D28E0319EF4A4CC7903296826C9"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/native-initial.log",
+      "sha256": "55D2AFCBED5D8EE7B92A12C947D3293F43253C4A1E6E4C245C23FFE4006933A3"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/native-second.log",
+      "sha256": "93C458BECBE6FAB22DF627DB22535A908B31090FB891BB82186F7839275C9C94"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/prd.md",
+      "sha256": "1107E33102246C1C713D62085932D61C41556EB4AAD1E068D0A94C59B56FA9FF"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/regate-agent-codex-provider-tests.log",
+      "sha256": "6F3763411AC4DC5BF8B26572EA5B1DDE09FAEC11C646B29A9DC7B3A97A119FEB"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/regate-agent-store-transactions-tests.log",
+      "sha256": "DA4B97D220C7DDA4371765ED602D633B09A46714C2DC363A0AEA0F98A3109B9A"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/regate-codebuddy.log",
+      "sha256": "E5134D404CDBC4F07BD5E8DB7A075837BFB4F252EB437CCD1B330F10ACB2AE53"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/repair1-catalog.log",
+      "sha256": "CD5CA51E40FE4DE601B93A22D7F3470647C15A0A53EE9596C438717D8A50B2D6"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/repair1-diff-check.log",
+      "sha256": "EFB0AF74EC8378EBB2E07CDAE57086D5F876425E280F467F067F1990D2F3F9B1"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/repair1-fmt.log",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/review-round0.md",
+      "sha256": "BA0B97E0FB0FD9A1A50C4C21BACBC993EFC638D3B318D718C0625CC2C4980F91"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/snapshot-agent-product-provider_catalog_tests.log",
+      "sha256": "3F16F6348435FBA3566C879ED497B6ACB09EBB6E95C84BD28628EE0745ED3C63"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/snapshot-mcp-provider_query_tests.log",
+      "sha256": "DE33BC8405AF43616B8538342CF405CB901C8FAA43565416AFEF5E05E477ACF4"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/task-manager-full.log",
+      "sha256": "A79195B4D6CA6E58949CF6AA79C202AE53BBDE7F8034A24777FC4B8466CD59F5"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/validation-results.jsonl",
+      "sha256": "2D5FA100619C2A1AA7EC357D5D48CED86A54F1D2E615148597D6DF13C471148B"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/validation-summary.json",
+      "sha256": "7DE03819BBA5CDDD376AD992A62B9888A2DE872BF521BE1B1FC62E704F54F621"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/verification.md",
+      "sha256": "8C21171165B95B7376AE6B3CF38DD2D8BB4C96536A9F369CF5A3045367AE6F12"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/verified-agent-codebuddy-provider-tests.log",
+      "sha256": "9ED5374787BD6FFC830243E873C046CBCA0BC2CE3B6745D0A2F34F7DB62A315D"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/verified-agent-product-provider_catalog_tests.log",
+      "sha256": "04A38E6E44E5313C7FD1A27C5A98A726089E3694823BD2194F8446B2D2CA3043"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/verified-clippy.log",
+      "sha256": "8664FE61E9CF3C687C175CA9C107F0C32D7E870FFB2AE5B61415AF9DF905A023"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/verified-diff-check.log",
+      "sha256": "8844EE242D3258054B724B2EF905423B218EFCA1F9779EC2D7AFAB89F2B87EC9"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/verified-fmt.log",
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/verified-mcp-provider_query_tests.log",
+      "sha256": "A4598F23A2B4321A46187C8CEE91C18AE8E33CDD30B3C03651E50A3D2932CD31"
+    },
+    {
+      "path": ".trellis/tasks/09-27-cb7-005-codebuddy-fresh-execute-finalization/verified-mcp-providers.log",
+      "sha256": "1A9A46AEF01545E0B78739D84F5CA4A97C1DCBD2C5A38B2431006BC167BC8173"
+    },
+    {
+      "path": ".trellis/workflow.md",
+      "sha256": "6D5A695867FA77FB061F628D8B70384DEA289521BCB1D502F2629FA86306455E"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "8626B21626191A099B854E7B93DFE854700F205A5845AC532B62649157B7DD32"
+    },
+    {
+      "path": "docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md",
+      "sha256": "7AF023D5E5A84E3106B12DB14AC44EB9B4BA6E003CD3FDC2027C2FE29176F334"
+    },
+    {
+      "path": "docs/technical-design-multi-agent-provider-codebuddy-v0.1.md",
+      "sha256": "A80A5A6FA0B3D263B194F7D4604933A805475CA15761EEAE86C3C7029E0E6E15"
+    }
+  ],
+  "exclusions": [
+    "task.json administrative status only",
+    "review/freshness records created after freeze"
+  ],
+  "mode": "CHILD_AGENT",
+  "strategy": "FULL_SCOPE",
+  "depth": "Tier 3",
+  "repairRound": 1
+}

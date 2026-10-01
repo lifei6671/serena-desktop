@@ -1,0 +1,1 @@
+{"launcherArgv": ["C:\\nvm4w\\nodejs\\npx.cmd", "-y", "@tencent-ai/codebuddy-code@2.158.0", "--acp"], "executionCommandLine": "\"C:\\Windows\\System32\\cmd.exe\" /e:ON /v:OFF /d /c \"\"C:\\nvm4w\\nodejs\\npx.cmd\" -y @tencent-ai/codebuddy-code@2.158.0 --acp\"", "attempt": 1, "automaticRetry": false}

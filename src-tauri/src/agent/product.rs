@@ -3,10 +3,11 @@ pub use super::activity::ProgressPhase;
 use super::{
     activity::{
         AGENT_ACTIVITY_CONTRACT_ERROR, ActivityPhase, ActivitySilence, ToolCategory,
-        derive_activity_revision, derive_summary_code,
+        derive_activity_revision, resolve_summary_code,
     },
     coordinator::now,
-    provider::port::ProviderReconcileItem,
+    execution::{AgentTaskRole, ExecutionProfile},
+    provider::{ProviderDescriptor, ProviderId, port::ProviderReconcileItem},
     store::{
         StateStore,
         transactions::product::{ProductSnapshot, WorkspaceSnapshot, continuation_core_eligible},
@@ -26,6 +27,7 @@ pub(crate) use control::adapter_rejection;
 mod work_adapter;
 mod work_context;
 pub use work_adapter::{AgentExecuteAction, AgentQueryAction};
+pub(crate) use work_adapter::{StartCreationAuthority, StartRoutingIntent};
 
 #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(
@@ -96,22 +98,60 @@ pub struct AvailableActions {
 pub struct ProviderProduct {
     pub id: String,
     pub display_name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
 }
+/// 当前已注册 Provider 的只读目录；路由保留 Local Human 配置中的原始目标。
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCatalogSnapshot {
+    pub providers: Vec<ProviderCatalogEntry>,
+    pub role_routing: std::collections::BTreeMap<String, Option<ProviderId>>,
+    pub role_defaults: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<String, crate::config::AgentRoleProviderDefaults>,
+    >,
+}
+
+/// 注册、策略、健康与能力分别投影，不把不可执行等同于未注册。
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCatalogEntry {
+    pub id: ProviderId,
+    pub display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// 直接投影 adapter 的协议事实，不按 Provider ID 推导。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
+    pub enabled: bool,
+    pub health: super::provider::registry::ProviderHealth,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostic_code: Option<String>,
+    pub available_for_new_execution: bool,
+    pub capabilities: ProviderCapabilitiesProduct,
+}
+
+/// 只公开 Provider 已声明的能力，不根据 Provider 名称或路由补充能力。
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderCapabilitiesProduct {
+    pub can_execute: bool,
+    pub can_continue: bool,
+    pub can_cancel: bool,
+    pub can_recover: bool,
+    pub activity: bool,
+    pub token_usage: bool,
+}
 impl ProviderProduct {
-    fn codex() -> Self {
+    /// 持久化 ID 是唯一身份；descriptor 只补充展示信息，缺失或不一致时安全回退。
+    fn from_execution_provider(provider_id: &str, descriptor: Option<ProviderDescriptor>) -> Self {
+        let descriptor = descriptor.filter(|value| value.id.as_str() == provider_id);
         Self {
-            id: "codex".into(),
-            display_name: "Codex".into(),
-            version: None,
-        }
-    }
-    /// 仅从 Execution 持久化 Provider 投影顶层身份，Usage 不重复 Provider identity。
-    fn from_execution_provider(provider_id: &str) -> Result<Self, String> {
-        match provider_id {
-            "codex" => Ok(Self::codex()),
-            _ => Err(format!("Invalid persisted provider: {provider_id}")),
+            id: provider_id.into(),
+            display_name: descriptor
+                .as_ref()
+                .map_or_else(|| provider_id.into(), |value| value.display_name.clone()),
+            version: descriptor.and_then(|value| value.version),
         }
     }
 }
@@ -191,6 +231,30 @@ impl UsageProduct {
         }
     }
 }
+/// Provider-neutral 执行配置投影；空字段保持显式 null。
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutionProfileProduct {
+    #[schemars(schema_with = "nullable_string_schema", required)]
+    pub model: Option<String>,
+    #[schemars(schema_with = "nullable_string_schema", required)]
+    pub reasoning: Option<String>,
+}
+
+/// 固定生成 string 或 null，避免 `required` 属性把 Option schema 收窄为 string。
+fn nullable_string_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({"type": ["string", "null"]})
+}
+
+impl From<ExecutionProfile> for ExecutionProfileProduct {
+    /// 逐字段投影持久化冻结值，不读取当前 Provider 目录或角色默认配置。
+    fn from(profile: ExecutionProfile) -> Self {
+        Self {
+            model: profile.model,
+            reasoning: profile.reasoning,
+        }
+    }
+}
 #[derive(Debug, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
@@ -259,6 +323,13 @@ pub struct ExecutionView {
     pub agent_id: String,
     pub workspace_id: String,
     pub provider: ProviderProduct,
+    /// 创建时持久化的冻结角色；不读取当前 Provider 路由策略。
+    pub task_role: String,
+    /// 创建时持久化的冻结执行配置；缺失值表示沿用当时的 Provider 默认。
+    pub execution_profile: ExecutionProfileProduct,
+    /// Provider 对本次 Execution 已确认的实际配置；历史记录可以没有证据。
+    #[schemars(required)]
+    pub effective_execution_profile: Option<ExecutionProfileProduct>,
     /// 始终存在的公共 Usage 投影；无持久化行时保持 unknown/null。
     pub usage: UsageProduct,
     pub status: String,
@@ -422,6 +493,10 @@ impl ProductError {
             "WORKSPACE_ROOT_NOT_FOUND",
             "WORKSPACE_ROOT_NOT_DIRECTORY",
             "AGENT_DISABLED",
+            "AGENT_PROVIDER_DISABLED",
+            "AGENT_ROLE_NOT_CONFIGURED",
+            "AGENT_ROLE_PROVIDER_MISMATCH",
+            "AGENT_PROVIDER_UNAVAILABLE",
             "AGENT_INVALID_ARGUMENT",
             "AGENT_NO_ACTIVE_WORKSPACE",
             "AGENT_WORKSPACE_CHANGED",
@@ -433,6 +508,7 @@ impl ProductError {
             "AGENT_MANUAL_RESOLUTION_REQUIRED",
             "AGENT_RUNTIME_QUARANTINED",
             AGENT_ACTIVITY_CONTRACT_ERROR,
+            "AGENT_TASK_ROLE_CONTRACT_ERROR",
             "AGENT_OBSERVE_INVALID_ARGUMENT",
             "BACKEND_UNAVAILABLE",
             "CODEX_APP_SERVER_INCOMPATIBLE",
@@ -442,9 +518,6 @@ impl ProductError {
             "CODEX_EXECUTABLE_FORMAT_UNSUPPORTED",
             "CODEX_EXECUTABLE_NOT_RUNNABLE",
             "CODEX_COMPATIBILITY_BLOCKED",
-            // Phase 1 的非 Windows Runtime 请求保留明确的 Provider 不可用诊断。
-            #[cfg(not(windows))]
-            "AGENT_PROVIDER_UNAVAILABLE",
         ];
         let code = codes
             .iter()
@@ -557,6 +630,81 @@ pub struct AgentProductService {
     manager: AgentTaskManager,
 }
 impl AgentProductService {
+    #[cfg(test)]
+    /// 测试只替换内存 Registry，不触发 discovery、Runtime 或持久化副作用。
+    pub(crate) fn use_registry_for_test(
+        &mut self,
+        registry: super::provider::registry::ProviderRegistry,
+    ) {
+        self.manager.use_registry(registry);
+    }
+
+    /// 读取当前 Local Human 配置和 Registry 快照，不进入 probe、Runtime 或执行路径。
+    pub fn provider_catalog(
+        &self,
+        supervisor: &crate::serena::SupervisorState,
+    ) -> Result<ProviderCatalogSnapshot, super::provider::ProviderError> {
+        let config = supervisor.workspace_registry_config();
+        let registry = self.manager.registry()?;
+        let mut providers = Vec::new();
+        // 只枚举注册项；配置中的未知 Provider 和路由目标不产生虚假的注册条目。
+        for descriptor in registry.list_descriptors() {
+            let (health, diagnostic_code) = registry.admission_status(&descriptor.id)?;
+            let capabilities = registry.capabilities(&descriptor.id)?;
+            let enabled = config
+                .agent_providers
+                .providers
+                .get(descriptor.id.as_str())
+                .is_some_and(|policy| policy.enabled);
+            providers.push(ProviderCatalogEntry {
+                available_for_new_execution: config.agent_enabled
+                    && enabled
+                    && health == super::provider::registry::ProviderHealth::Available
+                    && capabilities.can_execute,
+                id: descriptor.id,
+                display_name: descriptor.display_name,
+                version: descriptor.version,
+                protocol: descriptor.protocol,
+                enabled,
+                health,
+                diagnostic_code,
+                capabilities: ProviderCapabilitiesProduct {
+                    can_execute: capabilities.can_execute,
+                    can_continue: capabilities.can_continue,
+                    can_cancel: capabilities.can_cancel,
+                    can_recover: capabilities.can_recover,
+                    activity: capabilities.activity,
+                    token_usage: capabilities.token_usage,
+                },
+            });
+        }
+        Ok(ProviderCatalogSnapshot {
+            providers,
+            role_routing: config.agent_providers.role_routing,
+            role_defaults: config.agent_providers.role_defaults,
+        })
+    }
+
+    /// 配置目录是显式 Provider/Workspace 查询，不进入便宜的 Provider Catalog 快照。
+    pub(crate) async fn provider_configuration_catalog(
+        &self,
+        provider_id: super::provider::ProviderId,
+        canonical_workspace_root: String,
+    ) -> Result<super::provider::ExecutionConfigurationCatalog, super::provider::ProviderError>
+    {
+        self.manager
+            .provider_configuration_catalog(provider_id, canonical_workspace_root)
+            .await
+    }
+
+    /// 本地健康刷新只进入 Manager 的 admission probe。
+    pub(crate) async fn refresh_provider_health(
+        &self,
+        id: super::provider::ProviderId,
+    ) -> Result<super::provider::registry::ProviderHealth, String> {
+        self.manager.refresh_provider_health(id).await
+    }
+
     pub(crate) fn work_product(&self) -> super::work::WorkProductService {
         super::work::WorkProductService::new(self.store.clone())
     }
@@ -634,11 +782,26 @@ impl AgentProductService {
         store: StateStore,
         terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
     ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+        Self::initialize_with_terminal_notifier_and_provider_settings(
+            store,
+            terminal_notifier,
+            crate::config::AgentProviderSettings::default(),
+        )
+        .await
+    }
+
+    /// Desktop 启动消费已持久化 Provider 设置，不创建新的设置 authority 或 mutation surface。
+    pub(crate) async fn initialize_with_terminal_notifier_and_provider_settings(
+        store: StateStore,
+        terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
+        provider_settings: impl Into<super::provider::control::ProviderAdmissionPolicy>,
+    ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
         // 先创建唯一 Manager shell，discovery probe 才能共用其 Store/owner/Pool。
-        let mut manager = AgentTaskManager::new_with_terminal_notifier(
+        let mut manager = AgentTaskManager::new_with_terminal_notifier_and_provider_settings(
             store.clone(),
             std::path::PathBuf::new(),
             terminal_notifier,
+            provider_settings,
         );
         #[cfg(test)]
         let resolution = match TEST_DISCOVERY.try_with(Clone::clone) {
@@ -676,10 +839,26 @@ impl AgentProductService {
         store: StateStore,
         terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
     ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
-        let mut manager = AgentTaskManager::new_with_terminal_notifier(
+        Self::initialize_desktop_deferred_with_provider_settings(
+            store,
+            terminal_notifier,
+            crate::config::AgentProviderSettings::default(),
+        )
+        .await
+    }
+
+    /// macOS 延后 discovery 时同样消费启动快照中的 Provider 设置。
+    #[cfg(target_os = "macos")]
+    pub(crate) async fn initialize_desktop_deferred_with_provider_settings(
+        store: StateStore,
+        terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
+        provider_settings: impl Into<super::provider::control::ProviderAdmissionPolicy>,
+    ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+        let mut manager = AgentTaskManager::new_with_terminal_notifier_and_provider_settings(
             store.clone(),
             std::path::PathBuf::new(),
             terminal_notifier,
+            provider_settings,
         );
         manager.defer_backend_resolution();
         Self::recover_before_publish(store, manager).await
@@ -714,12 +893,24 @@ impl AgentProductService {
         };
         Self { manager, store }
     }
+    /// MCP 只读契约测试注入受控 Registry 与 Runtime 连接断言。
+    #[cfg(test)]
+    pub(crate) fn new_with_manager_for_test(store: StateStore, manager: AgentTaskManager) -> Self {
+        Self { store, manager }
+    }
     /// 构造在 Provider 接受前确定性拒绝派发的测试专用服务。
     #[cfg(test)]
     pub(crate) fn new_with_rejected_dispatch_for_test(store: StateStore) -> Self {
         let mut manager = AgentTaskManager::new(store.clone(), std::path::PathBuf::new());
-        // 固定 Registry 为不可用，避免测试发现或启动用户安装的 Codex。
-        manager.backend_error = Some("TEST_DISPATCH_REJECTED".into());
+        // 只注册无 Runtime 能力的 fake；绝不创建或提升真实 Codex adapter 的健康状态。
+        let mut registry = super::provider::registry::ProviderRegistry::new();
+        registry
+            .register(
+                std::sync::Arc::new(tests::RejectedDispatchProvider),
+                super::provider::registry::ProviderHealth::Available,
+            )
+            .unwrap();
+        manager.use_registry(registry);
         Self { store, manager }
     }
     pub async fn operation(&self, value: Value, workspace: Option<WorkspaceSnapshot>) -> Value {
@@ -748,7 +939,7 @@ impl AgentProductService {
     /// Local Start 复用 Remote 的 Supervisor 线性化创建路径，禁止在兼容入口预先冻结快照。
     pub(crate) async fn operation_resolved_workspace_start(
         &self,
-        supervisor: &crate::serena::SupervisorState,
+        authority: StartCreationAuthority<'_>,
         value: Value,
     ) -> Value {
         let action = match parse(value) {
@@ -758,7 +949,7 @@ impl AgentProductService {
         };
         match self
             .manager
-            .product_submit_resolved_workspace_start(supervisor, action.clone(), None)
+            .product_submit_resolved_workspace_start(authority, action.clone(), None)
             .await
         {
             Ok(id) => match self.observe(id.clone(), false).await {
@@ -898,10 +1089,35 @@ impl AgentProductService {
         include_result: bool,
     ) -> Result<Vec<ExecutionView>, String> {
         let snapshots = self.store.product_read(id, agent, workspace, limit).await?;
+        // Registry 仅供可选展示元数据读取；失败不能阻断持久化 Execution 的查询。
+        let registry = self.manager.registry().ok();
         let mut views = Vec::with_capacity(snapshots.len());
         for s in snapshots {
             let compatibility = ProviderOpaqueCompatibility::project(&s);
             let r = &s.execution;
+            let task_role: AgentTaskRole =
+                serde_json::from_value(Value::String(s.task_role.clone()))
+                    .map_err(|_| "AGENT_TASK_ROLE_CONTRACT_ERROR".to_string())?;
+            // 历史版本允许 Provider 私有 requested profile；只读 Product 投影不能因此使旧记录不可查询。
+            // 原始 JSON 仍原样保存在数据库，控制/续跑路径继续执行各自的严格兼容性校验。
+            let execution_profile =
+                ExecutionProfile::from_json(&r.execution_profile_json).unwrap_or_default();
+            let effective_execution_profile = r
+                .effective_execution_profile_json
+                .as_deref()
+                .map(ExecutionProfile::from_json)
+                .transpose()
+                .map_err(|error| {
+                    format!("Invalid persisted effective execution profile: {error}")
+                })?;
+            if effective_execution_profile
+                .as_ref()
+                .is_some_and(|profile| profile.model.is_none() && profile.reasoning.is_none())
+            {
+                return Err(
+                    "Invalid persisted effective execution profile: incomplete evidence".into(),
+                );
+            }
             let pending = r.status == "dispatch_pending"
                 && r.dispatch_state == "not_dispatched"
                 && r.runtime_instance_id.is_none()
@@ -934,7 +1150,9 @@ impl AgentProductService {
                 .as_ref()
                 .filter(|_| include_result)
                 .map(|v| {
-                    serde_json::from_str(v).map_err(|e| format!("Invalid persisted result: {e}"))
+                    serde_json::from_str(v)
+                        .map(project_public_final_result)
+                        .map_err(|e| format!("Invalid persisted result: {e}"))
                 })
                 .transpose()?;
             let attention = if r.status == "unknown" || quarantined_pending {
@@ -982,8 +1200,13 @@ impl AgentProductService {
                 _ => return Err("Invalid persisted execution activity".into()),
             }
             // Product 只投影已由 Store 写入的 Activity 摘要；不一致时拒绝伪造新语义。
-            let expected_summary_code =
-                derive_summary_code(phase, activity_phase, tool_category).map_err(str::to_owned)?;
+            let expected_summary_code = resolve_summary_code(
+                phase,
+                activity_phase,
+                tool_category,
+                r.activity_summary_code.as_deref(),
+            )
+            .map_err(str::to_owned)?;
             if r.activity_summary_code.as_deref() != expected_summary_code {
                 return Err(AGENT_ACTIVITY_CONTRACT_ERROR.into());
             }
@@ -1014,7 +1237,18 @@ impl AgentProductService {
                 execution_id: r.id.clone(),
                 agent_id: r.agent_id.clone(),
                 workspace_id: r.workspace_id.clone(),
-                provider: ProviderProduct::from_execution_provider(&r.provider)?,
+                provider: ProviderProduct::from_execution_provider(
+                    &r.provider,
+                    registry.as_ref().and_then(|registry| {
+                        ProviderId::new(r.provider.clone())
+                            .ok()
+                            .and_then(|id| registry.get_registered(&id).ok())
+                            .map(|provider| provider.descriptor())
+                    }),
+                ),
+                task_role: task_role.as_str().into(),
+                execution_profile: execution_profile.into(),
+                effective_execution_profile: effective_execution_profile.map(Into::into),
                 usage: UsageProduct::project(s.usage.as_ref()),
                 status: r.status.clone(),
                 dispatch_state: r.dispatch_state.clone(),
@@ -1026,7 +1260,7 @@ impl AgentProductService {
                 error_code: r.error_code.as_ref().map(|code| match code.as_str() {
                     "CODEX_TURN_ERROR" => code.clone(),
                     "CODEX_PROVIDER_FAILURE" => code.clone(),
-                    "CODEX_PERMISSION_DENIED" => code.clone(),
+                    "CODEX_PERMISSION_DENIED" | "CODEBUDDY_PERMISSION_DENIED" => code.clone(),
                     _ => "EXECUTION_DIAGNOSTIC".into(),
                 }),
                 error_message: execution_diagnostic_message(r),
@@ -1101,6 +1335,7 @@ fn execution_diagnostic_message(row: &super::store::ExecutionRecord) -> Option<S
             "CODEX_RPC_TIMEOUT" => "CODEX_RPC_TIMEOUT: App Server request timed out.".into(),
             _ => "Codex Provider failed; raw details withheld.".into(),
         },
+        "CODEBUDDY_PERMISSION_DENIED" => "Provider permission denied.".into(),
         "CODEX_PERMISSION_DENIED" => {
             let category = match raw {
                 "command" => "command",
@@ -1146,6 +1381,24 @@ fn safe_unsupported_model_message(raw: &str) -> Option<String> {
     Some(format!("Codex model '{model}' {REASON}"))
 }
 
+/// 将 Provider 内部的 legacy plain-text result 投影为公共可展示结构。
+/// 只接受 exact {"text": string}，复杂 JSON 保持原样，避免从任意字段猜正文。
+fn project_public_final_result(value: Value) -> Value {
+    if let Value::Object(fields) = &value
+        && fields.len() == 1
+        && let Some(Value::String(text)) = fields.get("text")
+    {
+        return json!({
+            "finalResult": [{
+                "type": "agentMessage",
+                "phase": "final_answer",
+                "text": text
+            }]
+        });
+    }
+    value
+}
+
 fn safe_turn_error_category(raw: &str) -> Option<&'static str> {
     const SAFE_CATEGORIES: &[&str] = &[
         "contextWindowExceeded",
@@ -1179,5 +1432,11 @@ fn safe_turn_error_category(raw: &str) -> Option<&'static str> {
         .find(|safe| *safe == category)
 }
 
+#[cfg(test)]
+#[path = "product/profile_projection_tests.rs"]
+mod profile_projection_tests;
+#[cfg(test)]
+#[path = "product/provider_catalog_tests.rs"]
+mod provider_catalog_tests;
 #[cfg(test)]
 mod tests;

@@ -33,3 +33,4 @@ src-tauri/gen/
 docs/assets/
 docs/tasks/
 .workbuddy/
+.cargo-cache/

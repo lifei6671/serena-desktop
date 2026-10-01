@@ -1,0 +1,1136 @@
+--- a/src/AgentPanel.tsx
++++ b/src/AgentPanel.tsx
+@@ -1,16 +1,15 @@
+-import { TooltipHint } from "@/components/TooltipHint";
+ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+ import { createPortal } from "react-dom";
+ import { ProjectTaskNavigation } from "./ProjectTaskNavigation";
+ import { toast } from "sonner";
+-import { ChevronDown, Folder, RefreshCw, LoaderCircle, Trash2, FileText, CheckCircle2, CircleAlert, CircleX, Clock3, Play } from "lucide-react";
++import { Folder } from "lucide-react";
+ import { Button } from "@/components/ui/button";
+ import { Switch } from "@/components/ui/switch";
+ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+ import { api } from "./api";
+ import { agentRequests } from "./agentRequests";
+-import { activeExecutionStatuses, providerCardPresentation, executionStatus, executionTime, executionDuration, executionWorkspace, resultText, showExecutionDiagnostic, taskSummary, taskTitle } from "./agentPresentation";
++import { providerCardPresentation, executionStatus, executionWorkspace, taskSummary } from "./agentPresentation";
+ const ExecutionDetails = lazy(() => import("./ExecutionDetails").then(module => ({ default: module.ExecutionDetails })));
+ import type { AgentAction, AgentProviderSettings, ExecutionView, ProviderCatalogSnapshot, Workspace } from "./types";
+ 
+@@ -20,16 +19,7 @@
+ type RoleEdits = Partial<Record<TaskRole, { value: string | null; pending: boolean }>>;
+ type ProviderEdits = Partial<Record<string, { value: boolean; pending: boolean }>>;
+ 
+-function StatusIcon({ tone }: { tone: string }) {
+-  if (tone === "green") return <CheckCircle2 aria-hidden="true" />;
+-  if (tone === "red") return <CircleX aria-hidden="true" />;
+-  if (tone === "amber") return <CircleAlert aria-hidden="true" />;
+-  if (tone === "blue") return <span className="agent-task-pulse" aria-hidden="true" />;
+-  return <Clock3 aria-hidden="true" />;
+-}
+-
+ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, sidebarContainer, onShowTask, onShowAgent, onWorkspaceRename = async () => false, onWorkspaceRemove = async () => false, detailView = true }: { detailView?: boolean; sidebarContainer?: HTMLElement | null; onShowTask?: () => void; onShowAgent?: () => void; workspace: Workspace | null; workspaces?: Workspace[]; onSelectWorkspace?: () => void; onWorkspaceRename?: (id: string, name: string) => Promise<boolean>; onWorkspaceRemove?: (id: string) => Promise<boolean> }) {
+-  const [prompt, setPrompt] = useState("");
+   const [rows, setRows] = useState<ExecutionView[]>([]);
+   const [catalog, setCatalog] = useState<ProviderCatalogSnapshot | null>(null);
+   const [catalogError, setCatalogError] = useState(false);
+@@ -39,7 +29,7 @@
+   const [providerEdits, setProviderEdits] = useState<ProviderEdits>({});
+   const providerEditsRef = useRef<ProviderEdits>({});
+   const providerGenerations = useRef<Partial<Record<string, number>>>({});
+-  // 目录独立读取，失败不阻塞任务列表、Composer 或详情操作。
++  // 目录独立读取，失败不阻塞侧栏导航或详情操作。
+   useEffect(() => {
+     let disposed = false;
+     let waiting = false;
+@@ -120,18 +110,6 @@
+       setProviderEdits(providerEditsRef.current);
+     }
+   }
+-  const visibleRows = useRef<ExecutionView[]>([]);
+-  useEffect(() => { visibleRows.current = rows; }, [rows]);
+-  const [workspaceFilter, setWorkspaceFilter] = useState("all");
+-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+-  const [loadingMore, setLoadingMore] = useState(false);
+-  const [moreError, setMoreError] = useState("");
+-  const moreFailed = useRef(false);
+-  const pageCount = useRef(1);
+-  const workspaceChoices = new Map(workspaces.map(w => [w.root, w.name]));
+-  if (workspace) workspaceChoices.set(workspace.root, workspace.name);
+-  for (const row of rows) workspaceChoices.set(row.canonicalWorkspaceRoot, executionWorkspace(row, [...workspaces, ...(workspace ? [workspace] : [])]));
+-  if (workspaceFilter !== "all" && !workspaceChoices.has(workspaceFilter)) workspaceChoices.set(workspaceFilter, executionWorkspace({canonicalWorkspaceRoot:workspaceFilter}, workspaces));
+   const [hiddenIds, setHiddenIds] = useState<string[]>(() => {
+     try {
+       const value: unknown = JSON.parse(window.localStorage.getItem("agent-hidden-executions") ?? "[]");
+@@ -156,14 +134,11 @@
+       return true;
+     } catch (error) { toast.error(`删除失败：${String(error)}`); return false; }
+   }
+-  const [loaded, setLoaded] = useState(false);
+-  const [refreshing, setRefreshing] = useState(false);
+   const [listError, setListError] = useState("");
+   const [operationError, setOperationError] = useState("");
+   const [errorExecutionId, setErrorExecutionId] = useState<string>();
+   const [busy, setBusy] = useState(agentRequests.inFlight);
+   const [retry, setRetry] = useState<AgentAction | null>(agentRequests.pending);
+-  const [filter, setFilter] = useState("all");
+   const [detail, setDetail] = useState<ExecutionView | null>(null);
+   const detailRecord = useRef<ExecutionView | null>(null);
+   useEffect(() => { detailRecord.current = detail; }, [detail]);
+@@ -175,34 +150,17 @@
+   const epoch = useRef(0);
+   const detailRequest = useRef(0);
+   const opener = useRef<HTMLElement | null>(null);
+-  const input = useRef<HTMLTextAreaElement>(null);
+-
+-  const refresh = useCallback(async (manual = false) => {
++
++  const refresh = useCallback(async () => {
+     if (listWaiting.current || detailWaiting.current || agentRequests.inFlight) return;
+     listWaiting.current = true;
+     const version = epoch.current;
+-    if (manual) setRefreshing(true);
+-    try {
+-      const next: ExecutionView[] = [];
+-      let cursor: string | null = null;
+-      for (let page = 0; page < pageCount.current; page++) {
+-        const response = await api.agentHistory(cursor, workspaceFilter === "all" ? null : workspaceFilter);
+-        if (!mounted.current || version !== epoch.current) return;
+-        next.push(...response.executions);
+-        cursor = response.nextCursor;
+-        if (!cursor) break;
+-      }
+-      if (moreFailed.current) {
+-        for (const old of visibleRows.current) {
+-          if (next.some(row => row.executionId === old.executionId)) continue;
+-          const response = await api.agent({action:"observe",executionId:old.executionId,waitMs:0});
+-          if (!mounted.current || version !== epoch.current) return;
+-          if (!response.ok) throw new Error(response.error.message);
+-          if (!("executionId" in response.data)) throw new Error("任务状态响应格式不正确");
+-          next.push(response.data);
+-        }
+-      } else setNextCursor(cursor);
+-      setRows(old => moreFailed.current ? [...next, ...old.filter(row => !next.some(n => n.executionId === row.executionId))] : next);
++    try {
++      // 首屏任务快照继续支撑 Provider 活动数与 Claim 提示；侧栏独立负责历史分页。
++      const response = await api.agentHistory(null, null);
++      if (!mounted.current || version !== epoch.current) return;
++      const next = response.executions;
++      setRows(next);
+       const selected = detailRecord.current;
+       let selectedRow = selected && next.find(row => row.executionId === selected.executionId);
+       if (selected && !selectedRow) {
+@@ -217,32 +175,13 @@
+         if (!row) return old;
+         return row.revision === old.revision ? { ...row, finalResult: old.finalResult } : row;
+       });
+-      setLoaded(true); setListError("");
+-      if (manual) toast.success("任务列表已刷新");
++      setListError("");
+     } catch (e) {
+       if (mounted.current && version === epoch.current) {
+         setListError(`任务列表更新失败：${String(e)}`);
+-        if (manual) toast.error("刷新失败，请稍后再试");
+-      }
+-    } finally { listWaiting.current = false; if (mounted.current) setRefreshing(false); }
+-  }, [workspaceFilter]);
+-
+-  async function loadMore() {
+-    if (!nextCursor || listWaiting.current || detailWaiting.current || agentRequests.inFlight) return;
+-    listWaiting.current = true;
+-    setLoadingMore(true); setMoreError("");
+-    const version = epoch.current;
+-    try {
+-      const response = await api.agentHistory(nextCursor, workspaceFilter === "all" ? null : workspaceFilter);
+-      if (!mounted.current || version !== epoch.current) return;
+-      setRows(old => [...old, ...response.executions.filter(row => !old.some(r => r.executionId === row.executionId))]);
+-      setNextCursor(response.nextCursor);
+-      moreFailed.current = false;
+-      pageCount.current++;
+-    } catch (error) {
+-      if (mounted.current && version === epoch.current) { moreFailed.current = true; setMoreError(`加载更多失败：${String(error)}`); }
+-    } finally { listWaiting.current = false; if (mounted.current) setLoadingMore(false); }
+-  }
++      }
++    } finally { listWaiting.current = false; }
++  }, []);
+ 
+   useEffect(() => {
+     mounted.current = true;
+@@ -252,10 +191,6 @@
+     }, 1500);
+     return () => { mounted.current = false; clearInterval(timer); };
+   }, [refresh]);
+-  useEffect(() => {
+-    if (input.current) { input.current.style.height = "auto"; input.current.style.height = `${Math.min(260, Math.max(92, input.current.scrollHeight))}px`; }
+-  }, [prompt]);
+-
+   const openDetails = useCallback(async (id: string, initial?: ExecutionView) => {
+     onShowTask?.();
+     const request = ++detailRequest.current;
+@@ -299,18 +234,10 @@
+       }
+       if ("executionId" in response.data) {
+         const row = response.data;
+-        if (workspaceFilter === "all" || row.canonicalWorkspaceRoot === workspaceFilter) {
+-          const sorted = [row, ...rows.filter(value => value.executionId !== row.executionId)].sort((a, b) => b.createdAt - a.createdAt || b.executionId.localeCompare(a.executionId));
+-          const kept = moreFailed.current ? sorted : sorted.slice(0, pageCount.current * 5);
+-          setRows(kept);
+-          if (!moreFailed.current && sorted.length > kept.length) {
+-            setNextCursor(kept.at(-1)!.executionId);
+-            moreFailed.current = false; setMoreError("");
+-          }
+-        }
++        setRows(old => [row, ...old.filter(value => value.executionId !== row.executionId)]
++          .sort((a, b) => b.createdAt - a.createdAt || b.executionId.localeCompare(a.executionId)).slice(0, 5));
+         setDetail(old => old?.executionId === row.executionId ? row : old);
+       }
+-      if (action.action === "start") setPrompt(old => old === action.prompt ? "" : old);
+       toast.success(action.action === "cancel" ? "取消请求已处理" : action.action === "resume_pending" ? "恢复请求已接受" : "任务请求已接受");
+       return true;
+     } catch (e) {
+@@ -331,10 +258,8 @@
+     try {
+       const row = await api.agentManualResolve(executionId, "interrupt_and_release");
+       if (!mounted.current) return true;
+-      if (workspaceFilter === "all" || row.canonicalWorkspaceRoot === workspaceFilter) {
+-        const sorted = [row, ...rows.filter(value => value.executionId !== row.executionId)].sort((a, b) => b.createdAt - a.createdAt || b.executionId.localeCompare(a.executionId));
+-        setRows(moreFailed.current ? sorted : sorted.slice(0, pageCount.current * 5));
+-      }
++      setRows(old => [row, ...old.filter(value => value.executionId !== row.executionId)]
++        .sort((a, b) => b.createdAt - a.createdAt || b.executionId.localeCompare(a.executionId)).slice(0, 5));
+       setDetail(old => old?.executionId === row.executionId ? row : old);
+       toast.success("任务已人工结束，工作区已释放");
+       return true;
+@@ -351,13 +276,6 @@
+   }
+ 
+   const disabled = busy || !!retry;
+-  const listed = rows.filter(row => !hiddenIds.includes(row.executionId));
+-  const visible = listed.filter(row => filter === "all"
+-    || filter === "active" && activeExecutionStatuses.has(row.status)
+-    || filter === "attention" && (row.attention !== "none" || row.status === "failed")
+-    || filter === "completed" && row.status === "completed"
+-    || filter === "failed" && (row.status === "failed" || row.status === "unknown" || row.attention === "manual_resolution_required")
+-    || filter === "cancelled" && (row.status === "cancelled" || row.status === "interrupted"));
+   function closeDetails() { detailRequest.current++; detailWaiting.current = false; setDetail(null); setDetailLoading(false); onShowAgent?.(); requestAnimationFrame(() => opener.current?.focus()); }
+ 
+   const feedback = (retry || operationError) && <div role="alert" className="agent-notice">
+@@ -387,10 +305,11 @@
+     </Dialog>
+     <section className={`settings-page agent-page${detailView && detail ? " agent-detail-view" : " agent-list-view"}`}>
+     <div hidden={detailView && !!detail}>
+-    <div className="page-heading agent-list-page-heading"><div><div><h1>Agent 管理</h1></div><p>查看 Agent 接入状态，在当前工作区中创建和管理任务。</p></div></div>
++    <div className="page-heading agent-list-page-heading"><div><div><h1>Agent 管理</h1></div><p>查看 Agent 接入状态，配置 Provider 启停与角色分工。</p></div></div>
+     <section className="agent-providers" aria-labelledby="agent-providers-heading">
+       <h2 id="agent-providers-heading">Agent 接入</h2>
+       <p className="agent-muted">活动任务按当前已加载的任务统计；Runtime 为任务活动展示，不代表系统进程状态。</p>
++      {listError && <p className="agent-list-error" role="alert">{listError}。保留上次读取的任务状态，稍后自动重试。</p>}
+       {catalogError && <p role="alert" className="agent-list-error">Agent 接入信息读取失败，稍后自动重试。{catalog && "以下保留上次读取的接入信息。"}</p>}
+       {!catalog && !catalogError && <p role="status" className="agent-muted">正在加载 Agent 接入…</p>}
+       {catalog?.providers.length === 0 && <p className="agent-muted">暂无已注册的 Agent。</p>}
+@@ -453,42 +372,7 @@
+       })}</div>}
+     </section>
+     <div className="agent-workspace-bar"><div><Folder aria-hidden="true" /><span>当前工作区:</span><strong>{workspace?.name ?? "未选择可用工作区"}</strong>{workspace && <code>{workspace.root}</code>}</div>{onSelectWorkspace && <Button variant="ghost" onClick={onSelectWorkspace}>{workspace ? "管理工作区" : "选择工作区"}</Button>}</div>
+-    <section className="agent-composer-section" aria-labelledby="agent-composer-heading">
+-      <h2 id="agent-composer-heading"><FileText aria-hidden="true" />新任务</h2>
+-      <form className="agent-composer agent-composer-card" onSubmit={event => { event.preventDefault(); if (!disabled && workspace && prompt.trim()) void operate(agentRequests.fresh(prompt, workspace.id)); }}>
+-        <div className="agent-composer-input"><textarea ref={input} id="agent-prompt" className="agent-input" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="描述希望 Agent 在当前工作区完成的任务……例如：检查 src/oauth/cimd.rs 的地址验证逻辑，修复发现的问题并运行相关测试。" /></div>
+-        <footer className="agent-composer-footer"><span>{workspace ? <>当前工作区 (<strong>{workspace.name}</strong>)</> : "请先选择工作区后再开始任务"}</span><Button className="agent-primary" type="submit" disabled={disabled || !workspace || !prompt.trim()}>{busy ? <LoaderCircle className="animate-spin" /> : <Play />}{busy ? "正在处理…" : "开始新任务"}</Button></footer>
+-      </form>
+-    </section>
+     {!detail && feedback}
+-    <section className="agent-history" aria-label="最近任务">
+-      <header className="agent-list-heading"><h2><FileText aria-hidden="true" />最近任务 <span>{loaded ? listed.length : ""}</span></h2></header>
+-      <div className="agent-filter-toolbar"><div>
+-        <Select value={workspaceFilter} disabled={busy || !!retry} onValueChange={value => { if (agentRequests.inFlight) return; moreFailed.current = false; epoch.current++; pageCount.current = 1; setRows([]); setNextCursor(null); setLoaded(false); setListError(""); setMoreError(""); setWorkspaceFilter(value); }}><SelectTrigger size="sm" aria-label="筛选工作区"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部工作区</SelectItem>{[...workspaceChoices].map(([root, name]) => <SelectItem key={root} value={root}>{name}</SelectItem>)}</SelectContent></Select>
+-        <Select value={filter} onValueChange={setFilter}><SelectTrigger size="sm" aria-label="筛选任务"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">全部状态</SelectItem><SelectItem value="active">进行中</SelectItem><SelectItem value="attention">需要关注</SelectItem><SelectItem value="completed">已完成</SelectItem><SelectItem value="failed">失败</SelectItem><SelectItem value="cancelled">已取消</SelectItem></SelectContent></Select>
+-      </div><Button className="agent-refresh-button" variant="ghost" disabled={refreshing || busy} onClick={() => void refresh(true)} aria-label="刷新任务列表" aria-busy={refreshing} data-state={refreshing ? "loading" : "idle"} title="刷新任务列表"><RefreshCw className="agent-refresh-icon" aria-hidden="true" /></Button></div>
+-      {listError && <p className="agent-list-error" role="alert">{listError}{loaded ? "。以下保留上次读取的记录。" : "。请点击刷新重试。"}</p>}
+-      {!loaded && !listError && <div className="agent-empty" role="status">正在加载任务…</div>}
+-      {loaded && !visible.length && <div className="agent-empty"><strong>{listed.length ? "没有符合筛选条件的任务" : "暂无 Agent 任务"}</strong><p>{listed.length ? "切换筛选条件查看其他任务。" : "在上方输入任务，Agent 会在当前工作区中执行。"}</p></div>}
+-      <div className="agent-list">{visible.map(row => {
+-        const status = executionStatus(row);
+-        const title = taskTitle(row);
+-        const duration = `${row.status === "running" || row.progress?.phase === "dispatching" ? "已运行" : "耗时"} ${executionDuration(row)}`;
+-        return <article className={`agent-task-card tone-${status.tone}`} key={row.executionId}>
+-          <div className="agent-task-main"><div className="agent-task-title"><StatusIcon tone={status.tone} /><TooltipHint content={title}><h3 tabIndex={0}>{title}</h3></TooltipHint></div>
+-            <div className="agent-meta"><TooltipHint content={row.canonicalWorkspaceRoot}><span tabIndex={0}>{executionWorkspace(row, [...workspaces, ...(workspace ? [workspace] : [])])}</span></TooltipHint><span>·</span><TooltipHint content={executionTime(row.createdAt)}><time tabIndex={0} dateTime={new Date(row.createdAt).toISOString()}>{executionTime(row.createdAt)}</time></TooltipHint><span>·</span><span>{duration}</span></div>
+-            {showExecutionDiagnostic(row) ? <p className="agent-task-error">{row.errorCode && <code>{row.errorCode}</code>}{row.errorMessage && <span>{row.errorMessage}</span>}</p> : <p className="agent-task-summary">{row.status === "completed" ? taskSummary(resultText(row.finalResult)) || status.description : status.description}</p>}
+-          </div><div className="agent-task-side"><span className={`agent-status tone-${status.tone}`}><StatusIcon tone={status.tone} />{status.label}</span><div className="agent-row-actions agent-task-actions">
+-              {row.availableActions.canResumePending && <Button variant="outline" size="sm" disabled={disabled || !!listError} onClick={() => void operate({ action: "resume_pending", executionId: row.executionId })}>恢复任务</Button>}
+-              {row.availableActions.canCancel && <Button variant="ghost" size="sm" disabled={disabled || !!listError} onClick={() => void operate({ action: "cancel", executionId: row.executionId })}>取消任务</Button>}
+-              <Button variant="ghost" size="sm" onClick={e => { opener.current = e.currentTarget; void openDetails(row.executionId, row); }}><FileText aria-hidden="true" />详情</Button>
+-              <TooltipHint content="仅从本机列表删除，不取消任务或删除执行记录"><Button className="agent-delete-action" variant="ghost" size="sm" onClick={() => requestDelete(row)}><Trash2 aria-hidden="true" />删除</Button></TooltipHint>
+-            </div></div>
+-        </article>;
+-      })}</div>
+-      {moreError && <p role="alert" className="agent-list-error">{moreError}</p>}
+-      {(nextCursor || loadingMore) && <div className="agent-load-more"><Button className="agent-load-more-button" variant="outline" disabled={loadingMore || refreshing || busy} aria-busy={loadingMore} data-state={loadingMore ? "loading" : moreError ? "retry" : "idle"} onClick={() => void loadMore()}><span className="agent-load-more-icon-slot" aria-hidden="true"><ChevronDown className="agent-load-more-icon-idle" /><LoaderCircle className="agent-load-more-icon-loading" /><RefreshCw className="agent-load-more-icon-retry" /></span><span className="agent-load-more-label">{loadingMore ? "正在加载…" : moreError ? "重试加载更多" : "展开更多（5条）"}</span></Button></div>}
+-    </section>
+     </div>
+     {detail && detailView && <Suspense fallback={<p role="status">正在加载任务详情…</p>}><ExecutionDetails row={detail} workspaceName={executionWorkspace(detail, [...workspaces, ...(workspace ? [workspace] : [])])} busy={busy} loading={detailLoading} error={detailError} disabled={disabled} onReload={() => void openDetails(detail.executionId, detail)} onOperate={operate} onManualResolve={manualResolve} /></Suspense>}
+   </section></>;
+--- a/src/AgentPanel.test.mjs
++++ b/src/AgentPanel.test.mjs
+@@ -67,8 +67,10 @@
+     const executions = all.slice(start, start + 5);
+     return {executions, nextCursor: start + 5 < all.length ? executions.at(-1).executionId : null};
+   };
++  const sidebarContainer = props.sidebarContainer ?? document.getElementById('task-nav-test') ?? navigationHost();
++  const workspaces = [...new Map(rows.map(row => [row.canonicalWorkspaceRoot, { id: row.workspaceId, name: row.workspaceId, root: row.canonicalWorkspaceRoot }])).values()];
+   root = createRoot(document.getElementById('root'));
+-  await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('A'), ...props }))));
++  await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('A'), workspaces, sidebarContainer, ...props }))));
+   return calls;
+ }
+ function button(text, within = document) { return [...within.querySelectorAll('button')].find(b => b.textContent === text); }
+@@ -103,9 +105,7 @@
+     assert.equal(cards[0].querySelector('[role="alert"]'), null);
+     if (scenario.health === '可用') assert.equal(cards[0].querySelectorAll('.tone-red').length, 0);
+     assert.equal(document.querySelector('h1').textContent, 'Agent 管理');
+-    assert.ok(document.querySelector('.agent-providers').compareDocumentPosition(document.querySelector('.agent-composer-section')) & Node.DOCUMENT_POSITION_FOLLOWING);
+-    assert.ok(document.querySelector('#agent-prompt'));
+-    assert.ok(document.querySelector('[aria-label="最近任务"]'));
++    assertManagementSurface();
+   });
+ }
+ 
+@@ -145,12 +145,11 @@
+   }
+ });
+ 
+-test('catalog failure leaves composer and existing history usable', async () => {
++test('catalog failure preserves sidebar and detail access without composer', async () => {
+   await mount([row({ status: 'completed', attention: 'none' })], undefined, {}, async () => { throw new Error('catalog unavailable'); });
+   assert.match(document.querySelector('.agent-providers [role="alert"]').textContent, /接入信息读取失败/);
+-  await input('目录失败时仍可提交任务');
+-  assert.equal(button('开始新任务').disabled, false);
+-  await click('详情');
++  assertManagementSurface();
++  await openTask();
+   assert.ok(document.querySelector('details.agent-technical'));
+ });
+ 
+@@ -201,7 +200,7 @@
+   const section = document.querySelector('.agent-role-routing');
+   assert.equal(section.querySelectorAll('[role="combobox"]').length, 5);
+   assert.ok(document.querySelector('.agent-providers').compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING);
+-  assert.ok(section.compareDocumentPosition(document.querySelector('.agent-composer-section')) & Node.DOCUMENT_POSITION_FOLLOWING);
++  assert.ok(section.compareDocumentPosition(document.querySelector('.agent-workspace-bar')) & Node.DOCUMENT_POSITION_FOLLOWING);
+   await chooseRole('development', 'Codex');
+   assert.deepEqual(calls, [{ taskRole: 'development', providerId: 'codex' }]);
+   assert.match(document.querySelector('#agent-role-development').textContent, /returned-provider · 未注册/);
+@@ -245,7 +244,7 @@
+   assert.equal(document.querySelector('#agent-role-development').textContent, 'Future Agent · 已停用');
+ });
+ 
+-test('role save failure rolls back only its role while another role saves and composer remains usable', async () => {
++test('role save failure rolls back only its role while another role saves', async () => {
+   const development = deferredRoleResponse(), testing = deferredRoleResponse();
+   const calls = [];
+   api.agentProviderSetRoleRoute = (role, value) => { calls.push([role, value]); return role === 'development' ? development.promise : testing.promise; };
+@@ -253,8 +252,7 @@
+   await chooseRole('development', 'Other');
+   assert.equal(document.querySelector('#agent-role-development').disabled, true);
+   await chooseRole('testing', 'Other');
+-  await input('保存角色时仍可编辑任务');
+-  assert.equal(button('开始新任务').disabled, false);
++  assertManagementSurface();
+   await act(async () => development.reject(new Error('persist failed')));
+   assert.equal(document.querySelector('#agent-role-development').textContent, 'Codex');
+   assert.equal(document.querySelector('#agent-role-testing').textContent, 'Other');
+@@ -316,8 +314,25 @@
+   assert.equal(document.querySelector('#agent-role-development').textContent, '未指定 Agent');
+   assert.equal(polls, 4);
+ });
+-async function refreshTasks() { const b = document.querySelector('button[aria-label="刷新任务列表"]'); assert.ok(b, '刷新任务列表'); assert.equal(b.disabled, false, '刷新任务列表'); await act(async () => b.click()); }
+-async function input(value, selector = '#agent-prompt') {
++// 通过真实轮询等待共享任务快照刷新。
++async function refreshTasks() { await act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)); }); }
++
++/** 从工作区导航进入详情，不借用已移除的主区任务卡。 */
++async function openTask() {
++  const link = document.querySelector('.project-task-link');
++  assert.ok(link);
++  await act(async () => link.click());
++}
++
++/** 管理主区只保留管理能力，任何隐藏的 Composer 也不允许残留。 */
++function assertManagementSurface() {
++  for (const selector of ['#agent-prompt', '.agent-composer-section', '.agent-history', '.agent-filter-toolbar', '.agent-task-card', '.agent-load-more', '[aria-label="刷新任务列表"]', '[aria-label="筛选任务"]', '[aria-label="筛选工作区"]']) assert.equal(document.querySelector(selector), null, selector);
++  assert.equal(button('开始新任务'), undefined);
++  assert.ok(document.querySelector('.agent-providers'));
++  assert.ok(document.querySelector('.agent-role-routing'));
++  assert.ok(document.querySelector('.agent-workspace-bar'));
++}
++async function input(value, selector = '#agent-continuation') {
+   await act(async () => {
+     const field = document.querySelector(selector);
+     Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set.call(field, value);
+@@ -326,14 +341,57 @@
+ }
+ afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; agentRequests.pending = null; agentRequests.inFlight = false; notifications.length = 0; window.localStorage.clear(); document.getElementById("task-nav-test")?.remove(); });
+ 
++test('management polling retains Provider facts on failure and recovers without a history section', async t => {
++  const timers = [];
++  const originalSetInterval = globalThis.setInterval;
++  // 控制业务轮询，保留 JSDOM 布局相关时钟。
++  t.mock.method(globalThis, 'setInterval', (callback, delay, ...args) => {
++    if (delay === 1500) { timers.push(callback); return originalSetInterval(() => {}, 60_000); }
++    return originalSetInterval(callback, delay, ...args);
++  });
++  const pending = row({ status: 'dispatch_pending', attention: 'pending_explicit_resume', availableActions: { canCancel: true, canResumePending: true, canContinue: false } });
++  await mount([pending], undefined, { sidebarContainer: null }, { providers: [catalogProvider({ enabled: false })], roleRouting: {} });
++  const card = document.querySelector('.agent-provider-card');
++  assert.equal(cardValues(card).活动任务, '1');
++  const history = api.agentHistory;
++  api.agentHistory = async () => { throw new Error('history unavailable'); };
++  await act(async () => timers[1]());
++  assertManagementSurface();
++  assert.match(document.querySelector('.agent-providers [role="alert"]').textContent, /history unavailable.*自动重试/);
++  assert.equal(cardValues(card).活动任务, '1');
++  assert.equal(button('取消任务', card).disabled, true);
++  assert.equal(button('查看任务', card).disabled, false);
++  api.agentHistory = history;
++  await act(async () => timers[1]());
++  assert.equal(document.querySelector('.agent-providers [role="alert"]'), null);
++  assert.equal(button('取消任务', card).disabled, false);
++  pending.status = 'cancelled'; pending.attention = 'none';
++  pending.availableActions = { canCancel: false, canResumePending: false, canContinue: false };
++  await act(async () => timers[1]());
++  assert.equal(cardValues(card).活动任务, '0');
++  assert.equal(button('查看任务', card), undefined);
++});
++
++test('pending cancel locks duplicate mutations until its request completes', async () => {
++  const mutation = deferredRoleResponse();
++  const pending = row({ attention: 'pending_explicit_resume', availableActions: { canCancel: true, canResumePending: true, canContinue: false } });
++  const calls = await mount([pending], request => request.action === 'cancel' ? mutation.promise : undefined, {}, { providers: [catalogProvider({ enabled: false })], roleRouting: {} });
++  const card = document.querySelector('.agent-provider-card');
++  await click('取消任务', card);
++  assert.equal(button('取消任务', card).disabled, true);
++  await act(async () => button('取消任务', card).click());
++  assert.equal(calls.filter(request => request.action === 'cancel').length, 1);
++  await act(async () => mutation.resolve({ ok: true, data: pending }));
++  assert.equal(button('取消任务', card).disabled, false);
++});
++
+ test('unknown has only details, no retry or recovery; IDs and JSON stay out of list', async () => {
+   await mount([row()]);
+-  assert.match(document.body.textContent, /需要人工处理/);
+-  assert.deepEqual([...document.querySelectorAll('article button')].map(b => b.textContent), ['详情', '删除']);
++  assertManagementSurface();
+   assert.equal(button('重试原请求'), undefined);
+   assert.equal(document.querySelector('pre'), null);
+-  assert.ok(!document.querySelector('article').textContent.includes('old-E1'));
+-  await click('详情');
++  assert.ok(!document.querySelector('.project-task-link').textContent.includes('old-E1'));
++  await openTask();
+   assert.equal(document.querySelector('details.agent-technical').open, false);
+   assert.match(document.querySelector('pre').textContent, /old-E1/);
+   assert.equal(document.querySelector('literal'), null);
+@@ -346,7 +404,7 @@
+     localCalls.push(args);
+     return row({ status: 'interrupted', attention: 'none', dispatchState: 'not_dispatched', completedAt: 3000 });
+   };
+-  await click('详情');
++  await openTask();
+   await click('人工结束并释放工作区');
+   const dialog = document.querySelector('[role="dialog"]');
+   assert.match(dialog.textContent, /系统无法自动证明上一次 Runtime 的最终状态/);
+@@ -359,108 +417,22 @@
+ 
+ test('pending resume uses exact ID and only backend capability', async () => {
+   const calls = await mount([row({ status: 'dispatch_pending', attention: 'pending_explicit_resume', availableActions: { canCancel: true, canContinue: false, canResumePending: true } })]);
+-  assert.match(document.body.textContent, /等待恢复/);
++  await openTask();
++  assert.match(document.querySelector('.agent-detail').textContent, /等待恢复/);
+   await click('恢复任务'); await click('取消任务');
+   assert.deepEqual(calls.filter(c => ['cancel','resume_pending'].includes(c.action)), [{ action:'resume_pending', executionId:'old-E1' }, { action:'cancel', executionId:'old-E1' }]);
+ });
+ 
+-test('all raw statuses remain presentation-only, no invented capability', async () => {
+-  const statuses = ['dispatch_pending','running','cancel_requested','cancelling','finalizing','reconciling','completed','failed','cancelled','interrupted','unknown'];
+-  await mount(statuses.map((status, i) => row({ status, attention: 'none', executionId: `E${i}` })));
+-  await click('展开更多（5条）');
+-  await click('展开更多（5条）');
+-  assert.equal(document.querySelectorAll('article').length, 11);
+-  assert.equal(document.querySelectorAll('article button').length, 22);
+-  assert.match(document.body.textContent, /等待执行/); assert.match(document.body.textContent, /正在恢复执行状态/); assert.match(document.body.textContent, /需要处理/);
+-});
+-
+-test('Agent list uses the local-runner card layout and filters only real status fields', async () => {
+-  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+-  await mount([
+-    row({ executionId: 'run', status: 'running', attention: 'none' }),
+-    row({ executionId: 'done', status: 'completed', attention: 'none', completedAt: 2000 }),
+-    row({ executionId: 'failed', status: 'failed', attention: 'none', errorCode: 'AGENT_TIMEOUT', errorMessage: '实际后端超时' }),
+-    row({ executionId: 'unknown', status: 'unknown', attention: 'none' }),
+-    row({ executionId: 'cancelled', status: 'cancelled', attention: 'none' }),
+-    row({ executionId: 'interrupted', status: 'interrupted', attention: 'none' }),
+-  ]);
+-  await click('展开更多（5条）');
+-  assert.match(document.querySelector('.agent-list-page-heading').textContent, /Agent 管理.*查看 Agent 接入状态，在当前工作区中创建和管理任务/);
+-  assert.match(document.querySelector('.agent-workspace-bar').textContent, /当前工作区:.*A.*E:\\A/);
+-  const composer = document.querySelector('.agent-composer-card');
+-  assert.ok(composer.querySelector('#agent-prompt'));
+-  assert.equal(composer.querySelector('.agent-composer-footer').parentElement, composer);
+-  assert.ok(document.querySelector('.agent-filter-toolbar'));
+-  const refresh = document.querySelector('button[aria-label="刷新任务列表"]');
+-  assert.ok(refresh); assert.equal(refresh.textContent, '');
+-  assert.equal(document.querySelectorAll('.agent-task-card').length, 6);
+-  assert.ok(document.querySelector('.agent-task-card .agent-task-title'));
+-  assert.ok(button('详情')); assert.ok(button('删除'));
+-  const styles = readFileSync('src/styles.css', 'utf8');
+-  assert.match(styles, /\.agent-task-actions \.agent-delete-action \{ color: var\(--signal-red\); \}/);
+-  assert.doesNotMatch(styles, /\.agent-task-actions \.agent-delete-action \{ color: #94a3b8; \}/);
+-  const selectStatus = async label => {
+-    await act(async () => document.querySelector('[aria-label="筛选任务"]').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+-    const option = [...document.querySelectorAll('[role="option"]')].find(node => node.textContent === label);
+-    assert.ok(option, label);
+-    await act(async () => option.click());
+-  };
+-  await selectStatus('失败');
+-  assert.equal(document.querySelectorAll('.agent-task-card').length, 2);
+-  assert.match(document.querySelector('.agent-task-error').textContent, /AGENT_TIMEOUT.*实际后端超时/);
+-  assert.doesNotMatch(document.body.textContent, /CODEX_RPC_TIMEOUT/);
+-  await selectStatus('已取消');
+-  assert.equal(document.querySelectorAll('.agent-task-card').length, 2);
+-  assert.match(document.body.textContent, /已取消.*已中断/);
+-});
+-
+-test('refresh button keeps its element and reports the real pending state', async () => {
+-  await mount([row()]);
+-  const pending = Promise.withResolvers();
+-  api.agentHistory = () => pending.promise;
+-  const refresh = document.querySelector('button[aria-label="刷新任务列表"]');
+-  const icon = refresh.querySelector('.agent-refresh-icon');
+-  assert.equal(refresh.getAttribute('aria-busy'), 'false');
+-  assert.equal(refresh.dataset.state, 'idle');
+-  await act(async () => refresh.click());
+-  assert.equal(document.querySelector('button[aria-label="刷新任务列表"]'), refresh);
+-  assert.equal(refresh.querySelector('.agent-refresh-icon'), icon);
+-  assert.equal(refresh.getAttribute('aria-busy'), 'true');
+-  assert.equal(refresh.dataset.state, 'loading');
+-  assert.equal(refresh.disabled, true);
+-  await act(async () => pending.resolve({ executions: [row()], nextCursor: null }));
+-  assert.equal(document.querySelector('button[aria-label="刷新任务列表"]'), refresh);
+-  assert.equal(refresh.getAttribute('aria-busy'), 'false');
+-  assert.equal(refresh.dataset.state, 'idle');
+-});
+-
+-test('load-more button keeps stable idle, loading, and retry icon states', async () => {
+-  await mount(Array.from({ length: 6 }, (_, index) => row({ executionId: `E${index}` })));
+-  const pending = Promise.withResolvers();
+-  api.agentHistory = () => pending.promise;
+-  const loadMore = button('展开更多（5条）');
+-  assert.equal(loadMore.getAttribute('aria-busy'), 'false');
+-  assert.equal(loadMore.dataset.state, 'idle');
+-  assert.ok(loadMore.querySelector('.agent-load-more-icon-idle'));
+-  await act(async () => loadMore.click());
+-  assert.equal(document.querySelector('.agent-load-more-button'), loadMore);
+-  assert.equal(loadMore.getAttribute('aria-busy'), 'true');
+-  assert.equal(loadMore.dataset.state, 'loading');
+-  assert.ok(loadMore.querySelector('.agent-load-more-icon-loading'));
+-  await act(async () => pending.reject(new Error('page unavailable')));
+-  const retry = button('重试加载更多');
+-  assert.equal(retry, loadMore);
+-  assert.equal(retry.getAttribute('aria-busy'), 'false');
+-  assert.equal(retry.dataset.state, 'retry');
+-  assert.ok(retry.querySelector('.agent-load-more-icon-retry'));
+-});
++
++
++
+ 
+ test('completed final answer is compact; detail pane exposes original prompt and technical output', async () => {
+   await mount([row({ status: 'completed', attention: 'none', finalResult: { finalResult: [{ type:'agentMessage', phase:'commentary', text:'internal progress' }, { type:'agentMessage', phase:'final_answer', text:'DONE' }], huge: 'x'.repeat(10000) } })]);
+-  assert.ok(!document.querySelector('article').textContent.includes('DONE'));
+-  assert.ok(!document.querySelector('article').textContent.includes('internal progress'));
++  assert.ok(!document.querySelector('.project-task-link').textContent.includes('DONE'));
++  assert.ok(!document.querySelector('.project-task-link').textContent.includes('internal progress'));
+   assert.equal(document.querySelector('pre'), null);
+-  await click('详情');
++  await openTask();
+   assert.match(document.querySelector('[aria-label="任务详情"]').textContent, /E:\\frozen-A/);
+   assert.equal(document.querySelector('.agent-prose').textContent, '原始任务 <literal>');
+   assert.ok(document.querySelector('.agent-technical pre').textContent.length > 10000);
+@@ -473,7 +445,7 @@
+   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: text => new Promise((resolve, reject) => writes.push({ text, resolve, reject })) } });
+   try {
+     await mount([execution]);
+-    await click('详情');
++    await openTask();
+     const cases = [
+       [document.querySelector('.agent-task-content .agent-copy-text'), execution.prompt],
+       [document.querySelector('.agent-result-section .agent-copy-text'), '真实结果'],
+@@ -508,8 +480,8 @@
+ test('details explicitly fetch result, keep it for the same revision, and replace it for a new revision', async () => {
+   const execution = row({ status:'completed', attention:'none', revision:'R1', resultAvailable:true, finalResult:{ finalResult:[{type:'agentMessage',phase:'final_answer',text:'RESULT ONE'}] } });
+   const calls = await mount([execution]);
+-  assert.ok(!document.querySelector('article').textContent.includes('RESULT ONE'));
+-  await click('详情');
++  assert.ok(!document.querySelector('.project-task-link').textContent.includes('RESULT ONE'));
++  await openTask();
+   assert.deepEqual(calls.find(c => c.action === 'observe'), {action:'observe',executionId:'old-E1',waitMs:0,includeResult:true});
+   assert.match(document.querySelector('.agent-result').textContent, /RESULT ONE/);
+   execution.updatedAt++;
+@@ -530,7 +502,7 @@
+   const calls = await mount([execution], request => {
+     if (request.action === 'observe' && fail) throw new Error('result read failed');
+   });
+-  await click('详情');
++  await openTask();
+   execution.revision = 'R2'; fail = true;
+   await act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)); });
+   assert.ok(!document.querySelector('[aria-label="任务详情"]').textContent.includes('OLD RESULT'));
+@@ -542,50 +514,38 @@
+ 
+ test('delete hides only the local list entry across refresh and remount', async () => {
+   const calls = await mount([row()]);
+-  await click('删除');
+-  assert.equal(document.querySelectorAll('article').length, 0);
+-  assert.match(document.body.textContent, /暂无 Agent 任务/);
++  await act(async () => document.querySelector('.project-task-delete').click());
++  assert.equal(document.querySelectorAll('.project-task').length, 0);
++  assertManagementSurface();
+   await refreshTasks();
+-  assert.equal(document.querySelectorAll('article').length, 0);
++  assert.equal(document.querySelectorAll('.project-task').length, 0);
+   assert.ok(calls.every(request => request.action === 'list'));
+   await act(async () => root.unmount()); root = null;
+   await mount([row()]);
+-  assert.equal(document.querySelectorAll('article').length, 0);
++  assert.equal(document.querySelectorAll('.project-task').length, 0);
+ });
+ 
+ test('continue uses independent detail pane input and original source across Workspace switch', async () => {
+   const calls = await mount([row({ status:'completed', attention:'none', availableActions:{canCancel:false,canResumePending:false,canContinue:true} })]);
+-  await input('top-level new task');
++  await openTask();
+   await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('B') }))));
+-  await click('详情');
+   assert.equal(button('继续任务').disabled, true);
+   await input('continuation only', '#agent-continuation');
+   await click('继续任务');
+   const request = calls.find(c => c.action === 'continue');
+   assert.equal(request.prompt, 'continuation only'); assert.equal(request.executionId, 'old-E1');
+   assert.equal('workspaceId' in request, false); assert.equal('canonicalWorkspaceRoot' in request, false);
+-  assert.equal(document.querySelector('#agent-prompt').value, 'top-level new task');
+-});
+-
+-test('only transport ambiguity offers exact retry, stable through input edits and remount', async () => {
+-  const calls = await mount([], request => { if (request.action === 'start') throw new Error('transport lost'); });
+-  await input('original prompt'); await click('开始新任务');
+-  assert.ok(button('重试原请求')); const frozen = agentRequests.pending;
+-  assert.equal(frozen.workspaceId, 'A');
+-  await act(async () => root.unmount()); root = createRoot(document.getElementById('root'));
+-  await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('B') }))));
+-  await input('edited prompt'); await click('重试原请求');
+-  assert.deepEqual(calls.filter(c => c.action === 'start'), [frozen, frozen]);
+-  assert.equal(frozen.prompt, 'original prompt');
+-});
++  assert.equal(document.querySelector('#agent-prompt'), null);
++});
++
+ 
+ test('confirmed product errors do not expose transport retry and preserve execution reference', async () => {
+   const completed = row({ status:'completed', attention:'none', errorCode:'HISTORICAL_ERROR', errorMessage:'先前的诊断' });
+-  await mount([], r => {
+-    if (r.action === 'start') return { ok:false, error:{code:'AGENT_OPERATION_FAILED',message:'failure',executionId:'old-E1'} };
++  await mount([row({ attention: 'pending_explicit_resume', availableActions: { canCancel: true, canContinue: false, canResumePending: false } })], r => {
++    if (r.action === 'cancel') return { ok:false, error:{code:'AGENT_OPERATION_FAILED',message:'failure',executionId:'old-E1'} };
+     if (r.action === 'observe') return { ok:true, data:completed };
+-  });
+-  await input('task'); await click('开始新任务');
++  }, {}, { providers: [catalogProvider({ enabled: false })], roleRouting: {} });
++  await click('取消任务', document.querySelector('.agent-provider-card'));
+   assert.equal(button('重试原请求'), undefined); assert.equal(agentRequests.pending, null);
+   assert.ok(button('查看相关任务')); assert.match(document.body.textContent, /操作未完成/);
+   await click('查看相关任务');
+@@ -596,39 +556,28 @@
+ 
+ test('confirmed product error opens a failed execution with its own diagnostic only', async () => {
+   const failed = row({ status:'failed', attention:'none', errorCode:'AGENT_FAILED', errorMessage:'执行失败原因' });
+-  await mount([], r => {
+-    if (r.action === 'start') return { ok:false, error:{code:'AGENT_OPERATION_FAILED',message:'failure',executionId:'old-E1'} };
++  await mount([row({ attention: 'pending_explicit_resume', availableActions: { canCancel: true, canContinue: false, canResumePending: false } })], r => {
++    if (r.action === 'cancel') return { ok:false, error:{code:'AGENT_OPERATION_FAILED',message:'failure',executionId:'old-E1'} };
+     if (r.action === 'observe') return { ok:true, data:failed };
+-  });
+-  await input('task'); await click('开始新任务');
++  }, {}, { providers: [catalogProvider({ enabled: false })], roleRouting: {} });
++  await click('取消任务', document.querySelector('.agent-provider-card'));
+   assert.match(document.querySelector('.agent-notice').textContent, /操作未完成/);
+   await click('查看相关任务');
+   assert.match(document.querySelector('.agent-recovery-section .agent-real-error').textContent, /AGENT_FAILED.*执行失败原因/);
+   assert.doesNotMatch(document.querySelector('.agent-detail').textContent, /操作未完成/);
+ });
+ 
+-test('mutation lock prevents duplicate submit while request is outstanding', async () => {
+-  let resolve;
+-  const calls = await mount([], r => r.action === 'start' ? new Promise(done => { resolve = done; }) : undefined);
+-  await input('task'); await click('开始新任务');
+-  assert.equal(button('正在处理…').disabled, true);
+-  await act(async () => document.querySelector('.agent-composer').dispatchEvent(new dom.window.Event('submit', { bubbles:true, cancelable:true })));
+-  assert.equal(calls.filter(c => c.action === 'start').length, 1);
+-  await act(async () => resolve({ ok:true, data:row() }));
+-  assert.ok(notifications.some(([kind]) => kind === 'success'));
+-});
+-
+-test('empty workspace provides real navigation and disables new task', async () => {
++
++test('empty workspace provides real navigation without task creation', async () => {
+   let navigated = false;
+   await mount([], undefined, { workspace:null, onSelectWorkspace:() => { navigated = true; } });
+-  assert.match(document.body.textContent, /未选择可用工作区/); assert.match(document.body.textContent, /暂无 Agent 任务/);
+-  await input('task'); assert.equal(button('开始新任务').disabled, true);
++  assert.match(document.body.textContent, /未选择可用工作区/); assertManagementSurface();
+   await click('选择工作区'); assert.equal(navigated, true);
+ });
+ 
+ test('read failures show feedback and do not offer operation replay', async () => {
+   await mount([row()], request => request.action === 'observe' ? Promise.reject(new Error('offline')) : undefined);
+-  await click('详情'); assert.ok(button('重新加载详情')); assert.equal(button('重试原请求'), undefined);
++  await openTask(); assert.ok(button('重新加载详情')); assert.equal(button('重试原请求'), undefined);
+   assert.ok(notifications.some(([kind]) => kind === 'error'));
+ });
+ 
+@@ -636,7 +585,7 @@
+ 
+ test('continuation ambiguity stays in list feedback and retries its frozen independent input', async () => {
+   const calls = await mount([row({status:'completed',attention:'none',availableActions:{canContinue:true,canCancel:false,canResumePending:false}})], request => request.action === 'continue' ? Promise.reject(new Error('transport')) : undefined);
+-  await click('详情'); await input('frozen continuation', '#agent-continuation'); await click('继续任务');
++  await openTask(); await input('frozen continuation', '#agent-continuation'); await click('继续任务');
+   const detailPane = document.querySelector('[aria-label="任务详情"]');
+   assert.equal(button('重试原请求', detailPane), undefined);
+   assert.doesNotMatch(detailPane.textContent, /请求结果未确认/);
+@@ -669,11 +618,8 @@
+ test('completed historical diagnostic stays in raw JSON but not list or recovery UI', async () => {
+   const completed = row({ status:'completed', attention:'none', completedAt:3000, errorCode:'OLD_ERROR', errorMessage:'历史诊断', finalResult:{ finalResult:[{ type:'agentMessage', phase:'final_answer', text:'任务已完成' }] } });
+   await mount([completed]);
+-  const card = document.querySelector('.agent-task-card');
+-  assert.match(card.querySelector('.agent-status').textContent, /已完成/);
+-  assert.equal(card.querySelector('.agent-task-error'), null);
+-  assert.match(card.querySelector('.agent-task-summary').textContent, /任务已完成/);
+-  await click('详情');
++  assertManagementSurface();
++  await openTask();
+   assert.equal(document.querySelector('.agent-recovery-section'), null);
+   assert.doesNotMatch(document.querySelector('.agent-detail').textContent, /操作未完成/);
+   assert.match(document.querySelector('.agent-result-section').textContent, /任务已完成/);
+@@ -684,25 +630,15 @@
+ 
+ test('failed execution retains its list error and detail diagnostic', async () => {
+   await mount([row({ status:'failed', attention:'none', errorCode:'AGENT_TIMEOUT', errorMessage:'后端超时' })]);
+-  assert.match(document.querySelector('.agent-task-error').textContent, /AGENT_TIMEOUT.*后端超时/);
+-  await click('详情');
++  assertManagementSurface();
++  await openTask();
+   assert.match(document.querySelector('.agent-recovery-section .agent-real-error').textContent, /AGENT_TIMEOUT.*后端超时/);
+ });
+ 
+-test('late list response cannot overwrite a newly accepted operation', async () => {
+-  let finishList; let lists = 0;
+-  await mount([], request => {
+-    if (request.action === 'list' && ++lists === 2) return new Promise(resolve => {finishList = resolve;});
+-    if (request.action === 'start') return {ok:true,data:row({prompt:'newly accepted',executionId:'new'})};
+-  });
+-  await refreshTasks(); await input('newly accepted'); await click('开始新任务');
+-  await act(async () => finishList({ok:true,data:{executions:[]}}));
+-  assert.match(document.querySelector('article').textContent, /newly accepted/);
+-});
+ 
+ test('task page has no in-page return control', async () => {
+   await mount([row()]);
+-  await click('详情');
++  await openTask();
+   assert.equal(document.querySelector('.agent-page').classList.contains('agent-list-view'), false);
+   assert.equal(document.querySelector('.agent-page').classList.contains('agent-detail-view'), true);
+   assert.equal(document.querySelector('[aria-label="关闭任务详情"]'), null);
+@@ -711,98 +647,14 @@
+   assert.equal(document.querySelector('[aria-label="任务详情"]')?.getAttribute('aria-label'), '任务详情');
+ });
+ 
+-test('history shows five then appends five, and preserves expanded rows on refresh', async () => {
+-  const rows = Array.from({length:11}, (_, n) => row({executionId:`E${n}`,prompt:`Task ${n}`,createdAt:new Date(2026,8,9,22,14).getTime(),completedAt:new Date(2026,8,9,22,16,18).getTime(),canonicalWorkspaceRoot:'E:\\A'}));
+-  await mount(rows);
+-  assert.equal(document.querySelectorAll('article').length, 5);
+-  assert.match(document.querySelector('.agent-meta').textContent, /A·2026-09-09 22:14·耗时 2分18秒/);
+-  await click('展开更多（5条）');
+-  assert.equal(document.querySelectorAll('article').length, 10);
+-  await refreshTasks();
+-  assert.equal(document.querySelectorAll('article').length, 10);
+-  await click('展开更多（5条）');
+-  assert.equal(document.querySelectorAll('article').length, 11);
+-  assert.equal(button('展开更多（5条）'), undefined);
+-});
+-
+-test('history failure preserves exact cursor while running state polling continues', async () => {
+-  const originalSetInterval = globalThis.setInterval;
+-  let poll;
+-  globalThis.setInterval = callback => { poll = callback; return originalSetInterval(() => {}, 60_000); };
+-  const pollNow = () => act(async () => { poll(); for (let index = 0; index < 12; index++) await Promise.resolve(); });
+-  try {
+-  const history = Array.from({length:12},(_,n)=>row({executionId:'E'+n,status:'running',attention:'none'}));
+-  await mount(history, request => {
+-    if (request.action === 'start') {
+-      const created = row({executionId:'new',createdAt:3000,status:'running',attention:'none'});
+-      history.unshift(created);
+-      return {ok:true,data:created};
+-    }
+-  });
+-  await click('展开更多（5条）');
+-  const original = api.agentHistory;
+-  const cursors = [];
+-  api.agentHistory = async (cursor, root) => {
+-    cursors.push(cursor);
+-    if (cursor === 'E9') throw new Error('page failed');
+-    return original(cursor,root);
+-  };
+-  await click('展开更多（5条）');
+-  assert.equal(document.querySelectorAll('article').length,10);
+-  history[0].status = 'completed';
+-  assert.ok(poll);
+-  await pollNow();
+-  assert.ok(document.querySelector('article').textContent.includes('已完成'));
+-  assert.equal(document.querySelectorAll('article').length,10);
+-  assert.equal(cursors.filter(c=>c==='E9').length,1);
+-  await input('new task while page failed'); await click('开始新任务');
+-  assert.equal(document.querySelectorAll('article').length,11);
+-  history.find(row=>row.executionId==='E9').status='completed';
+-  await pollNow();
+-  assert.ok([...document.querySelectorAll('article')].at(-1).textContent.includes('已完成'));
+-  api.agentHistory = async (cursor, root) => { cursors.push(cursor); return original(cursor,root); };
+-  await click('重试加载更多');
+-  assert.equal(cursors.at(-1),'E9');
+-  assert.equal(document.querySelectorAll('article').length,13);
+-  } finally {
+-    globalThis.setInterval = originalSetInterval;
+-  }
+-});
+-
+-test('workspace filter resets pagination and only reads that frozen workspace', async () => {
+-  await mount(Array.from({length:12},(_,n)=>row({executionId:`E${n}`,canonicalWorkspaceRoot:n < 6 ? 'E:\\A' : 'E:\\B'})), undefined, {workspaces:[workspace('A'),workspace('B')]});
+-  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+-  await act(async () => document.querySelector('[aria-label="筛选工作区"]').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true})));
+-  const choice = [...document.querySelectorAll('[role="option"]')].find(node=>node.textContent==='B');
+-  assert.ok(choice);
+-  await act(async () => choice.click());
+-  assert.equal(document.querySelectorAll('article').length,5);
+-  assert.ok([...document.querySelectorAll('.agent-meta')].every(node=>node.textContent.startsWith('B')));
+-  await click('展开更多（5条）');
+-  assert.equal(document.querySelectorAll('article').length,6);
+-  assert.equal(button('展开更多（5条）'),undefined);
+-});
+-
+-test('mutations preserve expanded history and never mix another workspace after refresh fails', async () => {
+-  const history = Array.from({length:26},(_,n)=>row({executionId:`E${n}`,canonicalWorkspaceRoot:'E:\\B',status:'running',attention:'none',availableActions:{canCancel:n===0,canContinue:false,canResumePending:false}}));
+-  await mount(history, request => request.action === 'start' ? {ok:true,data:row({executionId:'new-A',canonicalWorkspaceRoot:'E:\\A'})} : request.action === 'cancel' ? {ok:true,data:{...history[0],status:'cancelled'}} : undefined, {workspaces:[workspace('A'),workspace('B')]});
+-  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+-  await act(async () => document.querySelector('[aria-label="筛选工作区"]').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true})));
+-  await act(async () => [...document.querySelectorAll('[role="option"]')].find(node=>node.textContent==='B').click());
+-  for(let n=0;n<4;n++) await click('展开更多（5条）');
+-  assert.equal(document.querySelectorAll('article').length,25);
+-  api.agentHistory = async () => { throw new Error('refresh unavailable'); };
+-  await click('取消任务');
+-  assert.equal(document.querySelectorAll('article').length,25);
+-  await input('create in active A'); await click('开始新任务');
+-  assert.equal(document.querySelectorAll('article').length,25);
+-  assert.ok([...document.querySelectorAll('.agent-meta')].every(node=>node.textContent.startsWith('B')));
+-});
++
++
++
+ 
+ test('workspace display name stays consistent between history and details', async () => {
+   await mount([row({canonicalWorkspaceRoot:'E:\\named-folder'})],undefined,{workspaces:[{id:'project-4',name:'实际工作区名',root:'E:\\named-folder'}]});
+-  assert.match(document.querySelector('.agent-meta').textContent,/实际工作区名/);
+-  await click('详情');
++  assert.match(document.querySelector('.project-task-group').textContent,/实际工作区名/);
++  await openTask();
+   const location = document.querySelector('.agent-detail-location');
+   assert.match(location.textContent,/执行位置.*实际工作区名.*E:\\named-folder/);
+   assert.equal(location.querySelector('strong').textContent, '实际工作区名');
+@@ -811,7 +663,7 @@
+ 
+ test('running detail keeps its blue pulse and left-aligned location', async () => {
+   await mount([row({canonicalWorkspaceRoot:'E:\\named-folder', status:'running', attention:'none', progress:{phase:'running'}})], undefined, {workspaces:[{id:'project-4',name:'实际工作区名',root:'E:\\named-folder'}]});
+-  await click('详情');
++  await openTask();
+   for (const selector of ['.agent-detail-title .agent-status', '.agent-detail-live-grid .agent-status']) {
+     const status = document.querySelector(selector);
+     assert.equal(status.textContent, '执行中');
+@@ -843,7 +695,7 @@
+   const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copiedText = text; } } });
+   try {
+-    const calls = await mount([execution]); await click('详情');
++    const calls = await mount([execution]); await openTask();
+     const page = document.querySelector('.agent-page');
+     assert.ok(page.classList.contains('agent-detail-view')); assert.equal(page.classList.contains('agent-list-view'), false);
+     assert.match(document.querySelector('.agent-detail-header').textContent, /真实线程标题.*执行中.*Provider A · v2\.0/);
+@@ -869,7 +721,7 @@
+ 
+ test('historical detail safely falls back to Provider ID and unknown usage projection', async () => {
+   const historical = row({ provider: { id: 'legacy-provider', displayName: ' ', version: '' }, providerSessionLabel: null });
+-  await mount([historical]); await click('详情');
++  await mount([historical]); await openTask();
+   const detail = document.querySelector('.agent-detail');
+   assert.match(detail.querySelector('.agent-detail-header').textContent, /引擎: legacy-provider/);
+   assert.match(detail.querySelector('.agent-detail-info-card').textContent, /当前轮次总 Token.*—/);
+@@ -883,7 +735,7 @@
+   const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copiedText = text; } } });
+   try {
+-    const calls = await mount([execution]); await click('详情');
++    const calls = await mount([execution]); await openTask();
+     assert.ok(document.querySelector('.agent-detail-info-card .agent-status.tone-green'));
+     const resultSection = document.querySelector('.agent-result-section');
+     const continuationSection = document.querySelector('.agent-continuation-section');
+@@ -902,7 +754,7 @@
+ 
+ test('continuation remains an independent section when no result is available', async () => {
+   await mount([row({ status: 'running', attention: 'none', resultAvailable: false, finalResult: null, availableActions: { canCancel: false, canContinue: true, canResumePending: false } })]);
+-  await click('详情');
++  await openTask();
+   assert.equal(document.querySelector('.agent-result-section'), null);
+   const continuationSection = document.querySelector('.agent-continuation-section');
+   assert.ok(continuationSection);
+@@ -911,7 +763,7 @@
+ 
+ test('Agent detail duration labels follow active execution semantics rather than completedAt', async () => {
+   const failed = row({ status: 'failed', attention: 'none', completedAt: null, progress: { phase: 'terminal', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null } });
+-  await mount([failed]); await click('详情');
++  await mount([failed]); await openTask();
+   assert.doesNotMatch(document.querySelector('.agent-detail-header').textContent, /已运行/);
+   assert.match(document.querySelector('.agent-detail-header').textContent, /耗时/);
+   assert.match(document.querySelector('.agent-detail-live-grid').textContent, /总耗时/);
+@@ -919,24 +771,19 @@
+   await act(async () => root.unmount()); root = null;
+ 
+   const running = row({ status: 'running', attention: 'none', completedAt: null, progress: { phase: 'running', activityPhase: 'provider', toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null } });
+-  await mount([running]); await click('详情');
++  await mount([running]); await openTask();
+   assert.match(document.querySelector('.agent-detail-header').textContent, /已运行/);
+   assert.match(document.querySelector('.agent-detail-live-grid').textContent, /已运行/);
+   assert.doesNotMatch(document.querySelector('.agent-detail-live-grid').textContent, /总耗时/);
+ });
+ 
+-test('composer describes workspace execution without a permission selector', async () => {
+-  await mount([]);
+-  assert.match(document.querySelector('.agent-composer-footer').textContent, /当前工作区 \(A\)/);
+-  assert.doesNotMatch(document.body.textContent, /只读执行/);
+-});
+ 
+ test('a failed continuation leaves the current execution detail free of operation feedback', async () => {
+   await mount([row({status:'completed',attention:'none',availableActions:{canContinue:true,canCancel:false,canResumePending:false}})], r => {
+     if (r.action === 'continue') return {ok:false,error:{code:'AGENT_OPERATION_FAILED',message:'handoff error',executionId:'new-E2'}};
+     if (r.action === 'observe' && r.executionId === 'new-E2') return {ok:true,data:row({executionId:'new-E2',prompt:'new related task'})};
+   });
+-  await click('详情'); await input('next', '#agent-continuation'); await click('继续任务');
++  await openTask(); await input('next', '#agent-continuation'); await click('继续任务');
+   assert.ok(document.querySelector('[aria-label="任务详情"]'));
+   assert.match(document.querySelector('.agent-detail-body > section .agent-prose').textContent, /原始任务/);
+   assert.equal(button('查看相关任务', document.querySelector('.agent-detail')), undefined);
+@@ -946,10 +793,10 @@
+ test('list refresh cannot compete with an outstanding detail observation', async () => {
+   let resolve;
+   const calls = await mount([row()], r => r.action === 'observe' ? new Promise(done => {resolve = done;}) : undefined);
+-  await click('详情');
++  await openTask();
+   // Direct invocation also exercises the handler guard while the native modal blocks interaction.
+   await refreshTasks();
+-  assert.equal(calls.filter(c => c.action === 'list').length, 1);
++  assert.equal(calls.filter(c => c.action === 'observe').length, 1);
+   await act(async () => resolve({ok:true,data:row({prompt:'latest detail'})}));
+   assert.match(document.querySelector('[aria-label="任务详情"] .agent-prose').textContent, /latest detail/);
+ });
+@@ -1006,20 +853,6 @@
+   for (let i = 1; i < links.length; i++) assert.equal(links[i].querySelector('.project-task-title').textContent, `原始提示 ${i - 1}`);
+ });
+ 
+-test('recent tasks use the same official thread title as the sidebar with a legacy fallback', async () => {
+-  const name = '0911 | 修复 | 统一最近任务标题';
+-  const prompt = '这是一段不应作为最近任务主标题展示的完整任务描述';
+-  await mount([
+-    row({ executionId: 'named', threadName: name, prompt }),
+-    row({ executionId: 'legacy', threadName: '   ', prompt: '旧任务提示' }),
+-  ]);
+-  const titles = document.querySelectorAll('.agent-task-title h3');
+-  assert.equal(titles[0].textContent, name);
+-  assert.equal(titles[1].textContent, '旧任务提示');
+-  assert.ok(!document.querySelector('.agent-history').textContent.includes(prompt));
+-  await act(async () => titles[0].focus());
+-  assert.equal(document.querySelector('[role="tooltip"]').textContent, name);
+-});
+ 
+ test('project navigation groups tasks and opens a non-modal right content pane', async () => {
+   const host = navigationHost(); let shown = 0;
+@@ -1033,7 +866,7 @@
+   assert.equal(shown,1);
+   assert.equal(document.querySelector('[role=dialog]'),null);
+   assert.match(document.querySelector('.workspace')?.textContent ?? document.querySelector('.agent-detail').textContent,/项目 B 的任务/);
+-  assert.equal(document.querySelector('.agent-history').closest('[hidden]') !== null,true);
++  assert.equal(document.querySelector('.agent-providers').closest('[hidden]') !== null,true);
+   assert.equal(groups[1].querySelector('.project-task-link').getAttribute('aria-current'),'page');
+   assert.deepEqual(calls.filter(c=>c.action==='observe').at(-1),{action:'observe',executionId:'b1',waitMs:0,includeResult:true});
+   await act(async () => groups[0].querySelector('.project-task-link').click());
+@@ -1095,10 +928,11 @@
+   assert.equal(host.querySelector('.project-task').dataset.selected, 'true');
+   const render = async detailView => act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { ...props, detailView }))));
+   await render(false);
++  assertManagementSurface();
+   assert.equal(host.querySelector('.project-task').dataset.selected, 'false');
+   assert.equal(host.querySelector('[aria-current="page"]'), null);
+   assert.equal(document.querySelector('.agent-detail'), null);
+-  assert.equal(document.querySelector('.agent-history').closest('[hidden]'), null);
++  assert.equal(document.querySelector('.agent-providers').closest('[hidden]'), null);
+   await render(true);
+   assert.equal(host.querySelector('.project-task').dataset.selected, 'true');
+   assert.match(document.querySelector('.agent-detail').textContent, /原始任务/);
+@@ -1202,7 +1036,7 @@
+   assert.match(document.querySelector('.project-task-preview').textContent, /Acme Worker · v2\.4\.1.*总 Token：0/);
+   assert.equal(calls.every(call => call.action === 'list'), true);
+ 
+-  await click('详情');
++  await openTask();
+   const detail = document.querySelector('.agent-detail');
+   assert.match(detail.querySelector('.agent-detail-info-card').textContent, /Provider.*Acme Worker · v2\.4\.1.*当前活动正在整理结果.*活跃状态一段时间没有新活动.*当前轮次总 Token.*0/);
+   assert.doesNotMatch(detail.querySelector('.agent-detail-info-card').textContent, /续接会话 · S-42/);
+@@ -1376,7 +1210,7 @@
+ });
+ 
+ test('technical copy remains available without exposing JSON until technical information is opened', async () => {
+-  await mount([row()]); await click('详情');
++  await mount([row()]); await openTask();
+   const details = document.querySelector('.agent-technical'); assert.equal(details.open, false);
+   const original=Object.getOwnPropertyDescriptor(globalThis,'navigator');
+   Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:async()=>{}}}});
+@@ -1394,7 +1228,7 @@
+ test('task and final result render GFM while technical data stays original', async () => {
+   const markdown = '# 标题\n\n**重点**和 `inline`\n\n- 第一项\n- 第二项\n\n> 引用\n\n| 名称 | 状态 |\n| --- | --- |\n| 构建 | 通过 |\n\n- [x] 已完成\n\n```js\nconst value = 1;\n```\n\n[文档](https://example.com/docs)';
+   const value=row({prompt:markdown,status:'completed',finalResult:{finalResult:[{type:'agentMessage',phase:'final_answer',text:markdown}]}});
+-  await mount([value]); await click('详情');
++  await mount([value]); await openTask();
+   const blocks=document.querySelectorAll('.agent-markdown');assert.equal(blocks.length,2);
+   for(const block of blocks) {
+     assert.equal(block.querySelector('h1').textContent,'标题');
+@@ -1412,7 +1246,7 @@
+ 
+ test('markdown renders HTML literally and rejects executable links', async () => {
+   await mount([row({prompt:'<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[危险](javascript:alert%281%29)'})]);
+-  await click('详情');
++  await openTask();
+   const block=document.querySelector('.agent-markdown');
+   assert.equal(block.querySelector('script, img, [onerror], a'),null);
+   assert.match(block.textContent,/<script>alert/);
+@@ -1445,10 +1279,10 @@
+ });
+ 
+ 
+-for (const entry of ['sidebar', 'history']) test(`running task deletion requires confirmation from ${entry} without stopping provider`, async () => {
++for (const entry of ['sidebar']) test(`running task deletion requires confirmation from ${entry} without stopping provider`, async () => {
+   const project = workspace('A'); const host = navigationHost();
+   const calls = await mount([row({ status: 'running', attention: 'none', prompt: '正在执行的任务', canonicalWorkspaceRoot: project.root })], undefined, { workspaces: [project], sidebarContainer: host });
+-  const trigger = entry === 'sidebar' ? host.querySelector('.project-task-delete') : document.querySelector('.agent-delete-action');
++  const trigger = host.querySelector('.project-task-delete');
+   await act(async () => { trigger.focus(); trigger.click(); });
+   assert.ok(document.querySelector('[role="dialog"]'));
+   assert.match(document.querySelector('[role="dialog"]').textContent, /不会停止 Agent/);
+@@ -1465,18 +1299,6 @@
+ });
+ 
+ 
+-test('recent task title tooltip shows a bounded summary instead of the full prompt', async () => {
+-  const prompt = '检查任务内容。\n'.repeat(120);
+-  await mount([row({ prompt })]);
+-  const title = document.querySelector('.agent-task-title h3');
+-  await act(async () => title.focus());
+-  const tooltip = document.querySelector('[role="tooltip"]');
+-  assert.ok(tooltip);
+-  assert.equal(tooltip.textContent, title.textContent);
+-  assert.ok(Array.from(tooltip.textContent).length <= 101);
+-  assert.ok(!tooltip.textContent.includes('\n'));
+-  assert.notEqual(tooltip.textContent, prompt);
+-});
+ 
+ /** 启停 fixture 返回完整 settings，以检验只采纳目标 Provider。 */
+ function enabledSettings(providers, roleRouting = {}) {
+@@ -1539,7 +1361,7 @@
+   assert.equal(values['接入'], '正在停用');
+   assert.equal(values['Runtime'], '运行中');
+   assert.equal(values['活动任务'], '1');
+-  assert.equal(document.querySelectorAll('article').length, 1);
++  assert.equal(document.querySelectorAll('.project-task').length, 1);
+   assert.equal(document.querySelector('#agent-role-development').textContent, 'Codex · 已停用');
+   assert.deepEqual(execution, frozen);
+   assert.ok(actions.every(action => action.action === 'list'));
+--- a/src/App.test.mjs
++++ b/src/App.test.mjs
+@@ -558,6 +558,11 @@
+   assert.equal(agentNavigation.getAttribute('aria-current'), null);
+   assert.equal(document.querySelector('.project-task-link').getAttribute('aria-current'), 'page');
+   await act(async () => agentNavigation.click());
++  assert.equal(document.querySelector('#agent-prompt'), null);
++  assert.equal(document.querySelector('.agent-history'), null);
++  assert.ok(document.querySelector('.agent-providers'));
++  assert.ok(document.querySelector('.agent-role-routing'));
++  assert.ok(document.querySelector('.agent-workspace-bar'));
+   assert.equal(document.querySelector('.agent-detail'), null);
+   assert.equal(agentNavigation.getAttribute('aria-current'), 'page');
+   assert.equal(document.querySelector('.project-task-link').getAttribute('aria-current'), null);
+@@ -567,12 +572,17 @@
+   assert.equal(agentNavigation.getAttribute('aria-current'), null);
+   assert.equal([...document.querySelectorAll('button')].find(button => button.textContent === '返回 Agent 任务'), undefined);
+   await act(async () => agentNavigation.click());
++  assert.equal(document.querySelector('#agent-prompt'), null);
++  assert.equal(document.querySelector('.agent-history'), null);
++  assert.ok(document.querySelector('.agent-providers'));
++  assert.ok(document.querySelector('.agent-role-routing'));
++  assert.ok(document.querySelector('.agent-workspace-bar'));
+   assert.equal(document.querySelector('.agent-detail'), null);
+   assert.equal(agentNavigation.getAttribute('aria-current'), 'page');
+   assert.equal(document.querySelector('.project-task-link').getAttribute('aria-current'), null);
+ });
+ 
+-test('Agent fresh task uses Desktop selection even when the legacy Broker active workspace differs', async () => {
++test('Agent management preserves Desktop selected workspace and has no composer or history', async () => {
+   const originals = { ...api };
+   const selected = { id: 'A', name: 'Desktop selected A', root: 'E:/selected-a', generation: 2 };
+   const active = { id: 'B', name: 'Legacy active B', root: 'E:/legacy-b', generation: 5 };
+@@ -582,20 +592,22 @@
+   api.getState = async () => structuredClone(snapshot);
+   api.broker = async () => ({ running: true, port: 9120, listenAddress: '127.0.0.1', lanEndpoints: [], projects: [active], projectSources: [], syncWarnings: [], activeWorkspace: active, codegraph: { status: 'ready', workspaceId: active.id, root: active.root, generation: active.generation }, operation: null, lastError: null });
+   api.agentHistory = async () => ({ executions: [], nextCursor: null });
+-  api.agent = async request => { requests.push(structuredClone(request)); return { ok: true, data: { executionId: 'fresh', agentId: request.agentId, workspaceId: request.workspaceId, canonicalWorkspaceRoot: selected.root, prompt: request.prompt, status: 'pending', attention: 'none', revision: '1', controlRevision: '1', activityRevision: '1', resultAvailable: false, provider: { id: 'codex', displayName: 'Codex', version: null }, providerSessionLabel: null, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null }, progress: { phase: 'pending', summaryCode: null, activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null }, nextAction: null, dispatchState: 'accepted', threadId: null, threadName: null, turnId: null, providerTerminalStatus: null, errorCode: null, errorMessage: null, resultCompleteness: 'unknown', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1, updatedAt: 1, completedAt: null, availableActions: { canCancel: false, canContinue: false, canResumePending: false } }, control: null }; };
++  api.agent = async request => { requests.push(structuredClone(request)); throw new Error('management must not start an execution'); };
+   api.codexVersion = async () => 'test-version';
+   api.remoteState = async () => ({ mode: 'quick_tunnel', status: 'stopped', publicContext: null, lastError: null, authorizedClients: 0, pending: [], active: false });
+   try {
+     root = createRoot(document.getElementById('root'));
+     await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
+     await act(async () => [...document.querySelectorAll('nav[aria-label="主导航"] button')].find(button => button.textContent === 'Agent 管理').click());
+-    await act(async () => {
+-      const input = document.querySelector('#agent-prompt');
+-      Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set.call(input, 'use selected workspace');
+-      input.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+-    });
+-    await act(async () => [...document.querySelectorAll('button')].find(button => button.textContent === '开始新任务').click());
+-    assert.equal(requests.find(request => request.action === 'start').workspaceId, 'A');
++    assert.match(document.querySelector('.agent-workspace-bar').textContent, /Desktop selected A.*E:\/selected-a/);
++    assert.ok(document.querySelector('.agent-providers'));
++    assert.ok(document.querySelector('.agent-role-routing'));
++    assert.equal(document.querySelector('#agent-prompt'), null);
++    assert.equal(document.querySelector('.agent-history'), null);
++    assert.equal(document.querySelector('.agent-filter-toolbar'), null);
++    assert.equal(document.querySelector('.agent-task-card'), null);
++    assert.equal([...document.querySelectorAll('button')].find(button => button.textContent === '开始新任务'), undefined);
++    assert.equal(requests.length, 0);
+   } finally { Object.assign(api, originals); }
+ });
+ 

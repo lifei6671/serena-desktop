@@ -1,0 +1,201 @@
+{
+  "priorTargetId": "fbdb27c954169167021f10fe5a3017b52173c5e532887495b783379758d8fa4f",
+  "oldEvidenceFiles": 38,
+  "allUnchanged": true,
+  "priorAcPFailures": 8,
+  "priorGoldBandLauncherAttempts": 1,
+  "newPathProofLauncherAttempts": 1,
+  "newSessionNewRequests": 0,
+  "checks": [
+    {
+      "path": "evidence/cancel-after-result.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/cancel-after-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/cancel-before-result.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/cancel-before-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/cancellation.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/permission-deny-result.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/permission-deny-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/permission-options.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/permission.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/process-evidence.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/runner-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/scope-baseline.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/scope-verification.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/session-new-diagnostic.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/session-new-diagnostic.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/cancellation.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/permission-options.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/permission.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/prior-evidence-preservation.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/process-evidence.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/runner-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/scope-verification.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair-result.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/canonical-repair/session-new-repair.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/attempt-started.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/conclusion.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/preflight.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/prior-evidence-preservation.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/review-repair-1.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/scope-verification.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/serve-auth-status.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/verification-results.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/wire-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/gold-band-wire-repro/wire.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/initial-scenarios/cancel-after-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/initial-scenarios/cancel-before-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/initial-scenarios/permission-deny-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    }
+  ]
+}

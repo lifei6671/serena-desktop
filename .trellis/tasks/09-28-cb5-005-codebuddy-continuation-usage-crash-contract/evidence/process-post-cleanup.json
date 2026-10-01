@@ -1,0 +1,10 @@
+{
+  "diagnosticsOnly": true,
+  "checkedPids": [38056, 3216, 43952, 29508, 42380],
+  "checkMethod": "Get-Process -Id <exact pid>",
+  "result": "ALL_ABSENT_AFTER_HARNESS_SESSION_TERMINATION",
+  "cimParentChildInspection": "UNAVAILABLE_ACCESS_DENIED",
+  "windowsJobAtCreationProven": false,
+  "provesOriginalRuntimeTerminationForProduction": false,
+  "workspaceCleanupEvidence": "cleanup-attempt-2.json"
+}

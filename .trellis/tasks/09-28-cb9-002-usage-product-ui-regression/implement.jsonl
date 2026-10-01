@@ -1,0 +1,6 @@
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"CB9-002 scope, required tests, evidence, and Phase10 boundary"}
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"Sections 20.1 and 33 plus CB-009 provider-private/public Usage contract"}
+{"file":".trellis/tasks/09-28-cb9-001-codebuddy-usage-skip/decision.md","reason":"Frozen unsupported CodeBuddy Usage decision and tokenUsage=false"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Store-to-Product-to-frontend null and identity boundary"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Frontend test and review scope"}
+

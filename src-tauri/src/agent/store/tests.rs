@@ -5,6 +5,12 @@ use super::work_runs::work_run_record;
 use super::*;
 use serde_json::json;
 
+mod codebuddy;
+mod effective_profile;
+mod v11_fixture;
+mod v12_migration;
+mod v13_migration;
+mod v14_migration;
 mod work_runs;
 
 fn open(directory: &std::path::Path) -> StateStore {
@@ -32,26 +38,54 @@ struct V10PlatformProjection {
     evidence_type: String,
     evidence_at: i64,
 }
-fn request(agent: &str, root: &str) -> CanonicalRequest {
+fn request_with_profile(
+    agent: &str,
+    root: &str,
+    execution_profile: serde_json::Value,
+) -> CanonicalRequest {
     let input: CreateExecutionInput =
         serde_json::from_value(json!({"agent_id":agent,"request_key":"key",
-        "prompt":"中文 ' ; --", "execution_profile":{"z":2,"a":1},"workspace_id":"w",
+        "prompt":"中文 ' ; --", "execution_profile":execution_profile,"workspace_id":"w",
         "canonical_workspace_root":root,"mode":"workspace_write"}))
         .unwrap();
     canonicalize_request(input).unwrap()
+}
+fn request(agent: &str, root: &str) -> CanonicalRequest {
+    request_with_profile(
+        agent,
+        root,
+        json!({"model":"fixture-model","reasoning":"high"}),
+    )
 }
 fn insert(c: &mut Connection, id: &str, agent: &str, root: &str) {
     let tx = c.transaction().unwrap();
     insert_execution(&tx, id, 123, &request(agent, root)).unwrap();
     tx.commit().unwrap();
 }
-fn insert_pre_v6(c: &Connection, id: &str, agent: &str, root: &str, thread_id: Option<&str>) {
-    let request = request(agent, root);
+fn insert_pre_v6_with_profile(
+    c: &Connection,
+    id: &str,
+    agent: &str,
+    root: &str,
+    thread_id: Option<&str>,
+    execution_profile: serde_json::Value,
+) {
+    let request = request_with_profile(agent, root, execution_profile);
     let request_hash = legacy_pre_workspace_generation_hash(request.input()).unwrap();
     c.execute(
         "INSERT INTO executions (id,agent_id,request_key,request_hash,prompt,execution_profile_json,workspace_id,canonical_workspace_root,provider,mode,thread_id,status,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'codex','workspace_write',?9,'dispatch_pending',123,123)",
         params![id, agent, request.input().request_key, request_hash, request.input().prompt, request.execution_profile_json(), request.input().workspace_id, root, thread_id],
     ).unwrap();
+}
+fn insert_pre_v6(c: &Connection, id: &str, agent: &str, root: &str, thread_id: Option<&str>) {
+    insert_pre_v6_with_profile(
+        c,
+        id,
+        agent,
+        root,
+        thread_id,
+        json!({"model":"fixture-model","reasoning":"high"}),
+    );
 }
 fn runtime(c: &Connection, id: &str) {
     c.execute("INSERT INTO runtime_instances (id,owner_host_instance_id,state,created_at,updated_at) VALUES (?1,'host','unknown',1,1)", [id]).unwrap();
@@ -64,7 +98,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
         let store = open(dir.path());
         let c = store.connection.lock().unwrap();
         for (pragma, expected) in [
-            ("user_version", 11),
+            ("user_version", 14),
             ("foreign_keys", 1),
             ("synchronous", 2),
             ("busy_timeout", 5000),
@@ -122,7 +156,7 @@ fn fresh_and_reopened_database_has_schema_and_every_connection_policy() {
 
 /// 验证冻结的 Windows v9 Runtime/Execution/Claim 完整升级且不改写历史证据。
 #[test]
-fn migrates_frozen_v9_fixture_through_v11() {
+fn migrates_frozen_v9_fixture_through_v12() {
     let mut connection = frozen_v9_connection();
     assert_eq!(
         connection
@@ -137,7 +171,7 @@ fn migrates_frozen_v9_fixture_through_v11() {
         connection
             .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        14
     );
     let projected = connection
         .query_row(
@@ -262,7 +296,7 @@ fn v10_runtime_platform_constraints_reject_mismatched_evidence() {
             "INSERT INTO runtime_instances(
                 id,owner_host_instance_id,state,created_at,updated_at,
                 runtime_platform,containment_type,process_identity_scheme,
-                codex_pid,codex_process_start_token,containment_process_group_id,
+                process_id,process_start_token,containment_process_group_id,
                 containment_session_id,containment_verified_at)
              VALUES(?1,'host',?2,1,1,'macos','macos_process_group',
                     'darwin_proc_bsd_start_v1',?3,?4,?5,?6,?7)",
@@ -356,7 +390,7 @@ fn runtime_record_projects_v10_platform_evidence() {
                 "INSERT INTO runtime_instances(
                     id,owner_host_instance_id,state,created_at,updated_at,
                     runtime_platform,containment_type,process_identity_scheme,
-                    codex_pid,codex_process_start_token,containment_process_group_id,
+                    process_id,process_start_token,containment_process_group_id,
                     containment_session_id,containment_verified_at)
                  VALUES('mac-runtime','host','running',1,1,'macos','macos_process_group',
                         'darwin_proc_bsd_start_v1',77,'darwin_proc_bsd_start_v1:1:2',77,77,9)",
@@ -414,7 +448,7 @@ fn migration_failure_rolls_back_all_ddl_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        11
+        14
     );
     assert_eq!(
         c.query_row(
@@ -503,7 +537,7 @@ fn v9_migration_failure_rolls_back_usage_schema_and_version() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        14
     );
 }
 
@@ -568,7 +602,7 @@ fn v2_migration_preserves_history_and_adds_nullable_activity() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        14
     );
     let old = execution_record(&c, "old").unwrap().unwrap();
     assert_eq!(old.last_activity_at, None);
@@ -600,7 +634,7 @@ fn every_pre_v6_schema_preserves_history_and_reopens_with_null_parent() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            11
+            14
         );
         let after = execution_record(&c, "old").unwrap().unwrap();
         assert_eq!((after.request_hash, after.prompt, after.thread_id), before);
@@ -631,12 +665,12 @@ fn unsupported_or_unversioned_history_is_not_guessed_or_rewritten() {
             .unwrap(),
         0
     );
-    c.pragma_update(None, "user_version", 12).unwrap();
+    c.pragma_update(None, "user_version", 15).unwrap();
     assert!(migrate(&mut c).unwrap_err().contains("unsupported"));
     assert_eq!(
         c.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
             .unwrap(),
-        12
+        15
     );
 }
 
@@ -684,12 +718,14 @@ fn v6_upgrade_preserves_rows_and_defines_generation_one_baseline() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        14
     );
     let mut expected_executions = executions;
     expected_executions[0].push(rusqlite::types::Value::Integer(1));
     expected_executions[0].push(rusqlite::types::Value::Null);
     expected_executions[0].push(rusqlite::types::Value::Integer(0));
+    expected_executions[0].push(rusqlite::types::Value::Text("general".into()));
+    expected_executions[0].push(rusqlite::types::Value::Null);
     let mut expected_work_runs = work_runs;
     expected_work_runs[0].push(rusqlite::types::Value::Integer(1));
     let actual_executions = c
@@ -977,7 +1013,7 @@ fn v8_backfills_current_summary_without_inventing_history() {
     assert_eq!(
         c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
             .unwrap(),
-        11
+        14
     );
     assert_eq!(
         c.query_row(
@@ -1057,9 +1093,9 @@ fn v8_invalid_legacy_activity_fails_closed_without_partial_schema() {
 fn v9_migrates_real_v8_fixture_without_backfilling_usage() {
     let dir = tempfile::tempdir().unwrap();
     let database = dir.path().join("agent-state.db");
-    let mut c = Connection::open(&database).unwrap();
+    let c = Connection::open(&database).unwrap();
     create_v8(&c);
-    insert(&mut c, "legacy", "agent", "root");
+    insert_pre_v6(&c, "legacy", "agent", "root", None);
     drop(c);
 
     let store = open(dir.path());
@@ -1068,7 +1104,7 @@ fn v9_migrates_real_v8_fixture_without_backfilling_usage() {
         assert_eq!(
             c.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            11
+            14
         );
         assert_eq!(
             c.query_row(
@@ -1284,7 +1320,7 @@ fn v9_usage_records_survive_restart_and_read_through_store_scaffolding() {
     );
 
     let c = reopened.connection.lock().unwrap();
-    let epoch = usage::codex_thread_usage_epoch_record(&c, "runtime", "thread")
+    let epoch = usage::codex_thread_usage_epoch_record(&c, "persisted", "runtime", "thread")
         .unwrap()
         .unwrap();
     assert_eq!(epoch.latest_turn_id.as_deref(), Some("turn"));
@@ -1333,7 +1369,9 @@ fn migrated_v6_legacy_hash_retries_only_at_generation_one_without_rewrite() {
         c.execute_batch(schema).unwrap();
     }
     c.pragma_update(None, "user_version", 6).unwrap();
-    insert_pre_v6(&c, "legacy", "agent", "root", None);
+    // 本测试只验证 legacy hash / workspace generation 兼容；profile 必须与当前默认一致，
+    // 否则按新契约应当是 request-key conflict。
+    insert_pre_v6_with_profile(&c, "legacy", "agent", "root", None, json!({}));
     let before: String = c
         .query_row(
             "SELECT request_hash FROM executions WHERE id='legacy'",
@@ -1380,7 +1418,7 @@ fn migrated_v6_legacy_hash_retries_only_at_generation_one_without_rewrite() {
                             id: "w".into(),
                             root: "root".into(),
                             generation: 2,
-                        }
+                        },
                     ),
                     3,
                 )
@@ -1390,7 +1428,6 @@ fn migrated_v6_legacy_hash_retries_only_at_generation_one_without_rewrite() {
         );
     });
 }
-
 #[test]
 fn foreign_keys_and_runtime_immutability_are_enforced_by_sqlite() {
     let dir = tempfile::tempdir().unwrap();

@@ -1,0 +1,1350 @@
+--- baseline/src-tauri/src/agent/product.rs
++++ src-tauri/src/agent/product.rs
+@@ -27,6 +27,7 @@
+ mod work_adapter;
+ mod work_context;
+ pub use work_adapter::{AgentExecuteAction, AgentQueryAction};
++pub(crate) use work_adapter::{StartCreationAuthority, StartRoutingIntent};
+ 
+ #[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
+ #[serde(
+@@ -455,6 +456,8 @@
+             "WORKSPACE_ROOT_NOT_DIRECTORY",
+             "AGENT_DISABLED",
+             "AGENT_PROVIDER_DISABLED",
++            "AGENT_ROLE_NOT_CONFIGURED",
++            "AGENT_ROLE_PROVIDER_MISMATCH",
+             "AGENT_PROVIDER_UNAVAILABLE",
+             "AGENT_INVALID_ARGUMENT",
+             "AGENT_NO_ACTIVE_WORKSPACE",
+@@ -837,8 +840,15 @@
+     #[cfg(test)]
+     pub(crate) fn new_with_rejected_dispatch_for_test(store: StateStore) -> Self {
+         let mut manager = AgentTaskManager::new(store.clone(), std::path::PathBuf::new());
+-        // 固定 Registry 为不可用，避免测试发现或启动用户安装的 Codex。
+-        manager.backend_error = Some("TEST_DISPATCH_REJECTED".into());
++        // 只注册无 Runtime 能力的 fake；绝不创建或提升真实 Codex adapter 的健康状态。
++        let mut registry = super::provider::registry::ProviderRegistry::new();
++        registry
++            .register(
++                std::sync::Arc::new(tests::RejectedDispatchProvider),
++                super::provider::registry::ProviderHealth::Available,
++            )
++            .unwrap();
++        manager.use_registry(registry);
+         Self { store, manager }
+     }
+     pub async fn operation(&self, value: Value, workspace: Option<WorkspaceSnapshot>) -> Value {
+@@ -867,7 +877,7 @@
+     /// Local Start 复用 Remote 的 Supervisor 线性化创建路径，禁止在兼容入口预先冻结快照。
+     pub(crate) async fn operation_resolved_workspace_start(
+         &self,
+-        supervisor: &crate::serena::SupervisorState,
++        authority: StartCreationAuthority<'_>,
+         value: Value,
+     ) -> Value {
+         let action = match parse(value) {
+@@ -877,7 +887,7 @@
+         };
+         match self
+             .manager
+-            .product_submit_resolved_workspace_start(supervisor, action.clone(), None)
++            .product_submit_resolved_workspace_start(authority, action.clone(), None)
+             .await
+         {
+             Ok(id) => match self.observe(id.clone(), false).await {
+--- baseline/src-tauri/src/agent/product/tests.rs
++++ src-tauri/src/agent/product/tests.rs
+@@ -1,8 +1,129 @@
+ use super::*;
++use crate::agent::provider::{
++    ProviderCancelContext, ProviderCapabilities, ProviderError, ProviderExecutionContext,
++    ProviderRunResult, ProviderStartupContext,
++    port::{
++        AgentEventSink, AgentProvider, ProviderAcceptanceSink, ProviderExecutionFailure,
++        ProviderFuture, ProviderReconcileSummary,
++    },
++};
+ #[cfg(windows)]
+ use crate::agent::{codex::app_server::Client, coordinator::now};
+ use std::sync::Arc;
+ use std::time::Duration;
++
++/// 仅模拟可通过 admission、但在接受执行前拒绝的 Provider；不持有 Store、CLI 或 Runtime。
++pub(super) struct RejectedDispatchProvider;
++
++impl AgentProvider for RejectedDispatchProvider {
++    /// 使用兼容入口配置的 codex 身份，但实现完全独立于真实 Codex adapter。
++    fn descriptor(&self) -> ProviderDescriptor {
++        ProviderDescriptor {
++            id: ProviderId::new("codex".into()).unwrap(),
++            display_name: "Rejected dispatch fixture".into(),
++            version: None,
++        }
++    }
++    /// 只有 execute 准入可用，避免测试进入无关生命周期。
++    fn capabilities(&self) -> ProviderCapabilities {
++        ProviderCapabilities {
++            can_execute: true,
++            can_continue: false,
++            can_cancel: false,
++            can_recover: false,
++            activity: false,
++            token_usage: false,
++        }
++    }
++    /// 固定在 accepted() 之前失败，且没有任何 discovery、文件或进程访问。
++    fn execute<'a>(
++        &'a self,
++        _: ProviderExecutionContext,
++        _: Arc<dyn ProviderAcceptanceSink>,
++        _: Arc<dyn AgentEventSink>,
++    ) -> ProviderFuture<'a, Result<ProviderRunResult, ProviderExecutionFailure>> {
++        Box::pin(async {
++            Err(ProviderExecutionFailure::State(
++                "TEST_DISPATCH_REJECTED".into(),
++            ))
++        })
++    }
++    /// fixture 不支持取消，调用即暴露测试越界。
++    fn cancel<'a>(
++        &'a self,
++        _: ProviderCancelContext,
++    ) -> ProviderFuture<'a, Result<(), ProviderError>> {
++        Box::pin(async { panic!("rejected-dispatch fixture must not cancel") })
++    }
++    /// fixture 不支持启动恢复，调用即暴露测试越界。
++    fn startup_reconcile<'a>(
++        &'a self,
++        _: ProviderStartupContext,
++    ) -> ProviderFuture<'a, Result<ProviderReconcileSummary, ProviderError>> {
++        Box::pin(async { panic!("rejected-dispatch fixture must not reconcile") })
++    }
++}
++
++/// 锁定 fixture 的真正派发边界，不能用真实 Codex 的环境状态模拟拒绝。
++#[tokio::test]
++async fn rejected_dispatch_fixture_fails_before_acceptance_without_runtime() {
++    struct NeverAccept;
++    impl ProviderAcceptanceSink for NeverAccept {
++        /// fake 必须在 Provider 接受前拒绝。
++        fn accepted(&self) {
++            panic!("rejected-dispatch fixture must not accept")
++        }
++    }
++    impl AgentEventSink for NeverAccept {}
++    let directory = tempfile::tempdir().unwrap();
++    let store = StateStore::open(directory.path().join("store"))
++        .await
++        .unwrap();
++    let service = AgentProductService::new_with_rejected_dispatch_for_test(store.clone());
++    let id = ProviderId::new("codex".into()).unwrap();
++    let registry = service.manager.registry().unwrap();
++    assert_eq!(
++        registry.health(&id).unwrap(),
++        crate::agent::provider::registry::ProviderHealth::Available
++    );
++    let provider = registry.get(&id).unwrap();
++    assert!(provider.capabilities().can_execute);
++    assert_eq!(
++        provider
++            .execute(
++                ProviderExecutionContext {
++                    execution_id: "never-created".into()
++                },
++                Arc::new(NeverAccept),
++                Arc::new(NeverAccept)
++            )
++            .await
++            .unwrap_err(),
++        ProviderExecutionFailure::State("TEST_DISPATCH_REJECTED".into())
++    );
++    let response = service
++        .checked_operation(start("rejected", "key"), w(directory.path(), "W"))
++        .await;
++    assert_eq!(response["error"]["code"], "AGENT_OPERATION_FAILED");
++    assert_eq!(response["control"]["requestAccepted"], true);
++    assert_eq!(
++        store
++            .product_read(None, None, None, 10)
++            .await
++            .unwrap()
++            .len(),
++        1
++    );
++    let db = rusqlite::Connection::open(directory.path().join("store/agent-state.db")).unwrap();
++    for table in ["runtime_instances", "execution_runtime_attempts"] {
++        let count: i64 = db
++            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
++                row.get(0)
++            })
++            .unwrap();
++        assert_eq!(count, 0, "{table}");
++    }
++}
+ #[cfg(windows)]
+ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+ // 只有具体 Runtime/Fake wire 测试保留 Windows gate，纯 Store/协议覆盖跨平台运行。
+--- baseline/src-tauri/src/agent/product/work_adapter.rs
++++ src-tauri/src/agent/product/work_adapter.rs
+@@ -4,10 +4,26 @@
+ use crate::agent::store::transactions::product::WorkExecutionContext;
+ use crate::serena::SupervisorState;
+ 
++/// 保留 DTO 的显式选择或有界兼容意图，不缓存任何本地策略。
++pub(crate) enum StartRoutingIntent {
++    LegacyGeneral,
++    Explicit {
++        task_role: AgentTaskRole,
++        provider_id: ProviderId,
++    },
++}
++
++/// 仅借用 Broker 已有的配置管理锁；所有事实都在最终创建边界重新读取。
++pub(crate) struct StartCreationAuthority<'a> {
++    pub(crate) supervisor: &'a SupervisorState,
++    pub(crate) management: &'a tokio::sync::Mutex<()>,
++    pub(crate) routing: StartRoutingIntent,
++}
++
+ // Start 仅可从显式快照或 Registry Resolver 获得 Workspace 输入。
+ pub(crate) enum WorkspaceAuthority<'a> {
+     Snapshot(Option<WorkspaceSnapshot>),
+-    Resolver(&'a SupervisorState),
++    Resolver(StartCreationAuthority<'a>),
+ }
+ 
+ impl From<Option<WorkspaceSnapshot>> for WorkspaceAuthority<'_> {
+@@ -16,9 +32,9 @@
+     }
+ }
+ 
+-impl<'a> From<&'a SupervisorState> for WorkspaceAuthority<'a> {
+-    fn from(supervisor: &'a SupervisorState) -> Self {
+-        Self::Resolver(supervisor)
++impl<'a> From<StartCreationAuthority<'a>> for WorkspaceAuthority<'a> {
++    fn from(authority: StartCreationAuthority<'a>) -> Self {
++        Self::Resolver(authority)
+     }
+ }
+ 
+@@ -260,26 +276,31 @@
+                 };
+                 *prompt = context.prompt(prompt);
+             }
+-            if let Some(id) = self
++            let retry = self
+                 .store
+                 .product_work_preflight(action.clone(), work.clone())
+                 .await
+-                .map_err(|e| submission_error(e.into()))?
++                .map_err(|e| submission_error(e.into()))?;
++            // Start 的 exact retry 也必须经过最终 Authority；Continue 保持既有路径。
++            if !matches!(&workspace, WorkspaceAuthority::Resolver(_))
++                && let Some(id) = &retry
+             {
+                 return self
+                     .observe(id.clone(), false)
+                     .await
+-                    .map_err(|e| ProductError::accepted(e, id));
+-            }
+-            let current = self.active_work(&work.work_run_id).await?;
+-            if let Some(context) = context {
+-                context.verify(current.canonical_workspace_root).await?;
+-            }
+-            if let WorkspaceAuthority::Resolver(supervisor) = workspace {
++                    .map_err(|e| ProductError::accepted(e, id.clone()));
++            }
++            if retry.is_none() {
++                let current = self.active_work(&work.work_run_id).await?;
++                if let Some(context) = context {
++                    context.verify(current.canonical_workspace_root).await?;
++                }
++            }
++            if let WorkspaceAuthority::Resolver(authority) = workspace {
+                 // Lease 解析与 Execution+Claim 创建必须在同一 Supervisor operation mutex 内线性化。
+                 let id = self
+                     .manager
+-                    .product_submit_resolved_workspace_start(supervisor, action, Some(work.clone()))
++                    .product_submit_resolved_workspace_start(authority, action, Some(work.clone()))
+                     .await
+                     .map_err(submission_error)?;
+                 return self
+--- baseline/src-tauri/src/agent/product/work_adapter_tests.rs
++++ src-tauri/src/agent/product/work_adapter_tests.rs
+@@ -1164,6 +1164,7 @@
+     config::save(
+         &paths.config_file,
+         &ManagerConfig {
++            agent_enabled: true,
+             workspace_registry_revision: 1,
+             workspaces: vec![Workspace {
+                 id: "W".into(),
+@@ -1208,7 +1209,14 @@
+             .unwrap()
+             .block_on(async move {
+                 let result = start_service
+-                    .agent_execute(start_work("work", "key"), start_supervisor.as_ref())
++                    .agent_execute(
++                        start_work("work", "key"),
++                        StartCreationAuthority {
++                            supervisor: start_supervisor.as_ref(),
++                            management: &tokio::sync::Mutex::new(()),
++                            routing: StartRoutingIntent::LegacyGeneral,
++                        },
++                    )
+                     .await;
+                 start_result_tx.send(result).unwrap();
+                 // 保持发起方 runtime 存活，直到 fake 已证明后台 worker 收到 turn/start。
+@@ -1283,6 +1291,7 @@
+     config::save(
+         &paths.config_file,
+         &ManagerConfig {
++            agent_enabled: true,
+             workspace_registry_revision: 1,
+             workspaces: vec![Workspace {
+                 id: "W".into(),
+@@ -1329,7 +1338,14 @@
+             .unwrap()
+             .block_on(async move {
+                 start_service
+-                    .agent_execute(start_work("work", "key"), start_supervisor.as_ref())
++                    .agent_execute(
++                        start_work("work", "key"),
++                        StartCreationAuthority {
++                            supervisor: start_supervisor.as_ref(),
++                            management: &tokio::sync::Mutex::new(()),
++                            routing: StartRoutingIntent::LegacyGeneral,
++                        },
++                    )
+                     .await
+             })
+     });
+--- baseline/src-tauri/src/agent/store/transactions/product.rs
++++ src-tauri/src/agent/store/transactions/product.rs
+@@ -18,8 +18,15 @@
+     pub generation: u64,
+ }
+ 
++/// 创建边界已经解析的身份；Store 只冻结它，不读取或推断路由策略。
++pub(crate) struct FrozenStartRouting {
++    pub(crate) provider: ProviderId,
++    pub(crate) task_role: AgentTaskRole,
++}
++
+ /// Start 的持久化输入；同步管理协调与普通异步提交共用同一事务逻辑。
+ struct FreshProductCreate {
++    routing: FrozenStartRouting,
+     id: String,
+     agent: String,
+     request_key: String,
+@@ -54,6 +61,9 @@
+             None,
+             None,
+         )?;
++        // 重试身份必须来自本次最终解析结果，不能借用历史行的 Provider/Role。
++        retry.provider = creation.routing.provider.clone();
++        retry.task_role = creation.routing.task_role;
+         if let Some(workspace) = creation
+             .workspace
+             .as_ref()
+@@ -107,8 +117,8 @@
+         workspace_id: workspace.id.clone(),
+         canonical_workspace_root: workspace.root.clone(),
+         workspace_generation: workspace.generation,
+-        provider: ProviderId::new("codex".into()).expect("static Codex provider id is valid"),
+-        task_role: AgentTaskRole::General,
++        provider: creation.routing.provider.clone(),
++        task_role: creation.routing.task_role,
+         mode: ExecutionMode::WorkspaceWrite,
+         parent_execution_id: None,
+         thread_id: None,
+@@ -192,7 +202,7 @@
+     })
+     .transpose()
+ }
+-/// Product Start 固定 General；Continue 从父 Execution 的持久化角色构造请求身份。
++/// 构造持久化身份用于只读 preflight/Continue；Start 提交会用当前解析身份覆盖 Provider/Role。
+ fn input(
+     tx: &Connection,
+     row: &ExecutionRecord,
+@@ -212,13 +222,9 @@
+         workspace_generation: row.workspace_generation,
+         provider: serde_json::from_value(serde_json::json!(row.provider))
+             .map_err(|e| e.to_string())?,
+-        // Start 仍为 General；Continue 从同一事务中的父行继承冻结角色。
+-        task_role: if parent_execution_id.is_some() {
+-            serde_json::from_value(serde_json::json!(persisted_task_role(tx, &row.id)?))
+-                .map_err(|_| "EXECUTION_REQUEST_KEY_CONFLICT".to_string())?
+-        } else {
+-            AgentTaskRole::General
+-        },
++        // preflight 只提示可能的 retry，不授权 Start；最终事务必须验证本次解析的角色。
++        task_role: serde_json::from_value(serde_json::json!(persisted_task_role(tx, &row.id)?))
++            .map_err(|_| "EXECUTION_REQUEST_KEY_CONFLICT".to_string())?,
+         mode: serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?,
+         parent_execution_id,
+         thread_id: thread,
+@@ -423,6 +429,7 @@
+             })())
+         }).await?
+     }
++    #[cfg(test)]
+     #[allow(clippy::too_many_arguments)]
+     pub async fn product_create_fresh(
+         &self,
+@@ -447,6 +454,7 @@
+         .await
+     }
+ 
++    #[cfg(test)]
+     #[allow(clippy::too_many_arguments)]
+     pub(crate) async fn product_create_fresh_with_work(
+         &self,
+@@ -460,6 +468,11 @@
+         now: i64,
+     ) -> Result<CreateOutcome, String> {
+         let creation = FreshProductCreate {
++            // 仅保留历史测试 fixture；生产 Start 必须提供最终 Authority 解析的身份。
++            routing: FrozenStartRouting {
++                provider: ProviderId::new("codex".into()).unwrap(),
++                task_role: AgentTaskRole::General,
++            },
+             id,
+             agent,
+             request_key,
+@@ -477,6 +490,7 @@
+     #[allow(clippy::too_many_arguments)]
+     pub(crate) fn product_create_fresh_with_work_blocking(
+         &self,
++        routing: FrozenStartRouting,
+         id: String,
+         agent: String,
+         request_key: String,
+@@ -487,6 +501,7 @@
+         now: i64,
+     ) -> Result<CreateOutcome, String> {
+         let creation = FreshProductCreate {
++            routing,
+             id,
+             agent,
+             request_key,
+--- baseline/src-tauri/src/agent/task_manager.rs
++++ src-tauri/src/agent/task_manager.rs
+@@ -28,7 +28,7 @@
+     telemetry_projector::ExecutionTelemetryProjector,
+ };
+ use crate::config::AgentProviderSettings;
+-use crate::serena::{SupervisorState, WorkspaceStartCreation};
++use crate::serena::WorkspaceStartCreation;
+ use std::{
+     path::PathBuf,
+     sync::{Arc, Mutex},
+@@ -498,6 +498,7 @@
+     }
+ 
+     /// Product Start 在创建 Execution 与 Claim 前完成 registered→enabled 前缀。
++    #[cfg(test)]
+     fn ensure_product_start_enabled(&self) -> Result<(), super::product::ProductError> {
+         let provider_id =
+             ProviderId::new("codex".into()).expect("static Codex provider id is valid");
+@@ -634,10 +635,64 @@
+         self.product_submit_with_work(action, workspace, None).await
+     }
+ 
+-    /// Resolver Start 将 Lease 解析与 Execution+Claim 提交放入 Supervisor operation mutex 后再交接 dispatch。
++    /// 在 Broker management 内重读当前路由与准入事实，不使用早先查询的目录快照。
++    fn resolve_start_routing(
++        &self,
++        config: &crate::config::ManagerConfig,
++        intent: super::product::StartRoutingIntent,
++    ) -> Result<super::store::transactions::product::FrozenStartRouting, super::product::ProductError>
++    {
++        use super::{execution::AgentTaskRole, product::StartRoutingIntent};
++        if !config.agent_enabled {
++            return Err("AGENT_DISABLED".to_string().into());
++        }
++        // Start 保留 Provider 的稳定码；不改变 Cancel/Continue 既有错误投影。
++        let provider_error = |error: ProviderError| {
++            let code = provider_error_code(error.code);
++            let mut error = super::product::ProductError::from(code.to_string());
++            error.code = code.into();
++            error
++        };
++        let route = |role: AgentTaskRole| {
++            config
++                .agent_providers
++                .role_routing
++                .get(role.as_str())
++                .and_then(Option::as_ref)
++                .cloned()
++                .ok_or_else(|| {
++                    super::product::ProductError::from("AGENT_ROLE_NOT_CONFIGURED".to_string())
++                })
++        };
++        let (task_role, provider) = match intent {
++            StartRoutingIntent::LegacyGeneral => {
++                (AgentTaskRole::General, route(AgentTaskRole::General)?)
++            }
++            StartRoutingIntent::Explicit {
++                task_role,
++                provider_id,
++            } => {
++                // 显式请求必须先 registered/enabled，再判定角色配置和精确匹配。
++                self.ensure_provider_enabled(&provider_id)
++                    .map_err(provider_error)?;
++                if route(task_role)? != provider_id {
++                    return Err("AGENT_ROLE_PROVIDER_MISMATCH".to_string().into());
++                }
++                (task_role, provider_id)
++            }
++        };
++        self.admit_provider(&provider, ProviderAdmissionCapability::Execute)
++            .map_err(provider_error)?;
++        Ok(super::store::transactions::product::FrozenStartRouting {
++            provider,
++            task_role,
++        })
++    }
++
++    /// management→operation 覆盖最终 Authority 到提交；交接 Runtime 前释放 management。
+     pub(crate) async fn product_submit_resolved_workspace_start(
+         &self,
+-        supervisor: &SupervisorState,
++        authority: super::product::StartCreationAuthority<'_>,
+         action: super::product::Action,
+         work: Option<super::store::transactions::product::WorkExecutionContext>,
+     ) -> Result<String, super::product::ProductError> {
+@@ -654,10 +709,15 @@
+         else {
+             return Err("AGENT_INVALID_ARGUMENT".to_string().into());
+         };
+-        self.ensure_product_start_enabled()?;
+-        let outcome = supervisor.create_workspace_start(
++        let management = authority.management.lock().await;
++        let routing = self.resolve_start_routing(
++            &authority.supervisor.workspace_registry_config(),
++            authority.routing,
++        )?;
++        let outcome = authority.supervisor.create_workspace_start(
+             &self.store,
+             WorkspaceStartCreation {
++                routing,
+                 execution_id: Self::id("execution"),
+                 agent_id,
+                 request_key,
+@@ -667,6 +727,7 @@
+                 now: super::coordinator::now(),
+             },
+         )?;
++        drop(management);
+         self.handoff_created_outcome(outcome, false).await
+     }
+ 
+@@ -691,22 +752,31 @@
+                     request_key,
+                     prompt,
+                 } => {
+-                    manager.ensure_product_start_enabled()?;
+-                    Some(
+-                        manager
+-                            .store
+-                            .product_create_fresh_with_work(
+-                                Self::id("execution"),
+-                                agent_id,
+-                                request_key,
+-                                prompt,
+-                                workspace_id,
+-                                workspace,
+-                                work,
+-                                super::coordinator::now(),
+-                            )
+-                            .await?,
+-                    )
++                    // 无 Broker Authority 的 snapshot-only Start 仅用于历史 fixture。
++                    #[cfg(not(test))]
++                    {
++                        let _ = (workspace_id, agent_id, request_key, prompt, workspace, work);
++                        return Err("AGENT_INVALID_ARGUMENT".to_string().into());
++                    }
++                    #[cfg(test)]
++                    {
++                        manager.ensure_product_start_enabled()?;
++                        Some(
++                            manager
++                                .store
++                                .product_create_fresh_with_work(
++                                    Self::id("execution"),
++                                    agent_id,
++                                    request_key,
++                                    prompt,
++                                    workspace_id,
++                                    workspace,
++                                    work,
++                                    super::coordinator::now(),
++                                )
++                                .await?,
++                        )
++                    }
+                 }
+                 Action::Continue {
+                     execution_id,
+--- baseline/src-tauri/src/mcp/mod.rs
++++ src-tauri/src/mcp/mod.rs
+@@ -349,7 +349,14 @@
+                 return crate::agent::product::failure(error, None);
+             }
+             return product
+-                .operation_resolved_workspace_start(&self.supervisor, args)
++                .operation_resolved_workspace_start(
++                    crate::agent::product::StartCreationAuthority {
++                        supervisor: &self.supervisor,
++                        management: &self.management,
++                        routing: crate::agent::product::StartRoutingIntent::LegacyGeneral,
++                    },
++                    args,
++                )
+                 .await;
+         }
+         product.operation(args, None).await
+--- baseline/src-tauri/src/mcp/orchestration.rs
++++ src-tauri/src/mcp/orchestration.rs
+@@ -299,6 +299,8 @@
+             }
+             Request::AgentExecute(action) => {
+                 let resolve_start_workspace = matches!(&action, AgentExecute::Start { .. });
++                // typed DTO 仅透传意图，最终策略读取延后至 Work/context preflight 之后。
++                let mut routing_intent = product::StartRoutingIntent::LegacyGeneral;
+                 let context_json = |context: Option<Context>| {
+                     context.map(|c| serde_json::to_string(&c).expect("typed context serialization"))
+                 };
+@@ -309,14 +311,28 @@
+                         request_key,
+                         prompt,
+                         context,
+-                        ..
+-                    } => AgentExecuteAction::Start {
+-                        work_run_id,
+-                        workspace_id,
+-                        request_key,
+-                        prompt,
+-                        delegation_context_json: context_json(context),
+-                    },
++                        routing,
++                    } => {
++                        routing_intent = match routing {
++                            StartRoutingIntent::LegacyGeneral => {
++                                product::StartRoutingIntent::LegacyGeneral
++                            }
++                            StartRoutingIntent::Explicit {
++                                task_role,
++                                provider_id,
++                            } => product::StartRoutingIntent::Explicit {
++                                task_role,
++                                provider_id,
++                            },
++                        };
++                        AgentExecuteAction::Start {
++                            work_run_id,
++                            workspace_id,
++                            request_key,
++                            prompt,
++                            delegation_context_json: context_json(context),
++                        }
++                    }
+                     AgentExecute::Continue {
+                         work_run_id,
+                         parent_execution_id,
+@@ -347,7 +363,14 @@
+                 };
+                 let result = if resolve_start_workspace {
+                     product
+-                        .agent_execute(action, self.supervisor.as_ref())
++                        .agent_execute(
++                            action,
++                            product::StartCreationAuthority {
++                                supervisor: self.supervisor.as_ref(),
++                                management: &self.management,
++                                routing: routing_intent,
++                            },
++                        )
+                         .await
+                 } else {
+                     product
+--- baseline/src-tauri/src/mcp/orchestration_tests.rs
++++ src-tauri/src/mcp/orchestration_tests.rs
+@@ -5,6 +5,9 @@
+ 
+ #[path = "provider_query_tests.rs"]
+ mod provider_query_tests;
++
++#[path = "start_routing_tests.rs"]
++mod start_routing_tests;
+ 
+ pub(crate) fn fixture(root: &std::path::Path) -> Arc<Broker> {
+     let paths = crate::config::AppPaths {
+--- baseline/src-tauri/src/mcp/start_routing_tests.rs
++++ src-tauri/src/mcp/start_routing_tests.rs
+@@ -0,0 +1,631 @@
++//! CB3-004：真实 Broker→Product→Store 路径的路由、幂等与管理锁竞态。
++use super::*;
++use crate::agent::{
++    notification::noop_agent_terminal_notifier,
++    provider::{
++        ProviderCancelContext, ProviderCapabilities, ProviderDescriptor, ProviderError,
++        ProviderExecutionContext, ProviderId, ProviderOutcome, ProviderResultCompleteness,
++        ProviderRunResult, ProviderStartupContext,
++        port::{
++            AgentEventSink, AgentProvider, ProviderAcceptanceSink, ProviderExecutionFailure,
++            ProviderFuture, ProviderReconcileSummary,
++        },
++        registry::{ProviderHealth, ProviderRegistry},
++    },
++    task_manager::AgentTaskManager,
++};
++use std::sync::atomic::{AtomicUsize, Ordering};
++use std::time::Duration;
++
++struct RoutingProvider {
++    id: ProviderId,
++    can_execute: bool,
++    calls: AtomicUsize,
++    store: StateStore,
++}
++
++impl AgentProvider for RoutingProvider {
++    /// 测试 Provider 不启动进程，身份仅用于持久化与路由断言。
++    fn descriptor(&self) -> ProviderDescriptor {
++        ProviderDescriptor {
++            id: self.id.clone(),
++            display_name: "Routing fixture".into(),
++            version: None,
++        }
++    }
++    /// 用独立能力事实验证 health 与 canExecute 的错误优先级。
++    fn capabilities(&self) -> ProviderCapabilities {
++        ProviderCapabilities {
++            can_execute: self.can_execute,
++            can_continue: false,
++            can_cancel: true,
++            can_recover: false,
++            activity: false,
++            token_usage: false,
++        }
++    }
++    /// 通过既有无 Runtime 取消路径收口，不能伪造 Runtime/Claim evidence。
++    fn execute<'a>(
++        &'a self,
++        context: ProviderExecutionContext,
++        acceptance: Arc<dyn ProviderAcceptanceSink>,
++        _: Arc<dyn AgentEventSink>,
++    ) -> ProviderFuture<'a, Result<ProviderRunResult, ProviderExecutionFailure>> {
++        Box::pin(async move {
++            self.calls.fetch_add(1, Ordering::SeqCst);
++            acceptance.accepted();
++            self.store
++                .request_cancel(
++                    context.execution_id.clone(),
++                    crate::agent::coordinator::now(),
++                )
++                .await?;
++            Ok(ProviderRunResult {
++                execution_id: context.execution_id,
++                outcome: ProviderOutcome::Cancelled,
++                result: None,
++                result_completeness: ProviderResultCompleteness::Unknown,
++                diagnostic_code: None,
++            })
++        })
++    }
++    /// 本组测试不请求 Provider 取消。
++    fn cancel<'a>(
++        &'a self,
++        _: ProviderCancelContext,
++    ) -> ProviderFuture<'a, Result<(), ProviderError>> {
++        Box::pin(async { panic!("unexpected provider cancel") })
++    }
++    /// 路由测试不启动恢复任务。
++    fn startup_reconcile<'a>(
++        &'a self,
++        _: ProviderStartupContext,
++    ) -> ProviderFuture<'a, Result<ProviderReconcileSummary, ProviderError>> {
++        Box::pin(async { panic!("unexpected startup reconciliation") })
++    }
++}
++
++struct RoutingFixture {
++    _dir: tempfile::TempDir,
++    broker: Arc<Broker>,
++    store: StateStore,
++    manager: AgentTaskManager,
++    provider: Arc<RoutingProvider>,
++    state_root: PathBuf,
++}
++
++impl RoutingFixture {
++    /// 使用真实 Supervisor 配置与同一 admission owner，避免测试快照形成第二 Authority。
++    async fn new(
++        health: ProviderHealth,
++        can_execute: bool,
++        handoff: Option<Arc<(tokio::sync::Notify, tokio::sync::Notify)>>,
++    ) -> Self {
++        let dir = tempfile::tempdir().unwrap();
++        let broker = fixture(dir.path());
++        let root = dir.path().join("workspace");
++        std::fs::create_dir(&root).unwrap();
++        let root = std::fs::canonicalize(root).unwrap();
++        let mut config = broker.config();
++        config.workspaces = vec![Workspace {
++            id: "W".into(),
++            name: "W".into(),
++            root,
++            generation: 1,
++        }];
++        broker.supervisor.replace_config(config).unwrap();
++        broker
++            .supervisor
++            .mutate_provider_settings(|settings| {
++                for id in ["fixture", "other"] {
++                    settings.providers.insert(
++                        id.into(),
++                        crate::config::AgentProviderPolicy { enabled: true },
++                    );
++                }
++                for route in settings.role_routing.values_mut() {
++                    *route = Some(ProviderId::new("fixture".into()).unwrap());
++                }
++            })
++            .unwrap();
++        let state_root = dir.path().join("state");
++        let store = StateStore::open(state_root.clone()).await.unwrap();
++        let provider = Arc::new(RoutingProvider {
++            id: ProviderId::new("fixture".into()).unwrap(),
++            can_execute,
++            calls: AtomicUsize::new(0),
++            store: store.clone(),
++        });
++        let mut registry = ProviderRegistry::new();
++        registry.register(provider.clone(), health).unwrap();
++        registry
++            .register(
++                Arc::new(RoutingProvider {
++                    id: ProviderId::new("other".into()).unwrap(),
++                    can_execute: true,
++                    calls: AtomicUsize::new(0),
++                    store: store.clone(),
++                }),
++                ProviderHealth::Available,
++            )
++            .unwrap();
++        registry
++            .register(
++                Arc::new(RoutingProvider {
++                    id: ProviderId::new("codex".into()).unwrap(),
++                    can_execute: true,
++                    calls: AtomicUsize::new(0),
++                    store: store.clone(),
++                }),
++                ProviderHealth::Available,
++            )
++            .unwrap();
++        let mut manager = AgentTaskManager::new_with_terminal_notifier_and_provider_settings(
++            store.clone(),
++            PathBuf::new(),
++            noop_agent_terminal_notifier(),
++            broker.supervisor.provider_policy(),
++        );
++        manager.use_registry(registry);
++        manager.test_handoff = handoff;
++        assert!(
++            broker
++                .product
++                .set(Arc::new(AgentProductService::new_with_manager_for_test(
++                    store.clone(),
++                    manager.clone()
++                )))
++                .is_ok()
++        );
++        Self {
++            _dir: dir,
++            broker,
++            store,
++            manager,
++            provider,
++            state_root,
++        }
++    }
++
++    /// Work/context preflight 与真实入口一致，不直接插入 Execution。
++    async fn begin(&self) -> String {
++        let result = self
++            .broker
++            .orchestration_operation(
++                "work_update",
++                json!({"action":"begin","workspaceId":"W","title":"Routing"}),
++            )
++            .await;
++        assert_eq!(result["ok"], true, "{result}");
++        result["data"]["workRun"]["workRunId"]
++            .as_str()
++            .unwrap()
++            .into()
++    }
++
++    /// 完整比较三类持久化副作用，拒绝时要求逐值不变。
++    fn rows(&self) -> Vec<Vec<Vec<rusqlite::types::Value>>> {
++        let db = rusqlite::Connection::open(self.state_root.join("agent-state.db")).unwrap();
++        ["executions", "workspace_claims", "runtime_instances"]
++            .iter()
++            .map(|table| {
++                let mut q = db
++                    .prepare(&format!("SELECT * FROM {table} ORDER BY rowid"))
++                    .unwrap();
++                let columns = q.column_count();
++                q.query_map([], |row| (0..columns).map(|i| row.get(i)).collect())
++                    .unwrap()
++                    .collect::<Result<Vec<_>, _>>()
++                    .unwrap()
++            })
++            .collect()
++    }
++
++    /// 测试中的 Human mutation 使用与正式 IPC 相同的 management→operation 顺序。
++    async fn policy(&self, mutate: impl FnOnce(&mut crate::config::AgentProviderSettings)) {
++        let _management = self.broker.management.lock().await;
++        self.broker
++            .supervisor
++            .mutate_provider_settings(mutate)
++            .unwrap();
++    }
++
++    /// 仅通过当前 Broker 公共 orchestration 执行已解析请求。
++    async fn execute(&self, request: Value) -> Value {
++        self.broker
++            .orchestration_operation("agent_execute", request)
++            .await
++    }
++}
++
++/// 显式角色固定由调用方给出，Prompt 刻意包含另一种角色的文字。
++fn start(work: &str) -> Value {
++    json!({"action":"start","workRunId":work,"workspaceId":"W","requestKey":"key",
++        "prompt":"请开发实现并评审代码，不要根据这些文字改变角色", "taskRole":"testing","providerId":"fixture"})
++}
++
++/// 逐层叠加坏事实，验证显式 Start 的冻结错误优先级及三类零副作用。
++#[tokio::test]
++async fn explicit_routing_error_priority_has_no_creation_side_effects() {
++    let cases = [
++        ("disabled-agent", "AGENT_DISABLED"),
++        ("missing-provider", "AGENT_PROVIDER_NOT_FOUND"),
++        ("disabled-provider", "AGENT_PROVIDER_DISABLED"),
++        ("missing-role", "AGENT_ROLE_NOT_CONFIGURED"),
++        ("mismatch", "AGENT_ROLE_PROVIDER_MISMATCH"),
++        ("unavailable", "AGENT_PROVIDER_UNAVAILABLE"),
++        ("capability", "AGENT_PROVIDER_CAPABILITY_UNSUPPORTED"),
++    ];
++    for (case, expected) in cases {
++        let f = RoutingFixture::new(
++            if case == "capability" {
++                ProviderHealth::Available
++            } else {
++                ProviderHealth::Unavailable
++            },
++            false,
++            None,
++        )
++        .await;
++        let work = f.begin().await;
++        let mut request = start(&work);
++        if case == "disabled-agent" {
++            let _management = f.broker.management.lock().await;
++            let mut config = f.broker.config();
++            config.agent_enabled = false;
++            f.broker.supervisor.replace_config(config).unwrap();
++        }
++        if case == "missing-provider" {
++            request["providerId"] = json!("unregistered");
++        }
++        f.policy(|settings| {
++            if matches!(
++                case,
++                "disabled-agent" | "missing-provider" | "disabled-provider"
++            ) {
++                settings.providers.get_mut("fixture").unwrap().enabled = false;
++            }
++            settings.role_routing.insert(
++                "testing".into(),
++                match case {
++                    "unavailable" | "capability" => {
++                        Some(ProviderId::new("fixture".into()).unwrap())
++                    }
++                    "mismatch" => Some(ProviderId::new("other".into()).unwrap()),
++                    _ => None,
++                },
++            );
++        })
++        .await;
++        let before = f.rows();
++        let response = f.execute(request).await;
++        assert_eq!(response["error"]["code"], expected, "{case}: {response}");
++        assert_eq!(f.rows(), before, "{case}");
++        assert_eq!(f.provider.calls.load(Ordering::SeqCst), 0);
++    }
++}
++
++/// legacy 必须读取当前 general route，缺失时不能使用默认 Codex。
++#[tokio::test]
++async fn legacy_general_route_is_required_and_ignores_prompt_classification() {
++    let f = RoutingFixture::new(ProviderHealth::Available, true, None).await;
++    let work = f.begin().await;
++    let mut request = start(&work);
++    request.as_object_mut().unwrap().remove("taskRole");
++    request.as_object_mut().unwrap().remove("providerId");
++    f.policy(|settings| {
++        settings.role_routing.insert("general".into(), None);
++    })
++    .await;
++    let before = f.rows();
++    assert_eq!(
++        f.execute(request.clone()).await["error"]["code"],
++        "AGENT_ROLE_NOT_CONFIGURED"
++    );
++    assert_eq!(f.rows(), before);
++    f.policy(|settings| {
++        settings.role_routing.insert(
++            "general".into(),
++            Some(ProviderId::new("fixture".into()).unwrap()),
++        );
++    })
++    .await;
++    let response = f.execute(request).await;
++    assert_eq!(response["ok"], true, "{response}");
++    let rows = f.store.product_read(None, None, None, 10).await.unwrap();
++    assert_eq!(rows[0].execution.provider, "fixture");
++    assert_eq!(rows[0].task_role, "general");
++}
++
++/// 非 general 的 exact retry 不被 preflight 拒绝，最终 pair 参与新请求 identity。
++#[tokio::test]
++async fn explicit_retry_and_changed_provider_or_role_use_frozen_v3_identity() {
++    let f = RoutingFixture::new(ProviderHealth::Available, true, None).await;
++    let work = f.begin().await;
++    let request = start(&work);
++    assert_eq!(f.execute(request.clone()).await["ok"], true);
++    let original = f
++        .store
++        .product_read(None, None, None, 10)
++        .await
++        .unwrap()
++        .remove(0);
++    assert_eq!(original.execution.provider, "fixture");
++    assert_eq!(original.task_role, "testing");
++    assert_eq!(f.execute(request.clone()).await["ok"], true);
++    assert_eq!(f.provider.calls.load(Ordering::SeqCst), 1);
++    let mut changed_role = request.clone();
++    changed_role["taskRole"] = json!("review");
++    assert_eq!(
++        f.execute(changed_role).await["error"]["code"],
++        "EXECUTION_REQUEST_KEY_CONFLICT"
++    );
++    f.policy(|settings| {
++        settings.role_routing.insert(
++            "testing".into(),
++            Some(ProviderId::new("other".into()).unwrap()),
++        );
++    })
++    .await;
++    let mut changed_provider = request.clone();
++    changed_provider["providerId"] = json!("other");
++    assert_eq!(
++        f.execute(changed_provider).await["error"]["code"],
++        "EXECUTION_REQUEST_KEY_CONFLICT"
++    );
++    // exact retry 必须再次检查当前 Authority，不能用 prior row 绕过 mismatch/disabled。
++    assert_eq!(
++        f.execute(request.clone()).await["error"]["code"],
++        "AGENT_ROLE_PROVIDER_MISMATCH"
++    );
++    f.policy(|settings| {
++        settings.providers.get_mut("fixture").unwrap().enabled = false;
++    })
++    .await;
++    assert_eq!(
++        f.execute(request).await["error"]["code"],
++        "AGENT_PROVIDER_DISABLED"
++    );
++    let current = f.store.product_read(None, None, None, 10).await.unwrap();
++    assert_eq!(current.len(), 1);
++    assert_eq!(current[0].execution.provider, original.execution.provider);
++    assert_eq!(current[0].task_role, original.task_role);
++    assert_eq!(
++        current[0].execution.request_hash,
++        original.execution.request_hash
++    );
++}
++
++/// Query 的快照不授予创建权限，查询后的 policy/开关变化在 create 前生效。
++#[tokio::test]
++async fn query_then_policy_changes_are_rejected_before_creation() {
++    for disable in [false, true] {
++        let f = RoutingFixture::new(ProviderHealth::Available, true, None).await;
++        let work = f.begin().await;
++        let catalog = f
++            .broker
++            .orchestration_operation("agent_query", json!({"action":"providers"}))
++            .await;
++        assert_eq!(catalog["ok"], true);
++        f.policy(|settings| {
++            if disable {
++                settings.providers.get_mut("fixture").unwrap().enabled = false;
++            } else {
++                settings.role_routing.insert(
++                    "testing".into(),
++                    Some(ProviderId::new("other".into()).unwrap()),
++                );
++            }
++        })
++        .await;
++        let before = f.rows();
++        let response = f.execute(start(&work)).await;
++        assert_eq!(
++            response["error"]["code"],
++            if disable {
++                "AGENT_PROVIDER_DISABLED"
++            } else {
++                "AGENT_ROLE_PROVIDER_MISMATCH"
++            }
++        );
++        assert_eq!(f.rows(), before);
++    }
++}
++
++/// 同步创建钩子制造真实 interleaving；三条管理路径不能穿过最终校验与提交之间。
++#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
++async fn management_serializes_policy_health_and_agent_enabled_through_creation() {
++    for mutation in ["route", "enabled", "health", "agent-enabled"] {
++        let f = RoutingFixture::new(ProviderHealth::Available, true, None).await;
++        let work = f.begin().await;
++        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
++        let (release_tx, release_rx) = std::sync::mpsc::channel();
++        let release_rx = Arc::new(std::sync::Mutex::new(release_rx));
++        *f.broker.supervisor.workspace_start_hook.lock().unwrap() = Some(Arc::new(move || {
++            entered_tx.send(()).unwrap();
++            release_rx
++                .lock()
++                .unwrap()
++                .recv_timeout(Duration::from_secs(10))
++                .unwrap();
++        }));
++        let broker = f.broker.clone();
++        let request = start(&work);
++        let start_task = tokio::spawn(async move {
++            broker
++                .orchestration_operation("agent_execute", request)
++                .await
++        });
++        tokio::task::spawn_blocking(move || {
++            entered_rx.recv_timeout(Duration::from_secs(10)).unwrap()
++        })
++        .await
++        .unwrap();
++        let broker = f.broker.clone();
++        let manager = f.manager.clone();
++        let (attempt_tx, attempt_rx) = tokio::sync::oneshot::channel();
++        let (mutation_tx, mut mutation_rx) = tokio::sync::oneshot::channel();
++        let update = tokio::spawn(async move {
++            attempt_tx.send(()).unwrap();
++            let _management = broker.management.lock().await;
++            mutation_tx.send(()).unwrap();
++            match mutation {
++                "route" | "enabled" => {
++                    broker
++                        .supervisor
++                        .mutate_provider_settings(|settings| {
++                            if mutation == "route" {
++                                settings.role_routing.insert("testing".into(), None);
++                            } else {
++                                settings.providers.get_mut("fixture").unwrap().enabled = false;
++                            }
++                        })
++                        .unwrap();
++                }
++                "health" => {
++                    // 通过既有 discovery 注入点实际发布 Unavailable，绝不启动用户 CLI。
++                    let health = crate::agent::codex::TEST_BACKEND_DISCOVERY
++                        .scope(
++                            Err("TEST_ROUTING_HEALTH_UNAVAILABLE".into()),
++                            manager
++                                .refresh_provider_health(ProviderId::new("codex".into()).unwrap()),
++                        )
++                        .await
++                        .unwrap();
++                    assert_eq!(health, ProviderHealth::Unavailable);
++                }
++                _ => {
++                    let mut config = broker.config();
++                    config.agent_enabled = false;
++                    broker.supervisor.replace_config(config).unwrap();
++                }
++            }
++        });
++        attempt_rx.await.unwrap();
++        assert!(
++            tokio::time::timeout(Duration::from_millis(50), &mut mutation_rx)
++                .await
++                .is_err(),
++            "{mutation}"
++        );
++        assert_eq!(
++            f.manager
++                .registry()
++                .unwrap()
++                .health(&ProviderId::new("codex".into()).unwrap())
++                .unwrap(),
++            ProviderHealth::Available
++        );
++        assert!(f.rows()[0].is_empty());
++        release_tx.send(()).unwrap();
++        mutation_rx.await.unwrap();
++        update.await.unwrap();
++        // 提交后的开关可能拒绝 dispatch；无论 handoff 结果如何，已创建身份不能被改写。
++        let _response = start_task.await.unwrap();
++        let rows = f.store.product_read(None, None, None, 10).await.unwrap();
++        assert_eq!(rows.len(), 1, "{mutation}");
++        assert_eq!(rows[0].execution.provider, "fixture");
++        assert_eq!(rows[0].task_role, "testing");
++    }
++}
++
++/// 查询后的真实 health refresh 必须影响随后创建，不能继续使用目录中的 Available。
++#[tokio::test]
++async fn query_then_health_refresh_rejects_start_without_side_effects() {
++    let f = RoutingFixture::new(ProviderHealth::Available, true, None).await;
++    let work = f.begin().await;
++    f.policy(|settings| {
++        settings.role_routing.insert(
++            "testing".into(),
++            Some(ProviderId::new("codex".into()).unwrap()),
++        );
++    })
++    .await;
++    let catalog = f
++        .broker
++        .orchestration_operation("agent_query", json!({"action":"providers"}))
++        .await;
++    assert_eq!(catalog["ok"], true);
++    {
++        let _management = f.broker.management.lock().await;
++        let health = crate::agent::codex::TEST_BACKEND_DISCOVERY
++            .scope(
++                Err("TEST_ROUTING_HEALTH_UNAVAILABLE".into()),
++                f.manager
++                    .refresh_provider_health(ProviderId::new("codex".into()).unwrap()),
++            )
++            .await
++            .unwrap();
++        assert_eq!(health, ProviderHealth::Unavailable);
++    }
++    let before = f.rows();
++    let mut request = start(&work);
++    request["providerId"] = json!("codex");
++    assert_eq!(
++        f.execute(request).await["error"]["code"],
++        "AGENT_PROVIDER_UNAVAILABLE"
++    );
++    assert_eq!(f.rows(), before);
++}
++
++/// 在既有 handoff 同步点停住；此时必须已释放 management，允许管理操作完成。
++#[tokio::test]
++async fn management_is_released_before_provider_handoff() {
++    let handoff = Arc::new((tokio::sync::Notify::new(), tokio::sync::Notify::new()));
++    let f = RoutingFixture::new(ProviderHealth::Available, true, Some(handoff.clone())).await;
++    let work = f.begin().await;
++    let broker = f.broker.clone();
++    let request = start(&work);
++    let task = tokio::spawn(async move {
++        broker
++            .orchestration_operation("agent_execute", request)
++            .await
++    });
++    tokio::time::timeout(Duration::from_secs(10), handoff.0.notified())
++        .await
++        .unwrap();
++    assert_eq!(f.rows()[0].len(), 1);
++    assert_eq!(f.provider.calls.load(Ordering::SeqCst), 0);
++    let management = tokio::time::timeout(Duration::from_secs(1), f.broker.management.lock())
++        .await
++        .unwrap();
++    f.broker
++        .supervisor
++        .mutate_provider_settings(|settings| {
++            settings.role_routing.insert("testing".into(), None);
++        })
++        .unwrap();
++    drop(management);
++    handoff.1.notify_one();
++    assert_eq!(task.await.unwrap()["ok"], true);
++    assert_eq!(f.provider.calls.load(Ordering::SeqCst), 1);
++}
++
++/// 请求进入 Broker 后等待 management 时，最终读取必须观察随后提交的 agentEnabled。
++#[tokio::test]
++async fn waiting_start_rechecks_agent_enabled_after_management_acquisition() {
++    let f = RoutingFixture::new(ProviderHealth::Available, true, None).await;
++    let work = f.begin().await;
++    let management = f.broker.management.lock().await;
++    let broker = f.broker.clone();
++    let request = start(&work);
++    let mut task = tokio::spawn(async move {
++        broker
++            .orchestration_operation("agent_execute", request)
++            .await
++    });
++    assert!(
++        tokio::time::timeout(Duration::from_millis(50), &mut task)
++            .await
++            .is_err()
++    );
++    let before = f.rows();
++    let mut config = f.broker.config();
++    config.agent_enabled = false;
++    f.broker.supervisor.replace_config(config).unwrap();
++    drop(management);
++    let response = task.await.unwrap();
++    assert_eq!(response["error"]["code"], "AGENT_DISABLED");
++    assert_eq!(f.rows(), before);
++    assert_eq!(f.provider.calls.load(Ordering::SeqCst), 0);
++}
+--- baseline/src-tauri/src/serena.rs
++++ src-tauri/src/serena.rs
+@@ -160,6 +160,7 @@
+ 
+ /// 已通过普通异步 preflight 的 Start 持久化输入；Workspace 快照仅在 operation mutex 内解析。
+ pub(crate) struct WorkspaceStartCreation {
++    pub(crate) routing: crate::agent::store::transactions::product::FrozenStartRouting,
+     pub(crate) execution_id: String,
+     pub(crate) agent_id: String,
+     pub(crate) request_key: String,
+@@ -724,6 +725,7 @@
+             hook();
+         }
+         store.product_create_fresh_with_work_blocking(
++            creation.routing,
+             creation.execution_id,
+             creation.agent_id,
+             creation.request_key,
+--- baseline/src-tauri/src/workspace_capability.rs
++++ src-tauri/src/workspace_capability.rs
+@@ -4041,6 +4041,10 @@
+             supervisor.create_workspace_start(
+                 &store,
+                 WorkspaceStartCreation {
++                    routing: crate::agent::store::transactions::product::FrozenStartRouting {
++                        provider: crate::agent::provider::ProviderId::new("codex".into()).unwrap(),
++                        task_role: crate::agent::execution::AgentTaskRole::General,
++                    },
+                     execution_id: "execution".into(),
+                     agent_id: "agent".into(),
+                     request_key: "request".into(),

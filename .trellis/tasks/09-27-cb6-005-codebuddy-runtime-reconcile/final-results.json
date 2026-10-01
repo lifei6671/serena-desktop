@@ -1,0 +1,44 @@
+[
+  {
+    "name": "fmt",
+    "command": "cargo fmt --all -- --check",
+    "exitCode": 0,
+    "log": "final-fmt.log"
+  },
+  {
+    "name": "check",
+    "command": "cargo check --lib --tests",
+    "exitCode": 0,
+    "log": "final-check.log"
+  },
+  {
+    "name": "codex-runtime",
+    "command": "cargo test --lib agent::codex::runtime::tests -- --nocapture",
+    "exitCode": 0,
+    "log": "final-codex-runtime.log"
+  },
+  {
+    "name": "task-manager",
+    "command": "cargo test --lib agent::task_manager::tests -- --nocapture",
+    "exitCode": 0,
+    "log": "final-task-manager.log"
+  },
+  {
+    "name": "transactions",
+    "command": "cargo test --lib agent::store::transactions::tests -- --nocapture",
+    "exitCode": 0,
+    "log": "final-transactions.log"
+  },
+  {
+    "name": "catalog",
+    "command": "cargo test --lib agent::product::provider_catalog_tests -- --nocapture",
+    "exitCode": 0,
+    "log": "final-catalog.log"
+  },
+  {
+    "name": "clippy",
+    "command": "cargo clippy --lib --tests -- -D warnings",
+    "exitCode": 101,
+    "log": "final-clippy.log"
+  }
+]

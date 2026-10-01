@@ -244,6 +244,16 @@ async fn freeze_and_runtime_termination_preserve_public_usage_and_isolate_runtim
     grace_fixture(&store, directory.path(), "terminal-grace", "runtime-a").await;
     grace_fixture(&store, directory.path(), "accepting", "runtime-a").await;
     grace_fixture(&store, directory.path(), "other-runtime", "runtime-b").await;
+    grace_fixture(&store, directory.path(), "polluted-non-codex", "runtime-a").await;
+    {
+        let connection = store.connection.lock().unwrap();
+        connection
+            .execute(
+                "UPDATE executions SET provider='fake-acp' WHERE id='polluted-non-codex'",
+                [],
+            )
+            .unwrap();
+    }
     store
         .enter_codex_usage_terminal_grace(
             "terminal-grace".into(),
@@ -287,6 +297,30 @@ async fn freeze_and_runtime_termination_preserve_public_usage_and_isolate_runtim
     assert_eq!(state(&store, "accepting").freeze_at, Some(2_000));
     assert_eq!(state(&store, "terminal-grace").freeze_at, Some(1_500));
     assert_eq!(state(&store, "other-runtime").telemetry_state, "accepting");
+    {
+        let connection = store.connection.lock().unwrap();
+        let polluted: (String, Option<i64>) = connection
+            .query_row(
+                "SELECT telemetry_state,freeze_at
+                 FROM codex_execution_usage_state
+                 WHERE execution_id='polluted-non-codex'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(polluted, ("accepting".into(), None));
+
+        let runtime: (String, String) = connection
+            .query_row(
+                "SELECT state,termination_evidence_state
+                 FROM runtime_instances
+                 WHERE id='runtime-a'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(runtime, ("terminated".into(), "complete".into()));
+    }
     assert_eq!(
         store
             .execution_usage("accepting".into())
@@ -705,7 +739,7 @@ async fn unknown_cross_runtime_and_regression_are_fail_safe_and_atomic() {
     );
     let connection = store.connection.lock().unwrap();
     assert_eq!(
-        usage::codex_thread_usage_epoch_record(&connection, "runtime-new", "thread")
+        usage::codex_thread_usage_epoch_record(&connection, "restart", "runtime-new", "thread")
             .unwrap()
             .unwrap()
             .latest_cumulative_json,
@@ -869,5 +903,306 @@ async fn missing_private_state_projects_unknown_without_lifecycle_mutation() {
             .unwrap()
             .revision,
         before.revision
+    );
+}
+
+/// Fake Provider 不能借 Codex private helper 创建 baseline、epoch、grace 或公共 Codex Usage。
+#[tokio::test]
+async fn non_codex_execution_rejects_every_codex_private_usage_entry_without_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let input: CreateExecutionInput = serde_json::from_value(json!({
+        "agent_id":"fake-usage-agent","request_key":"fake-usage-key","prompt":"usage",
+        "execution_profile":{},"workspace_id":"fake-usage-workspace",
+        "canonical_workspace_root":"C:/fake-usage","workspace_generation":1,
+        "provider":"fake-acp","task_role":"general","mode":"read_only"
+    }))
+    .unwrap();
+    store
+        .create_execution("fake-usage".into(), canonicalize_request(input).unwrap(), 1)
+        .await
+        .unwrap();
+    let before_execution = store.execution("fake-usage".into()).await.unwrap().unwrap();
+    let before_claim = store.workspace_claim("C:/fake-usage".into()).await.unwrap();
+    let unsupported = usage::USAGE_PROVIDER_UNSUPPORTED;
+
+    assert_eq!(
+        store
+            .prepare_codex_usage_baseline(
+                "fake-usage".into(),
+                "runtime".into(),
+                "thread".into(),
+                CodexUsageBaselineIntent::FreshZero,
+                2,
+            )
+            .await,
+        Err(unsupported.into())
+    );
+    assert_eq!(
+        store
+            .enter_codex_usage_terminal_grace(
+                "fake-usage".into(),
+                "runtime".into(),
+                "thread".into(),
+                "turn".into(),
+                3,
+            )
+            .await,
+        Err(unsupported.into())
+    );
+    assert_eq!(
+        store.freeze_codex_usage("fake-usage".into(), 4).await,
+        Err(unsupported.into())
+    );
+    assert_eq!(
+        store
+            .invalidate_codex_usage_baseline(
+                "fake-usage".into(),
+                "runtime".into(),
+                "thread".into(),
+                5,
+            )
+            .await,
+        Err(unsupported.into())
+    );
+    for provider in ["fake-acp", "codex"] {
+        let event = UsageEvent::cumulative(
+            "fake-usage".into(),
+            ProviderId::new(provider.into()).unwrap(),
+            10,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            6,
+        );
+        assert_eq!(
+            store.project_execution_usage(event).await,
+            Err(unsupported.into())
+        );
+    }
+
+    {
+        let connection = store.connection.lock().unwrap();
+        for table in [
+            "execution_usage",
+            "codex_execution_usage_state",
+            "codex_thread_usage_epochs",
+        ] {
+            let count: i64 = connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "{table}");
+        }
+        assert!(
+            usage::codex_execution_usage_state_record(&connection, "fake-usage")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            usage::codex_thread_usage_epoch_record(&connection, "fake-usage", "runtime", "thread")
+                .unwrap()
+                .is_none()
+        );
+    }
+    assert_eq!(
+        store.execution("fake-usage".into()).await.unwrap().unwrap(),
+        before_execution
+    );
+    assert_eq!(
+        store.workspace_claim("C:/fake-usage".into()).await.unwrap(),
+        before_claim
+    );
+}
+
+/// 直接快照没有 baseline；null、零、完整 breakdown 与 Provider 身份独立持久化。
+#[tokio::test]
+async fn direct_usage_round_trip_identity_duplicate_freeze_and_private_isolation() {
+    use crate::agent::usage::{UsageCompleteness, UsageSnapshot};
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    execution(&store, "direct", directory.path()).await;
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET provider='codebuddy' WHERE id='direct'",
+            [],
+        )
+        .unwrap();
+    let before = store.execution("direct".into()).await.unwrap().unwrap();
+    let mut snapshot = UsageSnapshot {
+        execution_id: "direct".into(),
+        provider_id: ProviderId::new("codebuddy".into()).unwrap(),
+        input_tokens: None,
+        cached_input_tokens: None,
+        cache_write_input_tokens: None,
+        output_tokens: Some(0),
+        reasoning_tokens: None,
+        total_tokens: Some(0),
+        model_context_window: None,
+        completeness: UsageCompleteness::Partial,
+        revision: 999,
+        updated_at: 2,
+    };
+    let mut mismatch = snapshot.clone();
+    mismatch.provider_id = ProviderId::new("codex".into()).unwrap();
+    assert_eq!(
+        store
+            .project_direct_execution_usage(mismatch)
+            .await
+            .unwrap_err(),
+        "USAGE_PROVIDER_MISMATCH"
+    );
+    store
+        .project_direct_execution_usage(snapshot.clone())
+        .await
+        .unwrap();
+    let read = || {
+        usage::execution_usage_record(&store.connection.lock().unwrap(), "direct")
+            .unwrap()
+            .unwrap()
+    };
+    let initial = read();
+    assert_eq!(initial.usage_revision, 1);
+    assert_eq!(initial.total_tokens, Some(0));
+    assert_eq!(initial.input_tokens, None);
+    snapshot.updated_at = 3;
+    store
+        .project_direct_execution_usage(snapshot.clone())
+        .await
+        .unwrap();
+    assert_eq!(read(), initial);
+    // 各 breakdown 原样保存，total 故意不等于其和，公共层不能重算。
+    snapshot.input_tokens = Some(11);
+    snapshot.cached_input_tokens = Some(3);
+    snapshot.cache_write_input_tokens = Some(0);
+    snapshot.output_tokens = Some(7);
+    snapshot.reasoning_tokens = Some(2);
+    snapshot.total_tokens = Some(99);
+    snapshot.completeness = UsageCompleteness::Complete;
+    store
+        .project_direct_execution_usage(snapshot.clone())
+        .await
+        .unwrap();
+    let full = read();
+    assert_eq!(full.usage_revision, 2);
+    assert_eq!(full.total_tokens, Some(99));
+    assert_eq!(full.cached_input_tokens, Some(3));
+    assert_eq!(full.cache_write_input_tokens, Some(0));
+    assert_eq!(full.reasoning_tokens, Some(2));
+    let round_trip = UsageSnapshot::try_from(full.clone()).unwrap();
+    assert_eq!(round_trip.input_tokens, snapshot.input_tokens);
+    snapshot.updated_at = 4;
+    store
+        .project_direct_execution_usage(snapshot.clone())
+        .await
+        .unwrap();
+    assert_eq!(read(), full);
+    snapshot.total_tokens = Some(98);
+    assert_eq!(
+        store
+            .project_direct_execution_usage(snapshot.clone())
+            .await
+            .unwrap_err(),
+        usage::USAGE_TELEMETRY_FROZEN
+    );
+    snapshot.total_tokens = Some(-1);
+    assert_eq!(
+        store
+            .project_direct_execution_usage(snapshot)
+            .await
+            .unwrap_err(),
+        "USAGE_EVENT_INVALID"
+    );
+    assert_eq!(read(), full);
+    let after = store.execution("direct".into()).await.unwrap().unwrap();
+    assert_eq!(after.revision, before.revision);
+    assert_eq!(after, before);
+    assert_eq!(after.status, before.status);
+    // 重启后 public final 的 freeze 与 semantic duplicate 仍然成立，不依赖内存状态。
+    let restarted = StateStore::open(directory.path().into()).await.unwrap();
+    restarted
+        .project_direct_execution_usage(round_trip.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted
+            .execution_usage("direct".into())
+            .await
+            .unwrap()
+            .unwrap(),
+        round_trip
+    );
+    let mut late = round_trip;
+    late.output_tokens = Some(8);
+    assert_eq!(
+        restarted
+            .project_direct_execution_usage(late)
+            .await
+            .unwrap_err(),
+        usage::USAGE_TELEMETRY_FROZEN
+    );
+    let connection = store.connection.lock().unwrap();
+    for table in ["codex_execution_usage_state", "codex_thread_usage_epochs"] {
+        let count: i64 = connection
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+}
+
+/// 直接 writer 不允许覆盖来自其他 Provider 的已存在行，即使 Execution 身份吻合。
+#[tokio::test]
+async fn direct_usage_rejects_foreign_persisted_provider_and_preserves_null_total() {
+    use crate::agent::usage::{UsageCompleteness, UsageSnapshot};
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    execution(&store, "direct-null", directory.path()).await;
+    let snapshot = UsageSnapshot {
+        execution_id: "direct-null".into(),
+        provider_id: ProviderId::new("codex".into()).unwrap(),
+        input_tokens: Some(1),
+        cached_input_tokens: None,
+        cache_write_input_tokens: None,
+        output_tokens: None,
+        reasoning_tokens: None,
+        total_tokens: None,
+        model_context_window: None,
+        completeness: UsageCompleteness::Partial,
+        revision: 0,
+        updated_at: 2,
+    };
+    store
+        .project_direct_execution_usage(snapshot.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        usage::execution_usage_record(&store.connection.lock().unwrap(), "direct-null")
+            .unwrap()
+            .unwrap()
+            .total_tokens,
+        None
+    );
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE execution_usage SET provider_id='codebuddy' WHERE execution_id='direct-null'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .project_direct_execution_usage(snapshot)
+            .await
+            .unwrap_err(),
+        "USAGE_PROVIDER_MISMATCH"
     );
 }

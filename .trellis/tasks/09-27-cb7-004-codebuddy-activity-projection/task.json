@@ -1,0 +1,41 @@
+{
+  "id": "cb7-004-codebuddy-activity-projection",
+  "name": "cb7-004-codebuddy-activity-projection",
+  "title": "CB7-004 ACP Activity Projection",
+  "description": "Typed identity-safe ACP activity mapper and internal prompt telemetry integration, preserving terminal/Claim/Usage and frozen capability matrix",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "codebuddy",
+  "package": null,
+  "priority": "P2",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-09-27",
+  "completedAt": "2026-09-27",
+  "branch": "feat/codebuddy",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "src-tauri/src/agent/codebuddy/activity.rs",
+    "src-tauri/src/agent/codebuddy/activity/tests.rs",
+    "src-tauri/src/agent/codebuddy/mod.rs",
+    "src-tauri/src/agent/codebuddy/prompt.rs",
+    "src-tauri/src/agent/codebuddy/prompt/activity_tests.rs",
+    "src-tauri/src/agent/codebuddy/prompt/tests.rs",
+    "src-tauri/tests/fixtures/codebuddy_activity_host.jsonl",
+    "src-tauri/tests/fixtures/codebuddy_prompt_child.rs"
+  ],
+  "notes": "Same CB7-004 Host correction complete: initial completed/failed ToolCall projects Provider, category retained. Fresh independent read-only FULL_SCOPE PASSED P0-P3=0, 8 source/53 context hashes. Focused6, prompt activity7, telemetry3, broad activity56+1ignored, full serial CodeBuddy111, fmt/check PASS. Parallel CodeBuddy109/2FAIL preserved; clippy987 baseline and historical TaskManager/Codex failures retained. No commit/push/archive/new card.",
+  "meta": {
+    "reviewTarget": "29134675D7068D57662897279975B1F4E3FE3210E75DFCBB3AF7E1F41A2F984A",
+    "deliveryStatus": "IMPLEMENTED_REVIEW_PASSED",
+    "verificationStatus": "SCOPED_PASS_SERIAL_WITH_RECORDED_PARALLEL_AND_BASELINE_FAILURES",
+    "repairRounds": 1,
+    "hostCorrections": 1
+  }
+}

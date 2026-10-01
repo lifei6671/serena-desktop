@@ -1,0 +1,29 @@
+{
+  "status": "FAILED",
+  "freshSessionPrerequisite": {
+    "status": "FAILED",
+    "initializeExactCb5004Params": true,
+    "initializeSucceeded": true,
+    "sessionNewSucceeded": false
+  },
+  "continuation": {
+    "conclusion": "INCONCLUSIVE",
+    "recoveryMethod": "session/load"
+  },
+  "usage": {
+    "eventCount": 0,
+    "fields": [],
+    "windows": [],
+    "exactPromptBound": false,
+    "publicConclusion": "INCONCLUSIVE",
+    "tokenUsageCapability": false,
+    "reason": "NO_REAL_USAGE_EVENT_REQUIRES_CALLER_PREREQUISITE_ASSESSMENT"
+  },
+  "error": {
+    "message": "JSON_RPC_ERROR",
+    "rpcCode": -32603,
+    "rpcMessageSha256": "1dac8deadf07408d9a2d94c7e5e61ff2448f500c654a8474262ca7c2c1d51605"
+  },
+  "workspaceFinalManifest": {},
+  "workspaceDeleted": true
+}

@@ -1,0 +1,14 @@
+{
+  "changedExistingFiles": [
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-README.md",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/main.rs",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/usage_runtime.rs",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/usage_tests.rs"
+  ],
+  "originalUsageRuntimeEntirePrefixUnchanged": true,
+  "existingEvidenceUnchanged": true,
+  "usageAnalysisUnchanged": true,
+  "productionChanged": false,
+  "repairRealInvocation": "NOT_RUN",
+  "repairSentinelExists": false
+}

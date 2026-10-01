@@ -1,0 +1,2 @@
+# Design
+Use DTO-only typed routing intent, reuse existing role/provider validation. Keep action shape and strict unknown-field rejection. Derive/customize DTO JSON schema to express no pair/full pair, not independent optional fields. Parse cannot access Product/Store/policy/runtime. Router exhaustive destructuring may need one mechanical `..`; permission pending before touching it. No authority resolution in this task.

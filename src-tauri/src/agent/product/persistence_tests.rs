@@ -173,6 +173,19 @@ fn service(store: StateStore, database: PathBuf, evidence: Arc<Evidence>) -> Age
                             json!({"userAgent":"fake","codexHome":"fixture","platformFamily":"windows","platformOs":"windows"})
                         }
                         "initialized" => continue,
+                        "model/list" => json!({
+                            "data": [{
+                                "id": "fixture-default",
+                                "model": "fixture-default",
+                                "displayName": "Fixture Default",
+                                "description": "",
+                                "isDefault": true,
+                                "hidden": false,
+                                "defaultReasoningEffort": "low",
+                                "supportedReasoningEfforts": [{"reasoningEffort":"low","description":""}],
+                            }],
+                            "nextCursor": null,
+                        }),
                         "thread/start" | "thread/resume" => {
                             if method == "thread/start" {
                                 roots += 1;

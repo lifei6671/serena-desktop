@@ -1,0 +1,1 @@
+{"file":".trellis/tasks/09-28-codebuddy-prompt-timeout-layering/research/timeout-contract.md","reason":"实现前冻结 Prompt 与控制 RPC timeout authority、cancel deadline 和 dirty baseline 边界"}

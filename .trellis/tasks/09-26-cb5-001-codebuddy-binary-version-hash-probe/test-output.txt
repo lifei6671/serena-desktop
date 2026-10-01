@@ -1,0 +1,27 @@
+test_empty_version (__main__.ProbeTests.test_empty_version)
+空输出以及只有空白均是解析失败。 ... ok
+test_explicit_metadata_fallback (__main__.ProbeTests.test_explicit_metadata_fallback)
+CLI 空或畸形时必须保留失败及明确的 PE 候选来源。 ... ok
+test_failed_process (__main__.ProbeTests.test_failed_process)
+非零退出和超时不能通过版本解析。 ... ok
+test_found (__main__.ProbeTests.test_found)
+找到 fixture 时解析实际路径并保留独立 CLI 版本。 ... ok
+test_malformed_shim (__main__.ProbeTests.test_malformed_shim)
+未知 shim 语法不能猜测为已知布局。 ... ok
+test_malformed_version (__main__.ProbeTests.test_malformed_version)
+噪音、四段版本和混合输出不能冒充 CLI 版本。 ... ok
+test_missing_discovery (__main__.ProbeTests.test_missing_discovery)
+where 未找到命令时不把路径文本当成有效发现。 ... ok
+test_missing_real_entries (__main__.ProbeTests.test_missing_real_entries)
+EXE 或 CLI 任一缺失均拒绝成功发现。 ... ok
+test_missing_shim (__main__.ProbeTests.test_missing_shim)
+不存在的 shim 不构成安装证据。 ... ok
+test_no_base_version_fallback (__main__.ProbeTests.test_no_base_version_fallback)
+缺失产品来源不能拿 FileVersion 或 embedded 版本补齐。 ... ok
+test_structured_cli_version (__main__.ProbeTests.test_structured_cli_version)
+实测三行结构可解析，但仍不能冒充 PE 产品候选。 ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.050s
+
+OK

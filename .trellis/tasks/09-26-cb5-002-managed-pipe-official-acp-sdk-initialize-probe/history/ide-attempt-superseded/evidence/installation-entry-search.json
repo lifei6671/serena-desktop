@@ -1,0 +1,32 @@
+{
+  "scope": "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app",
+  "filesScanned": 3467,
+  "literalFlagMatches": [],
+  "acpBridgeMatches": [
+    {
+      "path": "extensions\\genie\\out\\extension\\index.js",
+      "sha256": "62f3aaf4d34b3b96f0c988ba517af3782687e63896785f71094a009d6e5e9ef3",
+      "snippets": [
+        "y\"===ir.type&&\"acp\"===ir.capability;ar.isExecuteCommandMessage=ir=>!(\"acp-rpc\"!==ir.type||!ir.payload)&&\"executeCommand\"===ir.payload.method;ar.isDirectExecuteCommandMessage=ir=>\"execute-command\"===ir.type&&\"string\"==typ",
+        "sage=ir=>\"checkReady\"===ir.type;ar.isCheckCapabilityReadyMessage=ir=>\"checkCapabilityReady\"===ir.type&&\"acp\"===ir.capability;ar.isExecuteCommandMessage=ir=>!(\"acp-rpc\"!==ir.type||!ir.payload)&&\"executeCommand\"===ir.paylo",
+        "l===(ar=this.onclose)||void 0===ar||ar.call(this)})),null===(dn=this._process.stdin)||void 0===dn||dn.on(\"error\",(ir=>{var ar;null===(ar=this.onerror)||void 0===ar||ar.call(this,ir)})),null===(pn=this._process.stdout)||v"
+      ]
+    },
+    {
+      "path": "out\\codebuddy\\main.js",
+      "sha256": "c90caf4b6260b6272318614a7ac8c7831d1ccba6b3e1fc0c825a76c0553f9cce",
+      "snippets": [
+        "u}},JsonRpcEncoder$1=class{static encodeRequest(o,uu,gu){return{type:\"acp-rpc\",payload:{jsonrpc:\"2.0\",id:o,method:uu,params:gu}}}static encodeNotification(o,uu){return{type:\"acp-rpc\",payload:{jsonrpc:\"2.0\",method:o,param",
+        "e\",Su),this._eventBus.on(EventTypes.WINDOW_CLOSED,ju);const $u={type:\"checkCapabilityReady\",capability:\"acp\"};if(!this._connectionStateManager.sendControlMessage(uu,$u)){wu(new Error(`Failed to probe ACP capability for w"
+      ]
+    }
+  ],
+  "asars": [
+    {
+      "path": "node_modules.asar",
+      "entryCount": 0,
+      "candidateNames": []
+    }
+  ],
+  "conclusion": "No usable external-stdio entry discovered in inspected installation. This is not proof that all CodeBuddy distributions lack ACP."
+}

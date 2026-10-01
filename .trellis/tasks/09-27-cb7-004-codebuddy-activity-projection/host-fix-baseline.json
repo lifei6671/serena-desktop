@@ -1,0 +1,34 @@
+[
+  {
+    "matches": true,
+    "path": "src-tauri/src/agent/codebuddy/activity.rs"
+  },
+  {
+    "matches": true,
+    "path": "src-tauri/src/agent/codebuddy/activity/tests.rs"
+  },
+  {
+    "matches": true,
+    "path": "src-tauri/src/agent/codebuddy/mod.rs"
+  },
+  {
+    "matches": true,
+    "path": "src-tauri/src/agent/codebuddy/prompt.rs"
+  },
+  {
+    "matches": true,
+    "path": "src-tauri/src/agent/codebuddy/prompt/activity_tests.rs"
+  },
+  {
+    "matches": true,
+    "path": "src-tauri/src/agent/codebuddy/prompt/tests.rs"
+  },
+  {
+    "matches": true,
+    "path": "src-tauri/tests/fixtures/codebuddy_activity_host.jsonl"
+  },
+  {
+    "matches": true,
+    "path": "src-tauri/tests/fixtures/codebuddy_prompt_child.rs"
+  }
+]

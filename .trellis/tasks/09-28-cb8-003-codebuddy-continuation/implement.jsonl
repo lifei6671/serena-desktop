@@ -1,0 +1,10 @@
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"CB8-003 scope, acceptance, tests, and forbidden behavior"}
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"Generic Continue and CodeBuddy session recovery contracts"}
+{"file":".trellis/tasks/09-28-cb5-005-codebuddy-continuation-usage-crash-contract/decision.md","reason":"Frozen Host decision for session/load, partial recovery, and Usage"}
+{"file":".trellis/tasks/09-28-cb5-005-codebuddy-continuation-usage-crash-contract/dcr.md","reason":"Existing v13 field mapping and no-migration decision"}
+{"file":"src-tauri/src/agent/codebuddy/continued.rs","reason":"Separate exact lineage and typed session/load preparation path"}
+{"file":"src-tauri/src/agent/codebuddy/fresh.rs","reason":"Shared managed Runtime start primitive and isolated continuation tail handling"}
+{"file":"src-tauri/src/agent/codebuddy/prompt.rs","reason":"Existing durable Sent and acceptance boundary records continuation recovery partial before acceptance"}
+{"file":"src-tauri/src/agent/codebuddy/protocol.rs","reason":"Exact load response and bounded usable-history replay validation"}
+{"file":"src-tauri/src/agent/codebuddy/provider.rs","reason":"Windows continuation capability and provider-private source validation"}
+{"file":"src-tauri/src/agent/store/codebuddy.rs","reason":"Atomic source and child lineage validation using existing v13 fields"}

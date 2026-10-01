@@ -32,6 +32,7 @@ impl AgentProvider for UnavailableCodexProvider {
             id: ProviderId::new("codex".into()).expect("static Codex provider id is valid"),
             display_name: "Codex".into(),
             version: None,
+            protocol: None,
         }
     }
 

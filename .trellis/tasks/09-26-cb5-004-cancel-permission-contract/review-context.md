@@ -1,0 +1,11 @@
+# CB5-004 exact CMD launcher proof review context
+
+Latest user authority: exactly one fresh no-prompt ACP attempt using Host-observed CMD /e:ON /v:OFF /d /c flags and exact nested quote shape, specified NVM npx, normal Win32 temp cwd, inherited child PATH resolver. No /s, no Roaming launcher, no list2cmdline rewriting. Tests first and independent read-only prelaunch review were PASS before the sole actual attempt. Do not rerun any real CLI.
+
+Changes: new exact_launcher_probe.py/test_exact_launcher_probe.py; reuse JsonlClient. gold_band_probe now accepts cwd projector, preserves canonicalWorkspaceRoot separately, records raw executionCommandLine when Popen receives str, and extracts only static stderr error categories with an8192-byte buffer. path_resolver's existing combination moved into shared child_environment; no product changes.
+
+Actual result: exact raw commandline and ordinary C:\Users\lifei\AppData\Local\Temp cwd confirmed. initialize request written, then EOF without response; no session/new or close. First bounded safe stderr category NPM_EPERM, rawSaved=false,2462 bytes drained. This is a current npm-launcher classification, not proof of a specific cache/file/network cause, not ACP incompatibility, not retrospective cause of previous EOF/HTTP500. Stop; no permission/cache workaround or retries.
+
+Review full scope: actual Popen raw string and no shell/list serialization, cwd local-verbatim projection only with canonical authority retained, exact JSONL params/RPC matching/no prompt, inherited PATH privacy, stderr static whitelist, cleanup and preserved evidence. New4 exact tests +6 resolver +10 JSONL passed before real attempt, final source-at-run unchanged. Rust18/oldrunner4 retained NOT_RERUN; fmt/diffPASS. Parent scope HEAD314687f9ec0ab8bb6115971cf1edc6e8ef116b2d and755tracked SHA256 unchanged.
+
+History: pre-exact-launcher-proof stores71 old files plus ARCHIVE; original47 evidence files unchanged. Prior target eeb55da53a129141f8736bf28f8f50c3d76e99fbac4898466f7e21ba6e7dab8d. New artifacts only evidence/exact-launcher-proof. Earlier8ACP failures +2npx attempts preserved; this round one additional exact launcher attempt,0session/new. No product src/src-tauri/mainCargo/rootignore/userconfig/task creation/commit/CB5-005. Independent review is separate from Host Gate.

@@ -1,0 +1,7 @@
+{
+  "src/AgentPanel.tsx": "582cd6dad90eea41c23a136fc6f02a5f659ed927f0d6a8870a2bc5421f5a4923",
+  "src/AgentPanel.test.mjs": "2ff548523e12653355773d7ad3a813202b75bd97a89a073784e0704cb0455436",
+  "src/agentPresentation.ts": "7803b85b625d4d13efc1338ab1be28b418590bc1b319f298ef72ddc621b54ffe",
+  "src/api.ts": "edb96873f6b2107d31151ec993d4b31ea8d100d540444356aabcbe0eb74892a1",
+  "src/types.ts": "d26b98b00eeba53ecaefc69a7ea87a2ff7ed471a23ed88d157674a8a60a92ff3"
+}

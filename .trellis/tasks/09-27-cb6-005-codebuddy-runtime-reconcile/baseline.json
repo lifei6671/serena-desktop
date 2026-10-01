@@ -1,0 +1,27 @@
+{
+  "head": "0d96524599189b541bbcb4fc9a961ee2456f8a19",
+  "branch": "feat/codebuddy",
+  "initialStatus": "clean",
+  "frozenFiles": [
+    {
+      "path": "src-tauri/src/agent/schema_v12.sql",
+      "sha256": "CE03BD693CE91308A004CDB2FF84AD280F44F25041CDEC6D66599B34A19B65BE"
+    },
+    {
+      "path": "src-tauri/src/agent/schema_v13.sql",
+      "sha256": "D0D240AAFF30ED12023863FF265970039D9D3FE5AFD019CD0FDE03A8763C5A71"
+    },
+    {
+      "path": "src-tauri/src/agent/store/usage_tests.rs",
+      "sha256": "C90595FCE0E1D57460648E3E28B2DC33A2C6E6AE7656C39C90AE96980958A778"
+    },
+    {
+      "path": "src-tauri/src/agent/store/usage.rs",
+      "sha256": "67E2D30AB6F8C46CE66B08BA34E9262518E5A6F2C8495740BC1616C4136F6B90"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/runtime.rs",
+      "sha256": "3A13F4734310FFC045A41ED0AA97CC8F0CD39DA5CBC4293A4DFBA8F12D05C6D2"
+    }
+  ]
+}

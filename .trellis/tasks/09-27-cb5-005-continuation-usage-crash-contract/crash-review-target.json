@@ -1,0 +1,19 @@
+{
+  "files": {
+    "harness/src/main.rs": "f98fa27716db435caf4511e065904016caeb8662deea4aeba0f0d27c2a5d8282",
+    "harness/src/crash.rs": "dc09844a36b12ddd7e48477369106af162cc3bb736070eac480287c3bfbe0d40",
+    "harness/src/crash_runtime.rs": "3e2b2739e6c71aef9390afbe7115ad10b322e848b97dc26af4ae689d54592751",
+    "harness/src/crash_tests.rs": "5609007717738e3de64b19793f54c3b2fb48b1da21a3e4d7a1672d0278f0e195",
+    "harness/fake_crash_peer.py": "35bb168e63ce1539403a1db480c5b43c073c5c648304e6265afa50d2ab5aadc1",
+    "crash-design.md": "60fc911dc77ede57cc513447b16f7c7e7e3de4c279d7b177db3a42ebf1078ee8",
+    "crash-README.md": "840b7d70571994e0f81be53ac4f340d3a408ad50870afe20f5dc9fa936900fcd",
+    "crash-verification.md": "72295e90611f87bf9c671257b84d823bc56614a0597155f65ca22697ce65c261",
+    "codebuddy-private-state-dcr.md": "24656b17ad7f4ebe80e8fb815cb10aed2eb9ed6cff85ea55cf4d40f6b87185a6",
+    "README.md": "8eae7bae2a4cd5dc7c74d64d2a06d22c71919d898a3f2b4c86ecddf8ff4ffd4c",
+    "task.json": "fe131de671f984de8fc87ba6281f2d3ebfc9acaa6e1ddade250befe99c5b76be",
+    "evidence/crash/.gitkeep": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "crash-scope.json": "cc222dc94f3caffb146c3b4d38a10ef970078b3fa93010d2d92d43aef96128f1"
+  },
+  "aggregateSha256": "20eb5f1a1464c172aba039aabcef7dd87e43d25d5e8dfbbb9747f4be1a98e865",
+  "binarySha256": "a0dbf45857bc4fa62d1be51d9510edb199d4ff58ed20bd5b8136d63639c79e45"
+}

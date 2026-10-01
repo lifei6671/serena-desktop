@@ -1,0 +1,9 @@
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"Review CB8-003 scope and acceptance matrix"}
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"Review exact continuation lifecycle and generic authority"}
+{"file":".trellis/tasks/09-28-cb5-005-codebuddy-continuation-usage-crash-contract/review-final.md","reason":"Review frozen Host evidence boundaries and no schema drift"}
+{"file":".trellis/tasks/09-28-cb8-003-codebuddy-continuation/evidence/continuation-implementation-matrix.md","reason":"Review A-J implementation and evidence mapping"}
+{"file":".trellis/tasks/09-28-cb8-003-codebuddy-continuation/evidence/request-sequence.md","reason":"Review exact method order and forbidden fallback assertions"}
+{"file":".trellis/tasks/09-28-cb8-003-codebuddy-continuation/verification.md","reason":"Review scoped and full-module verification truth"}
+{"file":".trellis/tasks/09-28-cb8-003-codebuddy-continuation/review-initial.md","reason":"Initial independent findings and required remediation"}
+{"file":".trellis/tasks/09-28-cb8-003-codebuddy-continuation/review-final.md","reason":"Final independent FULL_SCOPE review gate"}
+{"file":".trellis/tasks/09-28-cb8-003-codebuddy-continuation/delivery.md","reason":"Final delivery scope and residual environment truth"}

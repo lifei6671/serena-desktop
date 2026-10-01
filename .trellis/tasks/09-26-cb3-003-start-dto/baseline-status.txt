@@ -1,0 +1,115 @@
+ M src-tauri/src/agent/product.rs
+ M src-tauri/src/agent/product/tests.rs
+ M src-tauri/src/agent/provider/mod.rs
+ M src-tauri/src/agent/provider/registry.rs
+ M src-tauri/src/agent/provider/tests.rs
+ M src-tauri/src/agent/store.rs
+ M src-tauri/src/agent/task_manager.rs
+ M src-tauri/src/agent/task_manager/tests.rs
+ M src-tauri/src/autostart.rs
+ M src-tauri/src/commands.rs
+ M src-tauri/src/lib.rs
+ M src-tauri/src/mcp/orchestration.rs
+ M src-tauri/src/mcp/orchestration/dto.rs
+ M src-tauri/src/mcp/orchestration_tests.rs
+ M src-tauri/src/mcp/registry.rs
+ M src-tauri/src/serena.rs
+ M src/AgentPanel.test.mjs
+ M src/App.test.mjs
+ M src/api.ts
+ M src/app/useAppController.ts
+ M src/types.ts
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/check.jsonl
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/design.md
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/implement.jsonl
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/implement.md
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/prd.md
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/research/contract.md
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/task.json
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/baseline-summary.json
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/changes.json
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/check.jsonl
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/delivery.patch
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/design.md
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/implement.jsonl
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/implement.md
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/prd.md
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/review-context.md
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/review.md
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/task.json
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/verification.md
+?? .trellis/tasks/09-26-cb2-004-frontend-config/baseline.json
+?? .trellis/tasks/09-26-cb2-004-frontend-config/check.jsonl
+?? .trellis/tasks/09-26-cb2-004-frontend-config/design.md
+?? .trellis/tasks/09-26-cb2-004-frontend-config/implement.jsonl
+?? .trellis/tasks/09-26-cb2-004-frontend-config/implement.md
+?? .trellis/tasks/09-26-cb2-004-frontend-config/prd.md
+?? .trellis/tasks/09-26-cb2-004-frontend-config/review-context.md
+?? .trellis/tasks/09-26-cb2-004-frontend-config/review.md
+?? .trellis/tasks/09-26-cb2-004-frontend-config/target.json
+?? .trellis/tasks/09-26-cb2-004-frontend-config/task.json
+?? .trellis/tasks/09-26-cb2-004-frontend-config/verification.md
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/baseline-hashes.json
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/baseline.patch
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/check.jsonl
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/code-hashes.json
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/design.md
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/evidence.md
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/implement.jsonl
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/implement.md
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/matrix.jsonl
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/prd.md
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/review.md
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/task.json
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/test-inventory.txt
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/baseline-hashes.json
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/baseline-head.txt
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/baseline-status.txt
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/baseline/product-tests.rs
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/baseline/product.rs
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/baseline/registry.rs
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/check.jsonl
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/code-hashes.json
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/design.md
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/evidence.md
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/handoff.md
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/implement.jsonl
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/implement.md
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/prd.md
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/review.md
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/task.json
+?? .trellis/tasks/09-26-cb3-002-provider-query/agent-query-descriptor.json
+?? .trellis/tasks/09-26-cb3-002-provider-query/agent-query-input-schema.json
+?? .trellis/tasks/09-26-cb3-002-provider-query/agent-query-output-schema.json
+?? .trellis/tasks/09-26-cb3-002-provider-query/baseline-hashes.json
+?? .trellis/tasks/09-26-cb3-002-provider-query/baseline-head.txt
+?? .trellis/tasks/09-26-cb3-002-provider-query/baseline-status.txt
+?? .trellis/tasks/09-26-cb3-002-provider-query/baseline/product.rs
+?? .trellis/tasks/09-26-cb3-002-provider-query/baseline/provider-mod.rs
+?? .trellis/tasks/09-26-cb3-002-provider-query/baseline/provider-registry.rs
+?? .trellis/tasks/09-26-cb3-002-provider-query/check.jsonl
+?? .trellis/tasks/09-26-cb3-002-provider-query/code-hashes.json
+?? .trellis/tasks/09-26-cb3-002-provider-query/design.md
+?? .trellis/tasks/09-26-cb3-002-provider-query/evidence.md
+?? .trellis/tasks/09-26-cb3-002-provider-query/handoff.md
+?? .trellis/tasks/09-26-cb3-002-provider-query/implement.jsonl
+?? .trellis/tasks/09-26-cb3-002-provider-query/implement.md
+?? .trellis/tasks/09-26-cb3-002-provider-query/mcp-input.json
+?? .trellis/tasks/09-26-cb3-002-provider-query/mcp-output.json
+?? .trellis/tasks/09-26-cb3-002-provider-query/prd.md
+?? .trellis/tasks/09-26-cb3-002-provider-query/review-context.md
+?? .trellis/tasks/09-26-cb3-002-provider-query/review.md
+?? .trellis/tasks/09-26-cb3-002-provider-query/task.json
+?? .trellis/tasks/09-26-cb3-003-start-dto/check.jsonl
+?? .trellis/tasks/09-26-cb3-003-start-dto/implement.jsonl
+?? .trellis/tasks/09-26-cb3-003-start-dto/prd.md
+?? .trellis/tasks/09-26-cb3-003-start-dto/task.json
+?? src-tauri/src/agent/product/fixtures/provider_catalog_codex.json
+?? src-tauri/src/agent/product/fixtures/provider_catalog_current_policy.json
+?? src-tauri/src/agent/product/provider_catalog_tests.rs
+?? src-tauri/src/agent/provider/control.rs
+?? src-tauri/src/mcp/provider_query_tests.rs
+?? src-tauri/src/provider_policy_drain_tests.rs
+?? src-tauri/src/provider_policy_tests.rs
+?? src/configFixtures.mjs
+?? src/configModel.test.mjs

@@ -1,0 +1,9 @@
+{
+  "reviewResultSha256": "a9cda39c04704ec2b7d4e7229357eccd6cee00a3837e4be175ce68c5f8fc82d7",
+  "productionCoverage": "NOT_IMPLEMENTED",
+  "productionGate": "UNAVAILABLE",
+  "coverage": "COMPLETE_FOR_BLOCKED_HANDOFF_ONLY",
+  "noTrackedChanges": true,
+  "targetHash": "8717cb769aaefbb6fd2173687522a1043324e7cb65fb9a1d3a56b90a0e9a8393",
+  "freshness": "FRESH"
+}

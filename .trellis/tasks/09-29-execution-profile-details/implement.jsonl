@@ -1,0 +1,6 @@
+{"file":".trellis/spec/frontend/index.md","reason":"前端层现行规范入口与 Quality Check 路由"}
+{"file":".trellis/tasks/09-29-execution-profile-details/research/authority.md","reason":"冻结数据来源、作用域和已核验基线"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"数据库、Provider、Product 与 UI 的跨层契约"}
+{"file":".trellis/tasks/09-29-execution-profile-details/design.md","reason":"effective profile authority、CAS 与副作用顺序设计"}
+{"file":".trellis/tasks/09-29-execution-profile-details/research/authority.md","reason":"Host Review P1-A/P1-B partial evidence 与最后安全写入边界"}
+{"file":".trellis/tasks/09-29-execution-profile-details/prd.md","reason":"修复验收条件与 non-reasoning/continuation failure 回归范围"}

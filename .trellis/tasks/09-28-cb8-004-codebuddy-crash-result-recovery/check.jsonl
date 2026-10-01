@@ -1,0 +1,7 @@
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"Review full CB8-004 acceptance and non-goals"}
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"Review Section 23 lifecycle and release authority"}
+{"file":".trellis/tasks/09-28-cb5-005-codebuddy-continuation-usage-crash-contract/review-final.md","reason":"Review frozen Host evidence boundaries"}
+{"file":".trellis/tasks/09-28-cb8-004-codebuddy-crash-result-recovery/prd.md","reason":"Review explicit crash matrix and safety invariants"}
+{"file":".trellis/tasks/09-28-cb8-004-codebuddy-crash-result-recovery/design.md","reason":"Review implementation against R1/R2 separation"}
+{"file":".trellis/tasks/09-28-cb8-004-codebuddy-crash-result-recovery/review-target.sha256","reason":"Final independent review verified the 25-file frozen target"}
+{"file":".trellis/tasks/09-28-cb8-004-codebuddy-crash-result-recovery/review-final.md","reason":"Record final PASSED gate and zero findings"}

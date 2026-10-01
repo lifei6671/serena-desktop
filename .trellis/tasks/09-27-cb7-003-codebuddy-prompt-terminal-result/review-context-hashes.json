@@ -1,0 +1,34 @@
+[
+  {
+    "path": "AGENTS.md",
+    "sha256": "8626B21626191A099B854E7B93DFE854700F205A5845AC532B62649157B7DD32"
+  },
+  {
+    "path": ".trellis/tasks/09-27-cb7-003-codebuddy-prompt-terminal-result/prd.md",
+    "sha256": "8D54E76EDED9EA961FB555B7073A46195C6911873DFBB36A9A12B670F003601F"
+  },
+  {
+    "path": ".trellis/tasks/09-27-cb7-003-codebuddy-prompt-terminal-result/design.md",
+    "sha256": "8624B787CF0D1FF1FB496C0CA5D8565F65E39B3AB771E5B72B5B6A5BE49AB131"
+  },
+  {
+    "path": ".trellis/tasks/09-27-cb7-003-codebuddy-prompt-terminal-result/implement.md",
+    "sha256": "B57C8F3D8970273A8CF6BC73A17050D732A41F05C5B17676112EE6D19A614483"
+  },
+  {
+    "path": ".trellis/tasks/09-27-cb7-003-codebuddy-prompt-terminal-result/verification.md",
+    "sha256": "6039E115FF83F4F966EF57415C9ECD88BD6B8BFEA79681DB06C9E5604407D1F8"
+  },
+  {
+    "path": ".trellis/tasks/09-27-cb7-003-codebuddy-prompt-terminal-result/review-context.md",
+    "sha256": "C55CEA4E60EC9DB2E15446C1678827E2D8FFD1A16AF031EB47A1C7A36DC28625"
+  },
+  {
+    "path": "docs/technical-design-multi-agent-provider-codebuddy-v0.1.md",
+    "sha256": "A80A5A6FA0B3D263B194F7D4604933A805475CA15761EEAE86C3C7029E0E6E15"
+  },
+  {
+    "path": "docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md",
+    "sha256": "7AF023D5E5A84E3106B12DB14AC44EB9B4BA6E003CD3FDC2027C2FE29176F334"
+  }
+]

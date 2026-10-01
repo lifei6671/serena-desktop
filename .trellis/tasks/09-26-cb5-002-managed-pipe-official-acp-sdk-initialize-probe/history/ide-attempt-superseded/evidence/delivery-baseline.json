@@ -1,0 +1,34 @@
+{
+  "starting_head": "a3ed7962d0cfdcf213de7bcfd02cf48bdf195aef",
+  "scope": "CB5-002 task-local probe only; no product writes or CB5-003",
+  "host_artifacts": {
+    "prd.md": "77c347dada54a1c20a25fbd4776cb214f7490ac9766f6a79cba490995e128904",
+    "design.md": "e6dd9850e6215411e8a69f5a94ca7d0d7ef926435e7cce26a06f655a528503be",
+    "implement.md": "b3a02e46fa2c94272b33a6fe38d39f68900b77afbfa1c0d7498ce739863e987b",
+    "implement.jsonl": "209497c4e0079f63684e73ade5777aa705b7c36df88e4350ddba7a45cee55134",
+    "check.jsonl": "630597ac01572f8b7fb976a26bbc899ac190bd94f7bb48ea57eca8aa6a71b70d"
+  },
+  "main_owned": [
+    "evidence/product-baseline.json",
+    "evidence/git-status-before.txt",
+    "evidence/delivery-baseline.json"
+  ],
+  "host_owned": [
+    "prd.md",
+    "design.md",
+    "implement.md",
+    "implement.jsonl",
+    "check.jsonl"
+  ],
+  "risk_tier": 3,
+  "required_review": "Independent CHILD_AGENT read-only full scope after tests and evidence freeze",
+  "required_verification": [
+    "task-local Rust tests",
+    "real initialize",
+    "EOF mismatch missing-capability fixtures",
+    "bounded cleanup",
+    "product baseline zero changes",
+    "git status preserves original state",
+    "git diff --check"
+  ]
+}

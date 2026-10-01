@@ -21,6 +21,7 @@ pub struct AppState {
     active_installation: Option<crate::serena::SerenaInstallation>,
     server_status: crate::serena::ServerStatus,
     managed_process_present: bool,
+    process_metrics: Option<crate::serena::SerenaProcessMetrics>,
     active_port: u16,
     endpoint: String,
     dashboard_url: String,
@@ -34,6 +35,7 @@ pub struct AppState {
 pub fn build_app_state(app: &AppHandle, known_autostart: Option<bool>) -> AppState {
     let supervisor = app.state::<std::sync::Arc<SupervisorState>>();
     let snapshot = supervisor.snapshot();
+    let process_metrics = supervisor.process_metrics(snapshot.process_id);
     let (autostart_enabled, autostart_error) = resolve_autostart(known_autostart, || {
         app.autolaunch()
             .is_enabled()
@@ -52,6 +54,7 @@ pub fn build_app_state(app: &AppHandle, known_autostart: Option<bool>) -> AppSta
         active_installation: snapshot.active_installation,
         server_status: snapshot.server_status,
         managed_process_present: snapshot.managed_process_present,
+        process_metrics,
         active_port: snapshot.active_port,
         dashboard_url: snapshot.dashboard_url,
         dashboard_enabled: snapshot.active_dashboard_enabled,
@@ -1126,3 +1129,205 @@ pub async fn agent_history(
         .ok_or("BACKEND_UNAVAILABLE: Agent service not initialized")?;
     product.history_page(before, workspace).await
 }
+
+/// 本地只读目录桥接；复用 Product 快照，不探测健康或创建 Runtime。
+#[tauri::command]
+pub fn agent_provider_catalog_get(
+    app: AppHandle,
+) -> Result<crate::agent::product::ProviderCatalogSnapshot, String> {
+    let broker = crate::mcp::get(&app);
+    agent_provider_catalog_get_impl(
+        broker
+            .product
+            .get()
+            .ok_or("BACKEND_UNAVAILABLE: Agent service not initialized")?,
+        &broker.supervisor,
+    )
+}
+
+/// 与 IPC 共用唯一 Product 读取路径，供只读副作用契约测试覆盖。
+pub(crate) fn agent_provider_catalog_get_impl(
+    product: &crate::agent::product::AgentProductService,
+    supervisor: &crate::serena::SupervisorState,
+) -> Result<crate::agent::product::ProviderCatalogSnapshot, String> {
+    product
+        .provider_catalog(supervisor)
+        .map_err(|_| "AGENT_OPERATION_FAILED".into())
+}
+
+/// 读取 Supervisor 已提交策略；不启动任何服务。
+#[tauri::command]
+pub fn agent_provider_settings_get(app: AppHandle) -> crate::config::AgentProviderSettings {
+    agent_provider_settings_get_impl(&crate::mcp::get(&app))
+}
+
+/// 本地 Human Authority 修改开关，合法但未注册的 Provider 仍保留配置。
+#[tauri::command]
+pub async fn agent_provider_set_enabled(
+    app: AppHandle,
+    provider_id: crate::agent::provider::ProviderId,
+    enabled: bool,
+) -> Result<crate::config::AgentProviderSettings, String> {
+    let broker = crate::mcp::get(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::block_on(agent_provider_set_enabled_impl(
+            &broker,
+            provider_id,
+            enabled,
+        ))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// 本地角色路由只修改未来请求策略，null 显式清空。
+#[tauri::command]
+pub async fn agent_provider_set_role_route(
+    app: AppHandle,
+    task_role: crate::agent::execution::AgentTaskRole,
+    provider_id: Option<crate::agent::provider::ProviderId>,
+) -> Result<crate::config::AgentProviderSettings, String> {
+    let broker = crate::mcp::get(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::block_on(agent_provider_set_role_route_impl(
+            &broker,
+            task_role,
+            provider_id,
+        ))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// 查询显式 Workspace 下的 Provider 执行配置目录，不接受前端路径。
+#[tauri::command]
+pub async fn agent_provider_configuration_catalog(
+    app: AppHandle,
+    provider_id: crate::agent::provider::ProviderId,
+    workspace_id: String,
+) -> Result<crate::agent::provider::ExecutionConfigurationCatalog, String> {
+    let broker = crate::mcp::get(&app);
+    agent_provider_configuration_catalog_impl(&broker, provider_id, workspace_id).await
+}
+
+/// 锁内只冻结 Registry authority 与稳定 Product 句柄，Provider 慢 I/O 在锁外执行。
+pub(crate) async fn agent_provider_configuration_catalog_impl(
+    broker: &crate::mcp::Broker,
+    provider_id: crate::agent::provider::ProviderId,
+    workspace_id: String,
+) -> Result<crate::agent::provider::ExecutionConfigurationCatalog, String> {
+    let (canonical_workspace_root, product) = {
+        let _management = broker.management.lock().await;
+        let workspace = crate::workspace_registry::WorkspaceRegistry::new(&broker.supervisor)
+            .get(&workspace_id)?;
+        let product = broker
+            .product
+            .get()
+            .cloned()
+            .ok_or("BACKEND_UNAVAILABLE: Agent service not initialized")?;
+        (workspace.root.to_string_lossy().into_owned(), product)
+    };
+    product
+        .provider_configuration_catalog(provider_id, canonical_workspace_root)
+        .await
+        .map_err(|error| crate::agent::task_manager::provider_error_code(error.code).into())
+}
+
+/// 保存一个角色/Provider 的默认值；两个 null 规范化为删除稀疏 entry。
+#[tauri::command]
+pub async fn agent_provider_set_role_defaults(
+    app: AppHandle,
+    task_role: crate::agent::execution::AgentTaskRole,
+    provider_id: crate::agent::provider::ProviderId,
+    defaults: crate::config::AgentRoleProviderDefaults,
+) -> Result<crate::config::AgentProviderSettings, String> {
+    let broker = crate::mcp::get(&app);
+    agent_provider_set_role_defaults_impl(&broker, task_role, provider_id, defaults).await
+}
+
+/// 刷新 Admission Health，禁止进入 execute/session/ACP。
+#[tauri::command]
+pub async fn agent_provider_refresh_health(
+    app: AppHandle,
+    provider_id: crate::agent::provider::ProviderId,
+) -> Result<crate::agent::provider::registry::ProviderHealth, String> {
+    let broker = crate::mcp::get(&app);
+    let _management = broker.management.lock().await;
+    broker
+        .product
+        .get()
+        .ok_or("BACKEND_UNAVAILABLE: Agent service not initialized")?
+        .refresh_provider_health(provider_id)
+        .await
+}
+
+/// 本地读取与 mutation 测试共用相同已提交快照。
+fn agent_provider_settings_get_impl(
+    broker: &crate::mcp::Broker,
+) -> crate::config::AgentProviderSettings {
+    broker.config().agent_providers
+}
+/// 与其他本地配置管理操作使用同一 Broker 锁。
+async fn agent_provider_set_enabled_impl(
+    broker: &crate::mcp::Broker,
+    provider_id: crate::agent::provider::ProviderId,
+    enabled: bool,
+) -> Result<crate::config::AgentProviderSettings, String> {
+    let _management = broker.management.lock().await;
+    broker.supervisor.mutate_provider_settings(|settings| {
+        settings.providers.insert(
+            provider_id.as_str().into(),
+            crate::config::AgentProviderPolicy { enabled },
+        );
+    })
+}
+/// 角色已由 IPC 的 AgentTaskRole 反序列化校验，保留合法未知 Provider。
+async fn agent_provider_set_role_route_impl(
+    broker: &crate::mcp::Broker,
+    task_role: crate::agent::execution::AgentTaskRole,
+    provider_id: Option<crate::agent::provider::ProviderId>,
+) -> Result<crate::config::AgentProviderSettings, String> {
+    let _management = broker.management.lock().await;
+    broker.supervisor.mutate_provider_settings(|settings| {
+        settings
+            .role_routing
+            .insert(task_role.as_str().into(), provider_id);
+    })
+}
+
+/// mutation 与启停/路由共享 Broker management lock，并保留合法未知 Provider。
+pub(crate) async fn agent_provider_set_role_defaults_impl(
+    broker: &crate::mcp::Broker,
+    task_role: crate::agent::execution::AgentTaskRole,
+    provider_id: crate::agent::provider::ProviderId,
+    defaults: crate::config::AgentRoleProviderDefaults,
+) -> Result<crate::config::AgentProviderSettings, String> {
+    crate::agent::execution::ExecutionProfile {
+        model: defaults.model.clone(),
+        reasoning: defaults.reasoning.clone(),
+    }
+    .validate()
+    .map_err(|error| format!("{}: {error}", crate::config::AGENT_PROVIDER_CONFIG_INVALID))?;
+    let _management = broker.management.lock().await;
+    broker.supervisor.mutate_provider_settings(|settings| {
+        let role = task_role.as_str().to_owned();
+        if defaults.model.is_none() && defaults.reasoning.is_none() {
+            if let Some(providers) = settings.role_defaults.get_mut(&role) {
+                providers.remove(provider_id.as_str());
+                if providers.is_empty() {
+                    settings.role_defaults.remove(&role);
+                }
+            }
+        } else {
+            settings
+                .role_defaults
+                .entry(role)
+                .or_default()
+                .insert(provider_id.as_str().to_owned(), defaults);
+        }
+    })
+}
+
+#[cfg(test)]
+#[path = "provider_policy_tests.rs"]
+mod provider_policy_tests;

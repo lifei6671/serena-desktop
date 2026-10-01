@@ -32,7 +32,32 @@ export interface RemoteState {
   ngrokAuthConfigured: boolean;
 }
 
+/** 单个 Provider 的本地策略，与 Rust camelCase 配置一致。 */
+export interface AgentProviderPolicy {
+  enabled: boolean;
+}
+
+/** 角色/Provider 的稀疏默认值；null 或缺失表示跟随 Provider 默认。 */
+export interface AgentRoleProviderDefaults {
+  model?: string | null;
+  reasoning?: string | null;
+}
+
+/** Provider ID 保持开放；角色固定，路由允许未知 ID 或显式清空。 */
+export interface AgentProviderSettings {
+  providers: Record<string, AgentProviderPolicy>;
+  roleRouting: {
+    development: string | null;
+    testing: string | null;
+    review: string | null;
+    analysis: string | null;
+    general: string | null;
+  };
+  roleDefaults: Partial<Record<keyof AgentProviderSettings["roleRouting"], Record<string, AgentRoleProviderDefaults>>>;
+}
+
 export interface ManagerConfig {
+  agentProviders: AgentProviderSettings;
   remoteAccess: RemoteAccessConfig;
   agentEnabled: boolean;
   remoteSourceWriteEnabled: boolean;
@@ -62,6 +87,12 @@ export interface SerenaInstallation {
   version: string;
 }
 
+export interface SerenaProcessMetrics {
+  pid: number;
+  cpuPercent: number;
+  memoryBytes: number;
+}
+
 export interface AppState {
   codegraphVersion: string | null;
   config: ManagerConfig;
@@ -78,6 +109,7 @@ export interface AppState {
   activeInstallation: SerenaInstallation | null;
   serverStatus: ServerStatus;
   managedProcessPresent: boolean;
+  processMetrics: SerenaProcessMetrics | null;
   activePort: number;
   endpoint: string;
   dashboardUrl: string;
@@ -175,10 +207,56 @@ export type AgentAction =
   | { action: "observe"; executionId: string; knownRevision?: string; knownControlRevision?: string; waitMs?: number; includeResult?: boolean; wakeOn?: "control" | "activity" }
   | { action: "cancel" | "resume_pending"; executionId: string }
   | { action: "list"; agentId?: string; workspaceId?: string; limit?: number };
+/** 直接镜像 Product Catalog；缺失 descriptor 元数据只在展示层降级。 */
+export interface ProviderCatalogEntry {
+  id: string;
+  /** 预留稳定诊断消费契约；当前后端未提供时保持缺失，不推测版本兼容性。 */
+  diagnosticCode?: string | null;
+  displayName?: string | null;
+  version?: string | null;
+  /** Provider-owned 协议契约，仅供展示。 */
+  protocol?: string | null;
+  enabled: boolean;
+  health: "available" | "unavailable";
+  availableForNewExecution: boolean;
+  capabilities: {
+    canExecute: boolean; canContinue: boolean; canCancel: boolean; canRecover: boolean;
+    activity: boolean; tokenUsage: boolean;
+  };
+}
+/** 本地读取现有 Catalog，不引入独立配置或 Runtime Authority。 */
+export interface ProviderCatalogSnapshot {
+  providers: ProviderCatalogEntry[];
+  roleRouting: Record<string, string | null>;
+  roleDefaults: AgentProviderSettings["roleDefaults"];
+}
+/** Provider-owned 动态执行配置目录，与普通 health catalog 分离。 */
+export interface ExecutionConfigurationOption {
+  id: string; name: string; description?: string | null;
+}
+export interface ExecutionModelOption extends ExecutionConfigurationOption {
+  isDefault: boolean; hidden: boolean;
+  reasoningOptions: ExecutionConfigurationOption[];
+  defaultReasoning?: string | null;
+}
+export interface ExecutionConfigurationCatalog {
+  providerId: string;
+  models: ExecutionModelOption[];
+  currentModel?: string | null;
+  defaultModel?: string | null;
+  reasoningOptions: ExecutionConfigurationOption[];
+  currentReasoning?: string | null;
+  defaultReasoning?: string | null;
+}
 export interface ExecutionView {
   prompt: string; canonicalWorkspaceRoot: string;
   executionId: string; agentId: string; workspaceId: string; status: string;
   provider: { id: string; displayName: string; version: string | null };
+  taskRole: "development" | "testing" | "review" | "analysis" | "general";
+  /** Execution 创建时持久化的冻结配置；null 表示当时沿用 Provider 默认。 */
+  executionProfile: { model: string | null; reasoning: string | null };
+  /** Provider 对本次 Execution 已确认的实际配置；null 表示没有可靠历史证据。 */
+  effectiveExecutionProfile: { model: string | null; reasoning: string | null } | null;
   usage: {
     inputTokens: number | null; cachedInputTokens: number | null; cacheWriteInputTokens: number | null;
     outputTokens: number | null; reasoningTokens: number | null; totalTokens: number | null;

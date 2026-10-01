@@ -1,0 +1,26 @@
+{
+  "targetManifestSha256": "9728D86A8CE4ED2DF3DD299E17242BF9A32B1B742926639586C3602EA5A6221D",
+  "sourceMismatches": 0,
+  "status": [
+    " M src-tauri/src/agent/codebuddy/provider/tests.rs",
+    " M src-tauri/src/agent/product/provider_catalog_tests.rs",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/audit.md",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/baseline.json",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/check.jsonl",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/executable-target.json",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/fmt-results.jsonl",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/implement.jsonl",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/prd.md",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/results.jsonl",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/review.md",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/scope.txt",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/snapshots.md",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/task.json",
+    "?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/verification.md"
+  ],
+  "frozenCount": 714,
+  "frozenMismatches": 0,
+  "stagedFiles": [],
+  "diffCheckExit": 0,
+  "head": "ecd6c078451b8d1616723722b98cb4c2b7549bb2"
+}

@@ -1,0 +1,21 @@
+{
+  "scenario": "before",
+  "harnessPid": 31420,
+  "exitCode": 0,
+  "outerTimeout": false,
+  "outerTreeCleanupExit": null,
+  "cleanup": {
+    "streamsClosed": true,
+    "terminated": true,
+    "waited": true,
+    "exitCode": 1,
+    "directChildReaped": true,
+    "stderrJoined": true,
+    "succeeded": true,
+    "errors": [],
+    "stderrBytesDrained": 0,
+    "windowsJobAtCreationProven": false
+  },
+  "status": "PASS",
+  "binarySha256": "b0414f524cedcab110df9d6ca2a3605ad9f8e5357faa21958fc4b36f39c6fffb"
+}

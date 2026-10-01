@@ -1,0 +1,2863 @@
+{
+  "frozen": [
+    {
+      "sha256": "75D65618B1C488EC016FE2B105E4CE3B748A424D7B97B84F88DB4DAD4DC14E0D",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/HOST_REVIEW.md"
+    },
+    {
+      "sha256": "67D4351DC3B8191280420925E7784045605794D547C2D39F1C2518FADD30428E",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/binary.sha256"
+    },
+    {
+      "sha256": "97380FE6A84349D531761D8199FAC460D343ACEAEE71C8B02E801EE7AC3703FB",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/check.jsonl"
+    },
+    {
+      "sha256": "0FEAA68CAE7A85309B2634861F2D22E2C304D0A6BF1C6A8B20425D642A8A3C92",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/design.md"
+    },
+    {
+      "sha256": "5385855BF6E7F523E0FA846FDF885CF6885359B26EFC8C6431E04E44C5C103EC",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/evidence.sha256"
+    },
+    {
+      "sha256": "0A7C678552BD6920F6E43A46BBF67BB6A8BE144C4930FDD255053A65BEDD6A63",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/implement.jsonl"
+    },
+    {
+      "sha256": "72EDDAF7623034590214DEE0662DC97F2A77738C6BC68F2EDB9FC0459F670D5B",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/implement.md"
+    },
+    {
+      "sha256": "8CA23F052EC5ACF658A4EF283A1A4E9B485024FE521D790692BF47ACC68E470B",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/prd.md"
+    },
+    {
+      "sha256": "469B26A888F7DE49A20989A68FC77DEE1531295DD57D2CCBA298670FFBF372B4",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/probe-result.json"
+    },
+    {
+      "sha256": "F18E7CBD2A8A09756593703B959F79F7E4A91129BB32E2655ADBF2E279A36D0C",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/probe.py"
+    },
+    {
+      "sha256": "42C2B4891FEF176D9F85E506657B5A13B1DAB65D68E06861F4411FF50D2F8080",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/product-baseline.json"
+    },
+    {
+      "sha256": "C941CE2DA1A0936D41C869E7F7EE1E1E5D71FE89D845C2198FB9C511E6254060",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/review-result.json"
+    },
+    {
+      "sha256": "9EA8505EEFD4AF48B267DFB829F30E3909D4268942FA8B683AE8D8FB55F82DAE",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/scope-verification.json"
+    },
+    {
+      "sha256": "DB92AE866C493C55843704A40973E81B1E6944737EE4456F95806605F0C51C79",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/task.json"
+    },
+    {
+      "sha256": "737E273FBFB51B1C357AFA2DC75D01F4B2A2ECDF947F2EE1D188B78641A119C3",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/test-output.txt"
+    },
+    {
+      "sha256": "E79045FA020956EDA3341B22ED262DC5F0D329AF2260A98DCE0CC8095FD57675",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/test_probe.py"
+    },
+    {
+      "sha256": "C99E9F10DAC513EE07115C09D38C14716B34034D8980D281A8348A98008866F9",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/verification.md"
+    },
+    {
+      "sha256": "0E93A35748BA62972863E19861B2F4F568E7394724579421A96D070FCEA84F82",
+      "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/worktree-baseline.txt"
+    },
+    {
+      "sha256": "7BA08F0C42883EA22CCC2EBCEE272F83393101A5E7A3709DB5AF7FAC3E17563F",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/.gitignore"
+    },
+    {
+      "sha256": "42EF433F11C0C0F0AB2B7C6EEFD2B5A39C3F9454251B52D499ED50B83EA6C7C8",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/HOST_REVIEW.md"
+    },
+    {
+      "sha256": "CE6C0C0BBB453129DA216DCD5305BC0E010B0836D8B596A25988536D41FB7F06",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/cargo_bootstrap.py"
+    },
+    {
+      "sha256": "630597AC01572F8B7FB976A26BBC899AC190BD94F7BB48EA57ECA8AA6A71B70D",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/check.jsonl"
+    },
+    {
+      "sha256": "77A0B81CF6A51E4E167164CB29A1BCBF916743B087C0562424380E6C8BC73872",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/coordinator-evidence-resume.sha256"
+    },
+    {
+      "sha256": "A583C9948EBD37E9E4A22CF50517E740687F30529CFC6BDD2A5EB1ABF8C313F9",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/coordinator-evidence.sha256"
+    },
+    {
+      "sha256": "82566FFA89754F90B8B612E03F96FFC850BFB68212988C86E5BD0DADFD23BD2C",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/delivery-review.md"
+    },
+    {
+      "sha256": "756A0A5883D5BFE9C6410A7BDD4C1AA8BEAD5D5F8CB3C84786D687A4E9B54BE3",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/design.md"
+    },
+    {
+      "sha256": "8192E1B7C8AD937FFC5D472173224B5AB0E7CAB383CED8A0045D3FE1C113DA55",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence.sha256"
+    },
+    {
+      "sha256": "C9670E414682537268AD2D93B3056ED9563387868364CDA54AD30511D512629F",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/cli-identity.json"
+    },
+    {
+      "sha256": "F7DCF39184D380AED26EA287AD608254E5BB534BE8C858348DB9A3205E1F1425",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/delivery-baseline.json"
+    },
+    {
+      "sha256": "4E160B573C76068746935F5ECD5E02D4C73EB861DA91445EBD26C7C282B7BC05",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/direct-process-check.json"
+    },
+    {
+      "sha256": "513CE5EDB51ED3CD97A74BDA8E9EDB38FB2943AF5AE357DFE2B8AF0E9238FBE3",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/eof-before.json"
+    },
+    {
+      "sha256": "A38AC63ED2ED5C8537E501D1EA82ED2A8C690D8004B908780D1C0D176E934D4F",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/eof-during.json"
+    },
+    {
+      "sha256": "D77E384D2CC97364F06D809BF18623A177991B0099631825CA668028326657EE",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/git-status-before.txt"
+    },
+    {
+      "sha256": "D77E384D2CC97364F06D809BF18623A177991B0099631825CA668028326657EE",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/git-status-final.txt"
+    },
+    {
+      "sha256": "D77E384D2CC97364F06D809BF18623A177991B0099631825CA668028326657EE",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/git-status-resume-before.txt"
+    },
+    {
+      "sha256": "4B911730824C01771D9C197BFF9E2585B797B4D61B741B842E4C14DAF76778AA",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/hang.json"
+    },
+    {
+      "sha256": "91A5CE7213D7239122221F460D68B52120AFE2433A534581B32EA19156E5E55A",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/initialize.jsonl"
+    },
+    {
+      "sha256": "571138950B38378C65C4C3987D4BC3AC9B6599CCCEF0A21A2D49D701468E718D",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/installation-entry-search.json"
+    },
+    {
+      "sha256": "135C5BB7981134E3D07CBE7DFD7FEB2419FFE0C4B69B357DB9904EB503DC65E5",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/invocation-discovery.json"
+    },
+    {
+      "sha256": "66720F700C5839BCE67D943FE49F84D86D8EFBA66C235712F2433294D36BF071",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/mismatch.json"
+    },
+    {
+      "sha256": "54324AE6254E6DF68721038481BCFD803DAF59AB96900E6599672FE0B1697A10",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/missing-capability.json"
+    },
+    {
+      "sha256": "B1BF9A4114CD394C9A1C5B4DB75522D764B7634E1DBEBCF15E721CB38407BDB5",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/process-evidence.json"
+    },
+    {
+      "sha256": "4F494273B795053CD6DBF5CC4789D84DC6A3247C4BE23FFFEFF0318F85D74971",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/process-tree-inspection.json"
+    },
+    {
+      "sha256": "704F5F5B63A84D458B81B88BD8502EA6BB162E8C4D0A932B99532AF271EEE8EB",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/product-baseline.json"
+    },
+    {
+      "sha256": "70A2FC6830E190C4385F08579DD2E4189B1D33E9AD866D9AF1DC2B898D1A7812",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/protocol-gate.json"
+    },
+    {
+      "sha256": "706559ACA78623AA2869FC8B3D52797CF93DBE3906FE2FF7801289B148E395F9",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/real-auto.json"
+    },
+    {
+      "sha256": "E14E08AF1DCA90F7E12EDC13A3BC4D12B48AD59A90126024C4D9346A4C026C9F",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/real-cli-process-tree.json"
+    },
+    {
+      "sha256": "5CE1B3A5CA79C806DD8C5DCFC151A72A41E2B188E1368DAC0649F175F5E23FF0",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/real-cli.json"
+    },
+    {
+      "sha256": "206C2FF91FE9A9544031752548F18275B14637856E4FBF9A1B7B27C8142D32AD",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/real-default.json"
+    },
+    {
+      "sha256": "704F5F5B63A84D458B81B88BD8502EA6BB162E8C4D0A932B99532AF271EEE8EB",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/resume-product-baseline.json"
+    },
+    {
+      "sha256": "08FBE706F6BE431612BD7EA4CF1BF48ABE6906E214D34F105652EBFE9C3719D3",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/scope-verification-final.json"
+    },
+    {
+      "sha256": "D317D4CBDBEB60D6580E07185002C8E0127340C2B43F9224C51E0492F95AE8ED",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/scope-verification-resume-final.json"
+    },
+    {
+      "sha256": "7B56F9962FD66F7F9CDB2C2C10033B153FE3CE913C7F543649D95F6CC3F10ACD",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/scope-verification.json"
+    },
+    {
+      "sha256": "C6CE373F4AD5B7148882F4F6D650CF1D0170359ED586538208C782739D99F4C3",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/evidence/sdk-details.json"
+    },
+    {
+      "sha256": "47430A3C38D3B8BB73F47EAA194851A7B7339987784CFD72490AB44A35C50DA3",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/harness/Cargo.lock"
+    },
+    {
+      "sha256": "EB4E535045DAA76F5877AB65180EF9B269AE78FA91C553696CE85E3CD42A7B11",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/harness/Cargo.toml"
+    },
+    {
+      "sha256": "4BD95C977875FF5C071D46073E4E4B0C4BD978FEB08985066F307DCDFFCFFDD7",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/harness/src/main.rs"
+    },
+    {
+      "sha256": "6F33298D0F55E48DCCBAB08DE3521ED286172A0F0B7686B064642AE5B3B6F67C",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/harness/tests/contracts.rs"
+    },
+    {
+      "sha256": "7BA08F0C42883EA22CCC2EBCEE272F83393101A5E7A3709DB5AF7FAC3E17563F",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/.gitignore"
+    },
+    {
+      "sha256": "FCEDB281C20D1BA37F3AB11470BF5B3891F53A5DD996ED028CAFDC8E97F3374B",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/HISTORY.json"
+    },
+    {
+      "sha256": "CE6C0C0BBB453129DA216DCD5305BC0E010B0836D8B596A25988536D41FB7F06",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/cargo_bootstrap.py"
+    },
+    {
+      "sha256": "630597AC01572F8B7FB976A26BBC899AC190BD94F7BB48EA57ECA8AA6A71B70D",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/check.jsonl"
+    },
+    {
+      "sha256": "A583C9948EBD37E9E4A22CF50517E740687F30529CFC6BDD2A5EB1ABF8C313F9",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/coordinator-evidence.sha256"
+    },
+    {
+      "sha256": "70411AF959A71B901AD785CF7F0F2924D4D288577590DF0D093ADFB664DF8CD7",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/delivery-review.md"
+    },
+    {
+      "sha256": "E6DD9850E6215411E8A69F5A94CA7D0D7EF926435E7CCE26A06F655A528503BE",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/design.md"
+    },
+    {
+      "sha256": "780A3B828DCA97E648CC1A3C9DA4A2B4107908021B0E97C6828206D77EC642FA",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence.sha256"
+    },
+    {
+      "sha256": "F7DCF39184D380AED26EA287AD608254E5BB534BE8C858348DB9A3205E1F1425",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/delivery-baseline.json"
+    },
+    {
+      "sha256": "1DE2C960724237A8C67A5E9E9DECBD24B83F98A14C73163C6DC2B1D9BC8A8953",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/direct-process-check.json"
+    },
+    {
+      "sha256": "9964E2C84694873451E796543C1F78727BAB6D87DC71CFE355C1A93445FCE7F9",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/eof-before.json"
+    },
+    {
+      "sha256": "1FACEFAA97DA4B6B64AE5708C947A541F21C65EFE200546F24C38A1166258ED4",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/eof-during.json"
+    },
+    {
+      "sha256": "D77E384D2CC97364F06D809BF18623A177991B0099631825CA668028326657EE",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/git-status-before.txt"
+    },
+    {
+      "sha256": "D77E384D2CC97364F06D809BF18623A177991B0099631825CA668028326657EE",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/git-status-final.txt"
+    },
+    {
+      "sha256": "D77E384D2CC97364F06D809BF18623A177991B0099631825CA668028326657EE",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/git-status-resume-before.txt"
+    },
+    {
+      "sha256": "ACBFFF3621AD87D52F980BF6B7999AB52B32B879A924042787CC3E051728D4F9",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/hang.json"
+    },
+    {
+      "sha256": "0233AA0976524E1D26412340B4F5B7E354F30CA2249CDFE56BEA2A3096831857",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/initialize.jsonl"
+    },
+    {
+      "sha256": "571138950B38378C65C4C3987D4BC3AC9B6599CCCEF0A21A2D49D701468E718D",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/installation-entry-search.json"
+    },
+    {
+      "sha256": "135C5BB7981134E3D07CBE7DFD7FEB2419FFE0C4B69B357DB9904EB503DC65E5",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/invocation-discovery.json"
+    },
+    {
+      "sha256": "A10085E4ADF8D3EF6FD7298A87E5E7CDEFDF60F49EFECA2D1C327CEE3DFA2C40",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/mismatch.json"
+    },
+    {
+      "sha256": "650399FA91FB06147477FF288B0A0FB080C21D18695CD7424B311424658B768C",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/missing-capability.json"
+    },
+    {
+      "sha256": "EA12C96097FA0078787C703BC01FAB30EE970A3FC3696E47105D0B891CDF8FDC",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/process-evidence.json"
+    },
+    {
+      "sha256": "4F494273B795053CD6DBF5CC4789D84DC6A3247C4BE23FFFEFF0318F85D74971",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/process-tree-inspection.json"
+    },
+    {
+      "sha256": "704F5F5B63A84D458B81B88BD8502EA6BB162E8C4D0A932B99532AF271EEE8EB",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/product-baseline.json"
+    },
+    {
+      "sha256": "BCEC56E52C7118A789BDBE8EA0965367C15C68CF2D9BB207EABBB194AB514BD0",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/protocol-gate.json"
+    },
+    {
+      "sha256": "706559ACA78623AA2869FC8B3D52797CF93DBE3906FE2FF7801289B148E395F9",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/real-auto.json"
+    },
+    {
+      "sha256": "206C2FF91FE9A9544031752548F18275B14637856E4FBF9A1B7B27C8142D32AD",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/real-default.json"
+    },
+    {
+      "sha256": "704F5F5B63A84D458B81B88BD8502EA6BB162E8C4D0A932B99532AF271EEE8EB",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/resume-product-baseline.json"
+    },
+    {
+      "sha256": "08FBE706F6BE431612BD7EA4CF1BF48ABE6906E214D34F105652EBFE9C3719D3",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/scope-verification-final.json"
+    },
+    {
+      "sha256": "7B56F9962FD66F7F9CDB2C2C10033B153FE3CE913C7F543649D95F6CC3F10ACD",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/scope-verification.json"
+    },
+    {
+      "sha256": "34FED179605EC014B5F735079893D4E6CDFDB23248B893A6A3B050FA18323D5F",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/evidence/sdk-details.json"
+    },
+    {
+      "sha256": "47430A3C38D3B8BB73F47EAA194851A7B7339987784CFD72490AB44A35C50DA3",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/harness/Cargo.lock"
+    },
+    {
+      "sha256": "EB4E535045DAA76F5877AB65180EF9B269AE78FA91C553696CE85E3CD42A7B11",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/harness/Cargo.toml"
+    },
+    {
+      "sha256": "65CA2FF497FC217312FD7FFC389B1CDF17E9DA70CA78CB91A745FFD13AC303D6",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/harness/src/main.rs"
+    },
+    {
+      "sha256": "022DAFD1DF555589D3C7FE735B9C100BFE508C387F1484E6A77215CE7C436F3A",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/harness/tests/contracts.rs"
+    },
+    {
+      "sha256": "209497C4E0079F63684E73ADE5777AA705B7C36DF88E4350DDBA7A45CEE55134",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/implement.jsonl"
+    },
+    {
+      "sha256": "B3A02E46FA2C94272B33A6FE38D39F68900B77AFBFA1C0D7498CE739863E987B",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/implement.md"
+    },
+    {
+      "sha256": "77C347DADA54A1C20A25FBD4776CB214F7490AC9766F6A79CBA490995E128904",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/prd.md"
+    },
+    {
+      "sha256": "94DC7B79525EDDA4F89878CE40770638BEA515D2762AA104A8F6CA710B6B8F50",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/review-round-1.md"
+    },
+    {
+      "sha256": "953DE4FB239CA357A6430C540054C3313CF677FA4E3BA760F43C7C72981AE530",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/review-target.json"
+    },
+    {
+      "sha256": "92E811CEEE5AD2344049DE94A7443D1E025B6DEC5649BCD06BA699339F367639",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/task.json"
+    },
+    {
+      "sha256": "E558029C5EF304D1E53483303F311B2BF702E4897615C104D38E889DEB356AA0",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/test_cargo_bootstrap.py"
+    },
+    {
+      "sha256": "A3FA5588BEEB355FD5C0158789FD0B67C0CD7603F29A5377DB4135CB98C52777",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/history/ide-attempt-superseded/verification.md"
+    },
+    {
+      "sha256": "209497C4E0079F63684E73ADE5777AA705B7C36DF88E4350DDBA7A45CEE55134",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/implement.jsonl"
+    },
+    {
+      "sha256": "A449E7B7046A92F7D0EC5291F50C92A06DD8284BA3EB50BAD7F5B3DEF446D56F",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/implement.md"
+    },
+    {
+      "sha256": "D946972AAD4B25F33DAA70E676704E8ED7DC86CAEFD07D2A59F9F44318903342",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/prd.md"
+    },
+    {
+      "sha256": "94DC7B79525EDDA4F89878CE40770638BEA515D2762AA104A8F6CA710B6B8F50",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/review-round-1.md"
+    },
+    {
+      "sha256": "C1723D485131496D0E4C6759B50C347E3DDC24E4ABB2CA7F4489209FDAE066C2",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/review-target.json"
+    },
+    {
+      "sha256": "3CDEB3C7C4D85CBAA8D71B36878A6EB0808189F8B876879148CF778588F10199",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/run_real_probe.py"
+    },
+    {
+      "sha256": "92E811CEEE5AD2344049DE94A7443D1E025B6DEC5649BCD06BA699339F367639",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/task.json"
+    },
+    {
+      "sha256": "E558029C5EF304D1E53483303F311B2BF702E4897615C104D38E889DEB356AA0",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/test_cargo_bootstrap.py"
+    },
+    {
+      "sha256": "2291D81684D315F566F26E874E750ED1BE21E7D16D129BB639E8C7C8FB1DE9BB",
+      "path": ".trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/verification.md"
+    },
+    {
+      "sha256": "789D2CEA9C7B41D894EAEBD43FE5FBEDA57492CED10BBBA4BA335500A85D1A20",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/baseline.json"
+    },
+    {
+      "sha256": "8F4F01B7A141BADBB1096201EE54240E3AEF6D17F05328E216BC1C901D104465",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/check.jsonl"
+    },
+    {
+      "sha256": "AD6924FD6C15F310C9B7FBECE1D35146927925BC818EDBA080B2357007FDDE22",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/delivery-review.md"
+    },
+    {
+      "sha256": "95F77B520D7206D7D923063CC42DBA0ECAA838AEB2A69D3FCA58B1B033EBA7E8",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/design.md"
+    },
+    {
+      "sha256": "D280C0DBD89C8D809B7B6C8D920331F8602F74A25E9C7B0BDB3CFB0AAAC2ED66",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence.sha256"
+    },
+    {
+      "sha256": "A84B1F50C58719F3D57A6199FDB923885A56389377DFF323B534050CCD18D5F5",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/activity-order.json"
+    },
+    {
+      "sha256": "5B0DA8A02DD066495A2F46060143E9780FFB660053CC6CAE122EE86C182FF576",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/conversation-request-id.json"
+    },
+    {
+      "sha256": "FD3C5AAECA5F04B7A078370BB5755F232B1BC515218A889D525026FC15A66A2A",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/fresh-session.jsonl"
+    },
+    {
+      "sha256": "EAB22083146D8B6AF4521FBFDA52BBD2210F23B0F5D2532EEA63AE9B2C4877BE",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/isolated-write-result.json"
+    },
+    {
+      "sha256": "4E6549DA0BF27CE4828257A8F8AE60E2D40E8197FF18882C71EF048F5D93D887",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/process-evidence.json"
+    },
+    {
+      "sha256": "1B6EE364B69C0D84E7E391F5479A3D471F7FA0A0452C1DECBC326CBC3789C054",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/read-attempt-1.json"
+    },
+    {
+      "sha256": "ADF2B200BB161C3FFFD73B1EA163FC940D13FB9F162AF00F7CE092626684B2C0",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/read-attempt-2.json"
+    },
+    {
+      "sha256": "1B6EE364B69C0D84E7E391F5479A3D471F7FA0A0452C1DECBC326CBC3789C054",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/read-only-result.json"
+    },
+    {
+      "sha256": "7D23A8838F36FF3BEB79D7429DC79032C0FB280425798F88E852E643922AAFEF",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/rerun-source-check.json"
+    },
+    {
+      "sha256": "FE4262F9B56E3A702F621002329B5D70F56A10D97940C76FE917C526A31E1B4A",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/runner-repair-provenance.json"
+    },
+    {
+      "sha256": "43F106C04EF1D1638CCCA1FDA801CE18E8BD47D288A432A9D3632D8BA72A6EF1",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/runner-result.json"
+    },
+    {
+      "sha256": "3D70353A4A5E3BA84320BE8FA8BD8AE71421E7864657378163E53BD1AF50B449",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/scope-verification.json"
+    },
+    {
+      "sha256": "7A477EE86A74A4C750463BD18D1A7196B238D26A4083D48F15122717BCE52E29",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/sdk-details.json"
+    },
+    {
+      "sha256": "EAB22083146D8B6AF4521FBFDA52BBD2210F23B0F5D2532EEA63AE9B2C4877BE",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/write-attempt-1.json"
+    },
+    {
+      "sha256": "5442C61D9FD9C85864E55E0E5B3D6F592B07588476E76849A3EE6D09AFD117CB",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/write-attempt-2.json"
+    },
+    {
+      "sha256": "2DD7EC5B969AC79090533BA20972FBA1CB1BF9B6A0C8319FF80B9D7480D4FF25",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/harness/Cargo.lock"
+    },
+    {
+      "sha256": "0CE4C0F967BEE5A194534341BAD3C8677600FB238B67E84CFB8C58535CEA3FB8",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/harness/Cargo.toml"
+    },
+    {
+      "sha256": "F2F7D0468EEEEEFED28DE50A9FD79D1DD932228834924BD860FF59E6A9F149C3",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/harness/src/main.rs"
+    },
+    {
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/harness/src/transport.rs"
+    },
+    {
+      "sha256": "0270B33F9A3697BD6E031B0157527EBC352274F2D22B30B07CE9700E33096F60",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/harness/tests/contracts.rs"
+    },
+    {
+      "sha256": "CE0745A9031F0592B0BF2D65DE33C9EEE111E419973619CAB82DD8C9F9AFA664",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/HISTORY.json"
+    },
+    {
+      "sha256": "2284A13C55155599FCB39E3445250687BDB08007D59C10E0A46467C83F846479",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/delivery-review.md"
+    },
+    {
+      "sha256": "2A6ADA3DFEE028FC1BB25D9E45D8D2C0EA96AE59FB74F274CAEAA51815341D77",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/activity-order.json"
+    },
+    {
+      "sha256": "DAB04F9299A6FC309FF6A2F98D3630CBD4E71855AB7A2E5B8AF89F33B6368A61",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/conversation-request-id.json"
+    },
+    {
+      "sha256": "0B9A36360EF1ACEFDBB7A9656B13FC695D838492A8C5B7F2A0990F12F5BE74FE",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/fresh-session.jsonl"
+    },
+    {
+      "sha256": "69E1D72DCB5B480E230AEBB7A846B566CEF8F25B42727628E7715FE836E28203",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/isolated-write-result.json"
+    },
+    {
+      "sha256": "87A7807DADAAAE51B4CE6314B3F92452DEE1F0A592D9F01092539AFD46A8884D",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/process-evidence.json"
+    },
+    {
+      "sha256": "1DC41A675731D262B3CC6644E1B7ACD8AE7501EEA9BACC256906D3436BE7FD88",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/read-only-result.json"
+    },
+    {
+      "sha256": "AD8F13E5D5B857A077F26A4B8969C8BCB4F9F31B8498664329F05E2453A8FA9A",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/scope-verification.json"
+    },
+    {
+      "sha256": "7A477EE86A74A4C750463BD18D1A7196B238D26A4083D48F15122717BCE52E29",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/evidence/sdk-details.json"
+    },
+    {
+      "sha256": "8F7CB710B18497832F8057808C0E0388CC91CAF59E0E71C00FD699C2035F9979",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/review-freshness.json"
+    },
+    {
+      "sha256": "3C7BA3B8DA19766F0AA48BDD55202430FEFCAB0766B59630AA979F8349888DF6",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/review-target.json"
+    },
+    {
+      "sha256": "EFA89D86ABB90B7FE32623EAE47E7FB6D52A260E29FD10A2EDBDF873CA4EB88F",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-login/verification.md"
+    },
+    {
+      "sha256": "B8E4D6ADC21A8BBDA61D821D3F9F9ADEE47506874255C68CB3DA9E8992F1D3E1",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-runner-repair/PROVENANCE.json"
+    },
+    {
+      "sha256": "BDF464B09326F4416247E84E493FB955E026F414D5449F90C7D078FCD50162E9",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-runner-repair/review-target.json"
+    },
+    {
+      "sha256": "26AA6B1A5505BE03996A2FD5EFF4F2C3C5C4817063C198BD5D187FA4C3529390",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-runner-repair/run_probe.py"
+    },
+    {
+      "sha256": "A9C59D1E81FB8B30D4E07AFA6E36F0F46472A68240909CB43C51E54CD41DFE33",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-runner-repair/verification.md"
+    },
+    {
+      "sha256": "B32F15CBAFEBFD03E164F6464FE966ACE60E3C8965A9489C5BA6C265157475E7",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/HISTORY.json"
+    },
+    {
+      "sha256": "789D2CEA9C7B41D894EAEBD43FE5FBEDA57492CED10BBBA4BA335500A85D1A20",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/baseline.json"
+    },
+    {
+      "sha256": "8F4F01B7A141BADBB1096201EE54240E3AEF6D17F05328E216BC1C901D104465",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/check.jsonl"
+    },
+    {
+      "sha256": "727F3586FBF8E62B1872B27D06AA8DFBC9F601A1359C79FA92222B1C5CCF3E22",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/delivery-review.md"
+    },
+    {
+      "sha256": "E174DFA783CE34BF53C30A6A14E398EAD9BF1D837761877EAEACB1219190FD0E",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/design.md"
+    },
+    {
+      "sha256": "A61E6C0C8810F4E3FF07A086AEF30B9765412FA07DADF403F3EBE16BA58377D1",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence.sha256"
+    },
+    {
+      "sha256": "2A6ADA3DFEE028FC1BB25D9E45D8D2C0EA96AE59FB74F274CAEAA51815341D77",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/activity-order.json"
+    },
+    {
+      "sha256": "1FC44E6EBE1782534F1FAA088A2C741C4ECFA6FA3D7C5F30E4F09D28FDBA3524",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/conversation-request-id.json"
+    },
+    {
+      "sha256": "24E0F47A678675C15A93F4662851ED02C27E92688960EBAD0B14C5499750FC55",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/fresh-session.jsonl"
+    },
+    {
+      "sha256": "BD1E7CE2E0B89E034A8548F2EE2F93A0AB8056490DF129C3C7154ED722842E5C",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/isolated-write-result.json"
+    },
+    {
+      "sha256": "AA0DFD3EB43671727D22DAB0921435FBDA015145A1C17B25BAF1E462EEF5F7D0",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/process-evidence.json"
+    },
+    {
+      "sha256": "FF1DF8B7579551DF5293F54719A9B8A5ED929263FF1E9833A04940ED9699E915",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/read-only-result.json"
+    },
+    {
+      "sha256": "BECE8DA4C92C51CAA2EB76661D0428A0F9919B3D72E8943315308CA2EFCFC6C9",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/rerun-source-check.json"
+    },
+    {
+      "sha256": "EBDC30AE5A812245FB97340A5A6A6EE5FB01BCD715B26E24EC2D803583DFA187",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/scope-verification.json"
+    },
+    {
+      "sha256": "7A477EE86A74A4C750463BD18D1A7196B238D26A4083D48F15122717BCE52E29",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/evidence/sdk-details.json"
+    },
+    {
+      "sha256": "2DD7EC5B969AC79090533BA20972FBA1CB1BF9B6A0C8319FF80B9D7480D4FF25",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/harness/Cargo.lock"
+    },
+    {
+      "sha256": "8879F41FA58FD45E0BB3759F901A2C54B7D756999363B40459EE5812C7EC7E71",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/harness/Cargo.toml"
+    },
+    {
+      "sha256": "A4E540EEE10CE8B978EADF59A7ADBAF697F7555892F704C9E644F1A2E400AE6D",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/harness/src/main.rs"
+    },
+    {
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/harness/src/transport.rs"
+    },
+    {
+      "sha256": "0270B33F9A3697BD6E031B0157527EBC352274F2D22B30B07CE9700E33096F60",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/harness/tests/contracts.rs"
+    },
+    {
+      "sha256": "265065814030D620608206DCF8094BD1502DB73E043EC2C1BB942A9B03BE3EF0",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/implement.jsonl"
+    },
+    {
+      "sha256": "3A68C6CCA1EB3666C4B43C935211D197ACA66B7DE82E517C1C58384AEA1A8FE0",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/implement.md"
+    },
+    {
+      "sha256": "BC83A2D29D5B95D1FD90594A19BF964198677ABAC5E35C7D89B9C7251DBF3308",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/prd.md"
+    },
+    {
+      "sha256": "2A76C569309181103CAD355B6285EDD6157A745EC53D22C7BD032CBB9D896DE1",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/review-freshness.json"
+    },
+    {
+      "sha256": "451B176DF03436A034536A51F1C84C9FD742EE18DCDACA7D514B98D261359F66",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/review-target.json"
+    },
+    {
+      "sha256": "0BB566BDC0FE981569D275955A6C4E7612C0B47BD859BDEFC6FF087F01F7E1D7",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/run_probe.py"
+    },
+    {
+      "sha256": "A6FD4A3351CFF284C0AC1521237F5E71169EF9D597BDACBF6290F84E89807B3B",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/task.json"
+    },
+    {
+      "sha256": "F2328B5BC87608E75CA402D7BEF0964AC3CD2F204E2B22C301E40DA60F1ADAD2",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/history/pre-uuidv7/verification.md"
+    },
+    {
+      "sha256": "265065814030D620608206DCF8094BD1502DB73E043EC2C1BB942A9B03BE3EF0",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/implement.jsonl"
+    },
+    {
+      "sha256": "3A68C6CCA1EB3666C4B43C935211D197ACA66B7DE82E517C1C58384AEA1A8FE0",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/implement.md"
+    },
+    {
+      "sha256": "2FC8AF7A4ACDDB3E7D530DFFBAC414ADFBA9B8368705176745431CA2801596D1",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/prd.md"
+    },
+    {
+      "sha256": "E057D1089080D99A627F0CAF64217D8FAE855307E30DD937D4494918D8B223E1",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/review-freshness.json"
+    },
+    {
+      "sha256": "34A52FEAE26D2311D617A2913AA3EE1FAFA902DF76465AD5691A3D1AAAED8D14",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/review-round-uuidv7-1.md"
+    },
+    {
+      "sha256": "C1E0826D666EB3388890F9218B5F8A20186B1FDD94F3E7DA6D698DCC0DF9AA50",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/review-target.json"
+    },
+    {
+      "sha256": "16C8229F4DF119196BBF9F41F7B2B332A5BC0D5CD025545258394E099203E623",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/run_probe.py"
+    },
+    {
+      "sha256": "A6FD4A3351CFF284C0AC1521237F5E71169EF9D597BDACBF6290F84E89807B3B",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/task.json"
+    },
+    {
+      "sha256": "FD807FC9B94EFA1B5A125BF92AF9F540AE87502C80FB37BBE5C3A630C86C25FC",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/test_run_probe.py"
+    },
+    {
+      "sha256": "6E0E501238554789F6E6238244887C374E893DCE4F0CB90265ABEE7FEC5B3A77",
+      "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/verification.md"
+    },
+    {
+      "sha256": "B93CB990F2D0604879FABED23FFD2C1C92D9F351797F84ECCD0320C8822E737F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/check.jsonl"
+    },
+    {
+      "sha256": "AEE8C39C4D6AEE84317FDD3F9A1979845B332573C3223BACE1B8EBAEE79882EB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/design.md"
+    },
+    {
+      "sha256": "FAF94ED945F3D31B1CB2DFD68CA30D6AE303BCBBD6CC1289F340FEA03B0090E4",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence.sha256"
+    },
+    {
+      "sha256": "35CF6809285FAC760024EB94B9F50BEA197B7EB320875C2E4383421A23180A98",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/cancel-after-result.identity.json"
+    },
+    {
+      "sha256": "CB4A24147B224C8C8B1903A355AE4853E54A3E916CA629D1AD6F24178A65B8A4",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/cancel-after-result.json"
+    },
+    {
+      "sha256": "FC6CF2FCD90AD8E7AF7F2C50247272F44AFF32DD033D59B774E40CAAE9527895",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/cancel-before-result.identity.json"
+    },
+    {
+      "sha256": "D63BA1A7A5161A956C2FEC03AE8F00933DE5D08C2A187FA6600FC2CB1B7D6FE7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/cancel-before-result.json"
+    },
+    {
+      "sha256": "01000ED590CBB3180C6306A901F9DF27F2E62084AC76FB11E6D24A0B9CB2BFF8",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/cancellation.jsonl"
+    },
+    {
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/cancellation.jsonl"
+    },
+    {
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/permission-options.json"
+    },
+    {
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/permission.jsonl"
+    },
+    {
+      "sha256": "735F070AE6E34FF903BF5A2CB7AD82F860A961A56367C44B8695109F2E3A8C8D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/prior-evidence-preservation.json"
+    },
+    {
+      "sha256": "B8A89E4AB17D95AD01B0A7BCF85361D4208FDB6125D8909CE6F6599095486913",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/process-evidence.json"
+    },
+    {
+      "sha256": "C20758B068039987DC4880260DB6B7CD9B9D57CF9985DE664D6A20B13C45B555",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/runner-result.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/scope-verification.json"
+    },
+    {
+      "sha256": "ED296F0890BE80FB414A5E1D89A1DD813287C4FD9AE24C65946A7A69FAEAB089",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/session-new-repair-result.identity.json"
+    },
+    {
+      "sha256": "F28F6945321F378C1A3EF648B5288A8BDB8FD5759389D8EE053C26CF332577E5",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/session-new-repair-result.json"
+    },
+    {
+      "sha256": "E75E40E94175C668529B9C38891153ED921BE774D96688FD9422E8FB5A1CEE95",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/canonical-repair/session-new-repair.jsonl"
+    },
+    {
+      "sha256": "75536905F7F3CBBBE4B0E48DD90A446521E68EC66E32B3B3133ECF331F6520B9",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/attempt-started.json"
+    },
+    {
+      "sha256": "747503F7DDB9A0F60B882CF1754C7B978BBDDE5B2E0980A07EDF1A540373B962",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/conclusion.json"
+    },
+    {
+      "sha256": "A8D7C673658A23A40EE5EC0DE8C707CC29F5F3C3406CC152AEBB8EC95D7024B6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/launcher-resolution.json"
+    },
+    {
+      "sha256": "6F44DBA9F582F99AF6C74B7CDD2007D918FB56495511294E5316A8C9B9D57FBF",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/preflight.json"
+    },
+    {
+      "sha256": "13AA2D89A4DFD247C0F4110D302DC31D5825B8D49C6E540DB19EDD9B3C9AE0F7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/prior-evidence-preservation.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/scope-verification.json"
+    },
+    {
+      "sha256": "3D5854C380D8EA75B71E113447B38D911346ACCADFC20A980DE6F65A06B18BE0",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/verification-results.json"
+    },
+    {
+      "sha256": "38B6429765505E4A963FF68735FDB7E1A24FE444EA27AD22C6026B1E5D5CF6B7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/wire-result.json"
+    },
+    {
+      "sha256": "8950D95A213082816C1AD634CB4CB8402AE2E88FF2F397812F5B14D7B28ED5A0",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/exact-launcher-proof/wire.jsonl"
+    },
+    {
+      "sha256": "35749FED71F19A5C1E5B10938929BA00B867D5EBE6F0A7EEE3C88B4A7FC97DC5",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/attempt-started.json"
+    },
+    {
+      "sha256": "B24FC3797CC711A5D9F331D67DAD7A3A30094B634585444DD1C3E429F61265B3",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/conclusion.json"
+    },
+    {
+      "sha256": "296E81F84DEA7781E96E6A30DDEEA9EB833987B9CB028C56AD185693B0830208",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/preflight.json"
+    },
+    {
+      "sha256": "6618DE46CB2AADE1325469571E22AA330FB6B851E1B24637085A28FF6328BB1C",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/prior-evidence-preservation.json"
+    },
+    {
+      "sha256": "CB4F0EADAAF22B21D1F5094D613BBEFEFEC029BCFAF44EE1325992F381043DB7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/review-repair-1.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/scope-verification.json"
+    },
+    {
+      "sha256": "2B64F2C9161295B1F6F48B1399A96D17E8D7DE75B1BDAD9D6AD24173C4A3590F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/serve-auth-status.json"
+    },
+    {
+      "sha256": "F49EDB65B96A83FECDED85CCF609971472151EE2C1EB556B68DFA7C8084696FE",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/verification-results.json"
+    },
+    {
+      "sha256": "18335B825BE80CC303FB1DE631675034A7C0CE24CA603BA0853F6A3E33C28761",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/wire-result.json"
+    },
+    {
+      "sha256": "8950D95A213082816C1AD634CB4CB8402AE2E88FF2F397812F5B14D7B28ED5A0",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/gold-band-wire-repro/wire.jsonl"
+    },
+    {
+      "sha256": "40AA0B7D20DD5343E86A5E0B1C76902112272CC443F2EA346FDD67BDFDEA939D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/HOST_REVIEW.md"
+    },
+    {
+      "sha256": "3D784BD5F751CD3E1B087F6B2222EC77B71462A3E8133053E41CEAA21EDF7407",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/HOST_REVIEW.sha256"
+    },
+    {
+      "sha256": "59B40BE757482F05EC48DB4F40F3A9E0493675BCCCF4D7117C05FDCA3C8D1668",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/README.md"
+    },
+    {
+      "sha256": "85E796BD3C74BFC4E839772FD2617F3E65A6C0690378830D74BEA831217B6C9D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/acceptance.json"
+    },
+    {
+      "sha256": "AB761D1CB5E171D32F6669AE6EDE1D87D31B480D70DBB9282001A8DA9500E168",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/after-process-evidence.json"
+    },
+    {
+      "sha256": "5C721C59C75AC4A98FBB0C05472EA43CBA6D326256DBFD198516C995A2177268",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/after.attempt-started.json"
+    },
+    {
+      "sha256": "95E030979D69B0197CA4EBC7F28D9F50468E31ECBBB2EDD042361C6920936C89",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/before-process-evidence.json"
+    },
+    {
+      "sha256": "12B969DE804DC6F1BC7ABF1469A3187E58CBAF26D78494AD2E033B429B1A9F87",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/before.attempt-started.json"
+    },
+    {
+      "sha256": "10C87402ADD0D815761A415539E158A116D1043C5FDA786C684E9F356A40152C",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancel-after-result.identity.json"
+    },
+    {
+      "sha256": "2C7B1FD675D1C1150C59B203CA62914E2E6248F16BDBF94B9FAB1E296934F1EB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancel-after-result.json"
+    },
+    {
+      "sha256": "58FCD99938093454EF33EF037E524FDC4FB73E7DA1A0EF20F41B65AE3F5C21BE",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancel-before-result.identity.json"
+    },
+    {
+      "sha256": "229D9062FCADAFC7091F02EBE8A8FEFCA3BB1E26DC2E5BC3A2A4B218221D18B7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancel-before-result.json"
+    },
+    {
+      "sha256": "B10CD349138F6B96F33ADD4A221C191B4D45D2939C79C8A8FDC981CC3B410CD4",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancellation-after.jsonl"
+    },
+    {
+      "sha256": "68EDFFC4D6D669D63CF12F92AC565DD3F73CE17CBD22B3FBB4FF5E9933FD317F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancellation-before.jsonl"
+    },
+    {
+      "sha256": "A4D3CCD80530429EE61261D5CC217A2166AAEDDCE6F5E6CEA4B661E1ADCDF59A",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancellation.jsonl"
+    },
+    {
+      "sha256": "D85DFA3E70D47F429E95AD9848125C86D11C6D8F6EDE0AA16970B840E0AE7C04",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/closeout-baseline.json"
+    },
+    {
+      "sha256": "3840310904D825CE79265D4904960EF5FF650D567D7DA6C6E83910AD8C821BD4",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/closeout-hashes.json"
+    },
+    {
+      "sha256": "20AE1E998FB4154B44BC479734166ACBA4D96AA961BC3D8DF75FE584ACA38A11",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/closeout-review-target.json"
+    },
+    {
+      "sha256": "271C5C3844BAAEDBCF3DC7C7DAA84DC3BA7FB112A3270E02ADAC39F6D6560D42",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/closeout-scope.json"
+    },
+    {
+      "sha256": "5AE09916E97C24E8C6C5C375024EEBB50996F32C33C16DD95A108B0A8C6EA6CF",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/evidence-hashes.json"
+    },
+    {
+      "sha256": "1A1F6718C9B49C03B90077E025B36931D32A2032D22DB70B0F7EAF6D2D9D9B8E",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission-deny-result.identity.json"
+    },
+    {
+      "sha256": "221E2B380AD470CBE258E75A1EDE7472C8BBCB85C46471662D4F2D739D335AB0",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission-deny-result.json"
+    },
+    {
+      "sha256": "A160FC60C68014C0015E4AA6AE876E3A2520981788E39476593DA52369B001EB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission-options.json"
+    },
+    {
+      "sha256": "D41960C6FA0514E0D58FD99338BFCB6CC2D79D6026645E20F0C651FAA31B997E",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission-process-evidence.json"
+    },
+    {
+      "sha256": "BCC4B7FEC382A3CC47233DF40A45177062D27268EA4F0FEB48D9B6C9F1607761",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission.attempt-started.json"
+    },
+    {
+      "sha256": "4084262CF6A2C6272614FE046093EABC72767F58220FCEA700C0A4A34552AA76",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/permission.jsonl"
+    },
+    {
+      "sha256": "4D978D9E787BE132BA91373267369890CCA449EFD9F455365A78586A9C851609",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/pre-closeout-README.md"
+    },
+    {
+      "sha256": "E1DA7C75DFB2C4F5C9E64A2F63A7A35A908372E7E1AF4F67F434897E8A619012",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/pre-closeout-verification.md"
+    },
+    {
+      "sha256": "6984185760BFCAF6791E7AA77D3D6A68BBD3DBDFF0150B44CFF08647C5D7BCE0",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/process-evidence.json"
+    },
+    {
+      "sha256": "30364E2504EE04E69A65687EA4079544962AC2F8FEE56301387809F1182E8123",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/python-tests.txt"
+    },
+    {
+      "sha256": "4CC4A00A70C2CDACD14CF5C36A4A708BC9BB91CC907581EFE46B82D9199F8EE0",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/review-context.md"
+    },
+    {
+      "sha256": "34188F71D7A4D7D2031A646F45415036AE0F57C531D8046BC12A52FAA4357795",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/review-target.json"
+    },
+    {
+      "sha256": "DF45A6948E183376390E2E2CA522F0190B4ECA901E55517C40ADE13221E4410C",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/review.md"
+    },
+    {
+      "sha256": "2F47C9D66CFC575AEE5B71F74533BC20B79C556B4A4E58FC2690CF4BC4EE43CF",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/review.sha256"
+    },
+    {
+      "sha256": "9C0F285FCB9C06190196FBB40FA94BF8F5DC14DD76D4AD6C2899BD0A20896433",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/rust-tests.txt"
+    },
+    {
+      "sha256": "373182A5148D5E57E0A538F7EED5D6DC40D9D761E3DB0D7333F3CF8D973D88F1",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/scope-baseline.json"
+    },
+    {
+      "sha256": "2F522892D6C801C5C6388EEA9C61CC6CD4EF1408ED1A4A5327BDC32905C925A2",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/scope-verification.json"
+    },
+    {
+      "sha256": "D1E80A1E42C0D1E01C2B3299A8FAD219A138CDFBEBE1042E1F99182E870781C0",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/verification.md"
+    },
+    {
+      "sha256": "75C64C4EBF65C993A3EC98B9C5B57D774FD96BE14687B453B87A5D87E3EBC80B",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-direct-codebuddy-proof/attempt-started.json"
+    },
+    {
+      "sha256": "470FAFBB7C7031688660D4310910A68F0A771FDD549A7994DCEBA5DD1E6AF64A",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-direct-codebuddy-proof/launcher-resolution.json"
+    },
+    {
+      "sha256": "604122D0F0E342046B1936BA1DBB08F25BB172D70F6AA966338DD2BE510D1C57",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-direct-codebuddy-proof/wire-result.json"
+    },
+    {
+      "sha256": "BF193E9D353357A1114293307107A4D5B6A1E671E6B2A6CB4C4FE45AE04B1B01",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-direct-codebuddy-proof/wire.jsonl"
+    },
+    {
+      "sha256": "75536905F7F3CBBBE4B0E48DD90A446521E68EC66E32B3B3133ECF331F6520B9",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-exact-launcher-proof/attempt-started.json"
+    },
+    {
+      "sha256": "3E13A3C7152414AA3F3CE6FBFD9E2F4B66D6BF85C5F93890A75C9434C350E930",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-exact-launcher-proof/launcher-resolution.json"
+    },
+    {
+      "sha256": "7266EAFAEA0D7C23FE6A897B68E05A45D9FB120B7573C10E47F805AE1954E536",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-exact-launcher-proof/wire-result.json"
+    },
+    {
+      "sha256": "5F2C4DF063D214627F17E8A5BF77975D6B4E935D648A2127D0B2D16EC81B9E9F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-exact-launcher-proof/wire.jsonl"
+    },
+    {
+      "sha256": "BEEE55D1073A828D1AB926D04C035AA6682F19C3CA506FCCB6FA8BD7CF03284D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/initial-scenarios/cancel-after-result.json"
+    },
+    {
+      "sha256": "CA850EAE5C67BF1539713FE7F9B51F61223AD5A45D0FB6657E449D40A7A6056D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/initial-scenarios/cancel-before-result.json"
+    },
+    {
+      "sha256": "710C7AE92300678D34E8005BB7D0FACABBEE7F83B0408BFF4D672790196663A7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/initial-scenarios/permission-deny-result.json"
+    },
+    {
+      "sha256": "D9757D3FF7A64EF478CF3A669E88B8D8944F5A65526A4A58EABA883D32C11028",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/attempt-started.json"
+    },
+    {
+      "sha256": "7D1882BE1C6B4946F2E2D515F2A080AEC0A83B82E7857E4674CDBFCEC1434597",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/conclusion.json"
+    },
+    {
+      "sha256": "236DCE339A4A24F3C58E08733B17D54EA5A33E94158ED134A55D22E0418B49D4",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/launcher-resolution.json"
+    },
+    {
+      "sha256": "D4DE710051E0036568D8CC605A5E9154036C3EFED5DC0D9BE2A9126510659BB6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/preflight.json"
+    },
+    {
+      "sha256": "8A2EDDCFD7D8452D972D891639B7730BA0278ED22E7FC9C2CD35B56E286E7AC1",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/prior-evidence-preservation.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/scope-verification.json"
+    },
+    {
+      "sha256": "4307763C2F615050280250DDD6E55A834903405A6AD98DACFEBF156164BA8B15",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/verification-results.json"
+    },
+    {
+      "sha256": "0255AC8FFBB4205E943C4775F3D90D8EBFDD15D07484BA3AA199EAC8BABD4CFF",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/wire-result.json"
+    },
+    {
+      "sha256": "8950D95A213082816C1AD634CB4CB8402AE2E88FF2F397812F5B14D7B28ED5A0",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/path-resolver-proof/wire.jsonl"
+    },
+    {
+      "sha256": "C101C3BC744AD8535C5DEC39BD1C52429BD15B8EA22CBA775E6D2DC73EAB5200",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/permission-deny-result.identity.json"
+    },
+    {
+      "sha256": "728809DE1DA9D0989B02DA3B15D4C3DE9E3DDFA6904AC2834266F656000C728A",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/permission-deny-result.json"
+    },
+    {
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/permission-options.json"
+    },
+    {
+      "sha256": "B1EFEC92C45C1C6DCFBCE804B6EBBC11EE3DEF4AAB5D6CEB917C6FED0F8BB04E",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/permission.jsonl"
+    },
+    {
+      "sha256": "8AC0CDD0CC74E31C63E94C169C5504A99756B86BB80F36A73FF52B0DE7E61DC2",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/process-evidence.json"
+    },
+    {
+      "sha256": "677425360A30D48074095BCDD0BFB9C1838D23FA49D362E1B55A3810B1287493",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/runner-result.json"
+    },
+    {
+      "sha256": "F408EEFF622E4F4C5F6BE9D9AC836102ECB08A4A9E0D3A0087663194307B1576",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/scope-baseline.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/scope-verification.json"
+    },
+    {
+      "sha256": "FF43118E52AC82A4E9C55099248BE4B51D5C3477C00F62EAEE14B66AEB334FFB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/session-new-diagnostic.identity.json"
+    },
+    {
+      "sha256": "28091EF73613CD088902751E20BAD36A60266FC6B4F39A05E7FF3A7FEC25A9D6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/session-new-diagnostic.json"
+    },
+    {
+      "sha256": "8AF05054677AB088DEA1A2DAF5C16A851041DDEBB43E360C24AD2DCA3C26A255",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/exact_launcher_probe.py"
+    },
+    {
+      "sha256": "71BDC1E2EB2F7F5BBDC0831BD0FC16AE39A53F2EB11FDCC988024ED9F46B162F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/gold_band_probe.py"
+    },
+    {
+      "sha256": "5F7AEF89F5890A7AAFBDDFC38E990E5489E139761A9640E11F52517FDD03BBD6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/Cargo.lock"
+    },
+    {
+      "sha256": "8FD88856BDE99C35404BF04079EA5C73AA3C7E74AF98E665C95849B9203EDFDB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/Cargo.toml"
+    },
+    {
+      "sha256": "19950AF2A65D58DEAA92E2A9FC35F57CB28682FEA88D6CD6016DD3C13FB9BC29",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/src/base.rs"
+    },
+    {
+      "sha256": "2FDBCB4CE170DCA23E8F24A902488A4B5032EB4B3425D73C1D2B4219360958CD",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/src/bin/host_cancel_permission.rs"
+    },
+    {
+      "sha256": "C3A54D4BBAD7A73464C59767BAB75DCE76FA0CC37B51C612C8DE3FD5AAA73D6A",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/src/host_transport.rs"
+    },
+    {
+      "sha256": "3949A36C18B387650E44C49A1C7677E472BE6CDD1EDFDEF45BD7C76C2CE00264",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/src/main.rs"
+    },
+    {
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/src/transport.rs"
+    },
+    {
+      "sha256": "A6397CC0502C55785B66A26D5EC62497A96B5C063EC03930CED0134F3C90B660",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/tests/contracts.rs"
+    },
+    {
+      "sha256": "EDAC5E88D1C7B61A13EE7F7A7874D80ACD3A19D44B6543CD51C78A595E2A0229",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/harness/tests/host_contracts.rs"
+    },
+    {
+      "sha256": "19017500CD543EA7FEAF21E5A1A16727313297C9B699E9E3EA694A339408B4CF",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/ARCHIVE.json"
+    },
+    {
+      "sha256": "B93CB990F2D0604879FABED23FFD2C1C92D9F351797F84ECCD0320C8822E737F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/check.jsonl"
+    },
+    {
+      "sha256": "AEE8C39C4D6AEE84317FDD3F9A1979845B332573C3223BACE1B8EBAEE79882EB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/design.md"
+    },
+    {
+      "sha256": "5D6EC481A08F8662255B47470239F627F380C6C2BF9ACFD181541A442BBD2A1B",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence.sha256"
+    },
+    {
+      "sha256": "35CF6809285FAC760024EB94B9F50BEA197B7EB320875C2E4383421A23180A98",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/cancel-after-result.identity.json"
+    },
+    {
+      "sha256": "CB4A24147B224C8C8B1903A355AE4853E54A3E916CA629D1AD6F24178A65B8A4",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/cancel-after-result.json"
+    },
+    {
+      "sha256": "FC6CF2FCD90AD8E7AF7F2C50247272F44AFF32DD033D59B774E40CAAE9527895",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/cancel-before-result.identity.json"
+    },
+    {
+      "sha256": "D63BA1A7A5161A956C2FEC03AE8F00933DE5D08C2A187FA6600FC2CB1B7D6FE7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/cancel-before-result.json"
+    },
+    {
+      "sha256": "01000ED590CBB3180C6306A901F9DF27F2E62084AC76FB11E6D24A0B9CB2BFF8",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/cancellation.jsonl"
+    },
+    {
+      "sha256": "BEEE55D1073A828D1AB926D04C035AA6682F19C3CA506FCCB6FA8BD7CF03284D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/initial-scenarios/cancel-after-result.json"
+    },
+    {
+      "sha256": "CA850EAE5C67BF1539713FE7F9B51F61223AD5A45D0FB6657E449D40A7A6056D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/initial-scenarios/cancel-before-result.json"
+    },
+    {
+      "sha256": "710C7AE92300678D34E8005BB7D0FACABBEE7F83B0408BFF4D672790196663A7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/initial-scenarios/permission-deny-result.json"
+    },
+    {
+      "sha256": "C101C3BC744AD8535C5DEC39BD1C52429BD15B8EA22CBA775E6D2DC73EAB5200",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/permission-deny-result.identity.json"
+    },
+    {
+      "sha256": "728809DE1DA9D0989B02DA3B15D4C3DE9E3DDFA6904AC2834266F656000C728A",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/permission-deny-result.json"
+    },
+    {
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/permission-options.json"
+    },
+    {
+      "sha256": "B1EFEC92C45C1C6DCFBCE804B6EBBC11EE3DEF4AAB5D6CEB917C6FED0F8BB04E",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/permission.jsonl"
+    },
+    {
+      "sha256": "8AC0CDD0CC74E31C63E94C169C5504A99756B86BB80F36A73FF52B0DE7E61DC2",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/process-evidence.json"
+    },
+    {
+      "sha256": "677425360A30D48074095BCDD0BFB9C1838D23FA49D362E1B55A3810B1287493",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/runner-result.json"
+    },
+    {
+      "sha256": "F408EEFF622E4F4C5F6BE9D9AC836102ECB08A4A9E0D3A0087663194307B1576",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/scope-baseline.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/scope-verification.json"
+    },
+    {
+      "sha256": "FF43118E52AC82A4E9C55099248BE4B51D5C3477C00F62EAEE14B66AEB334FFB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/session-new-diagnostic.identity.json"
+    },
+    {
+      "sha256": "28091EF73613CD088902751E20BAD36A60266FC6B4F39A05E7FF3A7FEC25A9D6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/evidence/session-new-diagnostic.json"
+    },
+    {
+      "sha256": "5F7AEF89F5890A7AAFBDDFC38E990E5489E139761A9640E11F52517FDD03BBD6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/harness/Cargo.lock"
+    },
+    {
+      "sha256": "8FD88856BDE99C35404BF04079EA5C73AA3C7E74AF98E665C95849B9203EDFDB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/harness/Cargo.toml"
+    },
+    {
+      "sha256": "19950AF2A65D58DEAA92E2A9FC35F57CB28682FEA88D6CD6016DD3C13FB9BC29",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/harness/src/base.rs"
+    },
+    {
+      "sha256": "55A156628980983827C87EB72CE5F8C72A05DADD8207C4E5D27D39791BB40CFC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/harness/src/main.rs"
+    },
+    {
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/harness/src/transport.rs"
+    },
+    {
+      "sha256": "64918C8F776B071F7E39EEB8A2839C831B30416E6C44916283BFF68311044AAE",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/harness/tests/contracts.rs"
+    },
+    {
+      "sha256": "94A5476BE3ED41CE2568639B88017C5F388EF987DC683FDD8A4FFB2FE423DCE6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/implement.jsonl"
+    },
+    {
+      "sha256": "5D53D38202CCE18BC59B98ADB8DE232A2D49727FBD399699B37C082B9CFA3F98",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/implement.md"
+    },
+    {
+      "sha256": "96CBD546408D53CD5E7F13CCF9F943A1ACF60E43349267C33A12F5B925165DEC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/prd.md"
+    },
+    {
+      "sha256": "68CDFD7FE0F57719A260CC21CE0F18FBC17A016487F41263DE681FB0738CBABF",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/review-context.md"
+    },
+    {
+      "sha256": "5F7B0208680719CA978EB808FD474ADD21AE5CF16DE6D96AA852FACD924207E3",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/review-target.json"
+    },
+    {
+      "sha256": "BC0314ACBD31436660F989B82DA4D7E6A6D9D0EDE39ABA792C0345549E9518DA",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/review.md"
+    },
+    {
+      "sha256": "4C652B5655D73AA2165396D85EA917AE19CF1B17ECCC043E298293E4F715721F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/review.sha256"
+    },
+    {
+      "sha256": "46FAADBDFB623B843887D2FB3EDF7C5C84D5FEEB0D305BADBD5F96292B3330A3",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/run_probe.py"
+    },
+    {
+      "sha256": "59B363B9C7B05BA77E11FED6F5A7D2C76AE6BA29D5E0333A242EA2DD877133B8",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/task.json"
+    },
+    {
+      "sha256": "1939516AA8C62C03E97EEA6C73A2B5BEE2A3954DD50D6CE0A0855905B5E871E3",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/test_run_probe.py"
+    },
+    {
+      "sha256": "836AE556B0B9E4D920C1049ED3CEF8050CA763C06896BF424758EDD56718B3EE",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-canonical-repair/verification.md"
+    },
+    {
+      "sha256": "F7DC5C5C8CE042769D01770B367C8A161264404C9402C77F5C4783B19E65D12F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/ARCHIVE.json"
+    },
+    {
+      "sha256": "B93CB990F2D0604879FABED23FFD2C1C92D9F351797F84ECCD0320C8822E737F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/check.jsonl"
+    },
+    {
+      "sha256": "AEE8C39C4D6AEE84317FDD3F9A1979845B332573C3223BACE1B8EBAEE79882EB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/design.md"
+    },
+    {
+      "sha256": "3AFEA4246CBF690E2D1BD0A5886764ABDB797896C286DB1CEEC70F71FF949456",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence.sha256"
+    },
+    {
+      "sha256": "35CF6809285FAC760024EB94B9F50BEA197B7EB320875C2E4383421A23180A98",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/cancel-after-result.identity.json"
+    },
+    {
+      "sha256": "CB4A24147B224C8C8B1903A355AE4853E54A3E916CA629D1AD6F24178A65B8A4",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/cancel-after-result.json"
+    },
+    {
+      "sha256": "FC6CF2FCD90AD8E7AF7F2C50247272F44AFF32DD033D59B774E40CAAE9527895",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/cancel-before-result.identity.json"
+    },
+    {
+      "sha256": "D63BA1A7A5161A956C2FEC03AE8F00933DE5D08C2A187FA6600FC2CB1B7D6FE7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/cancel-before-result.json"
+    },
+    {
+      "sha256": "01000ED590CBB3180C6306A901F9DF27F2E62084AC76FB11E6D24A0B9CB2BFF8",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/cancellation.jsonl"
+    },
+    {
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/cancellation.jsonl"
+    },
+    {
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/permission-options.json"
+    },
+    {
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/permission.jsonl"
+    },
+    {
+      "sha256": "735F070AE6E34FF903BF5A2CB7AD82F860A961A56367C44B8695109F2E3A8C8D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/prior-evidence-preservation.json"
+    },
+    {
+      "sha256": "B8A89E4AB17D95AD01B0A7BCF85361D4208FDB6125D8909CE6F6599095486913",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/process-evidence.json"
+    },
+    {
+      "sha256": "C20758B068039987DC4880260DB6B7CD9B9D57CF9985DE664D6A20B13C45B555",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/runner-result.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/scope-verification.json"
+    },
+    {
+      "sha256": "ED296F0890BE80FB414A5E1D89A1DD813287C4FD9AE24C65946A7A69FAEAB089",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/session-new-repair-result.identity.json"
+    },
+    {
+      "sha256": "F28F6945321F378C1A3EF648B5288A8BDB8FD5759389D8EE053C26CF332577E5",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/session-new-repair-result.json"
+    },
+    {
+      "sha256": "E75E40E94175C668529B9C38891153ED921BE774D96688FD9422E8FB5A1CEE95",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/canonical-repair/session-new-repair.jsonl"
+    },
+    {
+      "sha256": "35749FED71F19A5C1E5B10938929BA00B867D5EBE6F0A7EEE3C88B4A7FC97DC5",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/attempt-started.json"
+    },
+    {
+      "sha256": "B24FC3797CC711A5D9F331D67DAD7A3A30094B634585444DD1C3E429F61265B3",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/conclusion.json"
+    },
+    {
+      "sha256": "296E81F84DEA7781E96E6A30DDEEA9EB833987B9CB028C56AD185693B0830208",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/preflight.json"
+    },
+    {
+      "sha256": "6618DE46CB2AADE1325469571E22AA330FB6B851E1B24637085A28FF6328BB1C",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/prior-evidence-preservation.json"
+    },
+    {
+      "sha256": "CB4F0EADAAF22B21D1F5094D613BBEFEFEC029BCFAF44EE1325992F381043DB7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/review-repair-1.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/scope-verification.json"
+    },
+    {
+      "sha256": "2B64F2C9161295B1F6F48B1399A96D17E8D7DE75B1BDAD9D6AD24173C4A3590F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/serve-auth-status.json"
+    },
+    {
+      "sha256": "F49EDB65B96A83FECDED85CCF609971472151EE2C1EB556B68DFA7C8084696FE",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/verification-results.json"
+    },
+    {
+      "sha256": "18335B825BE80CC303FB1DE631675034A7C0CE24CA603BA0853F6A3E33C28761",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/wire-result.json"
+    },
+    {
+      "sha256": "8950D95A213082816C1AD634CB4CB8402AE2E88FF2F397812F5B14D7B28ED5A0",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/gold-band-wire-repro/wire.jsonl"
+    },
+    {
+      "sha256": "BEEE55D1073A828D1AB926D04C035AA6682F19C3CA506FCCB6FA8BD7CF03284D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/initial-scenarios/cancel-after-result.json"
+    },
+    {
+      "sha256": "CA850EAE5C67BF1539713FE7F9B51F61223AD5A45D0FB6657E449D40A7A6056D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/initial-scenarios/cancel-before-result.json"
+    },
+    {
+      "sha256": "710C7AE92300678D34E8005BB7D0FACABBEE7F83B0408BFF4D672790196663A7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/initial-scenarios/permission-deny-result.json"
+    },
+    {
+      "sha256": "D9757D3FF7A64EF478CF3A669E88B8D8944F5A65526A4A58EABA883D32C11028",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/attempt-started.json"
+    },
+    {
+      "sha256": "7D1882BE1C6B4946F2E2D515F2A080AEC0A83B82E7857E4674CDBFCEC1434597",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/conclusion.json"
+    },
+    {
+      "sha256": "236DCE339A4A24F3C58E08733B17D54EA5A33E94158ED134A55D22E0418B49D4",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/launcher-resolution.json"
+    },
+    {
+      "sha256": "D4DE710051E0036568D8CC605A5E9154036C3EFED5DC0D9BE2A9126510659BB6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/preflight.json"
+    },
+    {
+      "sha256": "8A2EDDCFD7D8452D972D891639B7730BA0278ED22E7FC9C2CD35B56E286E7AC1",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/prior-evidence-preservation.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/scope-verification.json"
+    },
+    {
+      "sha256": "4307763C2F615050280250DDD6E55A834903405A6AD98DACFEBF156164BA8B15",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/verification-results.json"
+    },
+    {
+      "sha256": "0255AC8FFBB4205E943C4775F3D90D8EBFDD15D07484BA3AA199EAC8BABD4CFF",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/wire-result.json"
+    },
+    {
+      "sha256": "8950D95A213082816C1AD634CB4CB8402AE2E88FF2F397812F5B14D7B28ED5A0",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/path-resolver-proof/wire.jsonl"
+    },
+    {
+      "sha256": "C101C3BC744AD8535C5DEC39BD1C52429BD15B8EA22CBA775E6D2DC73EAB5200",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/permission-deny-result.identity.json"
+    },
+    {
+      "sha256": "728809DE1DA9D0989B02DA3B15D4C3DE9E3DDFA6904AC2834266F656000C728A",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/permission-deny-result.json"
+    },
+    {
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/permission-options.json"
+    },
+    {
+      "sha256": "B1EFEC92C45C1C6DCFBCE804B6EBBC11EE3DEF4AAB5D6CEB917C6FED0F8BB04E",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/permission.jsonl"
+    },
+    {
+      "sha256": "8AC0CDD0CC74E31C63E94C169C5504A99756B86BB80F36A73FF52B0DE7E61DC2",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/process-evidence.json"
+    },
+    {
+      "sha256": "677425360A30D48074095BCDD0BFB9C1838D23FA49D362E1B55A3810B1287493",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/runner-result.json"
+    },
+    {
+      "sha256": "F408EEFF622E4F4C5F6BE9D9AC836102ECB08A4A9E0D3A0087663194307B1576",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/scope-baseline.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/scope-verification.json"
+    },
+    {
+      "sha256": "FF43118E52AC82A4E9C55099248BE4B51D5C3477C00F62EAEE14B66AEB334FFB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/session-new-diagnostic.identity.json"
+    },
+    {
+      "sha256": "28091EF73613CD088902751E20BAD36A60266FC6B4F39A05E7FF3A7FEC25A9D6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/evidence/session-new-diagnostic.json"
+    },
+    {
+      "sha256": "4B325F83B8BEFCA939FF9775F33BA1CA73C50D7F0409DC1DB3F623DBE52BE1CA",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/gold_band_probe.py"
+    },
+    {
+      "sha256": "5F7AEF89F5890A7AAFBDDFC38E990E5489E139761A9640E11F52517FDD03BBD6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/harness/Cargo.lock"
+    },
+    {
+      "sha256": "8FD88856BDE99C35404BF04079EA5C73AA3C7E74AF98E665C95849B9203EDFDB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/harness/Cargo.toml"
+    },
+    {
+      "sha256": "19950AF2A65D58DEAA92E2A9FC35F57CB28682FEA88D6CD6016DD3C13FB9BC29",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/harness/src/base.rs"
+    },
+    {
+      "sha256": "3949A36C18B387650E44C49A1C7677E472BE6CDD1EDFDEF45BD7C76C2CE00264",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/harness/src/main.rs"
+    },
+    {
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/harness/src/transport.rs"
+    },
+    {
+      "sha256": "A6397CC0502C55785B66A26D5EC62497A96B5C063EC03930CED0134F3C90B660",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/harness/tests/contracts.rs"
+    },
+    {
+      "sha256": "94A5476BE3ED41CE2568639B88017C5F388EF987DC683FDD8A4FFB2FE423DCE6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/implement.jsonl"
+    },
+    {
+      "sha256": "5D53D38202CCE18BC59B98ADB8DE232A2D49727FBD399699B37C082B9CFA3F98",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/implement.md"
+    },
+    {
+      "sha256": "D7D03AA793A6FD783D75495902B3D2B5301EF08AE0A74F9393EA0BD005E20800",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/path_resolver_probe.py"
+    },
+    {
+      "sha256": "96CBD546408D53CD5E7F13CCF9F943A1ACF60E43349267C33A12F5B925165DEC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/prd.md"
+    },
+    {
+      "sha256": "56D90E31FEB74487F9E1E14AB1C8D06358E8CFE94078D1861EDCB4E8BBC901D4",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/review-context.md"
+    },
+    {
+      "sha256": "21CAFA5049645768AB7ABD5879B605F4BF9EA04733EB8E9C972EE3281032E515",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/review-target.json"
+    },
+    {
+      "sha256": "BEFB46F32FC9383292B9707F1F1474BCFC47A73835E125A195603665C2829C83",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/review.md"
+    },
+    {
+      "sha256": "CF2B884717DF046B02D73B1D10EAA0DA6729BFC966AA84A542DE51DCB17A346A",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/review.sha256"
+    },
+    {
+      "sha256": "05D29F7900C7939747AD5083AB3654FE2A42CD61016E8C605496A19AE2C2C7D5",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/run_probe.py"
+    },
+    {
+      "sha256": "59B363B9C7B05BA77E11FED6F5A7D2C76AE6BA29D5E0333A242EA2DD877133B8",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/task.json"
+    },
+    {
+      "sha256": "DAB97EF948B795D0FE94BD3F28BE212159C8C4B71D3E06C52D05CFF4E874BA26",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/test_gold_band_probe.py"
+    },
+    {
+      "sha256": "0AA8C6BD86E869C8A175AB0B19E3700663F231A99A7CA684BC82F4F93965D247",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/test_path_resolver_probe.py"
+    },
+    {
+      "sha256": "ACF098EA440DED46323FD25C03A48562B05ABB40C6261D0BC6D3F8894A7AAF60",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/test_run_probe.py"
+    },
+    {
+      "sha256": "633FBB5147A4C48943A03F4C8AF0B562D16A03D6579AE8B9DFF8D7AE06BBD166",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-exact-launcher-proof/verification.md"
+    },
+    {
+      "sha256": "4F340C9F9A9C0F9BFBEB02B7945529F4424066E2D47DF9E4CA571EE1E88FE90D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/ARCHIVE.json"
+    },
+    {
+      "sha256": "B93CB990F2D0604879FABED23FFD2C1C92D9F351797F84ECCD0320C8822E737F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/check.jsonl"
+    },
+    {
+      "sha256": "AEE8C39C4D6AEE84317FDD3F9A1979845B332573C3223BACE1B8EBAEE79882EB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/design.md"
+    },
+    {
+      "sha256": "86F5FCC115FB019FC6243B81F5F578C943DDB24BA4F21838BB2B364D61EC7633",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence.sha256"
+    },
+    {
+      "sha256": "35CF6809285FAC760024EB94B9F50BEA197B7EB320875C2E4383421A23180A98",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/cancel-after-result.identity.json"
+    },
+    {
+      "sha256": "CB4A24147B224C8C8B1903A355AE4853E54A3E916CA629D1AD6F24178A65B8A4",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/cancel-after-result.json"
+    },
+    {
+      "sha256": "FC6CF2FCD90AD8E7AF7F2C50247272F44AFF32DD033D59B774E40CAAE9527895",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/cancel-before-result.identity.json"
+    },
+    {
+      "sha256": "D63BA1A7A5161A956C2FEC03AE8F00933DE5D08C2A187FA6600FC2CB1B7D6FE7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/cancel-before-result.json"
+    },
+    {
+      "sha256": "01000ED590CBB3180C6306A901F9DF27F2E62084AC76FB11E6D24A0B9CB2BFF8",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/cancellation.jsonl"
+    },
+    {
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/cancellation.jsonl"
+    },
+    {
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/permission-options.json"
+    },
+    {
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/permission.jsonl"
+    },
+    {
+      "sha256": "735F070AE6E34FF903BF5A2CB7AD82F860A961A56367C44B8695109F2E3A8C8D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/prior-evidence-preservation.json"
+    },
+    {
+      "sha256": "B8A89E4AB17D95AD01B0A7BCF85361D4208FDB6125D8909CE6F6599095486913",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/process-evidence.json"
+    },
+    {
+      "sha256": "C20758B068039987DC4880260DB6B7CD9B9D57CF9985DE664D6A20B13C45B555",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/runner-result.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/scope-verification.json"
+    },
+    {
+      "sha256": "ED296F0890BE80FB414A5E1D89A1DD813287C4FD9AE24C65946A7A69FAEAB089",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/session-new-repair-result.identity.json"
+    },
+    {
+      "sha256": "F28F6945321F378C1A3EF648B5288A8BDB8FD5759389D8EE053C26CF332577E5",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/session-new-repair-result.json"
+    },
+    {
+      "sha256": "E75E40E94175C668529B9C38891153ED921BE774D96688FD9422E8FB5A1CEE95",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/canonical-repair/session-new-repair.jsonl"
+    },
+    {
+      "sha256": "BEEE55D1073A828D1AB926D04C035AA6682F19C3CA506FCCB6FA8BD7CF03284D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/initial-scenarios/cancel-after-result.json"
+    },
+    {
+      "sha256": "CA850EAE5C67BF1539713FE7F9B51F61223AD5A45D0FB6657E449D40A7A6056D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/initial-scenarios/cancel-before-result.json"
+    },
+    {
+      "sha256": "710C7AE92300678D34E8005BB7D0FACABBEE7F83B0408BFF4D672790196663A7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/initial-scenarios/permission-deny-result.json"
+    },
+    {
+      "sha256": "C101C3BC744AD8535C5DEC39BD1C52429BD15B8EA22CBA775E6D2DC73EAB5200",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/permission-deny-result.identity.json"
+    },
+    {
+      "sha256": "728809DE1DA9D0989B02DA3B15D4C3DE9E3DDFA6904AC2834266F656000C728A",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/permission-deny-result.json"
+    },
+    {
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/permission-options.json"
+    },
+    {
+      "sha256": "B1EFEC92C45C1C6DCFBCE804B6EBBC11EE3DEF4AAB5D6CEB917C6FED0F8BB04E",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/permission.jsonl"
+    },
+    {
+      "sha256": "8AC0CDD0CC74E31C63E94C169C5504A99756B86BB80F36A73FF52B0DE7E61DC2",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/process-evidence.json"
+    },
+    {
+      "sha256": "677425360A30D48074095BCDD0BFB9C1838D23FA49D362E1B55A3810B1287493",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/runner-result.json"
+    },
+    {
+      "sha256": "F408EEFF622E4F4C5F6BE9D9AC836102ECB08A4A9E0D3A0087663194307B1576",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/scope-baseline.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/scope-verification.json"
+    },
+    {
+      "sha256": "FF43118E52AC82A4E9C55099248BE4B51D5C3477C00F62EAEE14B66AEB334FFB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/session-new-diagnostic.identity.json"
+    },
+    {
+      "sha256": "28091EF73613CD088902751E20BAD36A60266FC6B4F39A05E7FF3A7FEC25A9D6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/evidence/session-new-diagnostic.json"
+    },
+    {
+      "sha256": "5F7AEF89F5890A7AAFBDDFC38E990E5489E139761A9640E11F52517FDD03BBD6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/harness/Cargo.lock"
+    },
+    {
+      "sha256": "8FD88856BDE99C35404BF04079EA5C73AA3C7E74AF98E665C95849B9203EDFDB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/harness/Cargo.toml"
+    },
+    {
+      "sha256": "19950AF2A65D58DEAA92E2A9FC35F57CB28682FEA88D6CD6016DD3C13FB9BC29",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/harness/src/base.rs"
+    },
+    {
+      "sha256": "3949A36C18B387650E44C49A1C7677E472BE6CDD1EDFDEF45BD7C76C2CE00264",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/harness/src/main.rs"
+    },
+    {
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/harness/src/transport.rs"
+    },
+    {
+      "sha256": "A6397CC0502C55785B66A26D5EC62497A96B5C063EC03930CED0134F3C90B660",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/harness/tests/contracts.rs"
+    },
+    {
+      "sha256": "94A5476BE3ED41CE2568639B88017C5F388EF987DC683FDD8A4FFB2FE423DCE6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/implement.jsonl"
+    },
+    {
+      "sha256": "5D53D38202CCE18BC59B98ADB8DE232A2D49727FBD399699B37C082B9CFA3F98",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/implement.md"
+    },
+    {
+      "sha256": "96CBD546408D53CD5E7F13CCF9F943A1ACF60E43349267C33A12F5B925165DEC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/prd.md"
+    },
+    {
+      "sha256": "00BDB07EBE0FC79DE5CF1F1E8EFBF7EEB1627A43D3F69142B8608499C42C62F4",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/review-context.md"
+    },
+    {
+      "sha256": "D8527FA5C7875D5F609EC7A9A5F3015B88252F839F23FEED3E6FE0048475F8B9",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/review-target.json"
+    },
+    {
+      "sha256": "5BF2A60DB3D165D55C3E3BB04E873B1AE1F007AB92FACF567740AF872F585950",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/review.md"
+    },
+    {
+      "sha256": "F1F99BC3735541DFFE722D1809D6CF19E2F26116D4C40D3B7CA85AA3BC853B49",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/review.sha256"
+    },
+    {
+      "sha256": "05D29F7900C7939747AD5083AB3654FE2A42CD61016E8C605496A19AE2C2C7D5",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/run_probe.py"
+    },
+    {
+      "sha256": "59B363B9C7B05BA77E11FED6F5A7D2C76AE6BA29D5E0333A242EA2DD877133B8",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/task.json"
+    },
+    {
+      "sha256": "ACF098EA440DED46323FD25C03A48562B05ABB40C6261D0BC6D3F8894A7AAF60",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/test_run_probe.py"
+    },
+    {
+      "sha256": "80FA796D07B6774F0D7ABA4F9AE85B6C7EF6127992B2C0678582D2E5D6A979BE",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-gold-band-wire-repro/verification.md"
+    },
+    {
+      "sha256": "BEF7F57462231860B844238E11841EEF7AEED3A7A57BE079B4D8483E9CDA281E",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/ARCHIVE.json"
+    },
+    {
+      "sha256": "B93CB990F2D0604879FABED23FFD2C1C92D9F351797F84ECCD0320C8822E737F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/check.jsonl"
+    },
+    {
+      "sha256": "AEE8C39C4D6AEE84317FDD3F9A1979845B332573C3223BACE1B8EBAEE79882EB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/design.md"
+    },
+    {
+      "sha256": "98CE8FD2EAC7B3AB51F2BAE3A36B949B2D239F6B76A708E5825E34623F621880",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence.sha256"
+    },
+    {
+      "sha256": "35CF6809285FAC760024EB94B9F50BEA197B7EB320875C2E4383421A23180A98",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/cancel-after-result.identity.json"
+    },
+    {
+      "sha256": "CB4A24147B224C8C8B1903A355AE4853E54A3E916CA629D1AD6F24178A65B8A4",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/cancel-after-result.json"
+    },
+    {
+      "sha256": "FC6CF2FCD90AD8E7AF7F2C50247272F44AFF32DD033D59B774E40CAAE9527895",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/cancel-before-result.identity.json"
+    },
+    {
+      "sha256": "D63BA1A7A5161A956C2FEC03AE8F00933DE5D08C2A187FA6600FC2CB1B7D6FE7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/cancel-before-result.json"
+    },
+    {
+      "sha256": "01000ED590CBB3180C6306A901F9DF27F2E62084AC76FB11E6D24A0B9CB2BFF8",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/cancellation.jsonl"
+    },
+    {
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/cancellation.jsonl"
+    },
+    {
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/permission-options.json"
+    },
+    {
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/permission.jsonl"
+    },
+    {
+      "sha256": "735F070AE6E34FF903BF5A2CB7AD82F860A961A56367C44B8695109F2E3A8C8D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/prior-evidence-preservation.json"
+    },
+    {
+      "sha256": "B8A89E4AB17D95AD01B0A7BCF85361D4208FDB6125D8909CE6F6599095486913",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/process-evidence.json"
+    },
+    {
+      "sha256": "C20758B068039987DC4880260DB6B7CD9B9D57CF9985DE664D6A20B13C45B555",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/runner-result.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/scope-verification.json"
+    },
+    {
+      "sha256": "ED296F0890BE80FB414A5E1D89A1DD813287C4FD9AE24C65946A7A69FAEAB089",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/session-new-repair-result.identity.json"
+    },
+    {
+      "sha256": "F28F6945321F378C1A3EF648B5288A8BDB8FD5759389D8EE053C26CF332577E5",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/session-new-repair-result.json"
+    },
+    {
+      "sha256": "E75E40E94175C668529B9C38891153ED921BE774D96688FD9422E8FB5A1CEE95",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/canonical-repair/session-new-repair.jsonl"
+    },
+    {
+      "sha256": "35749FED71F19A5C1E5B10938929BA00B867D5EBE6F0A7EEE3C88B4A7FC97DC5",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/attempt-started.json"
+    },
+    {
+      "sha256": "B24FC3797CC711A5D9F331D67DAD7A3A30094B634585444DD1C3E429F61265B3",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/conclusion.json"
+    },
+    {
+      "sha256": "296E81F84DEA7781E96E6A30DDEEA9EB833987B9CB028C56AD185693B0830208",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/preflight.json"
+    },
+    {
+      "sha256": "6618DE46CB2AADE1325469571E22AA330FB6B851E1B24637085A28FF6328BB1C",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/prior-evidence-preservation.json"
+    },
+    {
+      "sha256": "CB4F0EADAAF22B21D1F5094D613BBEFEFEC029BCFAF44EE1325992F381043DB7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/review-repair-1.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/scope-verification.json"
+    },
+    {
+      "sha256": "2B64F2C9161295B1F6F48B1399A96D17E8D7DE75B1BDAD9D6AD24173C4A3590F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/serve-auth-status.json"
+    },
+    {
+      "sha256": "F49EDB65B96A83FECDED85CCF609971472151EE2C1EB556B68DFA7C8084696FE",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/verification-results.json"
+    },
+    {
+      "sha256": "18335B825BE80CC303FB1DE631675034A7C0CE24CA603BA0853F6A3E33C28761",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/wire-result.json"
+    },
+    {
+      "sha256": "8950D95A213082816C1AD634CB4CB8402AE2E88FF2F397812F5B14D7B28ED5A0",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/gold-band-wire-repro/wire.jsonl"
+    },
+    {
+      "sha256": "BEEE55D1073A828D1AB926D04C035AA6682F19C3CA506FCCB6FA8BD7CF03284D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/initial-scenarios/cancel-after-result.json"
+    },
+    {
+      "sha256": "CA850EAE5C67BF1539713FE7F9B51F61223AD5A45D0FB6657E449D40A7A6056D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/initial-scenarios/cancel-before-result.json"
+    },
+    {
+      "sha256": "710C7AE92300678D34E8005BB7D0FACABBEE7F83B0408BFF4D672790196663A7",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/initial-scenarios/permission-deny-result.json"
+    },
+    {
+      "sha256": "C101C3BC744AD8535C5DEC39BD1C52429BD15B8EA22CBA775E6D2DC73EAB5200",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/permission-deny-result.identity.json"
+    },
+    {
+      "sha256": "728809DE1DA9D0989B02DA3B15D4C3DE9E3DDFA6904AC2834266F656000C728A",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/permission-deny-result.json"
+    },
+    {
+      "sha256": "A5338D955B09046EC0B16F3A9625B7955C763AAE07DC722E474E6078745F932F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/permission-options.json"
+    },
+    {
+      "sha256": "B1EFEC92C45C1C6DCFBCE804B6EBBC11EE3DEF4AAB5D6CEB917C6FED0F8BB04E",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/permission.jsonl"
+    },
+    {
+      "sha256": "8AC0CDD0CC74E31C63E94C169C5504A99756B86BB80F36A73FF52B0DE7E61DC2",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/process-evidence.json"
+    },
+    {
+      "sha256": "677425360A30D48074095BCDD0BFB9C1838D23FA49D362E1B55A3810B1287493",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/runner-result.json"
+    },
+    {
+      "sha256": "F408EEFF622E4F4C5F6BE9D9AC836102ECB08A4A9E0D3A0087663194307B1576",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/scope-baseline.json"
+    },
+    {
+      "sha256": "8A8E2E4CE3A7DA5E24FAF5D1AA688CB9F2FD757A94281BF19459516FAE63FAAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/scope-verification.json"
+    },
+    {
+      "sha256": "FF43118E52AC82A4E9C55099248BE4B51D5C3477C00F62EAEE14B66AEB334FFB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/session-new-diagnostic.identity.json"
+    },
+    {
+      "sha256": "28091EF73613CD088902751E20BAD36A60266FC6B4F39A05E7FF3A7FEC25A9D6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/evidence/session-new-diagnostic.json"
+    },
+    {
+      "sha256": "B68E0D61A1EC2EE5A52BAB6B6670DF5F88B4ABCA80B36D527772EF11A7B2C52F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/gold_band_probe.py"
+    },
+    {
+      "sha256": "5F7AEF89F5890A7AAFBDDFC38E990E5489E139761A9640E11F52517FDD03BBD6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/harness/Cargo.lock"
+    },
+    {
+      "sha256": "8FD88856BDE99C35404BF04079EA5C73AA3C7E74AF98E665C95849B9203EDFDB",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/harness/Cargo.toml"
+    },
+    {
+      "sha256": "19950AF2A65D58DEAA92E2A9FC35F57CB28682FEA88D6CD6016DD3C13FB9BC29",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/harness/src/base.rs"
+    },
+    {
+      "sha256": "3949A36C18B387650E44C49A1C7677E472BE6CDD1EDFDEF45BD7C76C2CE00264",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/harness/src/main.rs"
+    },
+    {
+      "sha256": "5401114CF0E100D5F1230E1B2A22C4BDC572162DD8294588EA451529F905EA3D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/harness/src/transport.rs"
+    },
+    {
+      "sha256": "A6397CC0502C55785B66A26D5EC62497A96B5C063EC03930CED0134F3C90B660",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/harness/tests/contracts.rs"
+    },
+    {
+      "sha256": "94A5476BE3ED41CE2568639B88017C5F388EF987DC683FDD8A4FFB2FE423DCE6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/implement.jsonl"
+    },
+    {
+      "sha256": "5D53D38202CCE18BC59B98ADB8DE232A2D49727FBD399699B37C082B9CFA3F98",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/implement.md"
+    },
+    {
+      "sha256": "96CBD546408D53CD5E7F13CCF9F943A1ACF60E43349267C33A12F5B925165DEC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/prd.md"
+    },
+    {
+      "sha256": "28A853E8FFD7DBBE6B485C30288CF9940A50D6585FBED37AB75A40127E37F244",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/review-context.md"
+    },
+    {
+      "sha256": "673C5C6469865F9BF3AEFC905A6D9E433A92311F3CD5178743B5271F2DD9C9BE",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/review-target.json"
+    },
+    {
+      "sha256": "98D3AE3F3C2EB39D736A48A78FBF5893DFA92D25C09158876EDB99269E777D84",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/review.md"
+    },
+    {
+      "sha256": "EE5103C74C8F3F9FB33B01D195DCF5637393D0701CC9D705C3A8EAED5A8E4CAC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/review.sha256"
+    },
+    {
+      "sha256": "05D29F7900C7939747AD5083AB3654FE2A42CD61016E8C605496A19AE2C2C7D5",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/run_probe.py"
+    },
+    {
+      "sha256": "59B363B9C7B05BA77E11FED6F5A7D2C76AE6BA29D5E0333A242EA2DD877133B8",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/task.json"
+    },
+    {
+      "sha256": "DAB97EF948B795D0FE94BD3F28BE212159C8C4B71D3E06C52D05CFF4E874BA26",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/test_gold_band_probe.py"
+    },
+    {
+      "sha256": "ACF098EA440DED46323FD25C03A48562B05ABB40C6261D0BC6D3F8894A7AAF60",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/test_run_probe.py"
+    },
+    {
+      "sha256": "BB31BCA345662BFCACCE37F9EB66D38FE1E31463F1B98AAC7AC2950008D83E5B",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/history/pre-path-resolver-proof/verification.md"
+    },
+    {
+      "sha256": "FF48CF569C50041AECFE849DBE1A75C986A5620836FB498234A969898976CEA1",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/host_direct_probe.py"
+    },
+    {
+      "sha256": "0CFDA46CA0736795258506C930583FBA65D3DD96B5111E1A6B774BB764140807",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/host_exact_probe.py"
+    },
+    {
+      "sha256": "94A5476BE3ED41CE2568639B88017C5F388EF987DC683FDD8A4FFB2FE423DCE6",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/implement.jsonl"
+    },
+    {
+      "sha256": "5D53D38202CCE18BC59B98ADB8DE232A2D49727FBD399699B37C082B9CFA3F98",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/implement.md"
+    },
+    {
+      "sha256": "AB1CD31EAA5C62AADAFEE0F3CB2A2427553FE4F44DD8577431BE339328BF9F33",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/path_resolver_probe.py"
+    },
+    {
+      "sha256": "96CBD546408D53CD5E7F13CCF9F943A1ACF60E43349267C33A12F5B925165DEC",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/prd.md"
+    },
+    {
+      "sha256": "CCA2E613C97C17D1400D13E4BA7C7753C81EF156F27AD36FF1251F71E674FA1A",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/review-context.md"
+    },
+    {
+      "sha256": "7F06334BC5101ED90A1601131F3B014569EC407131A9C71EC1BCDE46B8273F13",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/review-target.json"
+    },
+    {
+      "sha256": "A6CDE9B868044C087793A27C81BF44EED0EE138362DA3DA9FB77EC4C89007281",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/review.md"
+    },
+    {
+      "sha256": "5A685BC5D2940F653AC7347ADFD959F748EF5F5F4544AACF64DBB1B2A24BFABE",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/review.sha256"
+    },
+    {
+      "sha256": "F4A1DFEC5787F123781ECEC8511A4038408E5436DF5C88D9747EAC2EBD3B827D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/run_host_cancel_permission.py"
+    },
+    {
+      "sha256": "05D29F7900C7939747AD5083AB3654FE2A42CD61016E8C605496A19AE2C2C7D5",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/run_probe.py"
+    },
+    {
+      "sha256": "59B363B9C7B05BA77E11FED6F5A7D2C76AE6BA29D5E0333A242EA2DD877133B8",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/task.json"
+    },
+    {
+      "sha256": "5C14F6AE9B210A123FC4B038B438A286ECBF8379C6EEDA0B218701C0FFD20D6D",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/test_exact_launcher_probe.py"
+    },
+    {
+      "sha256": "DAB97EF948B795D0FE94BD3F28BE212159C8C4B71D3E06C52D05CFF4E874BA26",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/test_gold_band_probe.py"
+    },
+    {
+      "sha256": "ECF31858A5B63AFCDDC131D70ACF9800C49DF6BD7866778CBC8C6FA6EEEFF9D5",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/test_host_cancel_permission.py"
+    },
+    {
+      "sha256": "0AA8C6BD86E869C8A175AB0B19E3700663F231A99A7CA684BC82F4F93965D247",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/test_path_resolver_probe.py"
+    },
+    {
+      "sha256": "ACF098EA440DED46323FD25C03A48562B05ABB40C6261D0BC6D3F8894A7AAF60",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/test_run_probe.py"
+    },
+    {
+      "sha256": "613B4EB0F256804CB730EE3BDD20E9F399CE2DCC8C21935EDE4203183302B68F",
+      "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/verification.md"
+    },
+    {
+      "sha256": "D53A79C37AFDB36FA939CF3E256FCCAD13AECBD352C41BD73378139AFC8CAA0C",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/README.md"
+    },
+    {
+      "sha256": "CA2E74B6AAF2BF9DC5789F0BBCA3D51439D640400018E13F07B5C1B9BE837F0F",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/baseline.json"
+    },
+    {
+      "sha256": "9820CAF469936651C6482FE2F8BF0BBE663DA70D350737512F1F64FB771BBCD2",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/check.jsonl"
+    },
+    {
+      "sha256": "24656B17AD7F4EBE80E8FB815CB10AED2EB9ED6CFF85EA55CF4D40F6B87185A6",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/codebuddy-private-state-dcr.md"
+    },
+    {
+      "sha256": "723B2D08B715AE0814485250C90242156094BB193625E1A11BE8BC785CFE76BD",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/crash-README.md"
+    },
+    {
+      "sha256": "EB41E969173669743947FEB18C56F6774DAB3A82A9C5BEFD11DDA078EEC85E76",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/crash-baseline.json"
+    },
+    {
+      "sha256": "60FC911DC77EDE57CC513447B16F7C7E7E3DE4C279D7B177DB3A42EBF1078EE8",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/crash-design.md"
+    },
+    {
+      "sha256": "08F14DF23CC52D2154C00D2BFBEA8512A7C5FED10789926AE26AF6D568946E35",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/crash-host-freeze-checks.json"
+    },
+    {
+      "sha256": "44379B074B4991A8FE3AAFD6077206F00CED099B5D9482110740C4BF4997A918",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/crash-host-freeze.md"
+    },
+    {
+      "sha256": "1C440C5A05FE8E6FC36037E8484B771AA316386CCCFD906B71396D425952D835",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/crash-review-context.md"
+    },
+    {
+      "sha256": "DD3A8DB29881E0B6C015E5CF046C212B9762F49265DBADD2303E1AF84371A971",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/crash-review-target.json"
+    },
+    {
+      "sha256": "43CC8DB4D6F9BE44149437252A9B49C0A02E093C8F694465E96F10F7E41E33E0",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/crash-review.md"
+    },
+    {
+      "sha256": "CC222DC94F3CAFFB146C3B4D38A10EF970078B3FA93010D2D92D43AEF96128F1",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/crash-scope.json"
+    },
+    {
+      "sha256": "1CC86919AC1C3620B66D4DB817B6E084DAC2ED2C764D6640D7FAEAA98657B694",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/crash-verification.md"
+    },
+    {
+      "sha256": "17137D903D04087AC95197709D378234A9141CBFA80C73E7F4DEC818A8644AD2",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/design.md"
+    },
+    {
+      "sha256": "B3BBA1D2AA8BAB7786892577A932482EFD476F34383D19F3478329B51486DC92",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/continuation/NOT_RUN.json"
+    },
+    {
+      "sha256": "F360BDCD223A7E3087CE051CBA263452907218DFA268DEFC82755EB6730DB8DC",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/continuation/load.attempt-started.json"
+    },
+    {
+      "sha256": "B66AE4AA3612508E6EB93539BD34E58EC6734A38FB30852555F22FFC8A348FAB",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/continuation/load.result.json"
+    },
+    {
+      "sha256": "2B96BD3F33D643AD8CDEA3CCAC9DEBDBDDFF06368EC29BECE22E132C8CE47474",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/continuation/resume.attempt-started.json"
+    },
+    {
+      "sha256": "6C491470F4DD77403658B63F2A20A6878C393AE456354C0555F921B63106532B",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/continuation/resume.result.json"
+    },
+    {
+      "sha256": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/crash/.gitkeep"
+    },
+    {
+      "sha256": "A53296B0B0DACC174399EA64C88192865663BD63CB9F84BD65859CFD995C5E67",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/crash/crash-after-terminal.attempt-started.json"
+    },
+    {
+      "sha256": "53971653A83B3BBC94C16D2522F945314F9E5FF7831929B77762169756D8A560",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/crash/crash-after-terminal.prompt-identity.json"
+    },
+    {
+      "sha256": "0F66EDE4AD5F2964306C0EABCF05EC59967838A50DC9BFEE31730B317317BDE3",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/crash/crash-after-terminal.result.json"
+    },
+    {
+      "sha256": "95BA86A8B5B4CD4DD0AFF6E912F86BE74C716BD335DFCD44EEC897E500163357",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/crash/crash-before-terminal.attempt-started.json"
+    },
+    {
+      "sha256": "5CDE957CC63EAF12493EC16CBA212395B1D527ACBD9B78F7F3BE9855767E4833",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/crash/crash-before-terminal.prompt-identity.json"
+    },
+    {
+      "sha256": "FD4AB8AF2902F4389B9EF1E209FF9C981FDC9FAD47EA8AE1F33E5DDD1BC71CEE",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/crash/crash-before-terminal.result.json"
+    },
+    {
+      "sha256": "FB407B62F5C9366C0A035E3F3535A4F374174B592CFC12B36B65D4869B23BDCE",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/usage/NOT_RUN.json"
+    },
+    {
+      "sha256": "6A0EFE69FD2137E93E9A826947DF0A22D6B6EF5280E228563C757424EAA887DA",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/usage/usage-repair-analysis.json"
+    },
+    {
+      "sha256": "A0012B0276891B61BDD7914EA52C75A06F53D15FC5F3F9A92002A1250396623F",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/usage/usage-repair.attempt-started.json"
+    },
+    {
+      "sha256": "985FAA29686B5DF3649AF4F017EE75673A57A12E21DF7D7D22AEDAEE39117A5E",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/usage/usage-repair.result.json"
+    },
+    {
+      "sha256": "8284A91EA8B27685148064C14FE37CEBA2D11246BC180C852319FD35FB968AF8",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/usage/usage.attempt-started.json"
+    },
+    {
+      "sha256": "3F81AE900820FADFED5F065F74CA1A39EDEAE2D08C11D755C068A984AEE4300E",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/usage/usage.host-timeout.json"
+    },
+    {
+      "sha256": "AE8218A03BA90CAE3AE97F25B4263F69060B0EB0DC81BF8B810B27C1162947B4",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/Cargo.lock"
+    },
+    {
+      "sha256": "314B8C0E88E1EE2C8B912450678D14E0CE3644BBBB1C778F9050B2BF822A8248",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/Cargo.toml"
+    },
+    {
+      "sha256": "35BB168E63CE1539403A1DB480C5B43C073C5C648304E6265AFA50D2AB5AADC1",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/fake_crash_peer.py"
+    },
+    {
+      "sha256": "042C70980BAAA474C297A53EC7CB3462C86AC2EA59A13B016645C1116237C0E5",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/fake_peer.py"
+    },
+    {
+      "sha256": "75103F8F77B5C5B0F9D6E6E9F5046D3D70DCD1719E96732C7DC7166C8D62AD35",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/fake_usage_peer.py"
+    },
+    {
+      "sha256": "DC09844A36B12DDD7E48477369106AF162CC3BB736070EAC480287C3BFBE0D40",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/crash.rs"
+    },
+    {
+      "sha256": "3E2B2739E6C71AEF9390AFBE7115AD10B322E848B97DC26AF4AE689D54592751",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/crash_runtime.rs"
+    },
+    {
+      "sha256": "5609007717738E3DE64B19793F54C3B2FB48B1DA21A3E4D7A1672D0278F0E195",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/crash_tests.rs"
+    },
+    {
+      "sha256": "82FAEA5D04F6384A276DC6CC6F7CB4012B8D7B24A8E2681419FB85EFAAC51A7D",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/evidence.rs"
+    },
+    {
+      "sha256": "F98FA27716DB435CAF4511E065904016CAEB8662DEEA4AEBA0F0D27C2A5D8282",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/main.rs"
+    },
+    {
+      "sha256": "E8A66FD14D205D37A0A7C1BF63937DDB74056F4709B09A9F024F9B60DE3E2268",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/runtime.rs"
+    },
+    {
+      "sha256": "D9DE6CE15E1400FBBAE3032834641BCA7740F95E45DD48592582C047C19AD0CF",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/tests.rs"
+    },
+    {
+      "sha256": "9E03FE3029E101E9B2B6B1322F6BC78CB11C0E55FAD1577E17DA24C5C2EC9078",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/transport.rs"
+    },
+    {
+      "sha256": "0E91857F3A0520B9DAF87B6D326FBC2FFBA66ABF5EAA8C4B5D70A639064EDD72",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/usage.rs"
+    },
+    {
+      "sha256": "FCD7473150674785F390645C2E67BFB80DAD638482D269AC08E1C813DDBBDEDE",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/usage_runtime.rs"
+    },
+    {
+      "sha256": "FDBB6F036220BCAC5CB60A42D42E8E69896C3B82B3F61F580AB61B40A21830AB",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/usage_tests.rs"
+    },
+    {
+      "sha256": "B91DA38A5219955A94DDD94A6AA8685B3584677BFE75B1CAC104C0C4CB56CEF0",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/implement.jsonl"
+    },
+    {
+      "sha256": "ACDE351122A4A2EF9AB914BE28AFF6C937D1A92781215B77E683648AD236965C",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/implement.md"
+    },
+    {
+      "sha256": "A4851E1BC1877E53CBB10F6AF2EDC382CB28F2BBF15692F1DB405B2CEF84AC36",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/prd.md"
+    },
+    {
+      "sha256": "21A1B66A59850884C736D340BBD36BF0D4F47A0670A1C1DB95D1F9F52CEABFDC",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/review-context.md"
+    },
+    {
+      "sha256": "E391BEF1A0ED5F77C6E6BEA3491EEE76DEA689AF8CF93D5579A19C7285E5399B",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/review-freshness.json"
+    },
+    {
+      "sha256": "6DDF05ECCFB6E2EC847F3C9C2C82EF90A8A90EC74A1C5AE98D79652F0DD3A826",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/review-target.json"
+    },
+    {
+      "sha256": "8B6EDD4879F91321A1995B4CB8D5F8DC9995A0B7DA7BD57513049FFE26854748",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/review.md"
+    },
+    {
+      "sha256": "0B6148CED36A862DB60F6CD3A4EB11CDD7D4608A67A785C9AF1356D99CFE30D1",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/scope-verification.json"
+    },
+    {
+      "sha256": "A6E1896BADF54D69EE35F152D874FAE00E103B294403D188AC1D1BD7B34D6F58",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/task.json"
+    },
+    {
+      "sha256": "EACE3D101508598DA44EFD5E5F6A12502B8453F145C5DEE25B13981A28D8273F",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-README.md"
+    },
+    {
+      "sha256": "D21E8524FD3B0BC3B1B7C8BF79AABF5C13D1327FAC5B42CE1D667CF45569B779",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-baseline.json"
+    },
+    {
+      "sha256": "90A07D24E6D0F75A4956EC0DBD8D0AD50AB306EC6FC47A9F10E2DBA299A1B06A",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-design.md"
+    },
+    {
+      "sha256": "36305712A1BAF2355C12757F58B6C9149849316C6F618E1A8AA29850D6C36CED",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-host-freeze-baseline.json"
+    },
+    {
+      "sha256": "CCEF17715C7D899D4B176035C7F8D411853F33F4DF6A62BEE55114B8B3B38F07",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-host-freeze-checks.json"
+    },
+    {
+      "sha256": "CA4779653C321E1AD66687431127ECF893A3855333513788951C44C0316E14F2",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-host-freeze-review-target.json"
+    },
+    {
+      "sha256": "557F4EA91AFC01DF1CEF45B8ECA8DE7EE16A8228B2CABC9A44CB03E18CB73752",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-host-freeze-review.md"
+    },
+    {
+      "sha256": "66E847CE6B30F12BFFCAC2264F690B1052E3DBC5BD991B6D9192933ADDC8EAFF",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-host-freeze.md"
+    },
+    {
+      "sha256": "116901060291C87BEAB44C66AACFF498D6B86B355A2457D8C982C719D5456D7B",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-repair-baseline.json"
+    },
+    {
+      "sha256": "ABC02ED50CE8CE266D1E366842C4C76509BCFCAA3DE6014F048D4A4CDB05BE43",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-repair-review-context.md"
+    },
+    {
+      "sha256": "BD5CD389BE5551EFEDC7DA49A467F9FE870CCABF92347F8D5316C5FBAAA80161",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-repair-review-freshness.json"
+    },
+    {
+      "sha256": "2EAAA63D8CCD7F69D093C67A568E5090D868BE898966F4F1F54B7A2102701A5C",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-repair-review-target.json"
+    },
+    {
+      "sha256": "D2FF4EF6613676DEF3B5471A1832BC0D9E9A386DBBF0381946A6D7FEEACE3CC9",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-repair-review.md"
+    },
+    {
+      "sha256": "1D476C34342260901C41598B70E9B1F9F512B48E1D6DD8CF76FB91A89F3C859C",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-repair-scope.json"
+    },
+    {
+      "sha256": "2BEFC49C79CCF01EBF702A3188C542C5204C3BB35F7293AC1BA8C4D6CDFA1A33",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-repair-verification.md"
+    },
+    {
+      "sha256": "827E939B70D966E36281EC24A82C751B7AEA6FAB2C96447484C5F3DD72B017A1",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-review-context.md"
+    },
+    {
+      "sha256": "BD96529078F8EC7B0BBD2B4992349FDD4C366CC8265AC3D9481B6B74AB0755E0",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-review-freshness.json"
+    },
+    {
+      "sha256": "8ED78F82025EA6046D368C0ED40CE8C812E9235ED32DFDE45A6A0175F26EA8AD",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-review-target.json"
+    },
+    {
+      "sha256": "DB312188EC7C2CACD096A15969E6248FDE2F84A196FE1965FD47C9A21EDAE01C",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-review.md"
+    },
+    {
+      "sha256": "0956FAF0E064921A2E5555E8B00E763ABBFD5424AE72A4F9B632AD4E28D380B3",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-scope.json"
+    },
+    {
+      "sha256": "C8D022CB5E61B27614E5747ECC763D683E3BE5F197D8B87E3A87140221D37C5A",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/usage-verification.md"
+    },
+    {
+      "sha256": "987FD974FA113A7A52B1C57E32E599DD307C7317105C6E9134D0D4309F8CA27F",
+      "path": ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/verification.md"
+    },
+    {
+      "sha256": "81133E73C460801DC984A3FFD67E1E3CE1A8DEBA723697853EF695874D3C7966",
+      "path": ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/baseline.json"
+    },
+    {
+      "sha256": "46756BC03C9FC247751C3452129CC253B342C99E795B705D7337B15ED1E7C243",
+      "path": ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/check.jsonl"
+    },
+    {
+      "sha256": "17836842C4C8B378E38D8B9DAB4C07319F08B54B5D6A0423C9A8FB83935FD891",
+      "path": ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/design.md"
+    },
+    {
+      "sha256": "D2F41D2145A899BFA4E7C6541F3AA04DC330CBE2D8808B64FDB2B112C8B8B1E4",
+      "path": ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/implement.jsonl"
+    },
+    {
+      "sha256": "D0AFEC6CDB2F562F361BC1B65023EB4EE0848847D859792E3B0ACC3CBE385F32",
+      "path": ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/implement.md"
+    },
+    {
+      "sha256": "FF2DB008A1F8E39FD4998DEB0B3851A8BBD38DBFD21893AB9DAD3CFA861F7F17",
+      "path": ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/prd.md"
+    },
+    {
+      "sha256": "FA306B2C753E5C28BC931F6835FDCDE5FD8801F13EFFB8D1A0A0673656F3000B",
+      "path": ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/review-context.md"
+    },
+    {
+      "sha256": "2C8E8FD2575B22CFB5E43830168F550BA5A40DE1DD3AC3C01A8F88EA31F77882",
+      "path": ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/review-target.json"
+    },
+    {
+      "sha256": "03BE7B485D5AFB0A88802EB8C809945F15C835214E0B581146703575AE2D4339",
+      "path": ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/review.md"
+    },
+    {
+      "sha256": "6987356A2716EE12DEA1265B802197832784B48A96822A2517CC87C7E9CD76B8",
+      "path": ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/scope-verification.json"
+    },
+    {
+      "sha256": "11DF3731ACC61B845571C96320656C5C1FC198E0688AE103950537DE70F76D2F",
+      "path": ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/task.json"
+    },
+    {
+      "sha256": "E99C76B614AF4245428A87796975F1131DAF4C8245B91E5F7E4BE24F0BDE1E6A",
+      "path": ".trellis/tasks/09-27-cb6-001-codebuddy-discovery-registration-admission-health/verification.md"
+    },
+    {
+      "sha256": "74A4D844BFD8D418E7415F6B158EB0B0551885534469651C6A526B5FCC7DC7D5",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/baseline.json"
+    },
+    {
+      "sha256": "CD5768C5A3078C0D1C17EDEA636AA448811C6CDAE5C144D49163424CB2AC1A93",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/check.jsonl"
+    },
+    {
+      "sha256": "91DE591062C30DAB710DAC5F0C8D15EF44F88E6A702D970D2F4083A73C7349BA",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/design.md"
+    },
+    {
+      "sha256": "EAB2DADFD2AD2668FFBE7F52F6FDAAD2300958BACC8463473CBFE9073179797C",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/final-freshness.json"
+    },
+    {
+      "sha256": "913D7A8190BD985B14B6CA04B2C06E907499D03D026CDE8B7DB96B718A662EA1",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/implement.jsonl"
+    },
+    {
+      "sha256": "AE266C103509621A48B43E4DFF6A827170EB04E3F9FC830C4F5B1126FACEDE01",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/implement.md"
+    },
+    {
+      "sha256": "7A403DD50225AF5C097EAE5EE1CC0E2085B2AB2AA978E1B591B87CA46E391AA6",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/prd.md"
+    },
+    {
+      "sha256": "C46FE8DD48FFD9C6076C7E6F5060BE9A3D471AA9E62F633B7BDD18D1202A68CB",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/research/windows-launcher-contract.md"
+    },
+    {
+      "sha256": "90197394D6803AF885F88482C40524740E5648D1405A1F0A3C9D0CB8837287D7",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/review-context.md"
+    },
+    {
+      "sha256": "4741B92A3C9C96EE98F2094B10EBF536DDB64BC62B22139A6FF29BCF43FB408E",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/review-target.json"
+    },
+    {
+      "sha256": "EBD91B514E085E71BE5EFFF08ACE4ABA4E710E672C1A9806D16C5A113AFA6FB6",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/review.md"
+    },
+    {
+      "sha256": "B8C6677A2E5ED54ED0D59A9F28D819B7805D727AE7A1BFE2B67CA7EE124DB95B",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/scope-verification.json"
+    },
+    {
+      "sha256": "5542CAEBDB6EB91BB424CEC8DDD24A407CF9B578FB131DE759CDA9AFD4D2EEF5",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/spec-update.md"
+    },
+    {
+      "sha256": "4A079988C9334590CAF94405F14CA160287D797B4C92195A07F2E46904D1AB6D",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/task.json"
+    },
+    {
+      "sha256": "FC27DF9C3868D68573E46EABC800D09F05B6E49596152995D2148109A32AEEEB",
+      "path": ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/verification.md"
+    },
+    {
+      "sha256": "54287A5A5F430D1912565CF6A038ECA6616C5C3A3E43470444ADB1AD9B785233",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/baseline-head.txt"
+    },
+    {
+      "sha256": "74E3357FE86A7E8DEEBFFC97B6373182D71FCD241981FBC3DCF220E7F9FAAACF",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/baseline.md"
+    },
+    {
+      "sha256": "567E55763C9AE34665AFCEA8B3A40A373A277395FA6F102E3E077577368BF3AE",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/check.jsonl"
+    },
+    {
+      "sha256": "6F24897B7467D362BB44ABD32B45FDBBD5674F88AB36E30104BB4C7F8FFD3947",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/checkpoint-review.md"
+    },
+    {
+      "sha256": "A14787F72A7CFD9B2C38634F0A63BF798459B526A235106071542047CF2579D6",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/checkpoint-target.json"
+    },
+    {
+      "sha256": "4B642C99F6FEB8E7660EB1387C82C23C3BAC94AFB9851E36CF664A40B204E945",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/delivery.md"
+    },
+    {
+      "sha256": "217584F14AFBECC13E3A516E0FD28D770C5729574C6D09F96F0EB04E0E52E3A6",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/design.md"
+    },
+    {
+      "sha256": "00A81577F16A0BB642FEE3B3B88202A006B9D4DCDF6DA7214D44AB0180ECA83C",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/final-context.json"
+    },
+    {
+      "sha256": "F3B6D184702A58733C45411EB1174475159E75A82AD4DAD76A1D381E5AA6D584",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/final-delivery-freshness.json"
+    },
+    {
+      "sha256": "3BE4CAFCF5596E5CC470279D95AF62D3AB43DA19833D24E200440E0B191A3494",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/final-freshness.json"
+    },
+    {
+      "sha256": "91F300EE636F0DEDD8D227BBF79E6B08FF51EA71B3FBEDC41586FADDF67144BE",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/final-review.md"
+    },
+    {
+      "sha256": "4B9CD99AE36AC5860DAAFBAC652C0349CD0114943DC9FCC7176DB24E9304FE40",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/final-target.json"
+    },
+    {
+      "sha256": "567E55763C9AE34665AFCEA8B3A40A373A277395FA6F102E3E077577368BF3AE",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/implement.jsonl"
+    },
+    {
+      "sha256": "73F5811C0FB81A9EA798F6ED073BEFF37DDD0296CBF7CCE8245ADCE6BFC544D2",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/implement.md"
+    },
+    {
+      "sha256": "9718E187626F2E43EA9C5AC9723682B35793730BF6A99EFC0CE03260AE1F32B9",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/prd.md"
+    },
+    {
+      "sha256": "EB0446231E4826C7A198A48BA5E231ADD2604FC7C374B93EF36127E2530DC272",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/research/dependency-environment.md"
+    },
+    {
+      "sha256": "3361EC6793746BE5C005D8061B96C7F4B2294D73781EC69A0A0310D5F1CEF6E1",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/research/sdk-and-fixtures.md"
+    },
+    {
+      "sha256": "1BB25FEA320334FDF1866BA75DD58226FDDC4012FDB151D6AD6DD6EEFA59DE36",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/review-context.md"
+    },
+    {
+      "sha256": "27BC79BC93BCBFC3AFD896645D9E649DF44DAB7E69D59F5FF0C4EECD06B2AF34",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/review-target.json"
+    },
+    {
+      "sha256": "A9CDA39C04704EC2B7D4E7229357ECCD6CEE00A3837E4BE175CE68C5F8FC82D7",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/review.md"
+    },
+    {
+      "sha256": "E58851774E5C95DBB2E747C45807557B94B183BEDA718F5B29CE1C8398E18E23",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/scope-status-final.txt"
+    },
+    {
+      "sha256": "B90B9DBA6C3994C7B1E5C86B32FBB90B81747AEA64D655A30C6AAA323D446636",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/scope-status.txt"
+    },
+    {
+      "sha256": "1C2E4F5E9C2ACB756C9D399AE15E16033DBDBE180BED080A1A131C08644D3725",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/task.json"
+    },
+    {
+      "sha256": "DD7F57D827329B2ABDDE1DBD8E3FB1A5353E85CA52824E8968224FB7214B2C97",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/temporary-alias.json"
+    },
+    {
+      "sha256": "89532BD695E8B1FB1C13A1C9AF67122B16BA83FFBB48AA66DD774E752DECEE00",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/temporary-build-cache.json"
+    },
+    {
+      "sha256": "9720B769736D3B863C72F267C0786591BCAFCAF6E651EF956AC66D2CF37FA570",
+      "path": ".trellis/tasks/09-27-cb6-003-codebuddy-managed-acp-transport-initialize/verification.md"
+    },
+    {
+      "sha256": "1E8C2800238281326B9A4B85C2BCBBF5729503B39E25BCA754532C873A98652B",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/baseline.json"
+    },
+    {
+      "sha256": "AA84B2F03640CD57CB319C5BC0F51F0EB607E255F75EAEAB7F2BEE8D7A5E1189",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/check.jsonl"
+    },
+    {
+      "sha256": "9D1E8377A86CA503D8BB4CA1244AD8D2AB0703D0D3EA4DF0179AC61625BEDDB8",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/closeout-baseline.json"
+    },
+    {
+      "sha256": "B2D02B73C9F74B530FCAB7D2B873C2D307F47FF0201ECCF9209FB49B112F00FA",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/design-draft-history.md"
+    },
+    {
+      "sha256": "B48EBCC0E416E451BAFF1D826D53C3CB7CDA998FA5E5E9C2C799465B0C72BA2D",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/design.md"
+    },
+    {
+      "sha256": "38B56D51F335C9A1242142518ADC69EE3A590533C5786CF79A8E7E24750A4730",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/executable-target.json"
+    },
+    {
+      "sha256": "AA84B2F03640CD57CB319C5BC0F51F0EB607E255F75EAEAB7F2BEE8D7A5E1189",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/implement.jsonl"
+    },
+    {
+      "sha256": "4268276F7035C080FD71BF0DF14F9535B66926BF535103D855235DDCBC15C405",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/implement.md"
+    },
+    {
+      "sha256": "D08CCA13E8A35BFEAF60A5AEDC0A6196B5F31B1742A7FDC0DE4CEFBCA84CEA25",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/prd.md"
+    },
+    {
+      "sha256": "84AB8BB1A814FEC9591952D5DAF5DD77205E01FE55802FD98B9BF9F5C3457C29",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/review-context.md"
+    },
+    {
+      "sha256": "3AC459DCD6961C64388C14E944BCC18009B0D13445C7B312AD84F3EC97038E72",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/review.md"
+    },
+    {
+      "sha256": "015D5B618EC835578790C4EC74ED0D7F9D966F6969AB1F3F6605384B313D10A3",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/task.json"
+    },
+    {
+      "sha256": "B260CFA229076F9383474A9CD84E0BBBD2B1B9A71CAD626922557EDD595E725D",
+      "path": ".trellis/tasks/09-27-cb6-004-codebuddy-provider-private-state/verification.md"
+    },
+    {
+      "sha256": "2FA77ACAA7E66FDE3CD74686E586A3820053C3D0BDB314A0D48B2FB75A220862",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/baseline.json"
+    },
+    {
+      "sha256": "EB66BE2700491F83EC43FC5049978CB2EDA919A7BE0B9DCC37FCE9A236F49875",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/check.jsonl"
+    },
+    {
+      "sha256": "AEE8B49FAA2455A3ED84B0E1E718D2585948BAE6AF4A786CB77D6C2A8F05308C",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/design.md"
+    },
+    {
+      "sha256": "3D640DE7316FAC7F62875B4B1499CD20214185102AA0AC9B2AE7B930A15450E4",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/executable-target.json"
+    },
+    {
+      "sha256": "30958F50753B2551BB501DF1006193317324813E1B28BE9EE7899B05367AF33C",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/final-results.json"
+    },
+    {
+      "sha256": "FB30FB3858B0648BC6AF418DEA4580D79C47EBBEF77CDFAB6B8B2F5406A6BA3F",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/final-scope.json"
+    },
+    {
+      "sha256": "EB66BE2700491F83EC43FC5049978CB2EDA919A7BE0B9DCC37FCE9A236F49875",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/implement.jsonl"
+    },
+    {
+      "sha256": "69F3BA045B546700314976F20927E4D20FB8CF170ACA51B2112127F3FAC67AF6",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/implement.md"
+    },
+    {
+      "sha256": "5D43F594DBE1FCEA33633E516E91F0D3B2DF14BE5813A869094C67B4772EE824",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/implementation-notes.md"
+    },
+    {
+      "sha256": "8936665CFCB16D2D383D283F5671001CBE58B825755BB707103E9BE58337B574",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/prd.md"
+    },
+    {
+      "sha256": "E5A5FB7B151EF83348F2ABD2015FBCE872955B648610EE6F84A27E4DE81ECD5E",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/recheck-results.json"
+    },
+    {
+      "sha256": "F0FB7BAE431A74C946451415D672CC71DAFEFA20CEDFF586BF467276BCB046D0",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/recovery-matrix.md"
+    },
+    {
+      "sha256": "9B451FDB88677CDCFC0422CE7943A5EA168B2704BBF0CA97578A350683BC25FA",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/review-context.md"
+    },
+    {
+      "sha256": "E155F5E3F25FBB91802FE3EF2AC41E7E6F9834EC138C8BDDBBA75B9390560488",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/review.md"
+    },
+    {
+      "sha256": "1F8B838AE53C7BB5D3837553D5533D0F41FF231C79898678FA269CD195BB52F9",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/task.json"
+    },
+    {
+      "sha256": "1B373CEA8184FF6B0028EF5A853CC0C034536D8B2E3D9EC9379CFBA76EA60FDA",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/verification.md"
+    },
+    {
+      "sha256": "D1BF29E68A8BBEF99C06E0F122077C8483CE7731ACEB2D5C379524D56E8DFAB5",
+      "path": ".trellis/tasks/09-27-cb6-005-codebuddy-runtime-reconcile/verified-results.json"
+    },
+    {
+      "sha256": "6882387B7DA77C4093CBA80D52D74A2EA7779D22AC7398C0277DAE693CA4ADBF",
+      "path": "src-tauri/src/agent/codebuddy/provider.rs"
+    },
+    {
+      "sha256": "98086A5A00DC760BFB041834E80882D52785E5B78A42596AB51E7028D0374FCB",
+      "path": "src-tauri/src/agent/product.rs"
+    },
+    {
+      "sha256": "0A351C98D7F13BE114E7A782A6F8888810DDBA85FDAFB18854AFA4006D49B2E2",
+      "path": "src-tauri/src/agent/provider/registry.rs"
+    },
+    {
+      "sha256": "C90595FCE0E1D57460648E3E28B2DC33A2C6E6AE7656C39C90AE96980958A778",
+      "path": "src-tauri/src/agent/store/usage_tests.rs"
+    },
+    {
+      "sha256": "F0A4A197951B5C19FEE286C888D9487CF51D9BE70AE79963034D0BD16A2A5DAE",
+      "path": "src-tauri/src/agent/task_manager.rs"
+    }
+  ],
+  "initialStatus": "clean",
+  "head": "ecd6c078451b8d1616723722b98cb4c2b7549bb2",
+  "branch": "feat/codebuddy"
+}

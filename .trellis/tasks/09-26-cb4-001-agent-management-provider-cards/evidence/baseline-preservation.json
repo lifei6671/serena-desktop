@@ -1,0 +1,15 @@
+{
+  "baselineFiles": 924,
+  "missing": [],
+  "unexpectedChanges": [],
+  "unchangedImportantFiles": {
+    "src-tauri/src/mcp/registry.rs": "c89802beaeeb2dcb1c07205033ace37091e96ac41e1619cc09b126b64a747cc3",
+    "src-tauri/src/mcp/orchestration.rs": "f2c8bcd686adfd1b6ed51d38a0cdae27fb9e3af9b1165efb58cf1396efdc5db3",
+    "src-tauri/src/mcp/orchestration/dto.rs": "fd03616fe7be1a59891f9f81699f195cf15df8063111cbe48fce3c71bb2f6a9c",
+    "src-tauri/src/agent/store/usage_tests.rs": "c90595fce0e1d57460648e3e28b2dc33a2c6e6ae7656c39c90ae96980958a778"
+  },
+  "frozenContracts": {
+    "agent_query": "96bf06b880b5ec4972a42dd83cb1dc7e8f1f8c797f760dbad24c333466d68ae0",
+    "agent_execute": "d9f562430843fcb9ae663cff5b895afef93ab45c23bd29b4af16cf85fd199fa1"
+  }
+}

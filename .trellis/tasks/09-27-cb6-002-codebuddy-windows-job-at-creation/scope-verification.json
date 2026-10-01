@@ -1,0 +1,39 @@
+{
+  "task": "CB6-002",
+  "result": "PASS",
+  "deliveryOwned": [
+    "src-tauri/src/agent/codebuddy/mod.rs (only the cfg(windows) windows_launcher wiring hunk over CB6-001)",
+    "src-tauri/src/agent/codebuddy/windows_launcher.rs",
+    "src-tauri/src/agent/codebuddy/windows_launcher/tests.rs",
+    "src-tauri/tests/fixtures/codebuddy_launcher_child.rs",
+    ".trellis/tasks/09-27-cb6-002-codebuddy-windows-job-at-creation/"
+  ],
+  "baselinePreservedHashes": {
+    "src-tauri/src/agent/codex/windows_launcher.rs": "baba993c96f850673ff262e1fb7b3b970eda60c6d705a9652c39e05a0e4abd2f",
+    "src-tauri/src/agent/codex/windows_launcher/tests.rs": "4a4a9f4c361766f1ca5a3977b06e924118696792a40b05da93ea783115a79924",
+    "src-tauri/src/agent/codex/runtime.rs": "3a13f4734310ffc045a41ed0aa97cc8f0cd39da5cbc4293a4dfba8f12d05c6d2",
+    "src-tauri/src/agent/codex/runtime/tests.rs": "f455184d5ac9943560676c75431fd28a9b275531b53efa9f370bbd3555d5fc6b",
+    "src-tauri/src/agent/codebuddy/discovery.rs": "749b91c18eb5ec2891eae526e9906eaa897296f1d6afb00d1c577c0bdf443766",
+    "src-tauri/src/config.rs": "c0dda8019dd0002c22e527175de35c59780729278a1ff7a06921426cfa343a03",
+    "src-tauri/tests/fixtures/launcher_child.rs": "bfbf7a38f628a539bae8fa6b7957021c033d768ae67d5873561a68d9714fec26",
+    "src-tauri/Cargo.toml": "34f62032b577ce11cb2a96de5b899b7f30413e57d8303f845a93915ebb750738"
+  },
+  "moduleWiringBaseline": {
+    "cb6001Hash": "4077d87b9c1ba2e9eebc217286061d33026a6587e2614d232c8e854a16e9102e",
+    "check": "Removing only the CB6-002 cfg(windows) windows_launcher hunk restores the CB6-001 hash exactly"
+  },
+  "forbiddenChanges": {
+    "codexOwnershipOrEvidence": false,
+    "spawnThenAssign": false,
+    "shellRuntimeLaunch": false,
+    "autoInstallOrNpxDownload": false,
+    "acpInitializeTransportSessionPrompt": false,
+    "runtimePersistenceRecoveryOrClaimRelease": false,
+    "schemaOrMigration": false,
+    "uiOrRemoteProtocol": false,
+    "macos": false,
+    "realCodeBuddyOrCb5Probe": false,
+    "commitOrPush": false
+  },
+  "preExistingDirtyPreserved": true
+}

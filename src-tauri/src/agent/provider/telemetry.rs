@@ -51,8 +51,9 @@ impl AgentActivityEvent {
     }
 }
 
+/// 已由 Provider 绑定身份的累计计数；仅对应 cumulative projection。
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UsageEvent {
+pub struct CumulativeUsageEvent {
     execution_id: String,
     provider_id: ProviderId,
     cumulative_total_tokens: i64,
@@ -63,6 +64,15 @@ pub struct UsageEvent {
     reasoning_output_tokens: Option<i64>,
     model_context_window: Option<i64>,
     observed_at: i64,
+}
+
+/// 明确区分 Provider 私有累计计数与当前 Execution 的直接快照。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UsageEvent {
+    /// Codex 继续通过自己的 epoch/baseline/grace projector。
+    Cumulative(CumulativeUsageEvent),
+    /// Adapter 已完成精确 Prompt 绑定；公共层只持久化直接快照。
+    Direct(crate::agent::usage::UsageSnapshot),
 }
 
 impl UsageEvent {
@@ -80,7 +90,7 @@ impl UsageEvent {
         model_context_window: Option<i64>,
         observed_at: i64,
     ) -> Self {
-        Self {
+        Self::Cumulative(CumulativeUsageEvent {
             execution_id,
             provider_id,
             cumulative_total_tokens,
@@ -91,56 +101,79 @@ impl UsageEvent {
             reasoning_output_tokens,
             model_context_window,
             observed_at,
+        })
+    }
+
+    /// 构造不带 Provider 私有 baseline 的直接快照事件。
+    pub fn direct(snapshot: crate::agent::usage::UsageSnapshot) -> Self {
+        Self::Direct(snapshot)
+    }
+
+    /// 内部累计路径只接受对应 typed variant，错误路由必须明确失败。
+    const fn cumulative_fields(&self) -> &CumulativeUsageEvent {
+        match self {
+            Self::Cumulative(value) => value,
+            Self::Direct(_) => panic!("direct usage cannot enter cumulative projection"),
         }
     }
 
+    /// 两种投影语义都必须绑定同一个公共 Execution identity。
     pub fn execution_id(&self) -> &str {
-        &self.execution_id
+        match self {
+            Self::Cumulative(v) => &v.execution_id,
+            Self::Direct(v) => &v.execution_id,
+        }
     }
 
     /// 返回 event 的 Provider 公共身份。
     pub fn provider_id(&self) -> &ProviderId {
-        &self.provider_id
+        match self {
+            Self::Cumulative(v) => &v.provider_id,
+            Self::Direct(v) => &v.provider_id,
+        }
     }
 
     /// 返回 Provider 原样提供的累计 total，不从 breakdown 计算。
     pub const fn cumulative_total_tokens(&self) -> i64 {
-        self.cumulative_total_tokens
+        self.cumulative_fields().cumulative_total_tokens
     }
 
     /// 返回 Provider 的可选累计输入 breakdown。
     pub const fn input_tokens(&self) -> Option<i64> {
-        self.input_tokens
+        self.cumulative_fields().input_tokens
     }
 
     /// 返回 Provider 的可选累计缓存输入 breakdown。
     pub const fn cached_input_tokens(&self) -> Option<i64> {
-        self.cached_input_tokens
+        self.cumulative_fields().cached_input_tokens
     }
 
     /// 返回 Provider 的可选累计缓存写入输入 breakdown。
     pub const fn cache_write_input_tokens(&self) -> Option<i64> {
-        self.cache_write_input_tokens
+        self.cumulative_fields().cache_write_input_tokens
     }
 
     /// 返回 Provider 的可选累计输出 breakdown。
     pub const fn output_tokens(&self) -> Option<i64> {
-        self.output_tokens
+        self.cumulative_fields().output_tokens
     }
 
     /// 返回 Provider 的可选累计 reasoning 输出 breakdown。
     pub const fn reasoning_output_tokens(&self) -> Option<i64> {
-        self.reasoning_output_tokens
+        self.cumulative_fields().reasoning_output_tokens
     }
 
     /// 返回 Provider 的可选模型上下文窗口 metadata。
     pub const fn model_context_window(&self) -> Option<i64> {
-        self.model_context_window
+        self.cumulative_fields().model_context_window
     }
 
     /// 返回 SerenaDesktop 观察到通知的时刻。
     pub const fn observed_at(&self) -> i64 {
-        self.observed_at
+        match self {
+            Self::Cumulative(v) => v.observed_at,
+            Self::Direct(v) => v.updated_at,
+        }
     }
 }
 

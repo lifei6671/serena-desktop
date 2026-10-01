@@ -1,0 +1,17 @@
+{
+  "targetId": "e241bf797c7843c3d80cb20c38a170990c2c8a53a979c3b00430d29844ae30ac",
+  "files": {
+    "harness/src/main.rs": "4fe96ceb89fb29e0e9ddd46b8b28c40a52a79d9e897d877ed0ef9427e9e4a957",
+    "harness/src/usage_runtime.rs": "fcd7473150674785f390645c2e67bfb80dad638482d269ac08e1c813ddbbdede",
+    "harness/src/usage_tests.rs": "fdbb6f036220bcac5cb60a42d42e8e69896c3b82b3f61f580ab61b40a21830ab",
+    "harness/src/usage.rs": "0e91857f3a0520b9daf87b6d326fbc2ffba66abf5eaa8c4b5d70a639064edd72",
+    "harness/Cargo.toml": "314b8c0e88e1ee2c8b912450678d14e0ce3644bbbb1c778f9050b2bf822a8248",
+    "harness/Cargo.lock": "ae8218a03ba90cae3ae97f25b4263f69060b0eb0dc81bf8b810b27c1162947b4",
+    "usage-README.md": "2216e985e559f1ecadaa3d4a4166815d3a9d63f7994a854da30c487fb7e51a47",
+    "usage-repair-baseline.json": "116901060291c87beab44c66aacff498d6b86b355a2457d8c982c719d5456d7b",
+    "usage-repair-scope.json": "1d476c34342260901c41598b70e9b1f9f512b48e1d6dd8cf76fb91a89f3c859c",
+    "usage-repair-verification.md": "2befc49c79ccf01ebf702a3188c542c5204c3bb35f7293ac1ba8c4d6cdfa1a33",
+    "usage-repair-review-context.md": "abc02ed50ce8ce266d1e366842c4c76509bcfcaa3de6014f048d4a4cdb05be43",
+    "harness/target/debug/cb5-005-continuation.exe": "0e15379ed396f3a77348417022c9a714ed6219a112bd2b3007352466a60b8e25"
+  }
+}

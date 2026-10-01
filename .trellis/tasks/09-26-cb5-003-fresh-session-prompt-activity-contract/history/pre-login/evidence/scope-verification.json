@@ -1,0 +1,14 @@
+{
+  "productFileCount": 319,
+  "productDelta": [],
+  "head": "5179248cfa30096df912c6567aee2e80e3bf4352",
+  "diffCheck": {
+    "command": "git diff --check",
+    "exitCode": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "trackedChanges": "",
+  "status": "?? .trellis/tasks/09-26-acp-compatibility-ux-cutover/\n?? .trellis/tasks/09-26-agent-management-surface-cleanup/\n?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/\n?? .trellis/tasks/09-26-cb2-003-local-provider-policy/\n?? .trellis/tasks/09-26-cb2-004-frontend-config/\n?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/\n?? .trellis/tasks/09-26-cb3-001-provider-catalog/\n?? .trellis/tasks/09-26-cb3-002-provider-query/\n?? .trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/\n?? .trellis/tasks/09-26-cb3-003-start-dto/\n?? .trellis/tasks/09-26-cb3-004-start-routing-authority/\n?? .trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/\n?? .trellis/tasks/09-26-cb4-001-agent-management-provider-cards/\n?? .trellis/tasks/09-26-cb4-002-role-routing-editor/\n?? .trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/\n?? .trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/\n?? .trellis/tasks/09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe/\n?? .trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/\n?? .zed/\n",
+  "statusDiagnostics": "warning: unable to access 'C:\\Users\\lifei/.config/git/ignore': Permission denied\nwarning: unable to access 'C:\\Users\\lifei/.config/git/ignore': Permission denied\n"
+}

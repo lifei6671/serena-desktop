@@ -1,0 +1,76 @@
+{
+  "launcherArgv": [
+    "C:\\Users\\lifei\\AppData\\Roaming\\npm\\npx.cmd",
+    "-y",
+    "@tencent-ai/codebuddy-code@2.158.0",
+    "--acp"
+  ],
+  "executionArgv": [
+    "C:\\Windows\\System32\\cmd.exe",
+    "/d",
+    "/s",
+    "/c",
+    "C:\\Users\\lifei\\AppData\\Roaming\\npm\\npx.cmd -y @tencent-ai/codebuddy-code@2.158.0 --acp"
+  ],
+  "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-gold-band-04khat_4",
+  "before": {},
+  "status": "LAUNCHER_UNAVAILABLE_OR_NO_ACP_HANDSHAKE",
+  "promptSent": false,
+  "automaticRetries": 0,
+  "pid": 3204,
+  "stage": "initialize",
+  "sessionId": null,
+  "close": "NOT_RUN",
+  "error": "EOF",
+  "launcherAvailable": false,
+  "cleanup": {
+    "directChildReaped": true,
+    "windowsJobAtCreationProven": false,
+    "treeContainmentProven": false,
+    "errors": [],
+    "treeKillExitCode": 1,
+    "exitCode": 1,
+    "readersJoined": true
+  },
+  "elapsedMs": 1468,
+  "stderrBytesDrained": 2399,
+  "wire": [
+    {
+      "sequence": 1,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "elicitation": {
+              "form": {}
+            },
+            "_meta": {
+              "subagent-transcript": true,
+              "parameterizedModelPicker": true
+            }
+          },
+          "clientInfo": {
+            "name": "serena-desktop-gold-band-repro",
+            "title": "SerenaDesktop Gold Band Repro",
+            "version": "0.1"
+          }
+        }
+      }
+    }
+  ],
+  "notifications": {},
+  "wrongRpcIdResponsesIgnored": 0,
+  "prerouteNotifications": {
+    "total": 0,
+    "buffered": 0,
+    "dropped": 0,
+    "limit": 64
+  },
+  "after": {},
+  "delta": [],
+  "workspaceDeleted": true
+}

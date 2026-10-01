@@ -1,0 +1,24 @@
+{
+  "baselineFiles": 747,
+  "changedExisting": [
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/README.md",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/harness/src/main.rs",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/task.json"
+  ],
+  "stageABEvidenceHashes": {
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/continuation/NOT_RUN.json": "b3bba1d2aa8bab7786892577a932482efd476f34383d19f3478329b51486dc92",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/continuation/load.attempt-started.json": "f360bdcd223a7e3087ce051cba263452907218dfa268defc82755eb6730db8dc",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/continuation/load.result.json": "b66ae4aa3612508e6eb93539bd34e58ec6734a38fb30852555f22ffc8a348fab",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/continuation/resume.attempt-started.json": "2b96bd3f33d643ad8cdea3ccac9debdbddff06368ec29bece22e132c8ce47474",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/continuation/resume.result.json": "6c491470f4dd77403658b63f2a20a6878c393ae456354c0555f921b63106532b",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/usage/NOT_RUN.json": "fb407b62f5c9366c0a035e3f3535a4f374174b592cfc12b36b65d4869b23bdce",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/usage/usage-repair-analysis.json": "6a0efe69fd2137e93e9a826947df0a22d6b6ef5280e228563c757424eaa887da",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/usage/usage-repair.attempt-started.json": "a0012b0276891b61bdd7914ea52c75a06f53d15fc5f3f9a92002a1250396623f",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/usage/usage-repair.result.json": "985faa29686b5df3649af4f017ee75673a57a12e21df7d7d22aedaee39117a5e",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/usage/usage.attempt-started.json": "8284a91ea8b27685148064c14fe37ceba2d11246bc180c852319fd35fb968af8",
+    ".trellis/tasks/09-27-cb5-005-continuation-usage-crash-contract/evidence/usage/usage.host-timeout.json": "3f81ae900820fadfed5f065f74ca1a39edeae2d08c11d755c068a984aee4300e"
+  },
+  "noRealCLI": true,
+  "generated": "task-local target dev/test binary only; cache/lock/dependencies unchanged",
+  "checks": "baseline scope, JSON/local links/whitespace PASS"
+}

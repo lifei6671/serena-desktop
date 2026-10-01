@@ -1,0 +1,28 @@
+{
+  "targetId": "bfbbfbb31ae2041690adf359378a8eb23247b74057d43d840a29655b8665d3d3",
+  "files": {
+    "check.jsonl": "9820caf469936651c6482fe2f8bf0bbe663da70d350737512f1f64fb771bbcd2",
+    "design.md": "17137d903d04087ac95197709d378234a9141cbfa80c73e7f4dec818a8644ad2",
+    "evidence/continuation/NOT_RUN.json": "b3bba1d2aa8bab7786892577a932482efd476f34383d19f3478329b51486dc92",
+    "harness/Cargo.lock": "ae8218a03ba90cae3ae97f25b4263f69060b0eb0dc81bf8b810b27c1162947b4",
+    "harness/Cargo.toml": "314b8c0e88e1ee2c8b912450678d14e0ce3644bbbb1c778f9050b2bf822a8248",
+    "harness/fake_peer.py": "042c70980baaa474c297a53ec7cb3462c86ac2ea59a13b016645c1116237c0e5",
+    "harness/src/evidence.rs": "82faea5d04f6384a276dc6cc6f7cb4012b8d7b24a8e2681419fb85efaac51a7d",
+    "harness/src/main.rs": "63e3e03046b7c53001fd52daf5b0cda4e4f6f6ccbe12c48cdda4ccaff880fae0",
+    "harness/src/runtime.rs": "e8a66fd14d205d37a0a7c1bf63937ddb74056f4709b09a9f024f9b60de3e2268",
+    "harness/src/tests.rs": "cf4a4e4046abdc7f1ccede25e5d10106ce4cb5c2afcfc690777a33a1c579c7eb",
+    "harness/src/transport.rs": "9e03fe3029e101e9b2b6b1322f6bc78cb11c0e55fad1577e17da24c5c2ec9078",
+    "harness/target/debug/cb5-005-continuation.exe": "47ca9805eea7321468718b36be2591523a086874ca43ef660ed9fecf7c1c3bc0",
+    "implement.jsonl": "b91da38a5219955a94ddd94a6aa8685b3584677bfe75b1cac104c0c4cb56cef0",
+    "implement.md": "acde351122a4a2ef9ab914be28aff6c937d1a92781215b77e683648ad236965c",
+    "prd.md": "a4851e1bc1877e53cbb10f6af2edc382cb28f2bbf15692f1db405b2cef84ac36",
+    "README.md": "4e28e92d136ccc79d0108a1447004ebacb13bfc8065f97b779e52f5901de73e1",
+    "review-context.md": "21a1b66a59850884c736d340bbd36bf0d4f47a0670a1c1db95d1f9f52ceabfdc",
+    "scope-verification.json": "0b6148ced36a862db60f6cd3a4eb11cdd7d4608a67a785c9af1356d99cfe30d1",
+    "task.json": "9cb13eda8a7a6316d7e41602ba1f0ca491e2846b05e38081140a3dc975dc3cab",
+    "verification.md": "987fd974fa113a7a52b1c57e32e599dd307c7317105c6e9134d0d4309f8ca27f"
+  },
+  "mode": "CHILD_AGENT",
+  "scope": "Stage A continuation only",
+  "repairRounds": 1
+}

@@ -1,0 +1,16 @@
+{"scenario": "after", "pid": 23024, "sequence": 1, "direction": "request", "message": {"jsonrpc": "2.0", "id": "e67217d8-f1f1-4259-b98f-451606ec5790", "method": "initialize", "params": {"protocolVersion": 1}}}
+{"scenario": "after", "pid": 23024, "sequence": 2, "direction": "response", "message": {"jsonrpc": "2.0", "id": "e67217d8-f1f1-4259-b98f-451606ec5790", "result": {"protocolVersion": 1}}}
+{"scenario": "after", "pid": 23024, "sequence": 3, "direction": "request", "message": {"jsonrpc": "2.0", "id": "c15a137f-5d78-4150-ab6f-c9419ac52936", "method": "session/new", "params": {}}}
+{"scenario": "after", "pid": 23024, "sequence": 4, "direction": "response", "message": {"jsonrpc": "2.0", "id": "c15a137f-5d78-4150-ab6f-c9419ac52936", "error": {"code": -32603, "detailsOmitted": true}}}
+{"scenario": "before", "pid": 47420, "sequence": 1, "direction": "request", "message": {"jsonrpc": "2.0", "id": "761984dd-9646-4408-bba7-9ea3742a8f09", "method": "initialize", "params": {"protocolVersion": 1}}}
+{"scenario": "before", "pid": 47420, "sequence": 2, "direction": "response", "message": {"jsonrpc": "2.0", "id": "761984dd-9646-4408-bba7-9ea3742a8f09", "result": {"protocolVersion": 1}}}
+{"scenario": "before", "pid": 47420, "sequence": 3, "direction": "request", "message": {"jsonrpc": "2.0", "id": "27aa2528-f0f5-4e69-be2b-b006b5751861", "method": "session/new", "params": {}}}
+{"scenario": "before", "pid": 47420, "sequence": 4, "direction": "response", "message": {"jsonrpc": "2.0", "id": "27aa2528-f0f5-4e69-be2b-b006b5751861", "error": {"code": -32603, "detailsOmitted": true}}}
+{"scenario": "before", "pid": 60716, "sequence": 1, "direction": "request", "message": {"jsonrpc": "2.0", "id": "af1f5b02-d4d2-49ee-bea2-a7cdc4021cff", "method": "initialize", "params": {"protocolVersion": 1}}}
+{"scenario": "before", "pid": 60716, "sequence": 2, "direction": "response", "message": {"jsonrpc": "2.0", "id": "af1f5b02-d4d2-49ee-bea2-a7cdc4021cff", "result": {"protocolVersion": 1}}}
+{"scenario": "before", "pid": 60716, "sequence": 3, "direction": "request", "message": {"jsonrpc": "2.0", "id": "8a9ed68a-dd74-4270-bd09-709145c71cfc", "method": "session/new", "params": {}}}
+{"scenario": "before", "pid": 60716, "sequence": 4, "direction": "response", "message": {"jsonrpc": "2.0", "id": "8a9ed68a-dd74-4270-bd09-709145c71cfc", "error": {"code": -32603, "detailsOmitted": true, "classification": "HTTP_500"}}}
+{"scenario": "after", "pid": 53908, "sequence": 1, "direction": "request", "message": {"jsonrpc": "2.0", "id": "f9f48ec8-6764-4276-9650-705dc82d7c32", "method": "initialize", "params": {"protocolVersion": 1}}}
+{"scenario": "after", "pid": 53908, "sequence": 2, "direction": "response", "message": {"jsonrpc": "2.0", "id": "f9f48ec8-6764-4276-9650-705dc82d7c32", "result": {"protocolVersion": 1}}}
+{"scenario": "after", "pid": 53908, "sequence": 3, "direction": "request", "message": {"jsonrpc": "2.0", "id": "46083430-1528-40b5-a66b-57c8007b1f12", "method": "session/new", "params": {}}}
+{"scenario": "after", "pid": 53908, "sequence": 4, "direction": "response", "message": {"jsonrpc": "2.0", "id": "46083430-1528-40b5-a66b-57c8007b1f12", "error": {"code": -32603, "detailsOmitted": true, "classification": "HTTP_500"}}}

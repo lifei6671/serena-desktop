@@ -1,0 +1,29 @@
+{
+  "pythonExecutable": "C:/Users/lifei/AppData/Local/Programs/Python/Python312/python.exe",
+  "resolverTests": {
+    "passed": 6,
+    "failed": 0,
+    "exitCode": 0
+  },
+  "jsonlTests": {
+    "passed": 10,
+    "failed": 0,
+    "exitCode": 0
+  },
+  "cargoFmtCheck": {
+    "exitCode": 0
+  },
+  "gitDiffCheck": {
+    "exitCode": 0
+  },
+  "unchangedRustSuite": {
+    "status": "NOT_RERUN",
+    "priorPassed": 18
+  },
+  "unchangedRunnerSuite": {
+    "status": "NOT_RERUN",
+    "priorPassed": 4
+  },
+  "sourceAtRunMatchesFinal": true,
+  "realReruns": 0
+}

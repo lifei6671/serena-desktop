@@ -34,7 +34,7 @@ pub(crate) enum RecoveryStatus {
 }
 
 /// 从 Store 投影恢复并验证完整的 macOS leader 身份。
-fn persisted_identity(record: &RuntimeRecord) -> Result<ProcessIdentity, &'static str> {
+pub(crate) fn persisted_identity(record: &RuntimeRecord) -> Result<ProcessIdentity, &'static str> {
     if record.runtime_platform != "macos"
         || record.containment_type != "macos_process_group"
         || record.process_identity_scheme != "darwin_proc_bsd_start_v1"
@@ -161,70 +161,74 @@ pub(crate) async fn recover_runtime(
         }
     };
 
+    if let Err(error) = macos_runtime_store::terminating(store, runtime_id, now()) {
+        return persist_unknown(store, runtime_id, error.message);
+    }
+    match terminate_observed_group(&expected, grace, kill_wait) {
+        Ok(()) => complete_recovered(store, runtime_id),
+        Err(message) => persist_unknown(store, runtime_id, message),
+    }
+}
+
+/// 将共享 OS 观察错误交给各 Provider 的持久化边界处理。
+fn observation_error(message: impl Into<String>) -> Result<(), String> {
+    Err(message.into())
+}
+
+/// 共享跨 Host 终止算法；只返回原 leader 精确验证后的 group-empty 事实。
+pub(crate) fn terminate_observed_group(
+    expected: &ProcessIdentity,
+    grace: Duration,
+    kill_wait: Duration,
+) -> Result<(), String> {
     // 恢复前 leader 必须仍以同一 PID/PGID/SID/token 存活，且明确属于原组。
-    match identity_matches(&expected) {
+    match identity_matches(expected) {
         Ok(true) => {}
-        Ok(false) => return persist_unknown(store, runtime_id, "leader 身份与持久化证据不匹配"),
+        Ok(false) => return observation_error("leader 身份与持久化证据不匹配"),
         Err(error) => {
-            return persist_unknown(store, runtime_id, format!("leader 身份不可观测: {error}"));
+            return observation_error(format!("leader 身份不可观测: {error}"));
         }
     }
     let members = match observe_group(expected.pgid) {
         Ok(members) => members,
         Err(error) => {
-            return persist_unknown(
-                store,
-                runtime_id,
-                format!("Process Group 查询失败: {error}"),
-            );
+            return observation_error(format!("Process Group 查询失败: {error}"));
         }
     };
     if !members.contains(&expected.pid) {
-        return persist_unknown(store, runtime_id, "leader 不属于持久化 Process Group");
+        return observation_error("leader 不属于持久化 Process Group");
     }
 
-    if let Err(error) = macos_runtime_store::terminating(store, runtime_id, now()) {
-        return persist_unknown(
-            store,
-            runtime_id,
-            format!("Runtime terminating 写入失败: {}", error.message),
-        );
-    }
     if let Err(error) = signal_group(expected.pgid, libc::SIGTERM) {
-        return persist_unknown(store, runtime_id, format!("发送 SIGTERM 失败: {error}"));
+        return observation_error(format!("发送 SIGTERM 失败: {error}"));
     }
 
     let grace_deadline = Instant::now() + grace.min(MAX_PHASE_TIMEOUT);
+    let mut leader_exited = false;
     loop {
         let members = match observe_group(expected.pgid) {
             Ok(members) => members,
             Err(error) => {
-                return persist_unknown(
-                    store,
-                    runtime_id,
-                    format!("SIGTERM 后 group 查询失败: {error}"),
-                );
+                return observation_error(format!("SIGTERM 后 group 查询失败: {error}"));
             }
         };
         if members.is_empty() {
-            return complete_recovered(store, runtime_id);
+            return Ok(());
         }
-        // 跨 Host 恢复没有连续 child ownership；leader 消失后不得向残留 group 升级 KILL。
-        match identity_matches(&expected) {
-            Ok(true) => {}
-            Ok(false) => {
-                return persist_unknown(
-                    store,
-                    runtime_id,
-                    "SIGTERM 后 leader 身份发生变化且 group 非空",
-                );
-            }
-            Err(error) => {
-                return persist_unknown(
-                    store,
-                    runtime_id,
-                    format!("SIGTERM 后 leader 消失且 group 非空: {error}"),
-                );
+        // TERM 已作用于验证过的原组；leader 消失与进程组快照之间允许存在回收竞态。
+        // 仅在余下 grace 内等待 group-empty；一旦失去 leader，永不再发信号。
+        if !leader_exited {
+            match identity_matches(expected) {
+                Ok(true) => {}
+                Ok(false) => {
+                    return observation_error("SIGTERM 后 leader 身份发生变化且 group 非空");
+                }
+                Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+                    leader_exited = true;
+                }
+                Err(error) => {
+                    return observation_error(format!("SIGTERM 后 leader 身份查询失败: {error}"));
+                }
             }
         }
         if Instant::now() >= grace_deadline {
@@ -233,37 +237,33 @@ pub(crate) async fn recover_runtime(
         sleep_until_next_poll(grace_deadline);
     }
 
+    if leader_exited {
+        return observation_error("SIGTERM grace 到期后 leader 已退出但 Process Group 仍非空");
+    }
+
     // grace 到期时再次精确匹配原 leader，匹配失败绝不发送 SIGKILL。
-    match identity_matches(&expected) {
+    match identity_matches(expected) {
         Ok(true) => {}
-        Ok(false) => return persist_unknown(store, runtime_id, "SIGKILL 前 leader 身份不匹配"),
+        Ok(false) => return observation_error("SIGKILL 前 leader 身份不匹配"),
         Err(error) => {
-            return persist_unknown(
-                store,
-                runtime_id,
-                format!("SIGKILL 前 leader 不可观测: {error}"),
-            );
+            return observation_error(format!("SIGKILL 前 leader 不可观测: {error}"));
         }
     }
     if let Err(error) = signal_group(expected.pgid, libc::SIGKILL) {
-        return persist_unknown(store, runtime_id, format!("发送 SIGKILL 失败: {error}"));
+        return observation_error(format!("发送 SIGKILL 失败: {error}"));
     }
 
     let kill_deadline = Instant::now() + kill_wait.min(MAX_PHASE_TIMEOUT);
     loop {
         match observe_group(expected.pgid) {
-            Ok(members) if members.is_empty() => return complete_recovered(store, runtime_id),
+            Ok(members) if members.is_empty() => return Ok(()),
             Ok(_) => {}
             Err(error) => {
-                return persist_unknown(
-                    store,
-                    runtime_id,
-                    format!("SIGKILL 后 group 查询失败: {error}"),
-                );
+                return observation_error(format!("SIGKILL 后 group 查询失败: {error}"));
             }
         }
         if Instant::now() >= kill_deadline {
-            return persist_unknown(store, runtime_id, "SIGKILL 等待结束后 Process Group 仍非空");
+            return observation_error("SIGKILL 等待结束后 Process Group 仍非空");
         }
         sleep_until_next_poll(kill_deadline);
     }
@@ -344,6 +344,14 @@ async fn release_recovered_execution(
     execution_id: &str,
     runtime: &RuntimeRecord,
 ) -> Result<(), String> {
+    let execution = store
+        .execution(execution_id.to_owned())
+        .await?
+        .ok_or("EXECUTION_NOT_FOUND")?;
+    if execution.provider != runtime.provider {
+        mark_execution_unknown(store, execution_id).await?;
+        return Err("RUNTIME_PROVIDER_MISMATCH".into());
+    }
     if !complete_macos_evidence(runtime) {
         mark_execution_unknown(store, execution_id).await?;
         return Err("RUNTIME_TERMINATION_EVIDENCE_REQUIRED".into());
@@ -407,11 +415,14 @@ async fn recover_startup_with_timeouts(
     grace: Duration,
     kill_wait: Duration,
 ) -> Result<ProviderReconcileSummary, String> {
-    let claims = store.recover_claims(now()).await?;
+    let claims = store.recover_provider_claims("codex".into(), now()).await?;
     let mut items = Vec::new();
 
     // orphan Runtime 没有关联 Claim，只收口 containment，不改变无关 Execution。
-    for runtime_id in store.orphan_runtimes(owner.to_owned()).await? {
+    for runtime_id in store
+        .provider_orphan_runtimes(owner.to_owned(), "codex".into())
+        .await?
+    {
         let Some(runtime) = store.runtime(runtime_id.clone()).await? else {
             items.push(ProviderReconcileItem {
                 subject_id: runtime_id,

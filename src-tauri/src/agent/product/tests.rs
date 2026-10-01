@@ -1,8 +1,131 @@
 use super::*;
+use crate::agent::activity::derive_summary_code;
+use crate::agent::provider::{
+    ProviderCancelContext, ProviderCapabilities, ProviderError, ProviderExecutionContext,
+    ProviderRunResult, ProviderStartupContext,
+    port::{
+        AgentEventSink, AgentProvider, ProviderAcceptanceSink, ProviderExecutionFailure,
+        ProviderFuture, ProviderReconcileSummary,
+    },
+};
 #[cfg(windows)]
 use crate::agent::{codex::app_server::Client, coordinator::now};
 use std::sync::Arc;
 use std::time::Duration;
+
+/// 仅模拟可通过 admission、但在接受执行前拒绝的 Provider；不持有 Store、CLI 或 Runtime。
+pub(super) struct RejectedDispatchProvider;
+
+impl AgentProvider for RejectedDispatchProvider {
+    /// 使用兼容入口配置的 codex 身份，但实现完全独立于真实 Codex adapter。
+    fn descriptor(&self) -> ProviderDescriptor {
+        ProviderDescriptor {
+            id: ProviderId::new("codex".into()).unwrap(),
+            display_name: "Rejected dispatch fixture".into(),
+            version: None,
+            protocol: None,
+        }
+    }
+    /// 只有 execute 准入可用，避免测试进入无关生命周期。
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities {
+            can_execute: true,
+            can_continue: false,
+            can_cancel: false,
+            can_recover: false,
+            activity: false,
+            token_usage: false,
+        }
+    }
+    /// 固定在 accepted() 之前失败，且没有任何 discovery、文件或进程访问。
+    fn execute<'a>(
+        &'a self,
+        _: ProviderExecutionContext,
+        _: Arc<dyn ProviderAcceptanceSink>,
+        _: Arc<dyn AgentEventSink>,
+    ) -> ProviderFuture<'a, Result<ProviderRunResult, ProviderExecutionFailure>> {
+        Box::pin(async {
+            Err(ProviderExecutionFailure::State(
+                "TEST_DISPATCH_REJECTED".into(),
+            ))
+        })
+    }
+    /// fixture 不支持取消，调用即暴露测试越界。
+    fn cancel<'a>(
+        &'a self,
+        _: ProviderCancelContext,
+    ) -> ProviderFuture<'a, Result<(), ProviderError>> {
+        Box::pin(async { panic!("rejected-dispatch fixture must not cancel") })
+    }
+    /// fixture 不支持启动恢复，调用即暴露测试越界。
+    fn startup_reconcile<'a>(
+        &'a self,
+        _: ProviderStartupContext,
+    ) -> ProviderFuture<'a, Result<ProviderReconcileSummary, ProviderError>> {
+        Box::pin(async { panic!("rejected-dispatch fixture must not reconcile") })
+    }
+}
+
+/// 锁定 fixture 的真正派发边界，不能用真实 Codex 的环境状态模拟拒绝。
+#[tokio::test]
+async fn rejected_dispatch_fixture_fails_before_acceptance_without_runtime() {
+    struct NeverAccept;
+    impl ProviderAcceptanceSink for NeverAccept {
+        /// fake 必须在 Provider 接受前拒绝。
+        fn accepted(&self) {
+            panic!("rejected-dispatch fixture must not accept")
+        }
+    }
+    impl AgentEventSink for NeverAccept {}
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().join("store"))
+        .await
+        .unwrap();
+    let service = AgentProductService::new_with_rejected_dispatch_for_test(store.clone());
+    let id = ProviderId::new("codex".into()).unwrap();
+    let registry = service.manager.registry().unwrap();
+    assert_eq!(
+        registry.health(&id).unwrap(),
+        crate::agent::provider::registry::ProviderHealth::Available
+    );
+    let provider = registry.get(&id).unwrap();
+    assert!(provider.capabilities().can_execute);
+    assert_eq!(
+        provider
+            .execute(
+                ProviderExecutionContext {
+                    execution_id: "never-created".into()
+                },
+                Arc::new(NeverAccept),
+                Arc::new(NeverAccept)
+            )
+            .await
+            .unwrap_err(),
+        ProviderExecutionFailure::State("TEST_DISPATCH_REJECTED".into())
+    );
+    let response = service
+        .checked_operation(start("rejected", "key"), w(directory.path(), "W"))
+        .await;
+    assert_eq!(response["error"]["code"], "AGENT_OPERATION_FAILED");
+    assert_eq!(response["control"]["requestAccepted"], true);
+    assert_eq!(
+        store
+            .product_read(None, None, None, 10)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    let db = rusqlite::Connection::open(directory.path().join("store/agent-state.db")).unwrap();
+    for table in ["runtime_instances", "execution_runtime_attempts"] {
+        let count: i64 = db
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "{table}");
+    }
+}
 #[cfg(windows)]
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 // 只有具体 Runtime/Fake wire 测试保留 Windows gate，纯 Store/协议覆盖跨平台运行。
@@ -15,9 +138,13 @@ mod orchestration_tests;
 #[path = "persistence_tests.rs"]
 #[cfg(windows)]
 mod persistence_tests;
+#[path = "provider_projection_tests.rs"]
+mod provider_projection_tests;
 #[path = "restart_tests.rs"]
 #[cfg(windows)]
 mod restart_tests;
+#[path = "role_projection_tests.rs"]
+mod role_projection_tests;
 #[path = "usage_projection_tests.rs"]
 mod usage_projection_tests;
 #[path = "work_adapter_tests.rs"]
@@ -140,6 +267,53 @@ async fn nonterminal_execution_count_reads_product_store_without_runtime_project
         )
         .unwrap();
     assert_eq!(service.nonterminal_execution_count().await.unwrap(), 0);
+}
+
+/// Desktop 初始化必须把持久化 disabled policy 带入 Product Start 门禁。
+#[tokio::test]
+async fn product_startup_consumes_persisted_disabled_provider_policy() {
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = directory.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let store = StateStore::open(directory.path().join("store"))
+        .await
+        .unwrap();
+    let mut settings = crate::config::AgentProviderSettings::default();
+    settings.providers.get_mut("codex").unwrap().enabled = false;
+    let (service, _) = TEST_DISCOVERY
+        .scope(
+            Ok(std::path::PathBuf::from("fixture.exe")),
+            AgentProductService::initialize_with_terminal_notifier_and_provider_settings(
+                store.clone(),
+                super::super::notification::noop_agent_terminal_notifier(),
+                settings,
+            ),
+        )
+        .await
+        .unwrap();
+
+    let response = service
+        .checked_operation(
+            start("disabled-agent", "disabled-key"),
+            w(&workspace, "workspace"),
+        )
+        .await;
+    assert_eq!(response["error"]["code"], "AGENT_PROVIDER_DISABLED");
+    assert!(
+        store
+            .product_history_ids(None, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        store
+            .workspace_claim(workspace.to_string_lossy().into())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    service.shutdown().await.unwrap();
 }
 
 #[tokio::test]
@@ -479,7 +653,18 @@ async fn provider_opaque_compatibility_projects_legacy_fields_and_safe_session_l
                 .as_str()
                 .is_some_and(|v| !v.is_empty())
         );
-        assert!(view["provider"].get("version").is_none());
+        let expected_version = service
+            .manager
+            .registry()
+            .unwrap()
+            .get_registered(&ProviderId::new("codex".into()).unwrap())
+            .unwrap()
+            .descriptor()
+            .version;
+        assert_eq!(
+            view["provider"]["version"],
+            serde_json::to_value(expected_version).unwrap()
+        );
     };
     assert_codex_provider(&without_title);
     assert_eq!(without_title["threadId"], "THREAD");
@@ -991,6 +1176,19 @@ async fn fake_service_with_turn_started(
                     json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"})
                 }
                 "initialized" => continue,
+                "model/list" => json!({
+                    "data": [{
+                        "id": "fixture-default",
+                        "model": "fixture-default",
+                        "displayName": "Fixture Default",
+                        "description": "",
+                        "isDefault": true,
+                        "hidden": false,
+                        "defaultReasoningEffort": "low",
+                        "supportedReasoningEfforts": [{"reasoningEffort":"low","description":""}],
+                    }],
+                    "nextCursor": null,
+                }),
                 "thread/start" | "thread/resume" => {
                     if m == "thread/start" {
                         assert_eq!(v["params"]["sandbox"], "workspace-write");
@@ -2184,7 +2382,7 @@ fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads
 
 #[cfg(windows)]
 #[test]
-fn unavailable_continuation_never_accepts_or_dispatches() {
+fn unavailable_continuation_rejects_before_creation_or_dispatch() {
     run(async {
         let temp = tempfile::tempdir().unwrap();
         let store = StateStore::open(temp.path().into()).await.unwrap();
@@ -2205,8 +2403,8 @@ fn unavailable_continuation_never_accepts_or_dispatches() {
         final_row(&first, &id).await;
         drop(first);
         fake.await.unwrap();
-        // This case tests backend discovery after a safely ended old Runtime.
-        // An unresolved old Runtime is covered by workspace quarantine tests.
+        // 该场景验证旧 Runtime 已安全结束后，Continue 仍先经过 Provider health admission。
+        // 未收敛旧 Runtime 的隔离行为由 workspace quarantine 测试覆盖。
         rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap().execute(
             "UPDATE runtime_instances SET state='terminated',termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',termination_evidence_at=10 WHERE id='R1'",[]).unwrap();
 
@@ -2224,21 +2422,18 @@ fn unavailable_continuation_never_accepts_or_dispatches() {
             )
             .await;
         assert_eq!(r["ok"], false);
-        assert_eq!(r["error"]["code"], "BACKEND_UNAVAILABLE");
-        let row = store
-            .execution(r["error"]["executionId"].as_str().unwrap().into())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(row.status, "dispatch_pending");
-        assert!(row.runtime_instance_id.is_none());
-        assert!(row.turn_id.is_none());
+        assert_eq!(r["error"]["code"], "AGENT_PROVIDER_UNAVAILABLE");
+        assert_eq!(r["error"]["executionId"], id);
+        assert_eq!(
+            store.product_history_ids(None, None).await.unwrap().len(),
+            1
+        );
         assert!(
             store
-                .workspace_claim(row.canonical_workspace_root)
+                .workspace_claim(temp.path().to_string_lossy().into())
                 .await
                 .unwrap()
-                .is_some()
+                .is_none()
         );
         let db = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
         assert_eq!(

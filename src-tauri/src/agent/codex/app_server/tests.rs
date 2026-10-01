@@ -105,6 +105,26 @@ async fn run_provider_with_injected_runtime_mismatch(
         let mut server = BufReader::new(server);
         handshake(&mut server).await;
         let request = recv(&mut server).await;
+        assert_eq!(request["method"], "model/list");
+        reply(
+            &mut server,
+            &request,
+            json!({
+                "data": [{
+                    "id": "fixture-default",
+                    "model": "fixture-default",
+                    "displayName": "Fixture Default",
+                    "description": "",
+                    "isDefault": true,
+                    "hidden": false,
+                    "defaultReasoningEffort": "low",
+                    "supportedReasoningEfforts": [{"reasoningEffort":"low","description":""}],
+                }],
+                "nextCursor": null,
+            }),
+        )
+        .await;
+        let request = recv(&mut server).await;
         assert_eq!(request["method"], "thread/start");
         reply(
             &mut server,
@@ -674,6 +694,138 @@ fn both_turn_start_paths_enable_network_without_broadening_filesystem_access() {
             );
             turn.unwrap();
             write.unwrap();
+            fake.await.unwrap();
+        }
+    });
+}
+
+/// thread/start 只接收 model；turn/start 仅在显式指定时发送 effort。
+#[test]
+fn configured_thread_and_turn_send_only_frozen_model_and_effort() {
+    for reasoning in [None, Some("high")] {
+        run(async move {
+            let (client, server) = pair();
+            let fake = tokio::spawn(async move {
+                let mut io = BufReader::new(server);
+                handshake(&mut io).await;
+                let models = recv(&mut io).await;
+                assert_eq!(models["method"], "model/list");
+                reply(&mut io, &models, json!({"data":[{"id":"preset-visible","model":"visible-wire","displayName":"Visible","description":"","isDefault":true,"hidden":false,"defaultReasoningEffort":"high","supportedReasoningEfforts":[{"reasoningEffort":"high","description":""}]}],"nextCursor":null})).await;
+                let thread = recv(&mut io).await;
+                assert_eq!(thread["method"], "thread/start");
+                assert_eq!(thread["params"]["model"], "visible-wire");
+                assert!(thread["params"].get("effort").is_none());
+                assert!(thread["params"].get("reasoning").is_none());
+                reply(
+                    &mut io,
+                    &thread,
+                    json!({"thread":{"id":"T","turns":[],"historyMode":"paginated"}}),
+                )
+                .await;
+                let turn = recv(&mut io).await;
+                assert_eq!(turn["method"], "turn/start");
+                assert_eq!(turn["params"]["model"], "visible-wire");
+                assert_eq!(
+                    turn["params"].get("effort"),
+                    reasoning.map(|value| json!(value)).as_ref()
+                );
+                assert!(turn["params"].get("reasoning").is_none());
+                reply(
+                    &mut io,
+                    &turn,
+                    json!({"turn":{"id":"U","status":"inProgress","items":[]}}),
+                )
+                .await;
+            });
+            client.initialize().await.unwrap();
+            let selected = client.model_list(None).await.unwrap().models.remove(0).id;
+            assert_eq!(selected, "visible-wire");
+            let profile = crate::agent::execution::ExecutionProfile {
+                model: Some(selected),
+                reasoning: reasoning.map(str::to_owned),
+            };
+            client
+                .thread_start_configured(
+                    "C:\\workspace",
+                    crate::agent::execution::ExecutionMode::ReadOnly,
+                    &profile,
+                )
+                .await
+                .unwrap();
+            client
+                .turn_start_configured(
+                    "T",
+                    "E",
+                    "prompt",
+                    crate::agent::execution::ExecutionMode::ReadOnly,
+                    "C:\\workspace",
+                    &profile,
+                )
+                .await
+                .unwrap();
+            fake.await.unwrap();
+        });
+    }
+}
+
+/// model/list 保留分页、hidden 与模型专属 reasoning 事实。
+#[test]
+fn model_list_parses_pages_hidden_models_and_model_specific_reasoning() {
+    run(async {
+        let (client, server) = pair();
+        let fake = tokio::spawn(async move {
+            let mut io = BufReader::new(server);
+            handshake(&mut io).await;
+            let first = recv(&mut io).await;
+            assert_eq!(first["method"], "model/list");
+            assert!(first["params"]["cursor"].is_null());
+            assert_eq!(first["params"]["includeHidden"], true);
+            reply(&mut io, &first, json!({"data":[{"id":"visible","model":"visible-wire","displayName":"Visible","description":"desc","isDefault":true,"hidden":false,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"medium","description":"balanced"}]}],"nextCursor":"next"})).await;
+            let second = recv(&mut io).await;
+            assert_eq!(second["params"]["cursor"], "next");
+            reply(&mut io, &second, json!({"data":[{"id":"hidden","model":"hidden-wire","displayName":"Hidden","description":"","isDefault":false,"hidden":true,"defaultReasoningEffort":"high","supportedReasoningEfforts":[{"reasoningEffort":"high","description":""}]}],"nextCursor":null})).await;
+        });
+        client.initialize().await.unwrap();
+        let first = client.model_list(None).await.unwrap();
+        assert_eq!(first.next_cursor.as_deref(), Some("next"));
+        assert_eq!(first.models[0].id, "visible-wire");
+        assert_eq!(first.models[0].default_reasoning.as_deref(), Some("medium"));
+        assert_eq!(first.models[0].reasoning_options[0].id, "medium");
+        let second = client
+            .model_list(first.next_cursor.as_deref())
+            .await
+            .unwrap();
+        assert!(second.models[0].hidden);
+        assert!(second.next_cursor.is_none());
+        fake.await.unwrap();
+    });
+}
+
+/// fixed schema 要求 defaultReasoningEffort 为非空且属于当前模型的支持集合。
+#[test]
+fn model_list_rejects_missing_null_empty_or_unsupported_default_reasoning() {
+    run(async {
+        for model in [
+            json!({"id":"preset","model":"wire","displayName":"Model","description":"","isDefault":true,"hidden":false,"supportedReasoningEfforts":[{"reasoningEffort":"high","description":""}]}),
+            json!({"id":"preset","model":"wire","displayName":"Model","description":"","isDefault":true,"hidden":false,"defaultReasoningEffort":null,"supportedReasoningEfforts":[{"reasoningEffort":"high","description":""}]}),
+            json!({"id":"preset","model":"wire","displayName":"Model","description":"","isDefault":true,"hidden":false,"defaultReasoningEffort":"","supportedReasoningEfforts":[{"reasoningEffort":"high","description":""}]}),
+            json!({"id":"preset","model":"wire","displayName":"Model","description":"","isDefault":true,"hidden":false,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"high","description":""}]}),
+        ] {
+            let (client, server) = pair();
+            let fake = tokio::spawn(async move {
+                let mut io = BufReader::new(server);
+                handshake(&mut io).await;
+                let request = recv(&mut io).await;
+                assert_eq!(request["method"], "model/list");
+                reply(&mut io, &request, json!({"data":[model],"nextCursor":null})).await;
+            });
+            client.initialize().await.unwrap();
+            let error = client
+                .model_list(None)
+                .await
+                .err()
+                .expect("malformed default reasoning must fail");
+            assert_eq!(error.code, "CODEX_APP_SERVER_INCOMPATIBLE");
             fake.await.unwrap();
         }
     });

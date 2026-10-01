@@ -1,0 +1,382 @@
+{
+  "eventCount": 9,
+  "fields": [
+    {
+      "name": "used",
+      "types": [
+        "integer"
+      ],
+      "sampleSequence": [
+        {
+          "sequence": 13,
+          "value": 45332
+        },
+        {
+          "sequence": 113,
+          "value": 45332
+        },
+        {
+          "sequence": 121,
+          "value": 45332
+        },
+        {
+          "sequence": 123,
+          "value": 45332
+        },
+        {
+          "sequence": 129,
+          "value": 26006
+        },
+        {
+          "sequence": 144,
+          "value": 26006
+        },
+        {
+          "sequence": 155,
+          "value": 26006
+        },
+        {
+          "sequence": 157,
+          "value": 26006
+        },
+        {
+          "sequence": 230,
+          "value": 26063
+        }
+      ],
+      "scope": "unknown",
+      "resetBehavior": "unknown",
+      "terminalCoverage": "unknown_unbound",
+      "lateBehavior": "unknown_unbound",
+      "exactPromptIdentity": null
+    },
+    {
+      "name": "size",
+      "types": [
+        "integer"
+      ],
+      "sampleSequence": [
+        {
+          "sequence": 13,
+          "value": 1000000
+        },
+        {
+          "sequence": 113,
+          "value": 1000000
+        },
+        {
+          "sequence": 121,
+          "value": 1000000
+        },
+        {
+          "sequence": 123,
+          "value": 1000000
+        },
+        {
+          "sequence": 129,
+          "value": 1000000
+        },
+        {
+          "sequence": 144,
+          "value": 1000000
+        },
+        {
+          "sequence": 155,
+          "value": 1000000
+        },
+        {
+          "sequence": 157,
+          "value": 1000000
+        },
+        {
+          "sequence": 230,
+          "value": 1000000
+        }
+      ],
+      "scope": "unknown",
+      "resetBehavior": "unknown",
+      "terminalCoverage": "unknown_unbound",
+      "lateBehavior": "unknown_unbound",
+      "exactPromptIdentity": null
+    },
+    {
+      "name": "_meta",
+      "types": [
+        "object"
+      ],
+      "sampleSequence": [
+        {
+          "sequence": 13,
+          "value": {
+            "codebuddy.ai/requestId": "01a0e623dfc67395afd96a956cdc8b63",
+            "codebuddy.ai/usageByCategory": {
+              "systemPrompt": 3170,
+              "conversation": 32,
+              "tools": 42094,
+              "mcp": 0,
+              "skills": 36,
+              "version": 1
+            }
+          }
+        },
+        {
+          "sequence": 113,
+          "value": {
+            "codebuddy.ai/requestId": "01a0e623dfc67395afd96a956cdc8b63",
+            "codebuddy.ai/messageId": "01a0e623e2cb73fd814c070639737ba8",
+            "usage": {
+              "prompt_tokens": 25747,
+              "completion_tokens": 232,
+              "total_tokens": 25979,
+              "completion_tokens_details": {
+                "accepted_prediction_tokens": 0,
+                "audio_tokens": 0,
+                "reasoning_tokens": 227,
+                "rejected_prediction_tokens": 0,
+                "cached_tokens": 0
+              },
+              "prompt_tokens_details": {
+                "accepted_prediction_tokens": 0,
+                "audio_tokens": 0,
+                "reasoning_tokens": 0,
+                "rejected_prediction_tokens": 0,
+                "cached_tokens": 1408
+              },
+              "prompt_cache_hit_tokens": 1408,
+              "prompt_cache_miss_tokens": 24339,
+              "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 0,
+              "prompt_cache_write_tokens": 0,
+              "completion_thinking_tokens": 227,
+              "credit": 0,
+              "cached_tokens": 0
+            },
+            "codebuddy.ai/usageByCategory": {
+              "systemPrompt": 2918,
+              "conversation": 2647,
+              "tools": 39265,
+              "mcp": 0,
+              "skills": 502,
+              "version": 1
+            },
+            "traceparent": "00-88e89cb8627d4f2f3cd263ac2e6880e1-a9d602477d6e55a3-01",
+            "baggage": "codebuddy.session_id=01a0e623-df2b-7360-9c3e-7bd8ad74f157,codebuddy.conversation_request_id=01a0e623dfc67395afd96a956cdc8b63",
+            "codebuddy.ai/traceparent": "00-88e89cb8627d4f2f3cd263ac2e6880e1-a9d602477d6e55a3-01"
+          }
+        },
+        {
+          "sequence": 121,
+          "value": {
+            "codebuddy.ai/requestId": "01a0e623dfc67395afd96a956cdc8b63",
+            "codebuddy.ai/messageId": "01a0e623e2cb73fd814c070639737ba8",
+            "codebuddy.ai/usageByCategory": {
+              "systemPrompt": 2917,
+              "conversation": 2657,
+              "tools": 39256,
+              "mcp": 0,
+              "skills": 502,
+              "version": 1
+            }
+          }
+        },
+        {
+          "sequence": 123,
+          "value": {
+            "codebuddy.ai/requestId": "01a0e623dfc67395afd96a956cdc8b63",
+            "codebuddy.ai/messageId": "01a0e624687a7d4588b21f4aeeeb6407",
+            "codebuddy.ai/usageByCategory": {
+              "systemPrompt": 2917,
+              "conversation": 2663,
+              "tools": 39250,
+              "mcp": 0,
+              "skills": 502,
+              "version": 1
+            },
+            "baggage": "codebuddy.session_id=01a0e623-df2b-7360-9c3e-7bd8ad74f157,codebuddy.conversation_request_id=01a0e62468187a35ad2ac4430bb1c59a"
+          }
+        },
+        {
+          "sequence": 129,
+          "value": {
+            "codebuddy.ai/requestId": "01a0e62468187a35ad2ac4430bb1c59a",
+            "codebuddy.ai/messageId": "01a0e624687a7d4588b21f4aeeeb6407",
+            "usage": {
+              "prompt_tokens": 26006,
+              "completion_tokens": 5,
+              "total_tokens": 26011,
+              "completion_tokens_details": {
+                "accepted_prediction_tokens": 0,
+                "audio_tokens": 0,
+                "reasoning_tokens": 4,
+                "rejected_prediction_tokens": 0,
+                "cached_tokens": 0
+              },
+              "prompt_tokens_details": {
+                "accepted_prediction_tokens": 0,
+                "audio_tokens": 0,
+                "reasoning_tokens": 0,
+                "rejected_prediction_tokens": 0,
+                "cached_tokens": 25728
+              },
+              "prompt_cache_hit_tokens": 25728,
+              "prompt_cache_miss_tokens": 278,
+              "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 0,
+              "prompt_cache_write_tokens": 0,
+              "completion_thinking_tokens": 4,
+              "credit": 0,
+              "cached_tokens": 0
+            },
+            "codebuddy.ai/usageByCategory": {
+              "systemPrompt": 1673,
+              "conversation": 1529,
+              "tools": 22516,
+              "mcp": 0,
+              "skills": 288,
+              "version": 1
+            },
+            "traceparent": "00-70fd38e409ff54d96d9fce29c4779140-170b3c9815dab695-01",
+            "baggage": "codebuddy.session_id=01a0e623-df2b-7360-9c3e-7bd8ad74f157,codebuddy.conversation_request_id=01a0e62468187a35ad2ac4430bb1c59a",
+            "codebuddy.ai/traceparent": "00-70fd38e409ff54d96d9fce29c4779140-170b3c9815dab695-01"
+          }
+        },
+        {
+          "sequence": 144,
+          "value": {
+            "codebuddy.ai/usageByCategory": {
+              "systemPrompt": 1818,
+              "conversation": 26,
+              "tools": 24141,
+              "mcp": 0,
+              "skills": 21,
+              "version": 1
+            }
+          }
+        },
+        {
+          "sequence": 155,
+          "value": {
+            "codebuddy.ai/usageByCategory": {
+              "systemPrompt": 1775,
+              "conversation": 47,
+              "tools": 23879,
+              "mcp": 0,
+              "skills": 305,
+              "version": 1
+            }
+          }
+        },
+        {
+          "sequence": 157,
+          "value": {
+            "codebuddy.ai/requestId": "01a0e624beed7a49abf871081dc1f9fd",
+            "codebuddy.ai/messageId": "01a0e624bf617d7e8b5694ddcbcfae4c",
+            "codebuddy.ai/usageByCategory": {
+              "systemPrompt": 1672,
+              "conversation": 1550,
+              "tools": 22497,
+              "mcp": 0,
+              "skills": 287,
+              "version": 1
+            },
+            "baggage": "codebuddy.session_id=01a0e623-df2b-7360-9c3e-7bd8ad74f157,codebuddy.conversation_request_id=01a0e624beed7a49abf871081dc1f9fd"
+          }
+        },
+        {
+          "sequence": 230,
+          "value": {
+            "codebuddy.ai/requestId": "01a0e624beed7a49abf871081dc1f9fd",
+            "codebuddy.ai/messageId": "01a0e624bf617d7e8b5694ddcbcfae4c",
+            "usage": {
+              "prompt_tokens": 26063,
+              "completion_tokens": 226,
+              "total_tokens": 26289,
+              "completion_tokens_details": {
+                "accepted_prediction_tokens": 0,
+                "audio_tokens": 0,
+                "reasoning_tokens": 180,
+                "rejected_prediction_tokens": 0,
+                "cached_tokens": 0
+              },
+              "prompt_tokens_details": {
+                "accepted_prediction_tokens": 0,
+                "audio_tokens": 0,
+                "reasoning_tokens": 0,
+                "rejected_prediction_tokens": 0,
+                "cached_tokens": 25984
+              },
+              "prompt_cache_hit_tokens": 25984,
+              "prompt_cache_miss_tokens": 79,
+              "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 0,
+              "prompt_cache_write_tokens": 0,
+              "completion_thinking_tokens": 180,
+              "credit": 0,
+              "cached_tokens": 0
+            },
+            "codebuddy.ai/usageByCategory": {
+              "systemPrompt": 1675,
+              "conversation": 1569,
+              "tools": 22531,
+              "mcp": 0,
+              "skills": 288,
+              "version": 1
+            },
+            "traceparent": "00-b5078ecd0a024cb27286af9b9650a1dd-35a288c5e628af1c-01",
+            "baggage": "codebuddy.session_id=01a0e623-df2b-7360-9c3e-7bd8ad74f157,codebuddy.conversation_request_id=01a0e624beed7a49abf871081dc1f9fd",
+            "codebuddy.ai/traceparent": "00-b5078ecd0a024cb27286af9b9650a1dd-35a288c5e628af1c-01"
+          }
+        }
+      ],
+      "scope": "unknown",
+      "resetBehavior": "unknown",
+      "terminalCoverage": "unknown_unbound",
+      "lateBehavior": "unknown_unbound",
+      "exactPromptIdentity": null
+    }
+  ],
+  "windows": [
+    {
+      "label": "P1",
+      "promptSequence": 5,
+      "terminalSequence": 115,
+      "graceEndSequence": 115,
+      "beforeTerminal": [
+        13,
+        113
+      ],
+      "afterTerminal": [],
+      "atTerminal": []
+    },
+    {
+      "label": "P2",
+      "promptSequence": 116,
+      "terminalSequence": 131,
+      "graceEndSequence": 131,
+      "beforeTerminal": [
+        121,
+        123,
+        129
+      ],
+      "afterTerminal": [],
+      "atTerminal": []
+    },
+    {
+      "label": "P3_AFTER_RESTART",
+      "promptSequence": 150,
+      "terminalSequence": 232,
+      "graceEndSequence": 232,
+      "beforeTerminal": [
+        155,
+        157,
+        230
+      ],
+      "afterTerminal": [],
+      "atTerminal": []
+    }
+  ],
+  "exactPromptBound": false,
+  "publicConclusion": "INCONCLUSIVE",
+  "tokenUsageCapability": false,
+  "reason": "USAGE_EVENTS_NOT_BOUND_TO_EXACT_PROMPT_IDENTITY"
+}

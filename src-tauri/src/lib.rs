@@ -176,17 +176,22 @@ pub fn run() {
                     app.handle().clone(),
                     supervisor.clone(),
                 ));
+            // Desktop 启动只读取已持久化的本地 Provider policy 快照。
+            let provider_settings = supervisor.provider_policy();
             // macOS Desktop 发布前保留 recovery，但把耗时的 Codex CLI probe 延到首次 Agent execute。
             #[cfg(target_os = "macos")]
-            let initialization = agent::product::AgentProductService::initialize_desktop_deferred(
-                store,
-                terminal_notifier,
-            );
-            #[cfg(not(target_os = "macos"))]
             let initialization =
-                agent::product::AgentProductService::initialize_with_terminal_notifier(
+                agent::product::AgentProductService::initialize_desktop_deferred_with_provider_settings(
                     store,
                     terminal_notifier,
+                    provider_settings,
+                );
+            #[cfg(not(target_os = "macos"))]
+            let initialization =
+                agent::product::AgentProductService::initialize_with_terminal_notifier_and_provider_settings(
+                    store,
+                    terminal_notifier,
+                    provider_settings,
                 );
             let (product, outcomes) =
                 tauri::async_runtime::block_on(initialization).map_err(std::io::Error::other)?;
@@ -290,6 +295,13 @@ pub fn run() {
             remote::remote_probe,
             remote::remote_approve,
             commands::agent_operation,
+            commands::agent_provider_settings_get,
+            commands::agent_provider_catalog_get,
+            commands::agent_provider_set_enabled,
+            commands::agent_provider_set_role_route,
+            commands::agent_provider_set_role_defaults,
+            commands::agent_provider_configuration_catalog,
+            commands::agent_provider_refresh_health,
             commands::command_query,
             commands::command_execute,
             commands::agent_manual_resolve,

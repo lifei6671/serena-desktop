@@ -1,3 +1,4 @@
+import { providerSettingsFixture } from './configFixtures.mjs';
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
@@ -24,6 +25,11 @@ registerHooks({
   }
 });
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/', pretendToBeVisual: true });
+// 载入角色行的实际 CSS，验证保存提示脱离布局；JSDOM 不计算真实 grid 几何尺寸。
+const roleStyles = dom.window.document.createElement('style');
+const stylesheet = readFileSync('src/styles.css', 'utf8');
+roleStyles.textContent = stylesheet.slice(stylesheet.indexOf('.agent-role-grid'), stylesheet.indexOf('.agent-providers h2'));
+dom.window.document.head.append(roleStyles);
 // JSDOM has no layout; actual tooltip positioning is checked in Chromium.
 globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
@@ -40,16 +46,21 @@ const { AgentPanel } = await import('./AgentPanel.tsx');
 const { api } = await import('./api.ts');
 const { agentRequests } = await import('./agentRequests.ts');
 const { showExecutionIssueSection, showExecutionDiagnostic } = await import('./agentPresentation.ts');
+const { activityLabel } = await import('./agentPresentation.ts');
 const { toast } = await import('sonner');
 const notifications = [];
 toast.success = text => notifications.push(['success', text]);
 toast.error = text => notifications.push(['error', text]);
 let root;
 const workspace = name => ({ id: name, name, root: `E:\\${name}` });
-const row = (overrides = {}) => ({ executionId: 'old-E1', agentId: 'old-lineage', workspaceId: 'A', canonicalWorkspaceRoot: 'E:\\frozen-A', prompt: '原始任务 <literal>', status: 'unknown', attention: 'manual_resolution_required', revision: 'R1', resultAvailable: overrides.finalResult !== undefined && overrides.finalResult !== null, provider: { id: 'codex', displayName: 'Codex', version: null }, providerSessionLabel: null, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null }, progress: { phase: 'reconciling', summaryCode: 'execution.reconciling', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null }, nextAction: { action: 'manual_resolution' }, dispatchState: 'uncertain', threadId: null, threadName: null, turnId: null, providerTerminalStatus: null, errorCode: null, errorMessage: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: null,
+const row = (overrides = {}) => ({ executionId: 'old-E1', agentId: 'old-lineage', workspaceId: 'A', canonicalWorkspaceRoot: 'E:\\frozen-A', prompt: '原始任务 <literal>', status: 'unknown', attention: 'manual_resolution_required', revision: 'R1', resultAvailable: overrides.finalResult !== undefined && overrides.finalResult !== null, provider: { id: 'codex', displayName: 'Codex', version: null }, executionProfile: { model: null, reasoning: null }, effectiveExecutionProfile: null, providerSessionLabel: null, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null }, progress: { phase: 'reconciling', summaryCode: 'execution.reconciling', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null }, nextAction: { action: 'manual_resolution' }, dispatchState: 'uncertain', threadId: null, threadName: null, turnId: null, providerTerminalStatus: null, errorCode: null, errorMessage: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: null,
   availableActions: { canCancel: false, canContinue: false, canResumePending: false }, ...overrides, provider: { id: 'codex', displayName: 'Codex', version: null, ...overrides.provider }, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null, ...overrides.usage }, progress: { phase: 'reconciling', summaryCode: 'execution.reconciling', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null, ...overrides.progress } });
-async function mount(rows, handler, props = {}) {
+async function mount(rows, handler, props = {}, catalog = { providers: [], roleRouting: {} }, configurationHandler, defaultsHandler) {
   const calls = [];
+  // 独立目录 fixture，避免任务行为测试依赖本机 Tauri 环境。
+  api.agentProviderCatalog = typeof catalog === 'function' ? catalog : async () => structuredClone(catalog);
+  api.agentProviderConfigurationCatalog = configurationHandler ?? (async providerId => ({ providerId, models: [{ id: 'default-model', name: 'Default Model', description: null, isDefault: true, hidden: false, reasoningOptions: [{ id: 'high', name: 'High', description: null }], defaultReasoning: 'high' }], currentModel: 'default-model', defaultModel: 'default-model', reasoningOptions: [], currentReasoning: 'high', defaultReasoning: 'high' }));
+  api.agentProviderSetRoleDefaults = defaultsHandler ?? (async (role, providerId, defaults) => ({ ...roleSettings(), roleDefaults: { [role]: { [providerId]: structuredClone(defaults) } } }));
   api.agent = async request => {
     calls.push(structuredClone(request));
     if (handler) { const result = handler(request); if (result !== undefined) return result; }
@@ -64,14 +75,663 @@ async function mount(rows, handler, props = {}) {
     const executions = all.slice(start, start + 5);
     return {executions, nextCursor: start + 5 < all.length ? executions.at(-1).executionId : null};
   };
+  const sidebarContainer = props.sidebarContainer ?? document.getElementById('task-nav-test') ?? navigationHost();
+  const workspaces = [...new Map(rows.map(row => [row.canonicalWorkspaceRoot, { id: row.workspaceId, name: row.workspaceId, root: row.canonicalWorkspaceRoot }])).values()];
   root = createRoot(document.getElementById('root'));
-  await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('A'), ...props }))));
+  await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('A'), workspaces, sidebarContainer, ...props }))));
   return calls;
 }
 function button(text, within = document) { return [...within.querySelectorAll('button')].find(b => b.textContent === text); }
+
+/** Catalog fixture 只声明后端已有字段；协议可缺失。 */
+function catalogProvider(overrides = {}) {
+  return { id: 'codex', displayName: 'Codex', version: '1.2.3', enabled: true, health: 'available',
+    availableForNewExecution: true,
+    capabilities: { canExecute: true, canContinue: false, canCancel: true, canRecover: false, activity: true, tokenUsage: false },
+    ...overrides };
+}
+
+/** 读取可访问的字段名称与值，验证用户看到的独立状态维度。 */
+function cardValues(card) {
+  return Object.fromEntries([...card.querySelectorAll('dl > div')].map(field => [field.querySelector('dt').textContent, field.querySelector('dd').textContent]));
+}
+
+// 逐项验证正常 Idle、停用、健康失败与 draining，避免合并独立状态。
+for (const scenario of [
+  { name: 'idle available', provider: {}, rows: [], enabled: '已启用', health: '可用', runtime: '空闲', active: '0' },
+  { name: 'disabled without active execution', provider: { enabled: false }, rows: [], enabled: '已停用', health: '可用', runtime: '空闲', active: '0' },
+  { name: 'unavailable independently of enabled', provider: { health: 'unavailable' }, rows: [], enabled: '已启用', health: '不可用', runtime: '—', active: '0' },
+  { name: 'disabled and unavailable remain separate', provider: { enabled: false, health: 'unavailable' }, rows: [], enabled: '已停用', health: '不可用', runtime: '—', active: '0' },
+  { name: 'draining while execution remains active', provider: { enabled: false }, rows: [row({ status: 'running', attention: 'none' })], enabled: '正在停用', health: '可用', runtime: '运行中', active: '1' },
+  { name: 'unavailable hides runtime activity state', provider: { health: 'unavailable' }, rows: [row({ status: 'running', attention: 'none' })], enabled: '已启用', health: '不可用', runtime: '—', active: '1' },
+]) {
+  test(`provider card: ${scenario.name}`, async () => {
+    await mount(scenario.rows, undefined, {}, { providers: [catalogProvider(scenario.provider)], roleRouting: {} });
+    const cards = document.querySelectorAll('.agent-provider-card');
+    assert.equal(cards.length, 1);
+    assert.equal(cards[0].querySelector('h3').textContent, 'Codex');
+    assert.deepEqual(cardValues(cards[0]), { 接入: scenario.enabled, 可用性: scenario.health, 版本: '1.2.3', 协议: '—', Runtime: scenario.runtime, 活动任务: scenario.active });
+    assert.equal(cards[0].querySelector('[role="alert"]'), null);
+    if (scenario.health === '可用') assert.equal(cards[0].querySelectorAll('.tone-red').length, 0);
+    assert.equal(document.querySelector('h1').textContent, 'Agent 管理');
+    assertManagementSurface();
+  });
+}
+
+test('provider cards dynamically render two providers and aggregate frozen row provider IDs', async () => {
+  const rows = [
+    row({ executionId: 'a', status: 'running', attention: 'none', provider: { id: 'codex', displayName: 'same name' } }),
+    row({ executionId: 'b', status: 'finalizing', attention: 'none', provider: { id: 'codebuddy', displayName: 'same name' } }),
+    row({ executionId: 'c', status: 'dispatch_pending', attention: 'pending_explicit_resume', provider: { id: 'codebuddy' } }),
+    row({ executionId: 'd', status: 'completed', attention: 'none', provider: { id: 'codebuddy' } }),
+    row({ executionId: 'e', status: 'running', attention: 'none', provider: { id: 'historical-other' } }),
+  ];
+  window.localStorage.setItem('agent-hidden-executions', JSON.stringify(['b']));
+  await mount(rows, undefined, {}, { providers: [catalogProvider(), catalogProvider({ id: 'codebuddy', displayName: 'CodeBuddy', enabled: false })], roleRouting: { general: 'codex' } });
+  const cards = document.querySelectorAll('.agent-provider-card');
+  assert.deepEqual([...cards].map(card => card.querySelector('h3').textContent), ['Codex', 'CodeBuddy']);
+  assert.equal(cardValues(cards[0]).活动任务, '1');
+  assert.equal(cardValues(cards[1]).活动任务, '2');
+  assert.equal(cardValues(cards[1]).接入, '正在停用');
+  assert.equal(cards[1].querySelector('select,[role="combobox"]'), null);
+  assert.match(document.querySelector('.agent-providers').textContent, /当前已加载/);
+  assert.match(document.querySelector('.agent-providers').textContent, /不代表系统进程状态/);
+});
+
+test('unknown provider uses id and missing version/protocol fallbacks with the same card layout', async () => {
+  const unknown = catalogProvider({ id: 'future-agent', displayName: null, version: null });
+  const missing = catalogProvider({ id: 'new-provider' });
+  delete missing.displayName;
+  delete missing.version;
+  await mount([], undefined, {}, { providers: [unknown, missing], roleRouting: {} });
+  const cards = document.querySelectorAll('.agent-provider-card');
+  assert.deepEqual([...cards].map(card => card.querySelector('h3').textContent), ['future-agent', 'new-provider']);
+  for (const card of cards) {
+    assert.equal(cardValues(card).版本, '—');
+    assert.equal(cardValues(card).协议, '—');
+    assert.equal(cardValues(card).Runtime, '空闲');
+    assert.equal(card.querySelectorAll('dl > div').length, 6);
+  }
+});
+
+/** 协议和版本都只能来自 catalog，包括未知 Provider；缺失时才降级。 */
+test('provider metadata projects version and protocol without provider identity inference', async () => {
+  await mount([], undefined, {}, { providers: [
+    catalogProvider({ id: 'codebuddy', displayName: 'CodeBuddy', version: '2.160.0', protocol: 'ACP v1' }),
+    catalogProvider({ id: 'future', displayName: 'Future', version: '9.8.7', protocol: 'Custom RPC v3' }),
+    catalogProvider({ id: 'fake', displayName: 'Fake', version: null, protocol: ' ' }),
+  ], roleRouting: {} });
+  const cards = [...document.querySelectorAll('.agent-provider-card')];
+  assert.equal(cardValues(cards[0]).版本, '2.160.0');
+  assert.equal(cardValues(cards[0]).协议, 'ACP v1');
+  assert.equal(cardValues(cards[1]).协议, 'Custom RPC v3');
+  assert.equal(cardValues(cards[2]).版本, '—');
+  assert.equal(cardValues(cards[2]).协议, '—');
+});
+
+/** 后台 probe 发布的 metadata 在既有 1.5s catalog poll 中更新卡片。 */
+test('catalog polling publishes later provider version and protocol metadata', async t => {
+  const timers = [];
+  const original = globalThis.setInterval;
+  globalThis.setInterval = (callback, delay, ...args) => {
+    if (delay === 1500) { timers.push(callback); return 99001; }
+    return original(callback, delay, ...args);
+  };
+  t.after(() => { globalThis.setInterval = original; });
+  const catalog = { providers: [catalogProvider({ id: 'codebuddy', displayName: 'CodeBuddy', version: null, protocol: 'ACP v1' })], roleRouting: {} };
+  await mount([], undefined, {}, async () => structuredClone(catalog));
+  assert.equal(cardValues(document.querySelector('.agent-provider-card')).版本, '—');
+  catalog.providers[0].version = '2.160.0';
+  await act(async () => { for (const callback of timers) callback(); await Promise.resolve(); });
+  assert.equal(cardValues(document.querySelector('.agent-provider-card')).版本, '2.160.0');
+  assert.equal(cardValues(document.querySelector('.agent-provider-card')).协议, 'ACP v1');
+});
+
+test('catalog failure preserves sidebar and detail access without composer', async () => {
+  await mount([row({ status: 'completed', attention: 'none' })], undefined, {}, async () => { throw new Error('catalog unavailable'); });
+  assert.match(document.querySelector('.agent-providers [role="alert"]').textContent, /接入信息读取失败/);
+  assertManagementSurface();
+  await openTask();
+  assert.ok(document.querySelector('details.agent-technical'));
+});
+
+test('provider presentation and card layout contain no provider ID special cases', () => {
+  const presentation = readFileSync('src/agentPresentation.ts', 'utf8');
+  const panel = readFileSync('src/AgentPanel.tsx', 'utf8');
+  // 仅允许稳定诊断码及固定提示中的产品名称，其余源码仍禁止 Provider ID 特判。
+  assert.doesNotMatch(presentation
+    .replaceAll('"CODEBUDDY_ACP_INCOMPATIBLE"', '""')
+    .replaceAll('请升级 CodeBuddy 或 SerenaDesktop 后重新检测。', ''), /codex|codebuddy/iu);
+  assert.doesNotMatch(panel, /codex|codebuddy/iu);
+  assert.match(panel, /catalog\?\.providers\.map\(provider/u);
+  assert.match(readFileSync('src/api.ts', 'utf8'), /invoke<ProviderCatalogSnapshot>\("agent_provider_catalog_get"\)/u);
+});
 async function click(text, within) { const b = button(text, within); assert.ok(b, text); assert.equal(b.disabled, false, text); await act(async () => b.click()); }
-async function refreshTasks() { const b = document.querySelector('button[aria-label="刷新任务列表"]'); assert.ok(b, '刷新任务列表'); assert.equal(b.disabled, false, '刷新任务列表'); await act(async () => b.click()); }
-async function input(value, selector = '#agent-prompt') {
+
+/** 通过真实 shadcn Select 的键盘入口与 option 完成角色选择。 */
+async function chooseRole(role, label) {
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  const trigger = document.querySelector(`#agent-role-${role}`);
+  assert.equal(trigger.disabled, false);
+  await act(async () => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  const option = [...document.querySelectorAll('[role="option"]')].find(node => node.textContent === label);
+  assert.ok(option, label);
+  assert.notEqual(option.getAttribute('aria-disabled'), 'true');
+  await act(async () => option.click());
+}
+
+/** 通过 aria-label 操作模型或推理 Select，避免测试绑定内部 DOM 层级。 */
+async function chooseConfiguration(label, optionLabel) {
+  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  const trigger = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === label);
+  assert.ok(trigger, label);
+  assert.equal(trigger.disabled, false);
+  await act(async () => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  const option = [...document.querySelectorAll('[role="option"]')].find(node => node.textContent === optionLabel);
+  assert.ok(option, optionLabel);
+  assert.notEqual(option.getAttribute('aria-disabled'), 'true');
+  await act(async () => option.click());
+}
+
+/** 等待配置目录 Promise 对应的 React state 提交。 */
+async function flushConfigurationCatalog() {
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+}
+
+/** 等待指定任务的受控 HoverCard Portal 提交，避免测试绑定 Radix 的内部调度时序。 */
+async function focusTaskPreview(link, title) {
+  await act(async () => link.focus());
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const preview = [...document.querySelectorAll('.project-task-preview')]
+      .find(item => item.querySelector('strong')?.textContent === title);
+    if (preview) return preview;
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+  }
+  assert.fail(`任务预览未出现：${title}`);
+}
+
+/** 延迟 IPC/轮询 fixture，显式控制跨角色响应与旧快照的返回顺序。 */
+function deferredRoleResponse() {
+  let resolve, reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+/** 保存提示必须保留无障碍状态语义，同时不占角色行的可见布局。 */
+function assertRoleSavingStatus(roleRow) {
+  const status = roleRow.querySelector('[role="status"]');
+  assert.ok(status);
+  assert.equal(status.textContent, '正在保存…');
+  assert.equal(status.classList.contains('agent-role-saving-status'), true);
+  assert.equal(status.hidden, false);
+  assert.notEqual(status.getAttribute('aria-hidden'), 'true');
+  const style = getComputedStyle(status);
+  assert.equal(style.position, 'absolute');
+  assert.equal(style.width, '1px');
+  assert.equal(style.height, '1px');
+  assert.equal(style.overflow, 'hidden');
+  assert.equal(style.clip, 'rect(0px, 0px, 0px, 0px)');
+  assert.notEqual(style.display, 'none');
+  assert.notEqual(style.visibility, 'hidden');
+  assert.equal(style.gridColumn, '');
+}
+
+/** 返回完整后端 settings，测试不以 draft 充当提交结果。 */
+function roleSettings(roleRouting = {}) {
+  return { providers: {}, roleRouting: { development: null, testing: null, review: null, analysis: null, general: null, ...roleRouting } };
+}
+
+test('role editor sets enabled provider through local IPC and commits returned authoritative route', async () => {
+  const calls = [];
+  api.agentProviderSetRoleRoute = async (taskRole, providerId) => {
+    calls.push({ taskRole, providerId });
+    return roleSettings({ development: 'returned-provider' });
+  };
+  const executions = [row({ status: 'running', taskRole: 'analysis' })];
+  const frozen = structuredClone(executions);
+  const actions = await mount(executions, undefined, {}, { providers: [catalogProvider()], roleRouting: {} });
+  const section = document.querySelector('.agent-role-routing');
+  assert.equal(section.querySelectorAll('[role="combobox"]').length, 15);
+  assert.ok(document.querySelector('.agent-providers').compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING);
+  assert.ok(section.compareDocumentPosition(document.querySelector('.agent-workspace-bar')) & Node.DOCUMENT_POSITION_FOLLOWING);
+  await chooseRole('development', 'Codex');
+  assert.deepEqual(calls, [{ taskRole: 'development', providerId: 'codex' }]);
+  assert.match(document.querySelector('#agent-role-development').textContent, /returned-provider · 未注册/);
+  assert.deepEqual(executions, frozen);
+  assert.ok(actions.every(action => action.action === 'list'));
+  assert.match(readFileSync('src/api.ts', 'utf8'), /invoke<AgentProviderSettings>\("agent_provider_set_role_route", \{ taskRole, providerId \}\)/);
+});
+
+test('role defaults remember independent model and reasoning values when provider changes', async () => {
+  const catalog = {
+    providers: [catalogProvider(), catalogProvider({ id: 'other', displayName: 'Other' })],
+    roleRouting: { development: 'codex' },
+    roleDefaults: { development: {
+      codex: { model: 'codex-model', reasoning: 'high' },
+      other: { model: 'other-model', reasoning: 'low' },
+    } },
+  };
+  api.agentProviderSetRoleRoute = async (role, providerId) => ({ ...roleSettings({ [role]: providerId }), roleDefaults: catalog.roleDefaults });
+  const configuration = async providerId => providerId === 'codex'
+    ? { providerId, models: [{ id: 'codex-model', name: 'Codex Model', isDefault: true, hidden: false, reasoningOptions: [{ id: 'high', name: 'High' }], defaultReasoning: 'high' }], currentModel: 'codex-model', defaultModel: 'codex-model', reasoningOptions: [] }
+    : { providerId, models: [{ id: 'other-model', name: 'Other Model', isDefault: true, hidden: false, reasoningOptions: [{ id: 'low', name: 'Low' }], defaultReasoning: 'low' }], currentModel: 'other-model', defaultModel: 'other-model', reasoningOptions: [] };
+  await mount([], undefined, {}, catalog, configuration);
+  await flushConfigurationCatalog();
+  const model = () => [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发默认模型');
+  const reasoning = () => [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.match(model().textContent, /Codex Model/);
+  assert.match(reasoning().textContent, /High/);
+  await chooseRole('development', 'Other');
+  await flushConfigurationCatalog();
+  assert.match(model().textContent, /Other Model/);
+  assert.match(reasoning().textContent, /Low/);
+  await chooseRole('development', 'Codex');
+  assert.match(model().textContent, /Codex Model/);
+  assert.match(reasoning().textContent, /High/);
+});
+
+test('role route pending status stays accessible and out of flow until saving completes', async () => {
+  const mutation = deferredRoleResponse();
+  const calls = [];
+  api.agentProviderSetRoleRoute = (role, value) => { calls.push([role, value]); return mutation.promise; };
+  await mount([], undefined, {}, { providers: [catalogProvider()], roleRouting: {} });
+  const trigger = document.querySelector('#agent-role-development');
+  const roleRow = trigger.closest('.agent-role-row');
+  const controls = [...roleRow.querySelectorAll('label, button')];
+  await chooseRole('development', 'Codex');
+  await flushConfigurationCatalog();
+  assertRoleSavingStatus(roleRow);
+  assert.deepEqual([...roleRow.querySelectorAll('label, button')], controls);
+  assert.equal(trigger.disabled, true);
+  assert.deepEqual(calls, [['development', 'codex']]);
+  await act(async () => mutation.resolve(roleSettings({ development: 'codex' })));
+  assert.equal(roleRow.querySelector('[role="status"]'), null);
+  assert.equal(trigger.disabled, false);
+  assert.equal(trigger.textContent, 'Codex');
+});
+
+// 模型与推理强度分别进入 defaults pending，均不得增加可见状态行。
+for (const scenario of [
+  { field: '默认模型', option: 'Model B', defaults: { model: 'model-b', reasoning: 'high' } },
+  { field: '推理强度', option: 'Low', defaults: { model: 'model-a', reasoning: 'low' } },
+]) {
+  test(`${scenario.field} pending status stays accessible and out of flow until saving completes`, async () => {
+    const mutation = deferredRoleResponse();
+    const calls = [];
+    const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: { model: 'model-a', reasoning: 'high' } } } };
+    const configuration = async providerId => ({ providerId, models: ['a', 'b'].map(id => ({
+      id: `model-${id}`, name: `Model ${id.toUpperCase()}`, isDefault: id === 'a', hidden: false,
+      reasoningOptions: [{ id: 'high', name: 'High' }, { id: 'low', name: 'Low' }], defaultReasoning: 'high',
+    })), defaultModel: 'model-a', reasoningOptions: [] });
+    const save = (...args) => { calls.push(structuredClone(args)); return mutation.promise; };
+    await mount([], undefined, {}, catalog, configuration, save);
+    await flushConfigurationCatalog();
+    const roleRow = document.querySelector('#agent-role-development').closest('.agent-role-row');
+    const controls = [...roleRow.querySelectorAll('label, button')];
+    await chooseConfiguration(`开发${scenario.field}`, scenario.option);
+    assertRoleSavingStatus(roleRow);
+    assert.deepEqual([...roleRow.querySelectorAll('label, button')], controls);
+    for (const label of ['开发默认模型', '开发推理强度']) {
+      assert.equal(roleRow.querySelector(`[aria-label="${label}"]`).disabled, true);
+    }
+    assert.deepEqual(calls, [['development', 'codex', scenario.defaults]]);
+    await act(async () => mutation.resolve({ ...roleSettings({ development: 'codex' }), roleDefaults: { development: { codex: scenario.defaults } } }));
+    assert.equal(roleRow.querySelector('[role="status"]'), null);
+    const trigger = roleRow.querySelector(`[aria-label="开发${scenario.field}"]`);
+    assert.equal(trigger.disabled, false);
+    assert.equal(trigger.textContent, scenario.option);
+  });
+}
+
+test('model and reasoning Select mutations send the complete pair and commit authoritative settings', async () => {
+  const calls = [];
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: { model: 'model-a', reasoning: 'high' } } } };
+  const configuration = async providerId => ({ providerId, models: [
+    { id: 'model-a', name: 'Model A', isDefault: true, hidden: false, reasoningOptions: [{ id: 'high', name: 'High' }], defaultReasoning: 'high' },
+    { id: 'model-b', name: 'Model B', isDefault: false, hidden: false, reasoningOptions: [{ id: 'high', name: 'High' }, { id: 'low', name: 'Low' }], defaultReasoning: 'low' },
+  ], defaultModel: 'model-a', reasoningOptions: [] });
+  const save = async (role, providerId, defaults) => {
+    calls.push({ role, providerId, defaults: structuredClone(defaults) });
+    const saved = calls.length === 1 ? { model: 'model-b', reasoning: 'low' } : { model: 'model-b', reasoning: 'high' };
+    catalog.roleDefaults.development.codex = structuredClone(saved);
+    return { ...roleSettings({ development: 'codex' }), roleDefaults: structuredClone(catalog.roleDefaults) };
+  };
+  await mount([], undefined, {}, catalog, configuration, save);
+  await flushConfigurationCatalog();
+  await chooseConfiguration('开发默认模型', 'Model B');
+  assert.deepEqual(calls[0], { role: 'development', providerId: 'codex', defaults: { model: 'model-b', reasoning: 'high' } });
+  const reasoning = () => [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.equal(reasoning().textContent, 'Low · Provider 默认');
+  await chooseConfiguration('开发推理强度', 'High');
+  assert.deepEqual(calls[1], { role: 'development', providerId: 'codex', defaults: { model: 'model-b', reasoning: 'high' } });
+  assert.equal(reasoning().textContent, 'High');
+});
+
+test('pending defaults suppress duplicate mutation and failure restores the prior value', async () => {
+  const mutation = deferredRoleResponse();
+  const calls = [];
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: { model: 'model-a', reasoning: 'high' } } } };
+  const configuration = async providerId => ({ providerId, models: [{ id: 'model-a', name: 'Model A', isDefault: true, hidden: false, reasoningOptions: [{ id: 'high', name: 'High' }, { id: 'low', name: 'Low' }], defaultReasoning: 'high' }], defaultModel: 'model-a', reasoningOptions: [] });
+  const save = (...args) => { calls.push(structuredClone(args)); return mutation.promise; };
+  await mount([], undefined, {}, catalog, configuration, save);
+  await flushConfigurationCatalog();
+  await chooseConfiguration('开发推理强度', 'Low');
+  const trigger = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.equal(trigger.disabled, true);
+  await act(async () => trigger.click());
+  assert.equal(calls.length, 1);
+  await act(async () => mutation.reject(new Error('persist failed')));
+  assert.equal(trigger.textContent, 'High · Provider 默认');
+  assert.match(notifications.at(-1)[1], /默认配置保存失败/);
+});
+
+test('changing model retains an invalid saved reasoning value until the user explicitly changes it', async () => {
+  const calls = [];
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: { model: 'model-a', reasoning: 'high' } } } };
+  const configuration = async providerId => ({ providerId, models: [
+    { id: 'model-a', name: 'Model A', isDefault: true, hidden: false, reasoningOptions: [{ id: 'high', name: 'High' }], defaultReasoning: 'high' },
+    { id: 'model-b', name: 'Model B', isDefault: false, hidden: false, reasoningOptions: [{ id: 'low', name: 'Low' }], defaultReasoning: 'low' },
+  ], defaultModel: 'model-a', reasoningOptions: [] });
+  const save = async (role, providerId, defaults) => {
+    calls.push({ role, providerId, defaults: structuredClone(defaults) });
+    return { ...roleSettings({ development: 'codex' }), roleDefaults: { development: { codex: structuredClone(defaults) } } };
+  };
+  await mount([], undefined, {}, catalog, configuration, save);
+  await flushConfigurationCatalog();
+  await chooseConfiguration('开发默认模型', 'Model B');
+  assert.deepEqual(calls, [{ role: 'development', providerId: 'codex', defaults: { model: 'model-b', reasoning: 'high' } }]);
+  const reasoning = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.equal(reasoning.textContent, 'high · 当前不可用');
+});
+
+test('unknown saved model and reasoning remain visible without automatic mutation', async () => {
+  const calls = [];
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: { model: 'retired-model', reasoning: 'ultra' } } } };
+  await mount([], undefined, {}, catalog, async providerId => ({ providerId, models: [{ id: 'current-model', name: 'Current Model', isDefault: true, hidden: false, reasoningOptions: [{ id: 'high', name: 'High' }] }], defaultModel: 'current-model', reasoningOptions: [] }));
+  api.agentProviderSetRoleDefaults = async (...args) => { calls.push(args); throw new Error('must not mutate'); };
+  await flushConfigurationCatalog();
+  const model = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发默认模型');
+  const reasoning = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.equal(model.textContent, 'retired-model · 当前不可用');
+  assert.equal(reasoning.textContent, 'ultra · 当前不可用');
+  assert.deepEqual(calls, []);
+});
+
+test('model-specific empty reasoning list disables reasoning even when a global fallback exists', async () => {
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: {} };
+  await mount([], undefined, {}, catalog, async providerId => ({ providerId, models: [{ id: 'plain', name: 'Plain', isDefault: true, hidden: false, reasoningOptions: [] }], defaultModel: 'plain', reasoningOptions: [{ id: 'high', name: 'High' }] }));
+  await flushConfigurationCatalog();
+  const reasoning = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.equal(reasoning.textContent, '不支持');
+  assert.equal(reasoning.disabled, true);
+});
+
+test('configuration catalog reports stable no-workspace and unavailable states without deleting defaults', async () => {
+  let queries = 0;
+  const saved = { model: 'saved-model', reasoning: 'saved-reasoning' };
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: saved } } };
+  await mount([], undefined, { workspace: null }, catalog, async () => { queries++; throw new Error('must not query'); });
+  assert.equal(queries, 0);
+  assert.match(document.querySelector('.agent-role-routing').textContent, /请选择工作区后读取 Provider 模型与推理目录/);
+  for (const label of ['开发默认模型', '开发推理强度']) {
+    const trigger = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === label);
+    assert.equal(trigger.textContent, '需要工作区');
+    assert.equal(trigger.disabled, true);
+  }
+  await act(async () => root.unmount()); root = null;
+  await mount([], undefined, {}, catalog, async () => { queries++; throw new Error('catalog unavailable'); });
+  await flushConfigurationCatalog();
+  assert.equal(queries, 1);
+  assert.match(document.querySelector('.agent-role-routing').textContent, /目录不可用，已保留设置/);
+  // 持久错误仍是可见的状态行，不能套用临时保存提示的隐藏样式。
+  const status = document.querySelector('#agent-role-development').closest('.agent-role-row').querySelector('[role="status"]');
+  assert.equal(status.textContent, '目录不可用，已保留设置');
+  assert.equal(status.classList.contains('agent-role-saving-status'), false);
+  assert.equal(status.hidden, false);
+  assert.notEqual(status.getAttribute('aria-hidden'), 'true');
+  const style = getComputedStyle(status);
+  assert.notEqual(style.position, 'absolute');
+  assert.notEqual(style.display, 'none');
+  assert.notEqual(style.visibility, 'hidden');
+  assert.equal(style.gridColumn, '2 / -1');
+  assert.deepEqual(catalog.roleDefaults.development.codex, saved);
+});
+
+test('configuration catalog retries a rejected key once, preserves defaults, and caches success', async t => {
+  const timers = [];
+  const originalSetInterval = globalThis.setInterval;
+  // 只手动推进 1.5 秒业务轮询，保留 JSDOM 自身的真实计时器。
+  t.mock.method(globalThis, 'setInterval', (callback, delay, ...args) => {
+    if (delay === 1500) { timers.push(callback); return originalSetInterval(() => {}, 60_000); }
+    return originalSetInterval(callback, delay, ...args);
+  });
+  const first = deferredRoleResponse();
+  const saved = { model: 'saved-model', reasoning: 'saved-reasoning' };
+  const catalog = { providers: [catalogProvider()], roleRouting: { development: 'codex' }, roleDefaults: { development: { codex: saved } } };
+  const available = { providerId: 'codex', models: [{ id: 'saved-model', name: 'Saved Model', isDefault: false, hidden: false, reasoningOptions: [{ id: 'saved-reasoning', name: 'Saved Reasoning' }], defaultReasoning: 'saved-reasoning' }], defaultModel: 'saved-model', reasoningOptions: [] };
+  let queries = 0, writes = 0;
+  await mount([], undefined, {}, catalog, async () => {
+    queries++;
+    return queries === 1 ? first.promise : structuredClone(available);
+  }, async () => { writes++; throw new Error('retry must not save defaults'); });
+  assert.equal(queries, 1);
+  // 首次请求仍在进行时，即使目录轮询也不能为同一个 key 启动并发请求。
+  await act(async () => timers[0]());
+  assert.equal(queries, 1);
+  await act(async () => first.reject(new Error('catalog unavailable')));
+  await flushConfigurationCatalog();
+  assert.match(document.querySelector('.agent-role-routing').textContent, /目录不可用，已保留设置/);
+  assert.deepEqual(catalog.roleDefaults.development.codex, saved);
+  assert.equal(writes, 0);
+
+  // 下一次目录轮询重试同一 key；成功后 Select 恢复，后续轮询命中成功缓存。
+  await act(async () => timers[0]());
+  await flushConfigurationCatalog();
+  const model = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发默认模型');
+  const reasoning = [...document.querySelectorAll('[role="combobox"]')].find(node => node.getAttribute('aria-label') === '开发推理强度');
+  assert.equal(queries, 2);
+  assert.equal(model.disabled, false);
+  assert.equal(reasoning.disabled, false);
+  assert.match(model.textContent, /Saved Model/);
+  assert.match(reasoning.textContent, /Saved Reasoning/);
+  assert.deepEqual(catalog.roleDefaults.development.codex, saved);
+  assert.equal(writes, 0);
+  await act(async () => timers[0]());
+  await flushConfigurationCatalog();
+  assert.equal(queries, 2);
+});
+
+test('long role configuration menus use one scroll viewport and hide inactive state options', async () => {
+  const catalog = {
+    providers: [catalogProvider({ id: 'codebuddy', displayName: 'CodeBuddy' })],
+    roleRouting: { review: 'codebuddy' },
+    roleDefaults: {},
+  };
+  const models = Array.from({ length: 16 }, (_, index) => ({
+    id: `model-${index + 1}`,
+    name: `Model ${index + 1}`,
+    isDefault: index === 0,
+    hidden: false,
+    reasoningOptions: [{ id: 'high', name: 'High' }],
+    defaultReasoning: 'high',
+  }));
+  await mount([], undefined, {}, catalog, async providerId => ({
+    providerId,
+    models,
+    currentModel: 'model-1',
+    defaultModel: 'model-1',
+    reasoningOptions: [],
+    currentReasoning: 'high',
+    defaultReasoning: 'high',
+  }));
+  await flushConfigurationCatalog();
+  const trigger = [...document.querySelectorAll('[role="combobox"]')]
+    .find(node => node.getAttribute('aria-label') === '评审默认模型');
+  assert.ok(trigger);
+  await act(async () => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  const labels = [...document.querySelectorAll('[role="option"]')].map(node => node.textContent);
+  assert.ok(labels.includes('跟随 Provider 默认'));
+  assert.ok(labels.includes('Model 16'));
+  for (const inactive of ['请先指定 Agent', '需要工作区', '正在加载…', '目录不可用']) {
+    assert.equal(labels.includes(inactive), false, inactive);
+  }
+  const viewport = document.querySelector('[data-slot="select-viewport"]');
+  const content = document.querySelector('[data-slot="select-content"]');
+  assert.ok(viewport);
+  assert.ok(content);
+  assert.match(viewport.className, /max-h-72/);
+  assert.match(viewport.className, /overflow-y-auto/);
+  assert.match(viewport.className, /overscroll-contain/);
+  assert.match(content.className, /overflow-hidden/);
+  assert.doesNotMatch(content.className, /overflow-y-auto/);
+});
+
+test('role configuration CSS keeps narrow controls in the right column', () => {
+  const css = readFileSync('src/styles.css', 'utf8');
+  assert.match(css, /\.agent-role-row\s*\{[^}]*grid-template-columns:\s*minmax\(56px,\s*\.55fr\)\s+repeat\(3,\s*minmax\(150px,\s*1fr\)\)/);
+  assert.match(css, /\.agent-role-row\s*>\s*\[role="status"\]:not\(\.agent-role-saving-status\)\s*\{[^}]*grid-column:\s*2\s*\/\s*-1/);
+  const narrowStart = css.indexOf('@media (max-width: 980px)');
+  const narrowEnd = css.indexOf('.agent-providers h2', narrowStart);
+  assert.notEqual(narrowStart, -1);
+  assert.notEqual(narrowEnd, -1);
+  const narrow = css.slice(narrowStart, narrowEnd);
+  assert.match(narrow, /\.agent-role-row\s*\{[^}]*grid-template-columns:\s*minmax\(56px,\s*\.55fr\)\s+minmax\(150px,\s*1fr\)/);
+  assert.match(narrow, /\.agent-role-row\s*>\s*label\s*\{[^}]*grid-column:\s*1/);
+  assert.match(narrow, /\.agent-role-row\s*>\s*button,\s*\.agent-role-row\s*>\s*\[role="status"\]:not\(\.agent-role-saving-status\)\s*\{[^}]*grid-column:\s*2/);
+  // 所有视口中的可见状态行都明确排除 transient pending，窄屏也不覆盖其脱流样式。
+  assert.doesNotMatch(css, /\.agent-role-row\s*>\s*\[role="status"\](?!:not\(\.agent-role-saving-status\))/);
+  assert.doesNotMatch(narrow, /\.agent-role-saving-status[^}]*position\s*:\s*(?:static|relative)/);
+});
+
+test('role editor clears persisted binding with explicit null and restores persisted catalog on remount', async () => {
+  const catalog = { providers: [catalogProvider()], roleRouting: roleSettings({ development: 'codex', testing: 'codex', review: 'codex', analysis: 'codex', general: 'codex' }).roleRouting };
+  const calls = [];
+  api.agentProviderSetRoleRoute = async (role, value) => {
+    calls.push([role, value]); catalog.roleRouting[role] = value;
+    return roleSettings(catalog.roleRouting);
+  };
+  await mount([], undefined, {}, catalog);
+  for (const role of Object.keys(catalog.roleRouting)) assert.equal(document.querySelector(`#agent-role-${role}`).textContent, 'Codex');
+  await chooseRole('general', '未指定 Agent');
+  assert.deepEqual(calls, [['general', null]]);
+  assert.equal(document.querySelector('#agent-role-general').textContent, '未指定 Agent');
+  await act(async () => root.unmount()); root = null;
+  await mount([], undefined, {}, catalog);
+  assert.equal(document.querySelector('#agent-role-general').textContent, '未指定 Agent');
+  assert.equal(document.querySelector('#agent-role-testing').textContent, 'Codex');
+  assert.equal(calls.length, 1);
+});
+
+test('role editor preserves disabled and unknown bindings without mutation and permits explicit replacement', async () => {
+  const catalog = { providers: [catalogProvider({ id: 'none', displayName: 'Future Agent', enabled: false })], roleRouting: { development: 'none', testing: '__none__', review: 'historical' } };
+  const calls = [];
+  api.agentProviderSetRoleRoute = async (role, value) => {
+    calls.push([role, value]);
+    catalog.roleRouting[role] = value;
+    return roleSettings(catalog.roleRouting);
+  };
+  await mount([], undefined, {}, catalog);
+  assert.equal(document.querySelector('#agent-role-development').textContent, 'Future Agent · 已停用');
+  assert.equal(document.querySelector('#agent-role-testing').textContent, '__none__ · 未注册');
+  assert.equal(document.querySelector('#agent-role-review').textContent, 'historical · 未注册');
+  assert.deepEqual(calls, []);
+  await chooseRole('testing', '未指定 Agent');
+  await chooseRole('review', 'Future Agent · 已停用');
+  assert.deepEqual(calls, [['testing', null], ['review', 'none']]);
+  assert.equal(document.querySelector('#agent-role-review').textContent, 'Future Agent · 已停用');
+  assert.equal(document.querySelector('#agent-role-development').textContent, 'Future Agent · 已停用');
+});
+test('role save failure rolls back only its role while another role saves', async () => {
+  const development = deferredRoleResponse(), testing = deferredRoleResponse();
+  const calls = [];
+  const catalog = { providers: [catalogProvider(), catalogProvider({ id: 'other', displayName: 'Other' })], roleRouting: { development: 'codex' } };
+  api.agentProviderSetRoleRoute = (role, value) => { calls.push([role, value]); return role === 'development' ? development.promise : testing.promise; };
+  await mount([], undefined, {}, catalog);
+  await chooseRole('development', 'Other');
+  assert.equal(document.querySelector('#agent-role-development').disabled, true);
+  await chooseRole('testing', 'Other');
+  assertManagementSurface();
+  await act(async () => development.reject(new Error('persist failed')));
+  assert.equal(document.querySelector('#agent-role-development').textContent, 'Codex');
+  assert.equal(document.querySelector('#agent-role-testing').textContent, 'Other');
+  assert.equal(document.querySelector('#agent-role-testing').disabled, true);
+  assert.match(notifications.at(-1)[1], /开发角色保存失败/);
+  catalog.roleRouting.testing = 'other';
+  await act(async () => testing.resolve(roleSettings({ testing: 'other', development: 'other' })));
+  assert.equal(document.querySelector('#agent-role-development').textContent, 'Codex');
+  assert.equal(document.querySelector('#agent-role-testing').textContent, 'Other');
+  assert.equal(calls.length, 2);
+});
+
+test('concurrent role responses arrive out of order without overwriting each other or cleared committed value', async () => {
+  const development = deferredRoleResponse(), testing = deferredRoleResponse();
+  api.agentProviderSetRoleRoute = role => role === 'development' ? development.promise : testing.promise;
+  await mount([], undefined, {}, { providers: [catalogProvider()], roleRouting: { development: 'codex' } });
+  await chooseRole('development', '未指定 Agent');
+  await chooseRole('testing', 'Codex');
+  await act(async () => testing.resolve(roleSettings({ development: 'codex', testing: 'codex' })));
+  await act(async () => development.resolve(roleSettings()));
+  assert.equal(document.querySelector('#agent-role-development').textContent, '未指定 Agent');
+  assert.equal(document.querySelector('#agent-role-testing').textContent, 'Codex');
+  api.agentProviderSetRoleRoute = async () => { throw new Error('persist failed'); };
+  await chooseRole('development', 'Codex');
+  assert.equal(document.querySelector('#agent-role-development').textContent, '未指定 Agent');
+  assert.equal(document.querySelector('#agent-role-testing').textContent, 'Codex');
+});
+
+test('catalog polls cannot overwrite in-flight or newly committed role but a later fresh poll updates policy', async t => {
+  const timers = [];
+  const originalSetInterval = globalThis.setInterval;
+  // 只控制业务轮询；JSDOM 的 requestAnimationFrame 也依赖 interval，必须保留其真实时钟。
+  t.mock.method(globalThis, 'setInterval', (callback, delay, ...args) => {
+    if (delay === 1500) { timers.push(callback); return originalSetInterval(() => {}, 60_000); }
+    return originalSetInterval(callback, delay, ...args);
+  });
+  const mutation = deferredRoleResponse(), before = deferredRoleResponse(), during = deferredRoleResponse();
+  const initial = { providers: [catalogProvider(), catalogProvider({ id: 'other', displayName: 'Other' })], roleRouting: { development: 'codex' } };
+  let polls = 0;
+  api.agentProviderSetRoleRoute = () => mutation.promise;
+  await mount([], undefined, {}, () => {
+    polls++;
+    if (polls === 2) return before.promise;
+    if (polls === 3) return during.promise;
+    return Promise.resolve(initial);
+  });
+  await act(async () => timers[0]());
+  await chooseRole('development', 'Other');
+  await act(async () => before.resolve(initial));
+  assert.equal(document.querySelector('#agent-role-development').textContent, 'Other');
+  assert.equal(document.querySelector('#agent-role-development').disabled, true);
+  await act(async () => timers[0]());
+  await act(async () => mutation.resolve(roleSettings({ development: 'other' })));
+  await act(async () => during.resolve(initial));
+  assert.equal(document.querySelector('#agent-role-development').textContent, 'Other');
+  assert.equal(document.querySelector('#agent-role-development').disabled, false);
+  // 保存结束后才开始的新快照仍是 current policy，可反映另一次本地策略更新。
+  initial.roleRouting.development = null;
+  await act(async () => timers[0]());
+  assert.equal(document.querySelector('#agent-role-development').textContent, '未指定 Agent');
+  assert.equal(polls, 4);
+});
+// 通过真实轮询等待共享任务快照刷新。
+async function refreshTasks() { await act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)); }); }
+
+/** 从工作区导航进入详情，不借用已移除的主区任务卡。 */
+async function openTask() {
+  const link = document.querySelector('.project-task-link');
+  assert.ok(link);
+  await act(async () => link.click());
+}
+
+/** 管理主区只保留管理能力，任何隐藏的 Composer 也不允许残留。 */
+function assertManagementSurface() {
+  for (const selector of ['#agent-prompt', '.agent-composer-section', '.agent-history', '.agent-filter-toolbar', '.agent-task-card', '.agent-load-more', '[aria-label="刷新任务列表"]', '[aria-label="筛选任务"]', '[aria-label="筛选工作区"]']) assert.equal(document.querySelector(selector), null, selector);
+  assert.equal(button('开始新任务'), undefined);
+  assert.ok(document.querySelector('.agent-providers'));
+  assert.ok(document.querySelector('.agent-role-routing'));
+  assert.ok(document.querySelector('.agent-workspace-bar'));
+}
+async function input(value, selector = '#agent-continuation') {
   await act(async () => {
     const field = document.querySelector(selector);
     Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set.call(field, value);
@@ -80,14 +740,57 @@ async function input(value, selector = '#agent-prompt') {
 }
 afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; agentRequests.pending = null; agentRequests.inFlight = false; notifications.length = 0; window.localStorage.clear(); document.getElementById("task-nav-test")?.remove(); });
 
+test('management polling retains Provider facts on failure and recovers without a history section', async t => {
+  const timers = [];
+  const originalSetInterval = globalThis.setInterval;
+  // 控制业务轮询，保留 JSDOM 布局相关时钟。
+  t.mock.method(globalThis, 'setInterval', (callback, delay, ...args) => {
+    if (delay === 1500) { timers.push(callback); return originalSetInterval(() => {}, 60_000); }
+    return originalSetInterval(callback, delay, ...args);
+  });
+  const pending = row({ status: 'dispatch_pending', attention: 'pending_explicit_resume', availableActions: { canCancel: true, canResumePending: true, canContinue: false } });
+  await mount([pending], undefined, { sidebarContainer: null }, { providers: [catalogProvider({ enabled: false })], roleRouting: {} });
+  const card = document.querySelector('.agent-provider-card');
+  assert.equal(cardValues(card).活动任务, '1');
+  const history = api.agentHistory;
+  api.agentHistory = async () => { throw new Error('history unavailable'); };
+  await act(async () => timers[1]());
+  assertManagementSurface();
+  assert.match(document.querySelector('.agent-providers [role="alert"]').textContent, /history unavailable.*自动重试/);
+  assert.equal(cardValues(card).活动任务, '1');
+  assert.equal(button('取消任务', card).disabled, true);
+  assert.equal(button('查看任务', card).disabled, false);
+  api.agentHistory = history;
+  await act(async () => timers[1]());
+  assert.equal(document.querySelector('.agent-providers [role="alert"]'), null);
+  assert.equal(button('取消任务', card).disabled, false);
+  pending.status = 'cancelled'; pending.attention = 'none';
+  pending.availableActions = { canCancel: false, canResumePending: false, canContinue: false };
+  await act(async () => timers[1]());
+  assert.equal(cardValues(card).活动任务, '0');
+  assert.equal(button('查看任务', card), undefined);
+});
+
+test('pending cancel locks duplicate mutations until its request completes', async () => {
+  const mutation = deferredRoleResponse();
+  const pending = row({ attention: 'pending_explicit_resume', availableActions: { canCancel: true, canResumePending: true, canContinue: false } });
+  const calls = await mount([pending], request => request.action === 'cancel' ? mutation.promise : undefined, {}, { providers: [catalogProvider({ enabled: false })], roleRouting: {} });
+  const card = document.querySelector('.agent-provider-card');
+  await click('取消任务', card);
+  assert.equal(button('取消任务', card).disabled, true);
+  await act(async () => button('取消任务', card).click());
+  assert.equal(calls.filter(request => request.action === 'cancel').length, 1);
+  await act(async () => mutation.resolve({ ok: true, data: pending }));
+  assert.equal(button('取消任务', card).disabled, false);
+});
+
 test('unknown has only details, no retry or recovery; IDs and JSON stay out of list', async () => {
   await mount([row()]);
-  assert.match(document.body.textContent, /需要人工处理/);
-  assert.deepEqual([...document.querySelectorAll('article button')].map(b => b.textContent), ['详情', '删除']);
+  assertManagementSurface();
   assert.equal(button('重试原请求'), undefined);
   assert.equal(document.querySelector('pre'), null);
-  assert.ok(!document.querySelector('article').textContent.includes('old-E1'));
-  await click('详情');
+  assert.ok(!document.querySelector('.project-task-link').textContent.includes('old-E1'));
+  await openTask();
   assert.equal(document.querySelector('details.agent-technical').open, false);
   assert.match(document.querySelector('pre').textContent, /old-E1/);
   assert.equal(document.querySelector('literal'), null);
@@ -100,7 +803,7 @@ test('manual resolution stays in task details, requires confirmation, and uses L
     localCalls.push(args);
     return row({ status: 'interrupted', attention: 'none', dispatchState: 'not_dispatched', completedAt: 3000 });
   };
-  await click('详情');
+  await openTask();
   await click('人工结束并释放工作区');
   const dialog = document.querySelector('[role="dialog"]');
   assert.match(dialog.textContent, /系统无法自动证明上一次 Runtime 的最终状态/);
@@ -113,108 +816,22 @@ test('manual resolution stays in task details, requires confirmation, and uses L
 
 test('pending resume uses exact ID and only backend capability', async () => {
   const calls = await mount([row({ status: 'dispatch_pending', attention: 'pending_explicit_resume', availableActions: { canCancel: true, canContinue: false, canResumePending: true } })]);
-  assert.match(document.body.textContent, /等待恢复/);
+  await openTask();
+  assert.match(document.querySelector('.agent-detail').textContent, /等待恢复/);
   await click('恢复任务'); await click('取消任务');
   assert.deepEqual(calls.filter(c => ['cancel','resume_pending'].includes(c.action)), [{ action:'resume_pending', executionId:'old-E1' }, { action:'cancel', executionId:'old-E1' }]);
 });
 
-test('all raw statuses remain presentation-only, no invented capability', async () => {
-  const statuses = ['dispatch_pending','running','cancel_requested','cancelling','finalizing','reconciling','completed','failed','cancelled','interrupted','unknown'];
-  await mount(statuses.map((status, i) => row({ status, attention: 'none', executionId: `E${i}` })));
-  await click('展开更多（5条）');
-  await click('展开更多（5条）');
-  assert.equal(document.querySelectorAll('article').length, 11);
-  assert.equal(document.querySelectorAll('article button').length, 22);
-  assert.match(document.body.textContent, /等待执行/); assert.match(document.body.textContent, /正在恢复执行状态/); assert.match(document.body.textContent, /需要处理/);
-});
 
-test('Agent list uses the local-runner card layout and filters only real status fields', async () => {
-  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
-  await mount([
-    row({ executionId: 'run', status: 'running', attention: 'none' }),
-    row({ executionId: 'done', status: 'completed', attention: 'none', completedAt: 2000 }),
-    row({ executionId: 'failed', status: 'failed', attention: 'none', errorCode: 'AGENT_TIMEOUT', errorMessage: '实际后端超时' }),
-    row({ executionId: 'unknown', status: 'unknown', attention: 'none' }),
-    row({ executionId: 'cancelled', status: 'cancelled', attention: 'none' }),
-    row({ executionId: 'interrupted', status: 'interrupted', attention: 'none' }),
-  ]);
-  await click('展开更多（5条）');
-  assert.match(document.querySelector('.agent-list-page-heading').textContent, /Agent 任务.*Codex Local Runner.*在当前工作区中创建、查看和管理本地 Agent 执行任务/);
-  assert.match(document.querySelector('.agent-workspace-bar').textContent, /当前工作区:.*A.*E:\\A/);
-  const composer = document.querySelector('.agent-composer-card');
-  assert.ok(composer.querySelector('#agent-prompt'));
-  assert.equal(composer.querySelector('.agent-composer-footer').parentElement, composer);
-  assert.ok(document.querySelector('.agent-filter-toolbar'));
-  const refresh = document.querySelector('button[aria-label="刷新任务列表"]');
-  assert.ok(refresh); assert.equal(refresh.textContent, '');
-  assert.equal(document.querySelectorAll('.agent-task-card').length, 6);
-  assert.ok(document.querySelector('.agent-task-card .agent-task-title'));
-  assert.ok(button('详情')); assert.ok(button('删除'));
-  const styles = readFileSync('src/styles.css', 'utf8');
-  assert.match(styles, /\.agent-task-actions \.agent-delete-action \{ color: var\(--signal-red\); \}/);
-  assert.doesNotMatch(styles, /\.agent-task-actions \.agent-delete-action \{ color: #94a3b8; \}/);
-  const selectStatus = async label => {
-    await act(async () => document.querySelector('[aria-label="筛选任务"]').dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
-    const option = [...document.querySelectorAll('[role="option"]')].find(node => node.textContent === label);
-    assert.ok(option, label);
-    await act(async () => option.click());
-  };
-  await selectStatus('失败');
-  assert.equal(document.querySelectorAll('.agent-task-card').length, 2);
-  assert.match(document.querySelector('.agent-task-error').textContent, /AGENT_TIMEOUT.*实际后端超时/);
-  assert.doesNotMatch(document.body.textContent, /CODEX_RPC_TIMEOUT/);
-  await selectStatus('已取消');
-  assert.equal(document.querySelectorAll('.agent-task-card').length, 2);
-  assert.match(document.body.textContent, /已取消.*已中断/);
-});
 
-test('refresh button keeps its element and reports the real pending state', async () => {
-  await mount([row()]);
-  const pending = Promise.withResolvers();
-  api.agentHistory = () => pending.promise;
-  const refresh = document.querySelector('button[aria-label="刷新任务列表"]');
-  const icon = refresh.querySelector('.agent-refresh-icon');
-  assert.equal(refresh.getAttribute('aria-busy'), 'false');
-  assert.equal(refresh.dataset.state, 'idle');
-  await act(async () => refresh.click());
-  assert.equal(document.querySelector('button[aria-label="刷新任务列表"]'), refresh);
-  assert.equal(refresh.querySelector('.agent-refresh-icon'), icon);
-  assert.equal(refresh.getAttribute('aria-busy'), 'true');
-  assert.equal(refresh.dataset.state, 'loading');
-  assert.equal(refresh.disabled, true);
-  await act(async () => pending.resolve({ executions: [row()], nextCursor: null }));
-  assert.equal(document.querySelector('button[aria-label="刷新任务列表"]'), refresh);
-  assert.equal(refresh.getAttribute('aria-busy'), 'false');
-  assert.equal(refresh.dataset.state, 'idle');
-});
 
-test('load-more button keeps stable idle, loading, and retry icon states', async () => {
-  await mount(Array.from({ length: 6 }, (_, index) => row({ executionId: `E${index}` })));
-  const pending = Promise.withResolvers();
-  api.agentHistory = () => pending.promise;
-  const loadMore = button('展开更多（5条）');
-  assert.equal(loadMore.getAttribute('aria-busy'), 'false');
-  assert.equal(loadMore.dataset.state, 'idle');
-  assert.ok(loadMore.querySelector('.agent-load-more-icon-idle'));
-  await act(async () => loadMore.click());
-  assert.equal(document.querySelector('.agent-load-more-button'), loadMore);
-  assert.equal(loadMore.getAttribute('aria-busy'), 'true');
-  assert.equal(loadMore.dataset.state, 'loading');
-  assert.ok(loadMore.querySelector('.agent-load-more-icon-loading'));
-  await act(async () => pending.reject(new Error('page unavailable')));
-  const retry = button('重试加载更多');
-  assert.equal(retry, loadMore);
-  assert.equal(retry.getAttribute('aria-busy'), 'false');
-  assert.equal(retry.dataset.state, 'retry');
-  assert.ok(retry.querySelector('.agent-load-more-icon-retry'));
-});
 
 test('completed final answer is compact; detail pane exposes original prompt and technical output', async () => {
   await mount([row({ status: 'completed', attention: 'none', finalResult: { finalResult: [{ type:'agentMessage', phase:'commentary', text:'internal progress' }, { type:'agentMessage', phase:'final_answer', text:'DONE' }], huge: 'x'.repeat(10000) } })]);
-  assert.ok(!document.querySelector('article').textContent.includes('DONE'));
-  assert.ok(!document.querySelector('article').textContent.includes('internal progress'));
+  assert.ok(!document.querySelector('.project-task-link').textContent.includes('DONE'));
+  assert.ok(!document.querySelector('.project-task-link').textContent.includes('internal progress'));
   assert.equal(document.querySelector('pre'), null);
-  await click('详情');
+  await openTask();
   assert.match(document.querySelector('[aria-label="任务详情"]').textContent, /E:\\frozen-A/);
   assert.equal(document.querySelector('.agent-prose').textContent, '原始任务 <literal>');
   assert.ok(document.querySelector('.agent-technical pre').textContent.length > 10000);
@@ -227,7 +844,7 @@ test('all detail copy buttons transition only after clipboard success and recove
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: text => new Promise((resolve, reject) => writes.push({ text, resolve, reject })) } });
   try {
     await mount([execution]);
-    await click('详情');
+    await openTask();
     const cases = [
       [document.querySelector('.agent-task-content .agent-copy-text'), execution.prompt],
       [document.querySelector('.agent-result-section .agent-copy-text'), '真实结果'],
@@ -262,8 +879,8 @@ test('all detail copy buttons transition only after clipboard success and recove
 test('details explicitly fetch result, keep it for the same revision, and replace it for a new revision', async () => {
   const execution = row({ status:'completed', attention:'none', revision:'R1', resultAvailable:true, finalResult:{ finalResult:[{type:'agentMessage',phase:'final_answer',text:'RESULT ONE'}] } });
   const calls = await mount([execution]);
-  assert.ok(!document.querySelector('article').textContent.includes('RESULT ONE'));
-  await click('详情');
+  assert.ok(!document.querySelector('.project-task-link').textContent.includes('RESULT ONE'));
+  await openTask();
   assert.deepEqual(calls.find(c => c.action === 'observe'), {action:'observe',executionId:'old-E1',waitMs:0,includeResult:true});
   assert.match(document.querySelector('.agent-result').textContent, /RESULT ONE/);
   execution.updatedAt++;
@@ -284,7 +901,7 @@ test('a new revision never retains stale result when fetching its body fails', a
   const calls = await mount([execution], request => {
     if (request.action === 'observe' && fail) throw new Error('result read failed');
   });
-  await click('详情');
+  await openTask();
   execution.revision = 'R2'; fail = true;
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 1600)); });
   assert.ok(!document.querySelector('[aria-label="任务详情"]').textContent.includes('OLD RESULT'));
@@ -296,50 +913,38 @@ test('a new revision never retains stale result when fetching its body fails', a
 
 test('delete hides only the local list entry across refresh and remount', async () => {
   const calls = await mount([row()]);
-  await click('删除');
-  assert.equal(document.querySelectorAll('article').length, 0);
-  assert.match(document.body.textContent, /暂无 Agent 任务/);
+  await act(async () => document.querySelector('.project-task-delete').click());
+  assert.equal(document.querySelectorAll('.project-task').length, 0);
+  assertManagementSurface();
   await refreshTasks();
-  assert.equal(document.querySelectorAll('article').length, 0);
+  assert.equal(document.querySelectorAll('.project-task').length, 0);
   assert.ok(calls.every(request => request.action === 'list'));
   await act(async () => root.unmount()); root = null;
   await mount([row()]);
-  assert.equal(document.querySelectorAll('article').length, 0);
+  assert.equal(document.querySelectorAll('.project-task').length, 0);
 });
 
 test('continue uses independent detail pane input and original source across Workspace switch', async () => {
   const calls = await mount([row({ status:'completed', attention:'none', availableActions:{canCancel:false,canResumePending:false,canContinue:true} })]);
-  await input('top-level new task');
+  await openTask();
   await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('B') }))));
-  await click('详情');
   assert.equal(button('继续任务').disabled, true);
   await input('continuation only', '#agent-continuation');
   await click('继续任务');
   const request = calls.find(c => c.action === 'continue');
   assert.equal(request.prompt, 'continuation only'); assert.equal(request.executionId, 'old-E1');
   assert.equal('workspaceId' in request, false); assert.equal('canonicalWorkspaceRoot' in request, false);
-  assert.equal(document.querySelector('#agent-prompt').value, 'top-level new task');
+  assert.equal(document.querySelector('#agent-prompt'), null);
 });
 
-test('only transport ambiguity offers exact retry, stable through input edits and remount', async () => {
-  const calls = await mount([], request => { if (request.action === 'start') throw new Error('transport lost'); });
-  await input('original prompt'); await click('开始新任务');
-  assert.ok(button('重试原请求')); const frozen = agentRequests.pending;
-  assert.equal(frozen.workspaceId, 'A');
-  await act(async () => root.unmount()); root = createRoot(document.getElementById('root'));
-  await act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { workspace: workspace('B') }))));
-  await input('edited prompt'); await click('重试原请求');
-  assert.deepEqual(calls.filter(c => c.action === 'start'), [frozen, frozen]);
-  assert.equal(frozen.prompt, 'original prompt');
-});
 
 test('confirmed product errors do not expose transport retry and preserve execution reference', async () => {
   const completed = row({ status:'completed', attention:'none', errorCode:'HISTORICAL_ERROR', errorMessage:'先前的诊断' });
-  await mount([], r => {
-    if (r.action === 'start') return { ok:false, error:{code:'AGENT_OPERATION_FAILED',message:'failure',executionId:'old-E1'} };
+  await mount([row({ attention: 'pending_explicit_resume', availableActions: { canCancel: true, canContinue: false, canResumePending: false } })], r => {
+    if (r.action === 'cancel') return { ok:false, error:{code:'AGENT_OPERATION_FAILED',message:'failure',executionId:'old-E1'} };
     if (r.action === 'observe') return { ok:true, data:completed };
-  });
-  await input('task'); await click('开始新任务');
+  }, {}, { providers: [catalogProvider({ enabled: false })], roleRouting: {} });
+  await click('取消任务', document.querySelector('.agent-provider-card'));
   assert.equal(button('重试原请求'), undefined); assert.equal(agentRequests.pending, null);
   assert.ok(button('查看相关任务')); assert.match(document.body.textContent, /操作未完成/);
   await click('查看相关任务');
@@ -350,39 +955,28 @@ test('confirmed product errors do not expose transport retry and preserve execut
 
 test('confirmed product error opens a failed execution with its own diagnostic only', async () => {
   const failed = row({ status:'failed', attention:'none', errorCode:'AGENT_FAILED', errorMessage:'执行失败原因' });
-  await mount([], r => {
-    if (r.action === 'start') return { ok:false, error:{code:'AGENT_OPERATION_FAILED',message:'failure',executionId:'old-E1'} };
+  await mount([row({ attention: 'pending_explicit_resume', availableActions: { canCancel: true, canContinue: false, canResumePending: false } })], r => {
+    if (r.action === 'cancel') return { ok:false, error:{code:'AGENT_OPERATION_FAILED',message:'failure',executionId:'old-E1'} };
     if (r.action === 'observe') return { ok:true, data:failed };
-  });
-  await input('task'); await click('开始新任务');
+  }, {}, { providers: [catalogProvider({ enabled: false })], roleRouting: {} });
+  await click('取消任务', document.querySelector('.agent-provider-card'));
   assert.match(document.querySelector('.agent-notice').textContent, /操作未完成/);
   await click('查看相关任务');
   assert.match(document.querySelector('.agent-recovery-section .agent-real-error').textContent, /AGENT_FAILED.*执行失败原因/);
   assert.doesNotMatch(document.querySelector('.agent-detail').textContent, /操作未完成/);
 });
 
-test('mutation lock prevents duplicate submit while request is outstanding', async () => {
-  let resolve;
-  const calls = await mount([], r => r.action === 'start' ? new Promise(done => { resolve = done; }) : undefined);
-  await input('task'); await click('开始新任务');
-  assert.equal(button('正在处理…').disabled, true);
-  await act(async () => document.querySelector('.agent-composer').dispatchEvent(new dom.window.Event('submit', { bubbles:true, cancelable:true })));
-  assert.equal(calls.filter(c => c.action === 'start').length, 1);
-  await act(async () => resolve({ ok:true, data:row() }));
-  assert.ok(notifications.some(([kind]) => kind === 'success'));
-});
 
-test('empty workspace provides real navigation and disables new task', async () => {
+test('empty workspace provides real navigation without task creation', async () => {
   let navigated = false;
   await mount([], undefined, { workspace:null, onSelectWorkspace:() => { navigated = true; } });
-  assert.match(document.body.textContent, /未选择可用工作区/); assert.match(document.body.textContent, /暂无 Agent 任务/);
-  await input('task'); assert.equal(button('开始新任务').disabled, true);
+  assert.match(document.body.textContent, /未选择可用工作区/); assertManagementSurface();
   await click('选择工作区'); assert.equal(navigated, true);
 });
 
 test('read failures show feedback and do not offer operation replay', async () => {
   await mount([row()], request => request.action === 'observe' ? Promise.reject(new Error('offline')) : undefined);
-  await click('详情'); assert.ok(button('重新加载详情')); assert.equal(button('重试原请求'), undefined);
+  await openTask(); assert.ok(button('重新加载详情')); assert.equal(button('重试原请求'), undefined);
   assert.ok(notifications.some(([kind]) => kind === 'error'));
 });
 
@@ -390,7 +984,7 @@ test('read failures show feedback and do not offer operation replay', async () =
 
 test('continuation ambiguity stays in list feedback and retries its frozen independent input', async () => {
   const calls = await mount([row({status:'completed',attention:'none',availableActions:{canContinue:true,canCancel:false,canResumePending:false}})], request => request.action === 'continue' ? Promise.reject(new Error('transport')) : undefined);
-  await click('详情'); await input('frozen continuation', '#agent-continuation'); await click('继续任务');
+  await openTask(); await input('frozen continuation', '#agent-continuation'); await click('继续任务');
   const detailPane = document.querySelector('[aria-label="任务详情"]');
   assert.equal(button('重试原请求', detailPane), undefined);
   assert.doesNotMatch(detailPane.textContent, /请求结果未确认/);
@@ -423,11 +1017,8 @@ test('execution issue predicates ignore historical diagnostics without an issue 
 test('completed historical diagnostic stays in raw JSON but not list or recovery UI', async () => {
   const completed = row({ status:'completed', attention:'none', completedAt:3000, errorCode:'OLD_ERROR', errorMessage:'历史诊断', finalResult:{ finalResult:[{ type:'agentMessage', phase:'final_answer', text:'任务已完成' }] } });
   await mount([completed]);
-  const card = document.querySelector('.agent-task-card');
-  assert.match(card.querySelector('.agent-status').textContent, /已完成/);
-  assert.equal(card.querySelector('.agent-task-error'), null);
-  assert.match(card.querySelector('.agent-task-summary').textContent, /任务已完成/);
-  await click('详情');
+  assertManagementSurface();
+  await openTask();
   assert.equal(document.querySelector('.agent-recovery-section'), null);
   assert.doesNotMatch(document.querySelector('.agent-detail').textContent, /操作未完成/);
   assert.match(document.querySelector('.agent-result-section').textContent, /任务已完成/);
@@ -438,25 +1029,15 @@ test('completed historical diagnostic stays in raw JSON but not list or recovery
 
 test('failed execution retains its list error and detail diagnostic', async () => {
   await mount([row({ status:'failed', attention:'none', errorCode:'AGENT_TIMEOUT', errorMessage:'后端超时' })]);
-  assert.match(document.querySelector('.agent-task-error').textContent, /AGENT_TIMEOUT.*后端超时/);
-  await click('详情');
+  assertManagementSurface();
+  await openTask();
   assert.match(document.querySelector('.agent-recovery-section .agent-real-error').textContent, /AGENT_TIMEOUT.*后端超时/);
 });
 
-test('late list response cannot overwrite a newly accepted operation', async () => {
-  let finishList; let lists = 0;
-  await mount([], request => {
-    if (request.action === 'list' && ++lists === 2) return new Promise(resolve => {finishList = resolve;});
-    if (request.action === 'start') return {ok:true,data:row({prompt:'newly accepted',executionId:'new'})};
-  });
-  await refreshTasks(); await input('newly accepted'); await click('开始新任务');
-  await act(async () => finishList({ok:true,data:{executions:[]}}));
-  assert.match(document.querySelector('article').textContent, /newly accepted/);
-});
 
 test('task page has no in-page return control', async () => {
   await mount([row()]);
-  await click('详情');
+  await openTask();
   assert.equal(document.querySelector('.agent-page').classList.contains('agent-list-view'), false);
   assert.equal(document.querySelector('.agent-page').classList.contains('agent-detail-view'), true);
   assert.equal(document.querySelector('[aria-label="关闭任务详情"]'), null);
@@ -465,98 +1046,14 @@ test('task page has no in-page return control', async () => {
   assert.equal(document.querySelector('[aria-label="任务详情"]')?.getAttribute('aria-label'), '任务详情');
 });
 
-test('history shows five then appends five, and preserves expanded rows on refresh', async () => {
-  const rows = Array.from({length:11}, (_, n) => row({executionId:`E${n}`,prompt:`Task ${n}`,createdAt:new Date(2026,8,9,22,14).getTime(),completedAt:new Date(2026,8,9,22,16,18).getTime(),canonicalWorkspaceRoot:'E:\\A'}));
-  await mount(rows);
-  assert.equal(document.querySelectorAll('article').length, 5);
-  assert.match(document.querySelector('.agent-meta').textContent, /A·2026-09-09 22:14·耗时 2分18秒/);
-  await click('展开更多（5条）');
-  assert.equal(document.querySelectorAll('article').length, 10);
-  await refreshTasks();
-  assert.equal(document.querySelectorAll('article').length, 10);
-  await click('展开更多（5条）');
-  assert.equal(document.querySelectorAll('article').length, 11);
-  assert.equal(button('展开更多（5条）'), undefined);
-});
 
-test('history failure preserves exact cursor while running state polling continues', async () => {
-  const originalSetInterval = globalThis.setInterval;
-  let poll;
-  globalThis.setInterval = callback => { poll = callback; return originalSetInterval(() => {}, 60_000); };
-  const pollNow = () => act(async () => { poll(); for (let index = 0; index < 12; index++) await Promise.resolve(); });
-  try {
-  const history = Array.from({length:12},(_,n)=>row({executionId:'E'+n,status:'running',attention:'none'}));
-  await mount(history, request => {
-    if (request.action === 'start') {
-      const created = row({executionId:'new',createdAt:3000,status:'running',attention:'none'});
-      history.unshift(created);
-      return {ok:true,data:created};
-    }
-  });
-  await click('展开更多（5条）');
-  const original = api.agentHistory;
-  const cursors = [];
-  api.agentHistory = async (cursor, root) => {
-    cursors.push(cursor);
-    if (cursor === 'E9') throw new Error('page failed');
-    return original(cursor,root);
-  };
-  await click('展开更多（5条）');
-  assert.equal(document.querySelectorAll('article').length,10);
-  history[0].status = 'completed';
-  assert.ok(poll);
-  await pollNow();
-  assert.ok(document.querySelector('article').textContent.includes('已完成'));
-  assert.equal(document.querySelectorAll('article').length,10);
-  assert.equal(cursors.filter(c=>c==='E9').length,1);
-  await input('new task while page failed'); await click('开始新任务');
-  assert.equal(document.querySelectorAll('article').length,11);
-  history.find(row=>row.executionId==='E9').status='completed';
-  await pollNow();
-  assert.ok([...document.querySelectorAll('article')].at(-1).textContent.includes('已完成'));
-  api.agentHistory = async (cursor, root) => { cursors.push(cursor); return original(cursor,root); };
-  await click('重试加载更多');
-  assert.equal(cursors.at(-1),'E9');
-  assert.equal(document.querySelectorAll('article').length,13);
-  } finally {
-    globalThis.setInterval = originalSetInterval;
-  }
-});
 
-test('workspace filter resets pagination and only reads that frozen workspace', async () => {
-  await mount(Array.from({length:12},(_,n)=>row({executionId:`E${n}`,canonicalWorkspaceRoot:n < 6 ? 'E:\\A' : 'E:\\B'})), undefined, {workspaces:[workspace('A'),workspace('B')]});
-  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
-  await act(async () => document.querySelector('[aria-label="筛选工作区"]').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true})));
-  const choice = [...document.querySelectorAll('[role="option"]')].find(node=>node.textContent==='B');
-  assert.ok(choice);
-  await act(async () => choice.click());
-  assert.equal(document.querySelectorAll('article').length,5);
-  assert.ok([...document.querySelectorAll('.agent-meta')].every(node=>node.textContent.startsWith('B')));
-  await click('展开更多（5条）');
-  assert.equal(document.querySelectorAll('article').length,6);
-  assert.equal(button('展开更多（5条）'),undefined);
-});
 
-test('mutations preserve expanded history and never mix another workspace after refresh fails', async () => {
-  const history = Array.from({length:26},(_,n)=>row({executionId:`E${n}`,canonicalWorkspaceRoot:'E:\\B',status:'running',attention:'none',availableActions:{canCancel:n===0,canContinue:false,canResumePending:false}}));
-  await mount(history, request => request.action === 'start' ? {ok:true,data:row({executionId:'new-A',canonicalWorkspaceRoot:'E:\\A'})} : request.action === 'cancel' ? {ok:true,data:{...history[0],status:'cancelled'}} : undefined, {workspaces:[workspace('A'),workspace('B')]});
-  dom.window.HTMLElement.prototype.scrollIntoView = () => {};
-  await act(async () => document.querySelector('[aria-label="筛选工作区"]').dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true})));
-  await act(async () => [...document.querySelectorAll('[role="option"]')].find(node=>node.textContent==='B').click());
-  for(let n=0;n<4;n++) await click('展开更多（5条）');
-  assert.equal(document.querySelectorAll('article').length,25);
-  api.agentHistory = async () => { throw new Error('refresh unavailable'); };
-  await click('取消任务');
-  assert.equal(document.querySelectorAll('article').length,25);
-  await input('create in active A'); await click('开始新任务');
-  assert.equal(document.querySelectorAll('article').length,25);
-  assert.ok([...document.querySelectorAll('.agent-meta')].every(node=>node.textContent.startsWith('B')));
-});
 
 test('workspace display name stays consistent between history and details', async () => {
   await mount([row({canonicalWorkspaceRoot:'E:\\named-folder'})],undefined,{workspaces:[{id:'project-4',name:'实际工作区名',root:'E:\\named-folder'}]});
-  assert.match(document.querySelector('.agent-meta').textContent,/实际工作区名/);
-  await click('详情');
+  assert.match(document.querySelector('.project-task-group').textContent,/实际工作区名/);
+  await openTask();
   const location = document.querySelector('.agent-detail-location');
   assert.match(location.textContent,/执行位置.*实际工作区名.*E:\\named-folder/);
   assert.equal(location.querySelector('strong').textContent, '实际工作区名');
@@ -565,7 +1062,7 @@ test('workspace display name stays consistent between history and details', asyn
 
 test('running detail keeps its blue pulse and left-aligned location', async () => {
   await mount([row({canonicalWorkspaceRoot:'E:\\named-folder', status:'running', attention:'none', progress:{phase:'running'}})], undefined, {workspaces:[{id:'project-4',name:'实际工作区名',root:'E:\\named-folder'}]});
-  await click('详情');
+  await openTask();
   for (const selector of ['.agent-detail-title .agent-status', '.agent-detail-live-grid .agent-status']) {
     const status = document.querySelector(selector);
     assert.equal(status.textContent, '执行中');
@@ -597,7 +1094,7 @@ test('Agent detail presents only real execution fields and gates header actions 
   const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copiedText = text; } } });
   try {
-    const calls = await mount([execution]); await click('详情');
+    const calls = await mount([execution]); await openTask();
     const page = document.querySelector('.agent-page');
     assert.ok(page.classList.contains('agent-detail-view')); assert.equal(page.classList.contains('agent-list-view'), false);
     assert.match(document.querySelector('.agent-detail-header').textContent, /真实线程标题.*执行中.*Provider A · v2\.0/);
@@ -623,7 +1120,7 @@ test('Agent detail presents only real execution fields and gates header actions 
 
 test('historical detail safely falls back to Provider ID and unknown usage projection', async () => {
   const historical = row({ provider: { id: 'legacy-provider', displayName: ' ', version: '' }, providerSessionLabel: null });
-  await mount([historical]); await click('详情');
+  await mount([historical]); await openTask();
   const detail = document.querySelector('.agent-detail');
   assert.match(detail.querySelector('.agent-detail-header').textContent, /引擎: legacy-provider/);
   assert.match(detail.querySelector('.agent-detail-info-card').textContent, /当前轮次总 Token.*—/);
@@ -637,7 +1134,7 @@ test('Agent detail copies only a real result and continues with the original exe
   const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { copiedText = text; } } });
   try {
-    const calls = await mount([execution]); await click('详情');
+    const calls = await mount([execution]); await openTask();
     assert.ok(document.querySelector('.agent-detail-info-card .agent-status.tone-green'));
     const resultSection = document.querySelector('.agent-result-section');
     const continuationSection = document.querySelector('.agent-continuation-section');
@@ -656,7 +1153,7 @@ test('Agent detail copies only a real result and continues with the original exe
 
 test('continuation remains an independent section when no result is available', async () => {
   await mount([row({ status: 'running', attention: 'none', resultAvailable: false, finalResult: null, availableActions: { canCancel: false, canContinue: true, canResumePending: false } })]);
-  await click('详情');
+  await openTask();
   assert.equal(document.querySelector('.agent-result-section'), null);
   const continuationSection = document.querySelector('.agent-continuation-section');
   assert.ok(continuationSection);
@@ -665,7 +1162,7 @@ test('continuation remains an independent section when no result is available', 
 
 test('Agent detail duration labels follow active execution semantics rather than completedAt', async () => {
   const failed = row({ status: 'failed', attention: 'none', completedAt: null, progress: { phase: 'terminal', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null } });
-  await mount([failed]); await click('详情');
+  await mount([failed]); await openTask();
   assert.doesNotMatch(document.querySelector('.agent-detail-header').textContent, /已运行/);
   assert.match(document.querySelector('.agent-detail-header').textContent, /耗时/);
   assert.match(document.querySelector('.agent-detail-live-grid').textContent, /总耗时/);
@@ -673,24 +1170,19 @@ test('Agent detail duration labels follow active execution semantics rather than
   await act(async () => root.unmount()); root = null;
 
   const running = row({ status: 'running', attention: 'none', completedAt: null, progress: { phase: 'running', activityPhase: 'provider', toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null } });
-  await mount([running]); await click('详情');
+  await mount([running]); await openTask();
   assert.match(document.querySelector('.agent-detail-header').textContent, /已运行/);
   assert.match(document.querySelector('.agent-detail-live-grid').textContent, /已运行/);
   assert.doesNotMatch(document.querySelector('.agent-detail-live-grid').textContent, /总耗时/);
 });
 
-test('composer describes workspace execution without a permission selector', async () => {
-  await mount([]);
-  assert.match(document.querySelector('.agent-composer-footer').textContent, /Codex · 当前工作区 \(A\) · Local Runner Active/);
-  assert.doesNotMatch(document.body.textContent, /只读执行/);
-});
 
 test('a failed continuation leaves the current execution detail free of operation feedback', async () => {
   await mount([row({status:'completed',attention:'none',availableActions:{canContinue:true,canCancel:false,canResumePending:false}})], r => {
     if (r.action === 'continue') return {ok:false,error:{code:'AGENT_OPERATION_FAILED',message:'handoff error',executionId:'new-E2'}};
     if (r.action === 'observe' && r.executionId === 'new-E2') return {ok:true,data:row({executionId:'new-E2',prompt:'new related task'})};
   });
-  await click('详情'); await input('next', '#agent-continuation'); await click('继续任务');
+  await openTask(); await input('next', '#agent-continuation'); await click('继续任务');
   assert.ok(document.querySelector('[aria-label="任务详情"]'));
   assert.match(document.querySelector('.agent-detail-body > section .agent-prose').textContent, /原始任务/);
   assert.equal(button('查看相关任务', document.querySelector('.agent-detail')), undefined);
@@ -700,10 +1192,10 @@ test('a failed continuation leaves the current execution detail free of operatio
 test('list refresh cannot compete with an outstanding detail observation', async () => {
   let resolve;
   const calls = await mount([row()], r => r.action === 'observe' ? new Promise(done => {resolve = done;}) : undefined);
-  await click('详情');
+  await openTask();
   // Direct invocation also exercises the handler guard while the native modal blocks interaction.
   await refreshTasks();
-  assert.equal(calls.filter(c => c.action === 'list').length, 1);
+  assert.equal(calls.filter(c => c.action === 'observe').length, 1);
   await act(async () => resolve({ok:true,data:row({prompt:'latest detail'})}));
   assert.match(document.querySelector('[aria-label="任务详情"] .agent-prose').textContent, /latest detail/);
 });
@@ -712,7 +1204,7 @@ test('list refresh cannot compete with an outstanding detail observation', async
 test('status caches pending, successful and failed Codex probes until explicit refresh', async () => {
   const { default: App } = await import('./App.tsx');
   const originals = { getState: api.getState, broker: api.broker, codexVersion: api.codexVersion, detect: api.detect, openExternal: api.openExternal };
-  const snapshot = { config: { agentEnabled:false, broker:{enabled:false,port:9120,allowLan:false},workspaces:[],serenaPath:null,port:9121,dashboardEnabled:false,openDashboardOnLaunch:false,autoStartServer:false,minimizeToTray:false }, git:{available:true,status:'available',version:'test',path:null,error:null}, serverStatus:'stopped', installation:null, activeInstallation:null, managedRuntimePresent:false, managedProcessPresent:false, codegraphVersion:'test', dashboardEnabled:false, autostartEnabled:false, autostartError:null, lastError:null };
+  const snapshot = { config: { agentProviders: providerSettingsFixture(), agentEnabled:false, broker:{enabled:false,port:9120,allowLan:false},workspaces:[],serenaPath:null,port:9121,dashboardEnabled:false,openDashboardOnLaunch:false,autoStartServer:false,minimizeToTray:false }, git:{available:true,status:'available',version:'test',path:null,error:null}, serverStatus:'stopped', installation:null, activeInstallation:null, managedRuntimePresent:false, managedProcessPresent:false, codegraphVersion:'test', dashboardEnabled:false, autostartEnabled:false, autostartError:null, lastError:null };
   let probes = 0; let resolveProbe;
   const links = [];
   api.getState = async () => snapshot;
@@ -760,20 +1252,6 @@ test('sidebar uses official thread name consistently and falls back only for unn
   for (let i = 1; i < links.length; i++) assert.equal(links[i].querySelector('.project-task-title').textContent, `原始提示 ${i - 1}`);
 });
 
-test('recent tasks use the same official thread title as the sidebar with a legacy fallback', async () => {
-  const name = '0911 | 修复 | 统一最近任务标题';
-  const prompt = '这是一段不应作为最近任务主标题展示的完整任务描述';
-  await mount([
-    row({ executionId: 'named', threadName: name, prompt }),
-    row({ executionId: 'legacy', threadName: '   ', prompt: '旧任务提示' }),
-  ]);
-  const titles = document.querySelectorAll('.agent-task-title h3');
-  assert.equal(titles[0].textContent, name);
-  assert.equal(titles[1].textContent, '旧任务提示');
-  assert.ok(!document.querySelector('.agent-history').textContent.includes(prompt));
-  await act(async () => titles[0].focus());
-  assert.equal(document.querySelector('[role="tooltip"]').textContent, name);
-});
 
 test('project navigation groups tasks and opens a non-modal right content pane', async () => {
   const host = navigationHost(); let shown = 0;
@@ -787,7 +1265,7 @@ test('project navigation groups tasks and opens a non-modal right content pane',
   assert.equal(shown,1);
   assert.equal(document.querySelector('[role=dialog]'),null);
   assert.match(document.querySelector('.workspace')?.textContent ?? document.querySelector('.agent-detail').textContent,/项目 B 的任务/);
-  assert.equal(document.querySelector('.agent-history').closest('[hidden]') !== null,true);
+  assert.equal(document.querySelector('.agent-providers').closest('[hidden]') !== null,true);
   assert.equal(groups[1].querySelector('.project-task-link').getAttribute('aria-current'),'page');
   assert.deepEqual(calls.filter(c=>c.action==='observe').at(-1),{action:'observe',executionId:'b1',waitMs:0,includeResult:true});
   await act(async () => groups[0].querySelector('.project-task-link').click());
@@ -849,10 +1327,11 @@ test('task detail view follows host navigation and has no in-page return', async
   assert.equal(host.querySelector('.project-task').dataset.selected, 'true');
   const render = async detailView => act(async () => root.render(createElement(TooltipProvider, null, createElement(AgentPanel, { ...props, detailView }))));
   await render(false);
+  assertManagementSurface();
   assert.equal(host.querySelector('.project-task').dataset.selected, 'false');
   assert.equal(host.querySelector('[aria-current="page"]'), null);
   assert.equal(document.querySelector('.agent-detail'), null);
-  assert.equal(document.querySelector('.agent-history').closest('[hidden]'), null);
+  assert.equal(document.querySelector('.agent-providers').closest('[hidden]'), null);
   await render(true);
   assert.equal(host.querySelector('.project-task').dataset.selected, 'true');
   assert.match(document.querySelector('.agent-detail').textContent, /原始任务/);
@@ -889,7 +1368,7 @@ test('task focus shows basic information; only delete is offered and deletion st
   assert.equal(host.querySelectorAll('.project-task').length,0);
   assert.equal(document.querySelector('.agent-detail'),null);
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
-  assert.equal(document.activeElement, host.querySelector('.project-task-heading'));
+  assert.equal(document.activeElement === host.querySelector('.project-task-heading'), true, 'deletion returns focus to workspace heading');
   assert.deepEqual(JSON.parse(window.localStorage.getItem('agent-hidden-executions')),['old-E1']);
   assert.equal(calls.some(c=>['cancel','resume_pending'].includes(c.action)),false);
 });
@@ -919,7 +1398,23 @@ test('sidebar tasks retain only titles and compact times while hover keeps Summa
   assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：12,531/);
   await act(async () => visible[1].querySelector('.project-task-link').focus());
   assert.match(document.querySelector('.project-task-preview').textContent, /部分统计/);
-  assert.match(document.querySelector('.project-task-preview').textContent, /12,531 · 统计不完整/);
+  assert.match(document.querySelector('.project-task-preview').textContent, /≈12,531/);
+  // 逐项检查 Token 行的装饰图标和原有文本语义，不依赖图标库生成的 class。
+  for (const [index, expected] of [
+    [0, '总 Token：12,531'],
+    [1, '总 Token：≈12,531'],
+    [2, '总 Token：—'],
+    [3, '总 Token：0'],
+    [4, '总 Token：—'],
+  ]) {
+    const title = visible[index].querySelector('.project-task-title').textContent;
+    const preview = await focusTaskPreview(visible[index].querySelector('.project-task-link'), title);
+    const tokenRow = [...preview.querySelectorAll('p')]
+      .find(item => item.textContent.startsWith('总 Token：'));
+    assert.ok(tokenRow, 'hover 浮层保留总 Token 信息行');
+    assert.equal(tokenRow.textContent, expected);
+    assert.ok(tokenRow.querySelector(':scope > svg[aria-hidden="true"]'), 'Token 图标仅作装饰');
+  }
   await act(async () => visible[4].querySelector('.project-task-link').focus());
   assert.match(document.querySelector('.project-task-preview').textContent, /历史任务/);
   assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：—/);
@@ -956,7 +1451,7 @@ test('Phase 5 gate keeps Provider, Activity and Usage truthful across list, hove
   assert.match(document.querySelector('.project-task-preview').textContent, /Acme Worker · v2\.4\.1.*总 Token：0/);
   assert.equal(calls.every(call => call.action === 'list'), true);
 
-  await click('详情');
+  await openTask();
   const detail = document.querySelector('.agent-detail');
   assert.match(detail.querySelector('.agent-detail-info-card').textContent, /Provider.*Acme Worker · v2\.4\.1.*当前活动正在整理结果.*活跃状态一段时间没有新活动.*当前轮次总 Token.*0/);
   assert.doesNotMatch(detail.querySelector('.agent-detail-info-card').textContent, /续接会话 · S-42/);
@@ -966,6 +1461,67 @@ test('Phase 5 gate keeps Provider, Activity and Usage truthful across list, hove
   assert.doesNotMatch(detail.textContent, /PRIVATE_REASONING|stdout|source code/iu);
   assert.equal(calls.filter(call => call.action === 'observe').length, 1);
   assert.equal(calls.filter(call => call.action !== 'observe').every(call => call.action === 'list'), true);
+});
+
+test('Agent detail prefers effective profile, then requested profile, then fixed Provider default text', async () => {
+  const effective = row({ executionProfile: { model: 'requested-model', reasoning: 'medium' }, effectiveExecutionProfile: { model: 'effective-model', reasoning: 'xhigh' } });
+  await mount([effective]); await openTask();
+  const effectiveFields = Object.fromEntries([...document.querySelectorAll('.agent-detail-live-grid > div')].map(item => [item.querySelector('span').textContent, item.querySelector('strong,code').textContent]));
+  assert.equal(effectiveFields['模型'], 'effective-model');
+  assert.equal(effectiveFields['推理强度'], 'xhigh');
+  assert.doesNotMatch(document.querySelector('.agent-detail-live-grid').textContent, /Provider 默认/);
+
+  await act(async () => root.unmount()); root = null;
+  await mount([row({ executionProfile: { model: null, reasoning: null }, effectiveExecutionProfile: { model: 'non-reasoning-model', reasoning: null } })]); await openTask();
+  const partialEffectiveFields = Object.fromEntries([...document.querySelectorAll('.agent-detail-live-grid > div')].map(item => [item.querySelector('span').textContent, item.querySelector('strong,code').textContent]));
+  assert.equal(partialEffectiveFields['模型'], 'non-reasoning-model');
+  assert.equal(partialEffectiveFields['推理强度'], 'Provider 默认');
+
+  await act(async () => root.unmount()); root = null;
+  const changedCurrentDefaults = { providers: [catalogProvider()], roleRouting: { general: 'codex' }, roleDefaults: { general: { codex: { model: 'current-default', reasoning: 'low' } } } };
+  await mount([row({ executionProfile: { model: 'historical-request', reasoning: null } })], undefined, {}, changedCurrentDefaults); await openTask();
+  const requestedFields = Object.fromEntries([...document.querySelectorAll('.agent-detail-live-grid > div')].map(item => [item.querySelector('span').textContent, item.querySelector('strong,code').textContent]));
+  assert.equal(requestedFields['模型'], 'historical-request');
+  assert.equal(requestedFields['推理强度'], 'Provider 默认');
+
+  await act(async () => root.unmount()); root = null;
+  await mount([row()]); await openTask();
+  const defaultFields = Object.fromEntries([...document.querySelectorAll('.agent-detail-live-grid > div')].map(item => [item.querySelector('span').textContent, item.querySelector('strong,code').textContent]));
+  assert.equal(defaultFields['模型'], 'Provider 默认');
+  assert.equal(defaultFields['推理强度'], 'Provider 默认');
+});
+
+test('CB9-002 keeps unsupported CodeBuddy Usage unknown without hiding lifecycle actions', async () => {
+  const host = navigationHost(); const project = workspace('A');
+  const complete = row({ executionId: 'cb9-codex-complete', canonicalWorkspaceRoot: project.root, prompt: 'Codex 完整统计', status: 'completed', attention: 'none', usage: { inputTokens: 8, outputTokens: 5, totalTokens: 13, completeness: 'complete' } });
+  const partial = row({ executionId: 'cb9-codex-partial', canonicalWorkspaceRoot: project.root, prompt: 'Codex 部分统计', usage: { inputTokens: 8, outputTokens: null, totalTokens: 8, completeness: 'partial' } });
+  const codebuddyRunning = row({ executionId: 'cb9-codebuddy-running', canonicalWorkspaceRoot: project.root, prompt: 'CodeBuddy 运行中', status: 'running', attention: 'none', provider: { id: 'codebuddy', displayName: 'CodeBuddy' }, usage: { totalTokens: null, completeness: 'unknown' }, availableActions: { canCancel: true, canContinue: false, canResumePending: false } });
+  const codebuddyTerminal = row({ executionId: 'cb9-codebuddy-terminal', canonicalWorkspaceRoot: project.root, prompt: 'CodeBuddy 已完成', status: 'completed', attention: 'none', provider: { id: 'codebuddy', displayName: 'CodeBuddy' }, usage: { totalTokens: null, completeness: 'unknown' }, availableActions: { canCancel: false, canContinue: true, canResumePending: false } });
+  const codebuddyCatalog = catalogProvider({
+    id: 'codebuddy', displayName: 'CodeBuddy',
+    capabilities: { canExecute: true, canContinue: true, canCancel: true, canRecover: true, activity: true, tokenUsage: false },
+  });
+  await mount([complete, partial, codebuddyRunning, codebuddyTerminal], undefined, { workspaces: [project], sidebarContainer: host }, { providers: [catalogProvider(), codebuddyCatalog], roleRouting: {} });
+
+  const task = title => [...host.querySelectorAll('.project-task')].find(item => item.textContent.includes(title));
+  await act(async () => task('Codex 完整统计').querySelector('.project-task-link').focus());
+  assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：13/);
+  await act(async () => task('Codex 部分统计').querySelector('.project-task-link').focus());
+  assert.match(document.querySelector('.project-task-preview').textContent, /总 Token：≈8/);
+  await act(async () => task('CodeBuddy 运行中').querySelector('.project-task-link').focus());
+  const preview = document.querySelector('.project-task-preview').textContent;
+  assert.match(preview, /CodeBuddy.*总 Token：—/);
+  assert.doesNotMatch(preview, /总 Token：0/);
+  await act(async () => task('CodeBuddy 运行中').querySelector('.project-task-link').click());
+  assert.ok(button('取消任务', document.querySelector('.agent-detail')), 'unknown Usage must not hide the backend-authorized Cancel action');
+
+  await act(async () => task('CodeBuddy 已完成').querySelector('.project-task-link').click());
+  const detail = document.querySelector('.agent-detail');
+  assert.match(detail.querySelector('.agent-detail-info-card').textContent, /Provider.*CodeBuddy.*当前轮次总 Token.*—/);
+  const tokenFact = [...detail.querySelectorAll('.agent-detail-live-grid > div')].find(item => item.querySelector('span')?.textContent === '当前轮次总 Token');
+  assert.equal(tokenFact.querySelector('code').textContent, '—');
+  assert.ok(button('继续任务', detail), 'unknown Usage must not hide the backend-authorized Continue action');
+  assert.deepEqual([...document.querySelectorAll('.agent-provider-card h3')].map(node => node.textContent), ['Codex', 'CodeBuddy']);
 });
 
 test('project pagination and collapse are independent and older selected tasks keep updating', async () => {
@@ -1130,7 +1686,7 @@ test('sidebar load-more keeps pagination retry separate from its background refr
 });
 
 test('technical copy remains available without exposing JSON until technical information is opened', async () => {
-  await mount([row()]); await click('详情');
+  await mount([row()]); await openTask();
   const details = document.querySelector('.agent-technical'); assert.equal(details.open, false);
   const original=Object.getOwnPropertyDescriptor(globalThis,'navigator');
   Object.defineProperty(globalThis,'navigator',{configurable:true,value:{clipboard:{writeText:async()=>{}}}});
@@ -1148,7 +1704,7 @@ test('technical copy remains available without exposing JSON until technical inf
 test('task and final result render GFM while technical data stays original', async () => {
   const markdown = '# 标题\n\n**重点**和 `inline`\n\n- 第一项\n- 第二项\n\n> 引用\n\n| 名称 | 状态 |\n| --- | --- |\n| 构建 | 通过 |\n\n- [x] 已完成\n\n```js\nconst value = 1;\n```\n\n[文档](https://example.com/docs)';
   const value=row({prompt:markdown,status:'completed',finalResult:{finalResult:[{type:'agentMessage',phase:'final_answer',text:markdown}]}});
-  await mount([value]); await click('详情');
+  await mount([value]); await openTask();
   const blocks=document.querySelectorAll('.agent-markdown');assert.equal(blocks.length,2);
   for(const block of blocks) {
     assert.equal(block.querySelector('h1').textContent,'标题');
@@ -1166,7 +1722,7 @@ test('task and final result render GFM while technical data stays original', asy
 
 test('markdown renders HTML literally and rejects executable links', async () => {
   await mount([row({prompt:'<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[危险](javascript:alert%281%29)'})]);
-  await click('详情');
+  await openTask();
   const block=document.querySelector('.agent-markdown');
   assert.equal(block.querySelector('script, img, [onerror], a'),null);
   assert.match(block.textContent,/<script>alert/);
@@ -1199,10 +1755,10 @@ test('sidebar task markers distinguish processing, errors and inactive tasks', a
 });
 
 
-for (const entry of ['sidebar', 'history']) test(`running task deletion requires confirmation from ${entry} without stopping provider`, async () => {
+for (const entry of ['sidebar']) test(`running task deletion requires confirmation from ${entry} without stopping provider`, async () => {
   const project = workspace('A'); const host = navigationHost();
   const calls = await mount([row({ status: 'running', attention: 'none', prompt: '正在执行的任务', canonicalWorkspaceRoot: project.root })], undefined, { workspaces: [project], sidebarContainer: host });
-  const trigger = entry === 'sidebar' ? host.querySelector('.project-task-delete') : document.querySelector('.agent-delete-action');
+  const trigger = host.querySelector('.project-task-delete');
   await act(async () => { trigger.focus(); trigger.click(); });
   assert.ok(document.querySelector('[role="dialog"]'));
   assert.match(document.querySelector('[role="dialog"]').textContent, /不会停止 Agent/);
@@ -1219,15 +1775,181 @@ for (const entry of ['sidebar', 'history']) test(`running task deletion requires
 });
 
 
-test('recent task title tooltip shows a bounded summary instead of the full prompt', async () => {
-  const prompt = '检查任务内容。\n'.repeat(120);
-  await mount([row({ prompt })]);
-  const title = document.querySelector('.agent-task-title h3');
-  await act(async () => title.focus());
-  const tooltip = document.querySelector('[role="tooltip"]');
-  assert.ok(tooltip);
-  assert.equal(tooltip.textContent, title.textContent);
-  assert.ok(Array.from(tooltip.textContent).length <= 101);
-  assert.ok(!tooltip.textContent.includes('\n'));
-  assert.notEqual(tooltip.textContent, prompt);
+
+/** 启停 fixture 返回完整 settings，以检验只采纳目标 Provider。 */
+function enabledSettings(providers, roleRouting = {}) {
+  return { ...roleSettings(roleRouting), providers: Object.fromEntries(Object.entries(providers).map(([id, enabled]) => [id, { enabled }])) };
+}
+
+/** 通过实际 shadcn Switch 触发本地策略保存。 */
+async function toggleProvider(name = 'Codex') {
+  const control = document.querySelector(`[role="switch"][aria-label="启用 ${name}"]`);
+  assert.ok(control);
+  assert.equal(control.disabled, false);
+  await act(async () => control.click());
+}
+
+// 两种 Product 投影都可单独提示 blocker，不从 dispatchState 或身份猜测。
+for (const projection of [
+  { attention: 'pending_explicit_resume', canResumePending: false },
+  { attention: 'none', canResumePending: true },
+]) {
+  test(`disabled pending blocker uses existing view/cancel paths: ${projection.attention}`, async () => {
+    const pending = row({ provider: { id: 'future', displayName: 'Future' }, status: 'dispatch_pending', attention: projection.attention,
+      availableActions: { canCancel: true, canResumePending: projection.canResumePending, canContinue: false } });
+    const actions = await mount([pending, row({ executionId: 'unrelated', attention: 'pending_explicit_resume' })], undefined, {},
+      { providers: [catalogProvider({ id: 'future', displayName: 'Future', enabled: false })], roleRouting: { testing: 'future' } });
+    const card = document.querySelector('.agent-provider-card');
+    assert.match(card.textContent, /该 Provider 有待恢复任务仍占用 Workspace Claim。/);
+    assert.equal(card.querySelectorAll('li').length, 1);
+    assert.equal(document.querySelector('#agent-role-testing').textContent, 'Future · 已停用');
+    assert.doesNotMatch(card.textContent, /Force Unlock|强制解锁/iu);
+    await click('取消任务', card);
+    assert.deepEqual(actions.filter(action => action.action === 'cancel'), [{ action: 'cancel', executionId: 'old-E1' }]);
+    await click('查看任务', card);
+    assert.ok(actions.some(action => action.action === 'observe' && action.executionId === 'old-E1' && action.includeResult));
+    assert.ok(document.querySelector('details.agent-technical'));
+    assert.equal(actions.some(action => action.action === 'resume_pending'), false);
+  });
+}
+
+test('reenable pending Provider uses local IPC without resuming or rebinding', async () => {
+  const calls = [];
+  api.agentProviderSetEnabled = async (id, enabled) => { calls.push([id, enabled]); return enabledSettings({ future: enabled }, { testing: 'other' }); };
+  const actions = await mount([row({ provider: { id: 'future' }, attention: 'pending_explicit_resume' })], undefined, {},
+    { providers: [catalogProvider({ id: 'future', displayName: 'Future', enabled: false })], roleRouting: { testing: 'future' } });
+  await click('重新启用 Provider');
+  assert.deepEqual(calls, [['future', true]]);
+  assert.equal(cardValues(document.querySelector('.agent-provider-card'))['接入'], '已启用');
+  assert.doesNotMatch(document.querySelector('.agent-provider-card').textContent, /仍占用 Workspace Claim/);
+  assert.equal(document.querySelector('#agent-role-testing').textContent, 'Future');
+  assert.ok(actions.every(action => action.action === 'list'));
+  assert.match(readFileSync('src/api.ts', 'utf8'), /invoke<AgentProviderSettings>\("agent_provider_set_enabled", \{ providerId, enabled \}\)/);
+});
+
+test('disable running Provider leaves execution untouched and shows draining and disabled binding', async () => {
+  api.agentProviderSetEnabled = async () => enabledSettings({ codex: false });
+  const execution = row({ status: 'running', attention: 'none' });
+  const frozen = structuredClone(execution);
+  const actions = await mount([execution], undefined, {}, { providers: [catalogProvider()], roleRouting: { development: 'codex' } });
+  await toggleProvider();
+  const values = cardValues(document.querySelector('.agent-provider-card'));
+  assert.equal(values['接入'], '正在停用');
+  assert.equal(values['Runtime'], '运行中');
+  assert.equal(values['活动任务'], '1');
+  assert.equal(document.querySelectorAll('.project-task').length, 1);
+  assert.equal(document.querySelector('#agent-role-development').textContent, 'Codex · 已停用');
+  assert.deepEqual(execution, frozen);
+  assert.ok(actions.every(action => action.action === 'list'));
+});
+
+for (const enabled of [false, true]) {
+  test(`Provider ${enabled ? 'disable' : 'enable'} failure rolls back without changing other policy`, async () => {
+    const mutation = deferredRoleResponse();
+    api.agentProviderSetEnabled = () => mutation.promise;
+    await mount([], undefined, {}, { providers: [catalogProvider({ enabled })], roleRouting: { general: 'codex' } });
+    await toggleProvider();
+    const control = document.querySelector('[role="switch"]');
+    assert.equal(control.getAttribute('aria-checked'), String(!enabled));
+    assert.equal(control.disabled, true);
+    await act(async () => mutation.reject(new Error('persist failed')));
+    assert.equal(control.getAttribute('aria-checked'), String(enabled));
+    assert.equal(control.disabled, false);
+    assert.equal(document.querySelector('#agent-role-general').textContent, enabled ? 'Codex' : 'Codex · 已停用');
+    assert.match(notifications.at(-1)[1], /启用状态保存失败，已恢复原状态/);
+  });
+}
+
+test('two Provider mutations and role mutation commit independently out of order', async () => {
+  const first = deferredRoleResponse(), second = deferredRoleResponse(), role = deferredRoleResponse();
+  api.agentProviderSetEnabled = id => id === 'codex' ? first.promise : second.promise;
+  api.agentProviderSetRoleRoute = () => role.promise;
+  await mount([], undefined, {}, { providers: [catalogProvider(), catalogProvider({ id: 'other', displayName: 'Other', enabled: false })], roleRouting: { development: 'codex' } });
+  await toggleProvider();
+  await toggleProvider('Other');
+  await chooseRole('development', 'Other');
+  await act(async () => second.resolve(enabledSettings({ codex: true, other: true }, { development: 'codex' })));
+  await act(async () => role.resolve(enabledSettings({ codex: true, other: false }, { development: 'other' })));
+  assert.equal(document.querySelector('#agent-role-development').textContent, 'Other');
+  await act(async () => first.resolve(enabledSettings({ codex: false, other: false }, { development: 'codex' })));
+  assert.deepEqual([...document.querySelectorAll('[role="switch"]')].map(control => control.getAttribute('aria-checked')), ['false', 'true']);
+  assert.equal(document.querySelector('#agent-role-development').textContent, 'Other');
+});
+
+test('catalog crossing enabled mutation cannot overwrite pending or committed state; fresh poll remains authoritative', async t => {
+  const timers = [];
+  const originalSetInterval = globalThis.setInterval;
+  // 保留动画真实时钟，仅手动推进目录轮询。
+  t.mock.method(globalThis, 'setInterval', (callback, delay, ...args) => {
+    if (delay === 1500) { timers.push(callback); return originalSetInterval(() => {}, 60_000); }
+    return originalSetInterval(callback, delay, ...args);
+  });
+  const mutation = deferredRoleResponse(), before = deferredRoleResponse(), during = deferredRoleResponse();
+  const initial = { providers: [catalogProvider()], roleRouting: { development: 'codex' } };
+  let polls = 0;
+  api.agentProviderSetEnabled = () => mutation.promise;
+  api.agentProviderSetRoleRoute = async () => roleSettings({ development: null });
+  await mount([], undefined, {}, () => {
+    polls++;
+    if (polls === 2) return before.promise;
+    if (polls === 3) return during.promise;
+    return Promise.resolve(initial);
+  });
+  await act(async () => timers[0]());
+  await toggleProvider();
+  await chooseRole('development', '未指定 Agent');
+  await act(async () => before.resolve(initial));
+  const control = document.querySelector('[role="switch"]');
+  assert.equal(control.getAttribute('aria-checked'), 'false');
+  assert.equal(control.disabled, true);
+  assert.equal(document.querySelector('#agent-role-development').textContent, '未指定 Agent');
+  await act(async () => timers[0]());
+  await act(async () => mutation.resolve(enabledSettings({ codex: false }, { development: 'codex' })));
+  await act(async () => during.resolve({ ...initial, roleRouting: { development: null } }));
+  assert.equal(control.getAttribute('aria-checked'), 'false');
+  assert.equal(control.disabled, false);
+  assert.equal(document.querySelector('#agent-role-development').textContent, '未指定 Agent');
+  await act(async () => timers[0]());
+  assert.equal(control.getAttribute('aria-checked'), 'true');
+  assert.equal(document.querySelector('#agent-role-development').textContent, 'Codex');
+  assert.equal(polls, 4);
+});
+
+// 任意产品版本与诊断 hash 都不改变稳定码的含义，未知 Provider 身份同样适用。
+for (const version of ['2.153.0', '999.0.0-new', 'unknown-dev', null, '  ']) {
+  test(`exact ACP incompatibility has fixed copy and no override: ${JSON.stringify(version)}`, async () => {
+    await mount([], undefined, {}, { providers: [catalogProvider({ id: 'future', displayName: 'Future Agent', diagnosticCode: 'CODEBUDDY_ACP_INCOMPATIBLE', version, binaryHash: `arbitrary-${version}` })], roleRouting: {} });
+    const card = document.querySelector('.agent-provider-card');
+    assert.equal(card.querySelector('p.text-amber-700').textContent, 'Future Agent 的 ACP 协议或必需能力与当前 SerenaDesktop 不兼容。请升级 CodeBuddy 或 SerenaDesktop 后重新检测。');
+    assert.equal(cardValues(card).版本, version?.trim() || '—');
+    assert.doesNotMatch(card.textContent, /忽略版本检查|跳过协议检查|绕过|强制放行|仍然运行|Force Unlock|override|强制解锁/iu);
+    assert.deepEqual([...card.querySelectorAll('button')].map(control => control.getAttribute('role')), ['switch']);
+  });
+}
+
+// 旧码、近似码与普通 unavailable 均不能从身份、版本、hash 或自由文本推断兼容性。
+for (const diagnosticCode of [undefined, null, 'CODEBUDDY_VERSION_UNSUPPORTED', 'AGENT_PROVIDER_UNAVAILABLE', 'CODEBUDDY_ACP_INCOMPATIBLE_EXTRA', 'codebuddy_acp_incompatible', ' CODEBUDDY_ACP_INCOMPATIBLE ']) {
+  test(`non-exact diagnostic never infers ACP incompatibility: ${diagnosticCode}`, async () => {
+    await mount([], undefined, {}, { providers: ['2.153.0', '999.0.0-new', 'unknown-dev', null, '  '].map((version, index) => catalogProvider({
+      id: index === 0 ? 'codebuddy' : `future-${index}`, displayName: 'CodeBuddy', health: 'unavailable', version, diagnosticCode,
+      binaryHash: `arbitrary-${version}`, errorMessage: 'CODEBUDDY_ACP_INCOMPATIBLE' })), roleRouting: {} });
+    for (const card of document.querySelectorAll('.agent-provider-card')) {
+      assert.equal(card.querySelector('p.text-amber-700'), null);
+      assert.doesNotMatch(card.textContent, /ACP 协议|兼容性验证|受支持版本|未启用该版本/);
+    }
+  });
+}
+
+// 正常执行不展示诊断区时，明确的安全 Activity 仍须可见，且不依赖 Provider ID。
+test('permission denied is a visible running activity without diagnostic', async () => {
+  const value = row({ status: 'running', attention: 'none', dispatchState: 'dispatched',
+    provider: { id: 'arbitrary', displayName: 'Worker' },
+    progress: { phase: 'running', activityPhase: 'provider', toolCategory: null, summaryCode: 'provider.permission_denied' } });
+  assert.equal(activityLabel(value), 'Provider 权限未获批准');
+  await mount([value]); await openTask();
+  assert.match(document.querySelector('.agent-detail-info-card').textContent, /当前活动Provider 权限未获批准/);
+  assert.equal(showExecutionDiagnostic(value), false);
+  assert.equal(activityLabel(row({progress: {summaryCode: 'provider.processing'}})), 'Agent 处理中');
+  assert.equal(activityLabel(row({progress: {summaryCode: 'execution.finalizing'}})), '正在整理结果');
+  assert.equal(activityLabel(row({progress: {summaryCode: 'execution.reconciling'}})), '正在恢复执行状态');
 });

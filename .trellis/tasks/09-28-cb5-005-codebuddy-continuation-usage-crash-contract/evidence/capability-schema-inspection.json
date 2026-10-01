@@ -1,0 +1,57 @@
+{
+  "generatedAt": "2026-09-28T02:36:42.726Z",
+  "conclusion": {
+    "uniqueRecoveryMethod": "session/load",
+    "reason": "ACP_V1_EXPLICIT_LOAD_SESSION_CAPABILITY_AND_CODEBUDDY_OWN_CONTINUE_PATH",
+    "fallbackMethods": [],
+    "sessionResumeWillBeProbed": false
+  },
+  "provenance": {
+    "packageName": "@tencent-ai/codebuddy-code",
+    "packageVersion": "2.158.0",
+    "nodePath": "C:\\nvm4w\\nodejs\\node.exe",
+    "nodeSha256": "3602f2bb1a10f2cbab4c36886218a33c1ab3db87290e73b033c46c77147d0237",
+    "scriptPath": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+    "scriptSha256": "426186a82e36466d5be485f335ced1b0d664539c53b72a5f10ba3a267e60dab6",
+    "packageJsonPath": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\package.json",
+    "packageJsonSha256": "8fb1a1e781ba5e16741b943745f0a6e69177f20f4479212c038c27345eeea85b",
+    "argv": [
+      "C:\\nvm4w\\nodejs\\node.exe",
+      "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+      "--acp"
+    ]
+  },
+  "sdk": {
+    "agentSchemaPath": "C:\\Users\\lifei\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\agent-client-protocol-schema-1.9.1\\src\\v1\\agent.rs",
+    "agentSchemaSha256": "4be53f96a87b9074214cc999e76c2bbc487c62fe7b0d8eb9f4002f9b4d6416ad",
+    "clientSchemaPath": "C:\\Users\\lifei\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\agent-client-protocol-schema-1.9.1\\src\\v1\\client.rs",
+    "clientSchemaSha256": "4e52924915554d1b1a4ec6940ed6a97fca09420689d2aaa4eeda4b0b589aed99",
+    "hasTopLevelLoadSessionCapability": true,
+    "hasSessionLoadMethod": true,
+    "loadReplaysHistoryContract": true,
+    "hasTypedUsageUpdate": true
+  },
+  "bundleCounts": [
+    {
+      "path": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\dist\\codebuddy.js",
+      "sha256": "a47b3234303310d3d0a0867689ffd9927934bd214b1847f7e264b0199d506522",
+      "sessionLoadOccurrences": 9,
+      "sessionResumeOccurrences": 6,
+      "loadSessionCapabilityOccurrences": 19
+    },
+    {
+      "path": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\dist\\codebuddy-headless.js",
+      "sha256": "9249eedc33a1e6406bff37add7fe92787cf1490eb8261b478d43e3c11b02c84f",
+      "sessionLoadOccurrences": 9,
+      "sessionResumeOccurrences": 6,
+      "loadSessionCapabilityOccurrences": 19
+    },
+    {
+      "path": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\dist\\codebuddy-lite-wb.mjs",
+      "sha256": "980f5c2e6652217548115e426fbbf20c5558b3b14d6019a5f2c9f9aa85abd2c0",
+      "sessionLoadOccurrences": 8,
+      "sessionResumeOccurrences": 5,
+      "loadSessionCapabilityOccurrences": 14
+    }
+  ]
+}

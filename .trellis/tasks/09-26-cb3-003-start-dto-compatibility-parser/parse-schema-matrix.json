@@ -1,0 +1,1116 @@
+[
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "requestKey": "k",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codebuddy",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "unregistered-provider",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "提供者",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a﻿b",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "testing",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codebuddy",
+      "requestKey": "k",
+      "taskRole": "testing",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "unregistered-provider",
+      "requestKey": "k",
+      "taskRole": "testing",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "提供者",
+      "requestKey": "k",
+      "taskRole": "testing",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a﻿b",
+      "requestKey": "k",
+      "taskRole": "testing",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "review",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codebuddy",
+      "requestKey": "k",
+      "taskRole": "review",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "unregistered-provider",
+      "requestKey": "k",
+      "taskRole": "review",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "提供者",
+      "requestKey": "k",
+      "taskRole": "review",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a﻿b",
+      "requestKey": "k",
+      "taskRole": "review",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "analysis",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codebuddy",
+      "requestKey": "k",
+      "taskRole": "analysis",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "unregistered-provider",
+      "requestKey": "k",
+      "taskRole": "analysis",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "提供者",
+      "requestKey": "k",
+      "taskRole": "analysis",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a﻿b",
+      "requestKey": "k",
+      "taskRole": "analysis",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "general",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codebuddy",
+      "requestKey": "k",
+      "taskRole": "general",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "unregistered-provider",
+      "requestKey": "k",
+      "taskRole": "general",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "提供者",
+      "requestKey": "k",
+      "taskRole": "general",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a﻿b",
+      "requestKey": "k",
+      "taskRole": "general",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": null,
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": 1,
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": true,
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": [],
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": {},
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": null,
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": 1,
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": true,
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": [],
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": {},
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "Testing",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "unknown",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": " testing",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": " ",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a b",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a\tb",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a\nb",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a\n",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a\r",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a\r\n",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a ",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a\u0000b",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "ab",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "ab",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a b",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a b",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a b",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a b",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a b",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a b",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "a　b",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "extra": true,
+      "prompt": "p",
+      "requestKey": "k",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "requestKey": "k",
+      "routing": "LegacyGeneral",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "context": {
+        "files": [
+          {
+            "path": "../escape",
+            "sha256": "bad"
+          }
+        ],
+        "summary": "host summary"
+      },
+      "prompt": "p",
+      "requestKey": "k",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "context": {
+        "summary": null
+      },
+      "prompt": "p",
+      "requestKey": "k",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "context": {
+        "unknown": true
+      },
+      "prompt": "p",
+      "requestKey": "k",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "context": {
+        "files": [
+          {
+            "path": "p"
+          }
+        ]
+      },
+      "prompt": "p",
+      "requestKey": "k",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "extra": true,
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "routing": "LegacyGeneral",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "context": {
+        "files": [
+          {
+            "path": "../escape",
+            "sha256": "bad"
+          }
+        ],
+        "summary": "host summary"
+      },
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    true
+  ],
+  [
+    {
+      "action": "start",
+      "context": {
+        "summary": null
+      },
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "context": {
+        "unknown": true
+      },
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "start",
+      "context": {
+        "files": [
+          {
+            "path": "p"
+          }
+        ]
+      },
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "development",
+      "workRunId": "w",
+      "workspaceId": "W"
+    },
+    false
+  ],
+  [
+    {
+      "action": "continue",
+      "parentExecutionId": "e",
+      "prompt": "p",
+      "requestKey": "k",
+      "workRunId": "w"
+    },
+    true
+  ],
+  [
+    {
+      "action": "continue",
+      "parentExecutionId": "e",
+      "prompt": "p",
+      "requestKey": "k",
+      "taskRole": "testing",
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "continue",
+      "parentExecutionId": "e",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "continue",
+      "parentExecutionId": "e",
+      "prompt": "p",
+      "providerId": "codex",
+      "requestKey": "k",
+      "taskRole": "testing",
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "continue",
+      "parentExecutionId": "e",
+      "prompt": "p",
+      "requestKey": "k",
+      "taskRole": null,
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "continue",
+      "parentExecutionId": "e",
+      "prompt": "p",
+      "providerId": null,
+      "requestKey": "k",
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "continue",
+      "parentExecutionId": "e",
+      "prompt": "p",
+      "providerId": null,
+      "requestKey": "k",
+      "taskRole": null,
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "cancel",
+      "executionId": "e",
+      "workRunId": "w"
+    },
+    true
+  ],
+  [
+    {
+      "action": "cancel",
+      "executionId": "e",
+      "taskRole": "testing",
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "cancel",
+      "executionId": "e",
+      "providerId": "codex",
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "cancel",
+      "executionId": "e",
+      "providerId": "codex",
+      "taskRole": "testing",
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "cancel",
+      "executionId": "e",
+      "taskRole": null,
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "cancel",
+      "executionId": "e",
+      "providerId": null,
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "cancel",
+      "executionId": "e",
+      "providerId": null,
+      "taskRole": null,
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "resume_pending",
+      "executionId": "e",
+      "workRunId": "w"
+    },
+    true
+  ],
+  [
+    {
+      "action": "resume_pending",
+      "executionId": "e",
+      "taskRole": "testing",
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "resume_pending",
+      "executionId": "e",
+      "providerId": "codex",
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "resume_pending",
+      "executionId": "e",
+      "providerId": "codex",
+      "taskRole": "testing",
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "resume_pending",
+      "executionId": "e",
+      "taskRole": null,
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "resume_pending",
+      "executionId": "e",
+      "providerId": null,
+      "workRunId": "w"
+    },
+    false
+  ],
+  [
+    {
+      "action": "resume_pending",
+      "executionId": "e",
+      "providerId": null,
+      "taskRole": null,
+      "workRunId": "w"
+    },
+    false
+  ]
+]

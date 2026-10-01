@@ -1,0 +1,139 @@
+{
+  "$defs": {
+    "WakeOn": {
+      "enum": [
+        "control",
+        "activity"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "description": "空结构体保留 deny_unknown_fields，目录查询只接受 action。",
+      "properties": {
+        "action": {
+          "const": "providers",
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "get",
+          "type": "string"
+        },
+        "executionId": {
+          "type": "string"
+        },
+        "includeResult": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action",
+        "executionId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "list",
+          "type": "string"
+        },
+        "limit": {
+          "format": "uint32",
+          "maximum": 100,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "workRunId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "workRunId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "observe",
+          "type": "string"
+        },
+        "executionId": {
+          "type": "string"
+        },
+        "includeResult": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "knownActivityRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "knownControlRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "knownRevision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "waitMs": {
+          "format": "uint32",
+          "maximum": 20000,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "wakeOn": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WakeOn"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "action",
+        "executionId"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "AgentQuery",
+  "type": "object"
+}

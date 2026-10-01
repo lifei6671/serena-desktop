@@ -1,0 +1,2 @@
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Admission policy crosses config, registry, task-manager, and product startup boundaries."}
+{"file":".trellis/tasks/09-26-cb2-002-provider-admission-policy/research/contract.md","reason":"Frozen CB2-002 contract, verified source hashes, and current code-boundary findings."}

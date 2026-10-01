@@ -1,0 +1,15 @@
+{
+  "scenario": "usage",
+  "classification": "HOST_COMMAND_TIMEOUT",
+  "commandRunId": "command-26872-1790479449915847-74",
+  "commandErrorCode": "COMMAND_TIMEOUT",
+  "outerTimeoutSeconds": 30,
+  "resultFileCreated": false,
+  "sentinelPreserved": true,
+  "childProcessLeftRunning": false,
+  "tempWorkspace": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-usage-uWsDKi",
+  "tempWorkspaceItemCount": 0,
+  "providerContractConclusion": "NOT_PROVEN",
+  "replayOfOriginalAttemptAllowed": false,
+  "note": "Host orchestration timeout terminated the enclosing CommandRun before the usage scenario could persist a result. This is infrastructure evidence, not a CodeBuddy Usage result."
+}

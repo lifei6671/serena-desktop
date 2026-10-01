@@ -1,0 +1,21 @@
+{
+  "frozenRegressionFiles": [
+    {
+      "path": "src-tauri/src/agent/store/usage_tests.rs",
+      "sha256": "C90595FCE0E1D57460648E3E28B2DC33A2C6E6AE7656C39C90AE96980958A778"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/provider/adapter_tests.rs",
+      "sha256": "A4EA1D453812BEC99319E056F2E31BA723DB1E4BD8AF1ACA45ED69E966240419"
+    },
+    {
+      "path": "src-tauri/src/agent/task_manager/recovery/tests.rs",
+      "sha256": "F5F8B22F31302904B856CC0E8511C7FA9393605E03EEBF92429DB80F531D8007"
+    }
+  ],
+  "codegraph": "UNAVAILABLE: MCP tool call requires approval, approval policy never",
+  "head": "18ddddf1dbe2eab84ecc791acf08cbd37f3efc7b",
+  "branch": "feat/codebuddy",
+  "linux": "UNAVAILABLE: no project Docker runner found",
+  "initialStatus": "clean"
+}

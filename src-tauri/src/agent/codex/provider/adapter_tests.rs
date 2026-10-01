@@ -273,6 +273,7 @@ fn row(status: &str, completeness: &str, final_result_json: Option<String>) -> E
         request_hash: "hash-1".into(),
         prompt: "prompt".into(),
         execution_profile_json: "{}".into(),
+        effective_execution_profile_json: None,
         workspace_id: "workspace-1".into(),
         canonical_workspace_root: "C:/workspace".into(),
         workspace_generation: 1,
@@ -937,6 +938,19 @@ async fn run_late_usage_provider(
             transport_request(&mut server).await["method"],
             "initialized"
         );
+        let model_list = transport_request(&mut server).await;
+        assert_eq!(model_list["method"], "model/list");
+        transport_reply(
+            &mut server,
+            &model_list,
+            json!({"data":[{
+                "id":"preset-default","model":"gpt-effective","displayName":"GPT Effective",
+                "description":"","isDefault":true,"hidden":false,
+                "defaultReasoningEffort":"high",
+                "supportedReasoningEfforts":[{"reasoningEffort":"high","description":""}]
+            }],"nextCursor":null}),
+        )
+        .await;
         let thread_start = transport_request(&mut server).await;
         assert_eq!(thread_start["method"], "thread/start");
         transport_reply(

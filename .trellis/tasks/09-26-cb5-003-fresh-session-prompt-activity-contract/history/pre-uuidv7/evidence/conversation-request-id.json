@@ -1,0 +1,30 @@
+{
+  "A": {
+    "promptSent": false,
+    "metadataSent": false,
+    "sessionId": null,
+    "prompt": {
+      "request": null,
+      "response": null
+    },
+    "succeeded": false
+  },
+  "B": {
+    "promptSent": false,
+    "metadataSent": false,
+    "generatedUuid": "6414616d-13a8-45e9-9a3a-a6aac3313009",
+    "sessionId": null,
+    "prompt": {
+      "request": null,
+      "response": null
+    },
+    "succeeded": false,
+    "echoSequences": []
+  },
+  "required": "NOT_PROVEN",
+  "acceptedWhenPresent": "NOT_PROVEN",
+  "echoed": "NOT_PROVEN",
+  "ignored": "NOT_PROVEN: absence of echo cannot establish server internal behavior",
+  "correlationUseful": "NOT_PROVEN",
+  "recommendation": "NOT_PROVEN: session/new blocked; no real prompt A/B was sent"
+}

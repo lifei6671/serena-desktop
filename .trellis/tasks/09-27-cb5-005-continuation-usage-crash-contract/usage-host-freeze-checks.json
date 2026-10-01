@@ -1,0 +1,89 @@
+{
+  "status": "PASS",
+  "realProviderExecuted": false,
+  "rawEvidenceHashes": {
+    "usage-repair.result.json": "985faa29686b5df3649af4f017ee75673a57a12e21df7d7d22aedaee39117a5e",
+    "usage-repair-analysis.json": "6a0efe69fd2137e93e9a826947df0a22d6b6ef5280e228563c757424eaa887da"
+  },
+  "bundlePath": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\dist\\codebuddy-lite-wb.mjs",
+  "bundleSha256": "980f5c2e6652217548115e426fbbf20c5558b3b14d6019a5f2c9f9aa85abd2c0",
+  "bundleBytes": 9017499,
+  "sourceAnchors": [
+    {
+      "anchor": "Eu=\"codebuddy.ai/requestId\",Ep=\"codebuddy.ai/messageId\"",
+      "line": 535,
+      "utf8ByteOffset": 2778606
+    },
+    {
+      "anchor": "R&&(W.usage=R.usage)",
+      "line": 535,
+      "utf8ByteOffset": 2786868
+    },
+    {
+      "anchor": "function readModelUsage(t)",
+      "line": 535,
+      "utf8ByteOffset": 2789040
+    },
+    {
+      "anchor": "function getInputTokensFromUsage(t)",
+      "line": 535,
+      "utf8ByteOffset": 2789486
+    },
+    {
+      "anchor": "this.usagePublisher.publish(i.id,\"prompt_end\"",
+      "line": 525,
+      "utf8ByteOffset": 2550641
+    },
+    {
+      "anchor": "scheduleStreamPublish(t,i,n)",
+      "line": 535,
+      "utf8ByteOffset": 2783350
+    },
+    {
+      "anchor": "async function enrichResultWithUsage",
+      "line": 503,
+      "utf8ByteOffset": 2292634
+    },
+    {
+      "anchor": "recordTokenUsage(t,i,n,s,c,p)",
+      "line": 1741,
+      "utf8ByteOffset": 5161169
+    }
+  ],
+  "turns": [
+    {
+      "turn": "P1",
+      "runtime": 1,
+      "usageSequence": 55,
+      "terminalSequence": 57,
+      "promptTokens": 25708,
+      "completionTokens": 105,
+      "totalTokens": 25813,
+      "lateUsageCount": 0
+    },
+    {
+      "turn": "P2",
+      "runtime": 1,
+      "usageSequence": 96,
+      "terminalSequence": 98,
+      "promptTokens": 25859,
+      "completionTokens": 81,
+      "totalTokens": 25940,
+      "lateUsageCount": 0
+    },
+    {
+      "turn": "P3",
+      "runtime": 2,
+      "usageSequence": 115,
+      "terminalSequence": 117,
+      "promptTokens": 25986,
+      "completionTokens": 302,
+      "totalTokens": 26288,
+      "lateUsageCount": 0
+    }
+  ],
+  "terminalProjectionHasConsumableModelUsage": false,
+  "costFieldCount": 0,
+  "identityStringValuesRetained": false,
+  "scope": "read-only evidence assertions; no harness execution"
+}

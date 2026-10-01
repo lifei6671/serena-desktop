@@ -1,0 +1,37 @@
+{
+  "runner": "serena-command-host",
+  "hostGatePresent": true,
+  "platform": "win32",
+  "nodeVersion": "v24.19.0",
+  "launchSpec": {
+    "nodePath": "C:\\nvm4w\\nodejs\\node.exe",
+    "nodeSha256": "3602f2bb1a10f2cbab4c36886218a33c1ab3db87290e73b033c46c77147d0237",
+    "scriptPath": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+    "scriptSha256": "426186a82e36466d5be485f335ced1b0d664539c53b72a5f10ba3a267e60dab6",
+    "argv": [
+      "C:\\nvm4w\\nodejs\\node.exe",
+      "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+      "--acp"
+    ]
+  },
+  "proxyEnvironmentPresent": false,
+  "codebuddyEnvironmentPresent": false,
+  "variables": {
+    "CODEBUDDY_API_KEY": "absent",
+    "CODEBUDDY_TOKEN": "absent",
+    "CODEBUDDY_BASE_URL": "absent",
+    "CODEBUDDY_ENDPOINT": "absent",
+    "CODEBUDDY_MODEL": "absent",
+    "CODEBUDDY_CONFIG_DIR": "absent",
+    "CODEBUDDY_HOME": "absent",
+    "HTTP_PROXY": "absent",
+    "HTTPS_PROXY": "absent",
+    "NO_PROXY": "absent",
+    "ALL_PROXY": "absent",
+    "http_proxy": "absent",
+    "https_proxy": "absent",
+    "no_proxy": "absent",
+    "all_proxy": "absent"
+  },
+  "valuesRecorded": false
+}

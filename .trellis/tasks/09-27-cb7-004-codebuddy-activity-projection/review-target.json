@@ -1,0 +1,54 @@
+{
+  "files": [
+    {
+      "sha256": "0C67310BAD460B382098CDC45405D115D64B38979198A85CC8E90E8D0B95A815",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/activity.rs",
+      "provenance": "CB7-004 delivery-owned; clean baseline c890919"
+    },
+    {
+      "sha256": "430B3226361C9ED0E108701B8C89E0A56417D55A86A4C8DFAC631B1DB0BC2CFB",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/activity/tests.rs",
+      "provenance": "CB7-004 delivery-owned; clean baseline c890919"
+    },
+    {
+      "sha256": "2BD95CF8FD354B629BD55EA157653F570C25A17929A377460F802C29A8598119",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/mod.rs",
+      "provenance": "CB7-004 delivery-owned; clean baseline c890919"
+    },
+    {
+      "sha256": "8EC752CAD8C6383FA521CCBADD8C45506D816E1242F54370675BE19195154777",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/prompt.rs",
+      "provenance": "CB7-004 delivery-owned; clean baseline c890919"
+    },
+    {
+      "sha256": "58B70E9CEAA0269FCB0FA03ED14F6CC0B373C7DA0CE46F7FC378427F35589F13",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/prompt/activity_tests.rs",
+      "provenance": "CB7-004 delivery-owned; clean baseline c890919"
+    },
+    {
+      "sha256": "60F4589E450D5D129826C81233FA4A13DB406DB5F4E0F5E1B118F0D888BD0FFC",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/src/agent/codebuddy/prompt/tests.rs",
+      "provenance": "CB7-004 delivery-owned; clean baseline c890919"
+    },
+    {
+      "sha256": "071F019868A3DC9ADDC5E5E30D5337F78636018E9566C89C372B0E410BA73BE1",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/tests/fixtures/codebuddy_activity_host.jsonl",
+      "provenance": "CB7-004 delivery-owned; clean baseline c890919"
+    },
+    {
+      "sha256": "07C2BCA17CE80E5B17EE6463E2E89BE21E58833B24F59FE9FC68473871D11A73",
+      "partition": "FULL_SCOPE",
+      "path": "src-tauri/tests/fixtures/codebuddy_prompt_child.rs",
+      "provenance": "CB7-004 delivery-owned; clean baseline c890919"
+    }
+  ],
+  "baseline": "c890919ff8cfedab6f73682f257ff1cc889d9027",
+  "head": "c890919ff8cfedab6f73682f257ff1cc889d9027"
+}

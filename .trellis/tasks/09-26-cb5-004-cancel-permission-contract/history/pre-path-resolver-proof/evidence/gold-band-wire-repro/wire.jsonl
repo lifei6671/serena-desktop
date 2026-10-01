@@ -1,0 +1,1 @@
+{"sequence": 1, "direction": "request", "message": {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1, "clientCapabilities": {"elicitation": {"form": {}}, "_meta": {"subagent-transcript": true, "parameterizedModelPicker": true}}, "clientInfo": {"name": "serena-desktop-gold-band-repro", "title": "SerenaDesktop Gold Band Repro", "version": "0.1"}}}}

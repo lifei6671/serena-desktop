@@ -10,7 +10,7 @@ impl StateStore {
         schema: &str,
         now: i64,
     ) -> Result<(), RuntimeError> {
-        self.runtime_write(|tx| tx.execute("UPDATE runtime_instances SET state='running',codex_version=?2,protocol_schema_sha256=?3,updated_at=?4 WHERE id=?1 AND state='starting' AND job_policy_verified_at IS NOT NULL", params![id,version,schema,now]))
+        self.runtime_write(|tx| tx.execute("UPDATE runtime_instances SET state='running',executable_version=?2,protocol_contract_sha256=?3,updated_at=?4 WHERE id=?1 AND state='starting' AND job_policy_verified_at IS NOT NULL", params![id,version,schema,now]))
     }
     fn runtime_write(
         &self,
@@ -48,8 +48,8 @@ impl StateStore {
                 "INSERT INTO runtime_instances
             (id,owner_host_instance_id,job_name,job_session_id,job_creation_mode,
              job_handle_inheritable,job_kill_on_close,job_breakaway_allowed,
-             codex_executable_path,state,created_at,updated_at)
-            VALUES (?1,?2,?3,?4,'proc_thread_attribute_job_list',0,1,0,?5,'preparing',?6,?6)",
+             executable_path,provider,state,created_at,updated_at)
+            VALUES (?1,?2,?3,?4,'proc_thread_attribute_job_list',0,1,0,?5,'codex','preparing',?6,?6)",
                 params![id, owner, job, session, exe, now],
             )
         })
@@ -74,9 +74,14 @@ impl StateStore {
         token: &str,
         now: i64,
     ) -> Result<(), RuntimeError> {
-        self.runtime_write(|tx| tx.execute("UPDATE runtime_instances SET state='starting',codex_pid=?2,
-            codex_process_start_token=?3,started_at=?4,updated_at=?4 WHERE id=?1 AND state='preparing'
-            AND job_policy_verified_at IS NOT NULL",params![id,pid,token,now]))
+        self.runtime_write(|tx| {
+            tx.execute(
+                "UPDATE runtime_instances SET state='starting',process_id=?2,
+            process_start_token=?3,started_at=?4,updated_at=?4 WHERE id=?1 AND state='preparing'
+            AND job_policy_verified_at IS NOT NULL",
+                params![id, pid, token, now],
+            )
+        })
     }
     pub(in crate::agent) fn runtime_terminating(
         &self,
@@ -136,7 +141,14 @@ impl StateStore {
         tx.execute(
             "UPDATE codex_execution_usage_state
              SET telemetry_state='frozen', freeze_at=?2
-             WHERE runtime_instance_id=?1 AND telemetry_state != 'frozen'",
+             WHERE runtime_instance_id=?1
+               AND telemetry_state != 'frozen'
+               AND EXISTS (
+                   SELECT 1
+                   FROM executions
+                   WHERE executions.id = codex_execution_usage_state.execution_id
+                     AND executions.provider = 'codex'
+               )",
             params![evidence.id(), evidence.at()],
         )
         .map_err(|error| RuntimeError::new("CODEX_RUNTIME_STORE_FAILED", error.to_string()))?;

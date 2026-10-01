@@ -1,0 +1,22 @@
+{
+  "id": "cb6-003-codebuddy-managed-acp-transport-initialize",
+  "name": "cb6-003-codebuddy-managed-acp-transport-initialize",
+  "title": "CB6-003 Managed ACP Transport / Initialize",
+  "status": "completed",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-09-27",
+  "branch": "feat/codebuddy",
+  "commit": null,
+  "children": [],
+  "subtasks": [],
+  "meta": {
+    "implementationComplete": true,
+    "noCommitPush": true,
+    "materialContractDifference": "NONE_IDENTIFIED",
+    "blocker": "RESOLVED_BY_HOST",
+    "deliveryComplete": true,
+    "reviewTarget": "31af4422666f37851c87c8927a0aedf2ce84a4e2b4616d4c230070255b516128"
+  },
+  "completedAt": "2026-09-27"
+}

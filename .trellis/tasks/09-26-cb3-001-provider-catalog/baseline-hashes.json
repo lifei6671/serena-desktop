@@ -1,0 +1,262 @@
+[
+  {
+    "sha256": "39FA0BAE702BDFC355869C6761ED78AB1E2BC6146CE00C1D8BFA6147DC9CF5DE",
+    "path": "src-tauri/src/agent/product.rs"
+  },
+  {
+    "sha256": "F6EC81F37F1B653474BB4945805C86C89A27D91BF34F9648599F9D2F7089F7BB",
+    "path": "src-tauri/src/agent/product/tests.rs"
+  },
+  {
+    "sha256": "35B2D4B96A3E06FC02137FBF13E0EFDE71820C0E801BDA737ED71F7F00885A3D",
+    "path": "src-tauri/src/agent/provider/mod.rs"
+  },
+  {
+    "sha256": "88C97CFF13078E32091D4357EBC90F3BDA978389EE88A88F6E74D9D711A6B4C1",
+    "path": "src-tauri/src/agent/provider/registry.rs"
+  },
+  {
+    "sha256": "FF93E65EB4DE6CBEA4FBFBC5B43961E74F78B020D5E87E1771F73418C82EBD75",
+    "path": "src-tauri/src/agent/provider/tests.rs"
+  },
+  {
+    "sha256": "E329787BCB97543717C7B1AF10C4EAECA8F86154E3088F4EFD1DC6B5EBEC64C2",
+    "path": "src-tauri/src/agent/store.rs"
+  },
+  {
+    "sha256": "C33AB92361278AD84000BCF4633324E37B2E798C3CECFC57C053E40A2C13D682",
+    "path": "src-tauri/src/agent/task_manager.rs"
+  },
+  {
+    "sha256": "655926819623707DFB3ADE3916B0344FF536074FE4988B58E3D3CDCE0ACE8EC2",
+    "path": "src-tauri/src/agent/task_manager/tests.rs"
+  },
+  {
+    "sha256": "4B98C96457C175BAB00A8C2573112ADAF460FAAAEDF69A75DC22CCBDDEDEA564",
+    "path": "src-tauri/src/autostart.rs"
+  },
+  {
+    "sha256": "328D8A5F47793E93BFCDFBC38A0B46E07465B69FB344A81F1D3D78E9B3B7185B",
+    "path": "src-tauri/src/commands.rs"
+  },
+  {
+    "sha256": "63D46CBAA9009B13A04481272574448B0C8B9BB14FD9416391B2DE896404D2D9",
+    "path": "src-tauri/src/lib.rs"
+  },
+  {
+    "sha256": "AAE649C90705FEFC73085EF8C992B9858115DA875BC0B11F98632B860C820F57",
+    "path": "src-tauri/src/serena.rs"
+  },
+  {
+    "sha256": "3CC4C752B3A6EABF97E54EECDCB4AD987F8B5AED7AB6E925C5DB94C7ABCB7040",
+    "path": "src/AgentPanel.test.mjs"
+  },
+  {
+    "sha256": "1DD0F63D9915779CA40E6E84A4154A3270E70AEA85A18FB957796FBCFA188778",
+    "path": "src/App.test.mjs"
+  },
+  {
+    "sha256": "53DB62032F3ED3C19D3864D7F1BC3B24E80E989DC0BC7F4840F715D8191C6515",
+    "path": "src/api.ts"
+  },
+  {
+    "sha256": "DA76A5D5FB3E25D3D2148E9995A3D73D5443DF51E98DC5EA53872014CDFB5469",
+    "path": "src/app/useAppController.ts"
+  },
+  {
+    "sha256": "235D2821C980D536A35F127720BF9C7699E0570586654FA6573A189742BAE63A",
+    "path": "src/types.ts"
+  },
+  {
+    "sha256": "F25C49DC44ECE78CDE1DAFE298218A4CA71E247D95F1A83740A79255F725C09C",
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/check.jsonl"
+  },
+  {
+    "sha256": "B284EBC227195CE52B45FDDEFB17DE7B6AB74A58896B643E4D06203BB97FEF8F",
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/design.md"
+  },
+  {
+    "sha256": "88F68299C97332C9D83D0C25922F89E6EF691B7CF636A0A320B692FE7B589463",
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/implement.jsonl"
+  },
+  {
+    "sha256": "C367604F0D5B5687987E76DBBF273502864B7250E2674B1663EA508C7C7287A6",
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/implement.md"
+  },
+  {
+    "sha256": "9EAF6506544B676C7473658F18C092D02616FAF872E70066EB9A0EE7A6A9161D",
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/prd.md"
+  },
+  {
+    "sha256": "E11687D1F542C9978ED11677452754C6FA9D9D795583ED34F2A7AE797E69CF37",
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/research/contract.md"
+  },
+  {
+    "sha256": "6A4F071B506484729486A3F02962CC19EAAB7191190C113183FE5182E0311ABF",
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/task.json"
+  },
+  {
+    "sha256": "AFC7F62716990E68F56AB811F9E63B10B85D66BF05FE4A3950F1683EFC25144C",
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/baseline-summary.json"
+  },
+  {
+    "sha256": "F05045D3F1CA5370C800275BC4880120D659242A929ECA10C3FE2BBB83D9ECA7",
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/changes.json"
+  },
+  {
+    "sha256": "EBF66FB2750672A9DB00723DE2203BB3E17D3697D9AE61904CA8ADE91B48FFAB",
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/check.jsonl"
+  },
+  {
+    "sha256": "AF057CDACC2B7041684D9F17404E300BE342E39F0DC7B28399E9FD12A21C1A02",
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/delivery.patch"
+  },
+  {
+    "sha256": "2415D7212579BBB3279D82947747EADABA7E59E3FB989F6A343E3867A76FB11A",
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/design.md"
+  },
+  {
+    "sha256": "EBF66FB2750672A9DB00723DE2203BB3E17D3697D9AE61904CA8ADE91B48FFAB",
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/implement.jsonl"
+  },
+  {
+    "sha256": "C0B97BE3F4F4988849280A7A64A65D93C3A0D0F13850E4E0677E17FA17FAB992",
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/implement.md"
+  },
+  {
+    "sha256": "5FAF78C61A20FBC25596E9CD52F60703520D126C4CB6DE5F37D20C69B15DFA7B",
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/prd.md"
+  },
+  {
+    "sha256": "32329B522EA2C788514DD0B4937985C7BA7E728F7B6FE6227B1395D5D887222E",
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/review-context.md"
+  },
+  {
+    "sha256": "B360D92339C0191BDC5924CD4AEA936AB497A23DF58686151F0E8A74617BEC3F",
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/review.md"
+  },
+  {
+    "sha256": "7C161E1ED0BD7078F230808EA611C6AB64EEA03EF0EF978AD02BC2C6FB00FFDC",
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/task.json"
+  },
+  {
+    "sha256": "65955CC0578C70B01277F2CF8E5D7E069BADEC76F87E210505CF6B3D8E8C1D89",
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/verification.md"
+  },
+  {
+    "sha256": "AC20B5BC40BAED6C3BEFCE32DAB6720A636B2FC6BE148A47F787D9A996779AE1",
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/baseline.json"
+  },
+  {
+    "sha256": "41D340870FD6F3BC78781BB6848F5139ED4F7F80F5B8C59D21AC63DA0EDC31D9",
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/check.jsonl"
+  },
+  {
+    "sha256": "8E2751512192EF8357119E1394E13CAD03287B0083A6A0012096BC42E858EC0B",
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/design.md"
+  },
+  {
+    "sha256": "7CB60A55FCAD36143C3F6071AB1932D7CA808950A5DA92BDE04F63D34CE16DAA",
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/implement.jsonl"
+  },
+  {
+    "sha256": "38AE8B3C70DB147159CE89326B8F19A5AD974D8CEB928C22E9DB96470F545A87",
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/implement.md"
+  },
+  {
+    "sha256": "61A4109B32BFE9AC76313A26530429AD640FD1E1FE33DD8078E985C8A80854B6",
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/prd.md"
+  },
+  {
+    "sha256": "E0FDDA4B43A52178CFA8476C8C9EC6CF5ABE21DF3D6764527889781BC931C7AD",
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/review-context.md"
+  },
+  {
+    "sha256": "D10CAA68ACDDAE224270F2413D0CA90196B0B10C5F943B7144EE75FDF84D1FC8",
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/review.md"
+  },
+  {
+    "sha256": "E31C7BD7FE11754440CA4F9E0B12F5591E1FFBB415C93408303DD3AB4BF61464",
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/target.json"
+  },
+  {
+    "sha256": "A1FB50789571B7A7E588EE15F50E6832E4055BDB8D15D8433D052A3745E3E0C7",
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/task.json"
+  },
+  {
+    "sha256": "B426036476605E0C02C7856E06B41040056040FFED3415BBA8FBAA08636B93B0",
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/verification.md"
+  },
+  {
+    "sha256": "D722C3607B24658CAFDF96BC0257951127B0707D627B274DC33B1681D1C7428A",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/baseline-hashes.json"
+  },
+  {
+    "sha256": "BFA91D588CDD925AA930BF5919F7ADB99C2842F3C2B2FA355F182375A669AD2A",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/baseline.patch"
+  },
+  {
+    "sha256": "B11B92CA1461543BCF35CD016D34C07E88FB0A7E938269B7BE8004A5F1134061",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/check.jsonl"
+  },
+  {
+    "sha256": "3A1507E82B98D8393823FF91E78A2FDC1F2A91D0292CD57261F75CABF5007AA1",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/code-hashes.json"
+  },
+  {
+    "sha256": "A907DB1BD0CC3FC24BD53368E7F13A53451A28D716DC61657D289210AF7190B6",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/design.md"
+  },
+  {
+    "sha256": "412AD8846968C0C283896F02395C6B933A4DE5592F53D2095C55B8BACC270B91",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/evidence.md"
+  },
+  {
+    "sha256": "B11B92CA1461543BCF35CD016D34C07E88FB0A7E938269B7BE8004A5F1134061",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/implement.jsonl"
+  },
+  {
+    "sha256": "9DBE6ABB092CC6EA7568B0A00D0444FB8EA780627FE99E7F8AAF2F174956CED1",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/implement.md"
+  },
+  {
+    "sha256": "C33BCF3EF2E9B0DE171ACD6476D663ED2370E0CA647A2D1A1FD573B21664E5FE",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/matrix.jsonl"
+  },
+  {
+    "sha256": "CABF93FDD3DD41D5EBAB9930559EBF0E19CB791306276BD9456772AAD105FAB9",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/prd.md"
+  },
+  {
+    "sha256": "F6D82D782CF9194B01D9BCAF1947F29F32531CCDA3FD3ACF357B053C15A16D71",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/review.md"
+  },
+  {
+    "sha256": "C25BA01906F98BC56CABF366EC489E16888195F7E3A625A255A3A19D5C250580",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/task.json"
+  },
+  {
+    "sha256": "FEA0A5C6147202B992C8FF9101B08253EEFFB4ADFC51E3EC830367E33F344568",
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/test-inventory.txt"
+  },
+  {
+    "sha256": "20C5CCE0F12563A141440E81F9B77B805E6FA7634DE7D378976C3C58CDD37167",
+    "path": "src-tauri/src/agent/provider/control.rs"
+  },
+  {
+    "sha256": "6DACC140E720BEF7A86A353E9521BC97845B7CAFBCC44676E1BC89CD0D0C93F8",
+    "path": "src-tauri/src/provider_policy_drain_tests.rs"
+  },
+  {
+    "sha256": "6CDEE480972979FA290008C20173B73DA8C145CC2CF5B7FF45A9E521E40C48CD",
+    "path": "src-tauri/src/provider_policy_tests.rs"
+  },
+  {
+    "sha256": "EDF19848F9E550C014B404E53C6B0E5FB5343797333408527498B283481A78EA",
+    "path": "src/configFixtures.mjs"
+  },
+  {
+    "sha256": "A549E7FFD36F2A8E234372BC258FAADCCBDA4763BFC2DC1B796686A1D72839D4",
+    "path": "src/configModel.test.mjs"
+  }
+]

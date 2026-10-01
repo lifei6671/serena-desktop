@@ -1,0 +1,41 @@
+{
+  "id": "cb7-003-codebuddy-prompt-terminal-result",
+  "name": "cb7-003-codebuddy-prompt-terminal-result",
+  "title": "CB7-003 CodeBuddy Prompt Terminal Result",
+  "description": "Internal typed prompt and exact terminal/result mapping on PreparedFreshSession; retain Runtime; no public execution or Claim release.",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "codebuddy",
+  "package": null,
+  "priority": "P1",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-09-27",
+  "completedAt": "2026-09-27",
+  "branch": "feat/codebuddy",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [
+    "src-tauri/src/agent/codebuddy/client.rs",
+    "src-tauri/src/agent/codebuddy/fresh.rs",
+    "src-tauri/src/agent/codebuddy/fresh/tests.rs",
+    "src-tauri/src/agent/codebuddy/mod.rs",
+    "src-tauri/src/agent/codebuddy/prompt.rs",
+    "src-tauri/src/agent/codebuddy/prompt/tests.rs",
+    "src-tauri/src/agent/codebuddy/runtime.rs",
+    "src-tauri/tests/fixtures/codebuddy_prompt_cancelled.jsonl",
+    "src-tauri/tests/fixtures/codebuddy_prompt_child.rs",
+    "src-tauri/tests/fixtures/codebuddy_prompt_end_turn.jsonl"
+  ],
+  "notes": "CB7-003 internal prompt primitive implemented. Independent read-only CHILD_AGENT FULL_SCOPE PASSED; 10 source/fixture hashes and 8 context hashes FRESH. Focused8/CodeBuddy98 PASS; fmt/check PASS. TaskManager/Codex each one reproduced baseline FAIL; clippy only frozen usage_tests.rs987. Linux unavailable. No commit/push/archive or next-card implementation. TEMP baseline cleanup denied by policy.",
+  "meta": {
+    "verificationStatus": "SCOPED_PASS_WITH_REPRODUCED_BASELINE_FAILURES",
+    "deliveryStatus": "IMPLEMENTED_REVIEW_PASSED",
+    "reviewTarget": "2BB4143A8B92E49C5A0E73EBA79AB967C8219F1268CE093D3AB91E959AAF0957"
+  }
+}

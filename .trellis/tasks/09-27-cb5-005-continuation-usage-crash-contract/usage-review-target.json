@@ -1,0 +1,23 @@
+{
+  "targetId": "5a67381e55ff428b198ded0a505397af8a2f8df41afd917ffc2aced808e75cee",
+  "files": {
+    "task.json": "94fd9fe003d2af288057201dbe457aaab64fcc8e5176cbc653ede48033282427",
+    "usage-baseline.json": "d21e8524fd3b0bc3b1b7c8bf79aabf5c13d1327fac5b42ce1d667cf45569b779",
+    "usage-design.md": "90a07d24e6d0f75a4956ec0dbd8d0ad50ab306ec6fc47a9f10e2dba299a1b06a",
+    "usage-README.md": "c4d4ca587f08d78a6ae760035a71b918238a551c219db2dfec84551a0c548559",
+    "usage-verification.md": "0cd75682cc80532ca5521a215cd79926225f7a780603ea90c56b5198bc0717cf",
+    "usage-scope.json": "0956faf0e064921a2e5555e8b00e763abbfd5424ae72a4f9b632ad4e28d380b3",
+    "usage-review-context.md": "827e939b70d966e36281ec24a82c751b7aea6fab2c96447484c5f3dd72b017a1",
+    "evidence/usage/NOT_RUN.json": "fb407b62f5c9366c0a035e3f3535a4f374174b592cfc12b36b65d4869b23bdce",
+    "harness/Cargo.toml": "314b8c0e88e1ee2c8b912450678d14e0ce3644bbbb1c778f9050b2bf822a8248",
+    "harness/Cargo.lock": "ae8218a03ba90cae3ae97f25b4263f69060b0eb0dc81bf8b810b27c1162947b4",
+    "harness/src/main.rs": "6da61373274776bd08223e1784e8b56ddb549f55290a40ebec503b35b749c5d5",
+    "harness/src/tests.rs": "d9de6ce15e1400fbbae3032834641bca7740f95e45dd48592582c047c19ad0cf",
+    "harness/src/usage.rs": "0e91857f3a0520b9daf87b6d326fbc2ffba66abf5eaa8c4b5d70a639064edd72",
+    "harness/src/usage_runtime.rs": "01069f7edc1fa18351cac713b0e1c7310d84f5f3c01a2b044d849ac9a47fa719",
+    "harness/src/usage_tests.rs": "ac7c165102fa6265c3e12fa00d87b432141fa1193a3603a251d2581ff0257843",
+    "harness/fake_usage_peer.py": "75103f8f77b5c5b0f9d6e6e9f5046d3d70dcd1719e96732c7dc7166c8d62ad35",
+    "harness/target/debug/cb5-005-continuation.exe": "dd495d8e311614613ff91689a2a11988d93a920f4be1e03100bdce397caf8602"
+  },
+  "scope": "Stage B usage only"
+}

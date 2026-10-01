@@ -1,0 +1,54 @@
+ M src-tauri/src/agent/product.rs
+ M src-tauri/src/agent/product/tests.rs
+ M src-tauri/src/agent/product/work_adapter.rs
+ M src-tauri/src/agent/product/work_adapter_tests.rs
+ M src-tauri/src/agent/provider/mod.rs
+ M src-tauri/src/agent/provider/registry.rs
+ M src-tauri/src/agent/provider/tests.rs
+ M src-tauri/src/agent/store.rs
+ M src-tauri/src/agent/store/transactions.rs
+ M src-tauri/src/agent/store/transactions/product.rs
+ M src-tauri/src/agent/task_manager.rs
+ M src-tauri/src/agent/task_manager/tests.rs
+ M src-tauri/src/autostart.rs
+ M src-tauri/src/commands.rs
+ M src-tauri/src/lib.rs
+ M src-tauri/src/mcp/mod.rs
+ M src-tauri/src/mcp/orchestration.rs
+ M src-tauri/src/mcp/orchestration/dto.rs
+ M src-tauri/src/mcp/orchestration_tests.rs
+ M src-tauri/src/mcp/registry.rs
+ M src-tauri/src/serena.rs
+ M src-tauri/src/workspace_capability.rs
+ M src/AgentPanel.test.mjs
+ M src/AgentPanel.tsx
+ M src/App.test.mjs
+ M src/App.tsx
+ M src/agentPresentation.ts
+ M src/api.ts
+ M src/app/useAppController.ts
+ M src/styles.css
+ M src/types.ts
+?? .trellis/tasks/09-26-cb2-002-provider-admission-policy/
+?? .trellis/tasks/09-26-cb2-003-local-provider-policy/
+?? .trellis/tasks/09-26-cb2-004-frontend-config/
+?? .trellis/tasks/09-26-cb2-005-drain-pending-claim/
+?? .trellis/tasks/09-26-cb3-001-provider-catalog/
+?? .trellis/tasks/09-26-cb3-002-provider-query/
+?? .trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/
+?? .trellis/tasks/09-26-cb3-003-start-dto/
+?? .trellis/tasks/09-26-cb3-004-start-routing-authority/
+?? .trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/
+?? .trellis/tasks/09-26-cb4-001-agent-management-provider-cards/
+?? .trellis/tasks/09-26-cb4-002-role-routing-editor/
+?? .trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/
+?? src-tauri/src/agent/product/fixtures/
+?? src-tauri/src/agent/product/provider_catalog_tests.rs
+?? src-tauri/src/agent/provider/control.rs
+?? src-tauri/src/mcp/continuation_routing_tests.rs
+?? src-tauri/src/mcp/provider_query_tests.rs
+?? src-tauri/src/mcp/start_routing_tests.rs
+?? src-tauri/src/provider_policy_drain_tests.rs
+?? src-tauri/src/provider_policy_tests.rs
+?? src/configFixtures.mjs
+?? src/configModel.test.mjs

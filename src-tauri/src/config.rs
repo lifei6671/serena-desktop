@@ -1,5 +1,8 @@
+use crate::agent::{execution::AgentTaskRole, provider::ProviderId};
+use rmcp::schemars;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -112,12 +115,109 @@ impl AppPaths {
         })
     }
 }
+pub(crate) const AGENT_PROVIDER_CONFIG_INVALID: &str = "AGENT_PROVIDER_CONFIG_INVALID";
+
+const AGENT_TASK_ROLES: [AgentTaskRole; 5] = [
+    AgentTaskRole::Development,
+    AgentTaskRole::Testing,
+    AgentTaskRole::Review,
+    AgentTaskRole::Analysis,
+    AgentTaskRole::General,
+];
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentProviderPolicy {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentProviderSettings {
+    pub providers: BTreeMap<String, AgentProviderPolicy>,
+    pub role_routing: BTreeMap<String, Option<ProviderId>>,
+    #[serde(default)]
+    pub role_defaults: BTreeMap<String, BTreeMap<String, AgentRoleProviderDefaults>>,
+}
+
+/// 单个角色/Provider 的默认执行配置；null 与缺失都表示跟随 Provider 默认。
+#[derive(
+    Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, rmcp::schemars::JsonSchema,
+)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct AgentRoleProviderDefaults {
+    pub model: Option<String>,
+    pub reasoning: Option<String>,
+}
+
+impl Default for AgentProviderSettings {
+    fn default() -> Self {
+        let codex = ProviderId::new("codex".into()).expect("codex provider id is fixed and valid");
+        let providers = BTreeMap::from([
+            ("codebuddy".into(), AgentProviderPolicy { enabled: false }),
+            ("codex".into(), AgentProviderPolicy { enabled: true }),
+        ]);
+        let role_routing = AGENT_TASK_ROLES
+            .into_iter()
+            .map(|role| (role.as_str().into(), Some(codex.clone())))
+            .collect();
+        Self {
+            providers,
+            role_routing,
+            role_defaults: BTreeMap::new(),
+        }
+    }
+}
+
+impl AgentProviderSettings {
+    fn validate(&self) -> Result<(), String> {
+        for provider_id in self.providers.keys() {
+            ProviderId::new(provider_id.clone()).map_err(|error| {
+                format!("{AGENT_PROVIDER_CONFIG_INVALID}: provider id: {error}")
+            })?;
+        }
+
+        if self.role_routing.len() != AGENT_TASK_ROLES.len()
+            || AGENT_TASK_ROLES
+                .iter()
+                .any(|role| !self.role_routing.contains_key(role.as_str()))
+            || self
+                .role_routing
+                .keys()
+                .any(|role| !AGENT_TASK_ROLES.iter().any(|known| known.as_str() == role))
+        {
+            return Err(format!(
+                "{AGENT_PROVIDER_CONFIG_INVALID}: roleRouting must contain exactly development, testing, review, analysis, general"
+            ));
+        }
+        for (role, providers) in &self.role_defaults {
+            if !AGENT_TASK_ROLES.iter().any(|known| known.as_str() == role) {
+                return Err(format!(
+                    "{AGENT_PROVIDER_CONFIG_INVALID}: roleDefaults contains unknown role {role}"
+                ));
+            }
+            for (provider_id, defaults) in providers {
+                ProviderId::new(provider_id.clone()).map_err(|error| {
+                    format!("{AGENT_PROVIDER_CONFIG_INVALID}: roleDefaults provider id: {error}")
+                })?;
+                crate::agent::execution::ExecutionProfile {
+                    model: defaults.model.clone(),
+                    reasoning: defaults.reasoning.clone(),
+                }
+                .validate()
+                .map_err(|error| format!("{AGENT_PROVIDER_CONFIG_INVALID}: {error}"))?;
+            }
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ManagerConfig {
     pub remote_access: crate::remote::RemoteAccessConfig,
     pub agent_enabled: bool,
+    pub agent_providers: AgentProviderSettings,
     pub remote_source_write_enabled: bool,
     pub remote_command_execution_enabled: bool,
     pub agent_success_notification_enabled: bool,
@@ -142,6 +242,7 @@ impl Default for ManagerConfig {
             broker: BrokerConfig::default(),
             remote_access: crate::remote::RemoteAccessConfig::default(),
             agent_enabled: false,
+            agent_providers: AgentProviderSettings::default(),
             remote_source_write_enabled: false,
             remote_command_execution_enabled: false,
             agent_success_notification_enabled: true,
@@ -163,6 +264,7 @@ impl Default for ManagerConfig {
 
 impl ManagerConfig {
     pub fn validate(&self) -> Result<(), String> {
+        self.agent_providers.validate()?;
         if self.remote_access.self_hosted.provider == crate::remote::SelfHostedProvider::CustomHttps
             && let Some(origin) = &self.remote_access.self_hosted.public_origin
         {
@@ -693,6 +795,172 @@ mod tests {
 
             assert!(config.validate().is_ok(), "{provider:?}");
         }
+    }
+
+    #[test]
+    fn old_config_uses_agent_provider_defaults_without_rewriting_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let legacy = r#"{"agentEnabled":true}"#;
+        fs::write(&path, legacy).unwrap();
+
+        let config = load(&path).unwrap();
+
+        assert!(config.agent_enabled);
+        assert_eq!(config.agent_providers.providers.len(), 2);
+        assert!(config.agent_providers.providers["codex"].enabled);
+        assert!(!config.agent_providers.providers["codebuddy"].enabled);
+        for role in AGENT_TASK_ROLES {
+            assert_eq!(
+                config
+                    .agent_providers
+                    .role_routing
+                    .get(role.as_str())
+                    .and_then(Option::as_ref)
+                    .map(ProviderId::as_str),
+                Some("codex"),
+                "{}",
+                role.as_str()
+            );
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), legacy);
+        assert!(config.agent_providers.role_defaults.is_empty());
+    }
+
+    /// roleDefaults 保留未知 Provider，同时拒绝未知角色和非法字符串。
+    #[test]
+    fn role_provider_defaults_round_trip_unknown_provider_and_reject_invalid_values() {
+        let mut config = ManagerConfig::default();
+        config
+            .agent_providers
+            .role_defaults
+            .entry("testing".into())
+            .or_default()
+            .insert(
+                "future-provider".into(),
+                AgentRoleProviderDefaults {
+                    model: Some("future-model".into()),
+                    reasoning: Some("future-effort".into()),
+                },
+            );
+        assert!(config.validate().is_ok());
+        let value = serde_json::to_value(&config).unwrap();
+        let loaded: ManagerConfig = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded, config);
+
+        let mut invalid_role = config.clone();
+        invalid_role
+            .agent_providers
+            .role_defaults
+            .insert("deploy".into(), Default::default());
+        assert!(
+            invalid_role
+                .validate()
+                .unwrap_err()
+                .contains("unknown role")
+        );
+        let mut invalid_provider = config.clone();
+        invalid_provider
+            .agent_providers
+            .role_defaults
+            .entry("testing".into())
+            .or_default()
+            .insert("bad provider".into(), Default::default());
+        assert!(
+            invalid_provider
+                .validate()
+                .unwrap_err()
+                .contains("provider id")
+        );
+        for value in [String::new(), "   ".into(), "x".repeat(257)] {
+            let mut invalid = config.clone();
+            invalid
+                .agent_providers
+                .role_defaults
+                .get_mut("testing")
+                .unwrap()
+                .get_mut("future-provider")
+                .unwrap()
+                .model = Some(value);
+            assert!(invalid.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn agent_provider_settings_round_trip_future_provider_and_optional_route() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let mut config = ManagerConfig::default();
+        config
+            .agent_providers
+            .providers
+            .insert("future-acp".into(), AgentProviderPolicy { enabled: true });
+        config.agent_providers.role_routing.insert(
+            AgentTaskRole::Testing.as_str().into(),
+            Some(ProviderId::new("future-acp".into()).unwrap()),
+        );
+        config
+            .agent_providers
+            .role_routing
+            .insert(AgentTaskRole::Review.as_str().into(), None);
+
+        assert!(config.validate().is_ok());
+        save(&path, &config).unwrap();
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded, config);
+
+        let saved: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            saved["agentProviders"]["providers"]["future-acp"]["enabled"],
+            true
+        );
+        assert_eq!(
+            saved["agentProviders"]["roleRouting"]["testing"],
+            "future-acp"
+        );
+        assert!(saved["agentProviders"]["roleRouting"]["review"].is_null());
+    }
+
+    #[test]
+    fn agent_provider_settings_reject_invalid_role_or_provider_id() {
+        let mut invalid_role = ManagerConfig::default();
+        invalid_role
+            .agent_providers
+            .role_routing
+            .remove(AgentTaskRole::Testing.as_str());
+        invalid_role.agent_providers.role_routing.insert(
+            "deploy".into(),
+            Some(ProviderId::new("codex".into()).unwrap()),
+        );
+        assert_eq!(
+            invalid_role.validate().unwrap_err(),
+            format!(
+                "{AGENT_PROVIDER_CONFIG_INVALID}: roleRouting must contain exactly development, testing, review, analysis, general"
+            )
+        );
+
+        let mut invalid_provider = ManagerConfig::default();
+        invalid_provider
+            .agent_providers
+            .providers
+            .insert("bad provider".into(), AgentProviderPolicy { enabled: true });
+        assert_eq!(
+            invalid_provider.validate().unwrap_err(),
+            format!(
+                "{AGENT_PROVIDER_CONFIG_INVALID}: provider id: provider id must not contain whitespace or control characters"
+            )
+        );
+
+        let mut invalid_route_value = serde_json::to_value(ManagerConfig::default()).unwrap();
+        invalid_route_value["agentProviders"]["roleRouting"]["testing"] =
+            serde_json::json!("bad provider");
+        assert!(
+            serde_json::from_value::<ManagerConfig>(invalid_route_value)
+                .unwrap_err()
+                .to_string()
+                .contains("provider id must not contain whitespace or control characters")
+        );
     }
 
     #[test]

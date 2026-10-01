@@ -1,0 +1,101 @@
+{
+  "scenario": "before",
+  "fake": null,
+  "argv": [
+    "C:\\nvm4w\\nodejs\\node.exe",
+    "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+    "--acp",
+    "--permission-mode",
+    "default",
+    "--tools",
+    ""
+  ],
+  "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-IyNvMI",
+  "pid": 47420,
+  "conversationRequestId": "01a0de0caab976a59b00b2ade7545ee8",
+  "identityDurableBeforePrompt": true,
+  "protocol": {
+    "stage": "session/new",
+    "permissionDecisions": [],
+    "protocolVersion": 1
+  },
+  "prompt": {
+    "request": null,
+    "response": null
+  },
+  "cancel": null,
+  "wire": [
+    {
+      "sequence": 1,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "761984dd-9646-4408-bba7-9ea3742a8f09",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1
+        }
+      }
+    },
+    {
+      "sequence": 2,
+      "direction": "response",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "761984dd-9646-4408-bba7-9ea3742a8f09",
+        "result": {
+          "protocolVersion": 1
+        }
+      }
+    },
+    {
+      "sequence": 3,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "27aa2528-f0f5-4e69-be2b-b006b5751861",
+        "method": "session/new",
+        "params": {}
+      }
+    },
+    {
+      "sequence": 4,
+      "direction": "response",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "27aa2528-f0f5-4e69-be2b-b006b5751861",
+        "error": {
+          "code": -32603,
+          "detailsOmitted": true
+        }
+      }
+    }
+  ],
+  "updates": [],
+  "before": {},
+  "after": {},
+  "delta": [],
+  "manifestError": null,
+  "markerRetained": false,
+  "error": "SDK_ERROR_DETAILS_OMITTED",
+  "cleanup": {
+    "streamsClosed": true,
+    "terminated": true,
+    "waited": true,
+    "exitCode": 1,
+    "directChildReaped": true,
+    "stderrJoined": true,
+    "succeeded": true,
+    "errors": [],
+    "stderrBytesDrained": 0,
+    "windowsJobAtCreationProven": false
+  },
+  "elapsedMs": 1599,
+  "postActionTimeoutMs": 20000,
+  "providerTerminalReceived": false,
+  "runtimeTerminationEvidence": true,
+  "claimReleaseAuthorizedByCancel": false,
+  "workspaceDeleted": true,
+  "workspaceDeleteError": null,
+  "harnessExitCode": 0
+}

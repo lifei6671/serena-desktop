@@ -1,0 +1,7 @@
+{
+  "scenario": "usage-repair",
+  "attemptId": "01a0e0f2-062a-734b-b097-50c06403ab44",
+  "replayAllowed": false,
+  "reason": "HOST_COMMAND_TIMEOUT",
+  "originalAttemptReplayed": false
+}

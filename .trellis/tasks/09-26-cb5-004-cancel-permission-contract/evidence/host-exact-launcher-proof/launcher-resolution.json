@@ -1,0 +1,23 @@
+{
+  "status": "READY",
+  "failureLayer": null,
+  "acpFailure": false,
+  "resolvedNpxPath": "C:\\nvm4w\\nodejs\\npx.cmd",
+  "resolvedNodePath": "C:\\nvm4w\\nodejs\\node.exe",
+  "siblingNodeExists": true,
+  "resolvedBareNpxPath": "C:\\nvm4w\\nodejs\\npx.cmd",
+  "resolvedCodebuddyPath": null,
+  "childPathContainsNvmSymlink": true,
+  "registryPathSourcesRead": {
+    "user": true,
+    "machine": true
+  },
+  "commandLineMode": "RAW_WINDOWS_STRING",
+  "flags": [
+    "/e:ON",
+    "/v:OFF",
+    "/d",
+    "/c"
+  ],
+  "runner": "serena-command-host"
+}

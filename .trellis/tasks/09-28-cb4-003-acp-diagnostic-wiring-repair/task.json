@@ -1,0 +1,29 @@
+{
+  "id": "cb4-003-acp-diagnostic-wiring-repair",
+  "name": "cb4-003-acp-diagnostic-wiring-repair",
+  "title": "CB4-003 Phase6 CodeBuddy ACP Diagnostic Production Wiring Repair",
+  "description": "将 CodeBuddy initialize 的确定性 ACP 不兼容诊断接入 provider-neutral Registry admission 与 Product Catalog；瞬态错误不污染全局健康，refresh 替换 adapter 后清除运行时诊断。",
+  "status": "completed",
+  "dev_type": "fix",
+  "scope": "backend-product-frontend-regression",
+  "package": "serena-desktop",
+  "priority": "P1",
+  "creator": "codex",
+  "assignee": "codex",
+  "createdAt": "2026-09-28",
+  "completedAt": "2026-09-28",
+  "branch": "feat/codebuddy",
+  "base_branch": "master",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "task.py 因本机无 Python 解释器不可用；按既有 schema 手工创建。实现、验证与独立 FULL_SCOPE review 已完成。",
+  "meta": {
+    "baselineHead": "5a3f3d331408472bfb66f7deadef83aff29b1715",
+    "baselineBranch": "feat/codebuddy"
+  }
+}

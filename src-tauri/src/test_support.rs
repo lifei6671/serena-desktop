@@ -23,7 +23,13 @@ fn unique_listener(ip: Ipv4Addr) -> TcpListener {
     let mut leased = broker_test_ports()
         .lock()
         .expect("Broker test port registry poisoned");
-    for port in BROKER_TEST_PORT_START..=BROKER_TEST_PORT_END {
+    // 测试套件会拉起子进程；进程内 HashSet 无法阻止父子进程从同一个 20000 起点
+    // 选中相同端口。按 PID 打散扫描起点，同时保留专用非 ephemeral 端口段。
+    let span = u32::from(BROKER_TEST_PORT_END - BROKER_TEST_PORT_START) + 1;
+    let start = std::process::id().wrapping_mul(7_919) % span;
+    for delta in 0..span {
+        let offset = (start + delta) % span;
+        let port = BROKER_TEST_PORT_START + u16::try_from(offset).expect("Broker test port offset");
         if leased.contains(&port) {
             continue;
         }

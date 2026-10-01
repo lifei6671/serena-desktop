@@ -1,0 +1,211 @@
+{
+  "scope": "harness-owned external Node process; SDK receives only pipe streams",
+  "realInvocation": "standalone npm CLI; no IDE environment overrides",
+  "runs": [
+    {
+      "argv": [
+        "C:\\nvm4w\\nodejs\\node.exe",
+        "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+        "--acp"
+      ],
+      "environmentChanges": {},
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-VShear",
+      "pid": 3692,
+      "initializeTimeoutSeconds": 20,
+      "initializeElapsedMs": 846,
+      "initializeSucceeded": true,
+      "protocolCompatible": true,
+      "supportedProtocolVersion": 1,
+      "error": null,
+      "stderrSanitized": "",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": true,
+        "waited": true,
+        "exitCode": 1,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 2878,
+      "probe": "real-cli"
+    },
+    {
+      "argv": [
+        "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+        "--fake",
+        "eof-before"
+      ],
+      "environmentChanges": {},
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-CPh9ZE",
+      "pid": 60208,
+      "initializeTimeoutSeconds": 5,
+      "initializeElapsedMs": 3,
+      "initializeSucceeded": false,
+      "protocolCompatible": false,
+      "supportedProtocolVersion": 1,
+      "error": "SDK: Incoming transport closed: {\n  \"reason\": \"incoming_transport_closed\",\n  \"method\": \"initialize\"\n}",
+      "stderrSanitized": "",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": false,
+        "waited": true,
+        "exitCode": 0,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 4,
+      "probe": "eof-before"
+    },
+    {
+      "argv": [
+        "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+        "--fake",
+        "eof-during"
+      ],
+      "environmentChanges": {},
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-OujQII",
+      "pid": 19268,
+      "initializeTimeoutSeconds": 5,
+      "initializeElapsedMs": 3,
+      "initializeSucceeded": false,
+      "protocolCompatible": false,
+      "supportedProtocolVersion": 1,
+      "error": "SDK: Incoming transport closed: {\n  \"reason\": \"incoming_transport_closed\",\n  \"method\": \"initialize\"\n}",
+      "stderrSanitized": "",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": false,
+        "waited": true,
+        "exitCode": 0,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 4,
+      "probe": "eof-during"
+    },
+    {
+      "argv": [
+        "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+        "--fake",
+        "mismatch"
+      ],
+      "environmentChanges": {},
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-wVf40E",
+      "pid": 34092,
+      "initializeTimeoutSeconds": 5,
+      "initializeElapsedMs": 3,
+      "initializeSucceeded": true,
+      "protocolCompatible": false,
+      "supportedProtocolVersion": 1,
+      "error": null,
+      "stderrSanitized": "",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": false,
+        "waited": true,
+        "exitCode": 0,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 4,
+      "probe": "mismatch"
+    },
+    {
+      "argv": [
+        "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+        "--fake",
+        "missing-capability"
+      ],
+      "environmentChanges": {},
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-s6snv0",
+      "pid": 51448,
+      "initializeTimeoutSeconds": 5,
+      "initializeElapsedMs": 3,
+      "initializeSucceeded": true,
+      "protocolCompatible": true,
+      "supportedProtocolVersion": 1,
+      "error": null,
+      "stderrSanitized": "",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": false,
+        "waited": true,
+        "exitCode": 0,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 4,
+      "probe": "missing-capability"
+    },
+    {
+      "argv": [
+        "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\.trellis\\tasks\\09-26-cb5-002-managed-pipe-official-acp-sdk-initialize-probe\\harness\\target\\debug\\cb5-002-initialize-probe.exe",
+        "--fake",
+        "hang"
+      ],
+      "environmentChanges": {},
+      "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-OrjJP3",
+      "pid": 2676,
+      "initializeTimeoutSeconds": 1,
+      "initializeElapsedMs": 1013,
+      "initializeSucceeded": false,
+      "protocolCompatible": false,
+      "supportedProtocolVersion": 1,
+      "error": "INITIALIZE_TIMEOUT",
+      "stderrSanitized": "",
+      "cleanup": {
+        "streamsClosed": true,
+        "terminated": true,
+        "waited": true,
+        "exitCode": 1,
+        "directChildReaped": true,
+        "stderrJoined": true,
+        "succeeded": true,
+        "errors": [],
+        "stderrSanitized": "",
+        "windowsJobAtCreationProven": false
+      },
+      "totalElapsedMs": 3027,
+      "probe": "hang"
+    }
+  ],
+  "temporaryCwdRemoved": {
+    "real-cli": true,
+    "eof-before": true,
+    "eof-during": true,
+    "mismatch": true,
+    "missing-capability": true,
+    "hang": true
+  },
+  "sdkNeverReceivesChild": true,
+  "windowsJobAtCreationProven": false,
+  "realObservedDescendantCleanup": {
+    "artifact": "real-cli-process-tree.json",
+    "observedDescendantCount": 12,
+    "allObservedDescendantsExited": true,
+    "observerErrors": [],
+    "limitation": "sampling is not atomic containment and cannot prove no unobserved short-lived descendant ever existed"
+  },
+  "proxyPortClosed": true,
+  "historicalIdeFailures": "history/ide-attempt-superseded; evidence/real-default.json and real-auto.json unchanged; superseded, not current gate"
+}

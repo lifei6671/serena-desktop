@@ -1,0 +1,21 @@
+{
+  "sdk": "agent-client-protocol=2.2.0",
+  "schema": "agent-client-protocol-schema=1.9.1",
+  "features": "default-features=false",
+  "metadataAdapter": "Official PromptRequest.meta(Map) -> _meta; no raw JSON extension adapter",
+  "ownership": "Harness Command::spawn holds Child; SDK ByteStreams receives external Tee streams only",
+  "sources": [
+    {
+      "path": "agent-client-protocol-2.2.0/examples/yolo_one_shot_client.rs",
+      "sha256": "fe0a745b8b070496f3684421e6fe9ba5ce394c3f84ecb81c14f973e7bf43a3fa"
+    },
+    {
+      "path": "agent-client-protocol-2.2.0/src/schema/agent_to_client/notifications.rs",
+      "sha256": "f8b7aa5368a40ee7c8e1b58f391f64c865cb3c98237c30f6a60f97735d3aa606"
+    },
+    {
+      "path": "agent-client-protocol-schema-1.9.1/src/v1/agent.rs",
+      "sha256": "4be53f96a87b9074214cc999e76c2bbc487c62fe7b0d8eb9f4002f9b4d6416ad"
+    }
+  ]
+}

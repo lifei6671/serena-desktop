@@ -4,7 +4,22 @@ use crate::agent::{
     telemetry_projector::ExecutionTelemetryProjector,
 };
 use serde_json::{Value, json};
+#[cfg(windows)]
+use std::{
+    os::windows::{
+        io::{AsRawHandle, FromRawHandle, OwnedHandle},
+        process::CommandExt,
+    },
+    time::{Duration, Instant},
+};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
+#[cfg(windows)]
+use windows_sys::Win32::{
+    Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
+    System::Threading::{
+        OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+    },
+};
 
 fn run(future: impl std::future::Future<Output = ()>) {
     tokio::runtime::Runtime::new().unwrap().block_on(future)
@@ -27,6 +42,353 @@ async fn reply(s: &mut BufReader<DuplexStream>, req: &Value, value: Value) {
 }
 fn turn(status: &str) -> Value {
     json!({"id":"TURN","status":status,"items":[],"itemsView":"summary"})
+}
+
+/// Provider 执行 fixture 使用的唯一可执行默认模型 authority。
+fn effective_model_page() -> Value {
+    json!({
+        "data": [{
+            "id": "preset-default",
+            "model": "gpt-effective",
+            "displayName": "GPT Effective",
+            "description": "",
+            "isDefault": true,
+            "hidden": false,
+            "defaultReasoningEffort": "low",
+            "supportedReasoningEfforts": [{"reasoningEffort":"low","description":""},{"reasoningEffort":"high","description":""}],
+        }],
+        "nextCursor": null,
+    })
+}
+
+/// 应答本次 exact Client 的 model/list，并返回下一条业务请求。
+async fn receive_after_model_list(s: &mut BufReader<DuplexStream>) -> Value {
+    let request = recv(s).await;
+    assert_eq!(request["method"], "model/list");
+    reply(s, &request, effective_model_page()).await;
+    recv(s).await
+}
+
+/// Codex 必须从 exact model/list 解析完整的模型并保留未指定 reasoning。
+#[test]
+fn codex_effective_profile_resolves_explicit_and_default_values() {
+    let model =
+        |id: &str, is_default: bool, default_reasoning: Option<&str>| ExecutionModelOption {
+            id: id.into(),
+            name: id.into(),
+            description: None,
+            is_default,
+            hidden: false,
+            reasoning_options: ["low", "high"]
+                .into_iter()
+                .map(|id| crate::agent::provider::ExecutionConfigurationOption {
+                    id: id.into(),
+                    name: id.into(),
+                    description: None,
+                })
+                .collect(),
+            default_reasoning: default_reasoning.map(str::to_owned),
+        };
+    let models = vec![
+        model("gpt-default", true, Some("low")),
+        model("gpt-explicit", false, Some("high")),
+    ];
+    assert_eq!(
+        resolve_codex_effective_profile_models(
+            &models,
+            &ExecutionProfile {
+                model: Some("gpt-explicit".into()),
+                reasoning: Some("high".into()),
+            },
+        )
+        .unwrap(),
+        ExecutionProfile {
+            model: Some("gpt-explicit".into()),
+            reasoning: Some("high".into()),
+        }
+    );
+    assert_eq!(
+        resolve_codex_effective_profile_models(&models, &ExecutionProfile::default()).unwrap(),
+        ExecutionProfile {
+            model: Some("gpt-default".into()),
+            reasoning: None,
+        }
+    );
+    assert_eq!(
+        resolve_codex_effective_profile_models(
+            &models,
+            &ExecutionProfile {
+                model: Some("gpt-explicit".into()),
+                reasoning: None,
+            }
+        )
+        .unwrap(),
+        ExecutionProfile {
+            model: Some("gpt-explicit".into()),
+            reasoning: None
+        }
+    );
+}
+
+/// Codex 对缺失/隐藏模型、非法 reasoning、非唯一默认模型 均 fail closed。
+#[test]
+fn codex_effective_profile_rejects_unproven_values() {
+    let model = |id: &str, is_default: bool, hidden: bool, default_reasoning: Option<&str>| {
+        ExecutionModelOption {
+            id: id.into(),
+            name: id.into(),
+            description: None,
+            is_default,
+            hidden,
+            reasoning_options: vec![crate::agent::provider::ExecutionConfigurationOption {
+                id: "high".into(),
+                name: "High".into(),
+                description: None,
+            }],
+            default_reasoning: default_reasoning.map(str::to_owned),
+        }
+    };
+    let valid = model("gpt-test", true, false, Some("high"));
+    for profile in [
+        ExecutionProfile {
+            model: Some("missing".into()),
+            reasoning: Some("high".into()),
+        },
+        ExecutionProfile {
+            model: Some("gpt-test".into()),
+            reasoning: Some("ultra".into()),
+        },
+    ] {
+        assert_eq!(
+            resolve_codex_effective_profile_models(std::slice::from_ref(&valid), &profile)
+                .unwrap_err(),
+            "EXECUTION_PROFILE_UNAVAILABLE"
+        );
+    }
+    for models in [
+        vec![
+            model("one", true, false, Some("high")),
+            model("two", true, false, Some("high")),
+        ],
+        vec![model("hidden", true, true, Some("high"))],
+    ] {
+        assert_eq!(
+            resolve_codex_effective_profile_models(&models, &ExecutionProfile::default())
+                .unwrap_err(),
+            "EXECUTION_PROFILE_UNAVAILABLE"
+        );
+    }
+}
+
+/// Catalog 必须经过共享平台 wrapper，避免直接绑定 Windows managed::connect 签名。
+#[test]
+fn configuration_catalog_uses_cross_platform_managed_wrapper() {
+    let source = include_str!("../provider.rs");
+    let start = source.find("async fn read_configuration_catalog").unwrap();
+    let end = source[start..]
+        .find("async fn list_codex_models")
+        .map(|offset| start + offset)
+        .unwrap();
+    let catalog = &source[start..end];
+    assert!(catalog.contains("super::connect_managed("));
+    assert!(catalog.contains("self.runtime_pool.clone()"));
+    assert!(!catalog.contains("managed::connect("));
+}
+
+/// 通过真实 Client 聚合分页目录，覆盖跨页 identity/default 与游标收敛约束。
+async fn list_models_from_pages(pages: Vec<Value>) -> Result<Vec<ExecutionModelOption>, ()> {
+    let (wire, server) = tokio::io::duplex(64 * 1024);
+    let (read, write) = tokio::io::split(wire);
+    let client =
+        Client::product_test_transport("catalog-pages".into(), read, write, tokio::io::empty());
+    let fake = tokio::spawn(async move {
+        let mut io = BufReader::new(server);
+        let initialize = recv(&mut io).await;
+        assert_eq!(initialize["method"], "initialize");
+        reply(
+            &mut io,
+            &initialize,
+            json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"}),
+        )
+        .await;
+        assert_eq!(recv(&mut io).await["method"], "initialized");
+        for page in pages {
+            let request = recv(&mut io).await;
+            assert_eq!(request["method"], "model/list");
+            reply(&mut io, &request, page).await;
+        }
+    });
+    client.initialize().await.unwrap();
+    let result = list_codex_models(&client).await;
+    fake.await.unwrap();
+    result
+}
+
+/// Provider 层必须完整聚合分页，并对重复游标、slug 与默认模型 fail-closed。
+#[test]
+fn list_codex_models_aggregates_pages_and_rejects_invalid_cross_page_state() {
+    run(async {
+        let model = |id: &str, slug: &str, is_default: bool| {
+            json!({
+                "id": id,
+                "model": slug,
+                "displayName": slug,
+                "description": "",
+                "isDefault": is_default,
+                "hidden": false,
+                "defaultReasoningEffort": "high",
+                "supportedReasoningEfforts": [{"reasoningEffort":"high","description":""}],
+            })
+        };
+        let models = list_models_from_pages(vec![
+            json!({"data":[model("preset-a", "wire-a", true)],"nextCursor":"next"}),
+            json!({"data":[model("preset-b", "wire-b", false)],"nextCursor":null}),
+        ])
+        .await
+        .unwrap();
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["wire-a", "wire-b"]
+        );
+
+        for pages in [
+            vec![
+                json!({"data":[model("preset-a", "wire-a", true)],"nextCursor":"repeat"}),
+                json!({"data":[model("preset-b", "wire-b", false)],"nextCursor":"repeat"}),
+            ],
+            vec![
+                json!({"data":[model("preset-a", "wire-a", true)],"nextCursor":"next"}),
+                json!({"data":[model("preset-b", "wire-a", false)],"nextCursor":null}),
+            ],
+            vec![
+                json!({"data":[model("preset-a", "wire-a", true)],"nextCursor":"next"}),
+                json!({"data":[model("preset-b", "wire-b", true)],"nextCursor":null}),
+            ],
+        ] {
+            assert!(list_models_from_pages(pages).await.is_err());
+        }
+    });
+}
+
+/// 等待 fake app-server 写出 PID，避免用固定 sleep 推断 Runtime 已启动。
+#[cfg(windows)]
+async fn wait_catalog_pid(path: &std::path::Path) -> OwnedHandle {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !path.exists() {
+        assert!(Instant::now() < deadline, "{}", path.display());
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let pid = std::fs::read_to_string(path)
+        .unwrap()
+        .parse::<u32>()
+        .unwrap();
+    // SAFETY: PID 来自本测试刚启动的隔离 fake；OwnedHandle 接管成功返回的 handle。
+    let raw = unsafe {
+        OpenProcess(
+            PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        )
+    };
+    assert!(!raw.is_null());
+    unsafe { OwnedHandle::from_raw_handle(raw) }
+}
+
+/// Provider catalog 必须走真实 compatibility/managed Runtime，并在成功和错误后收敛进程与证据。
+#[cfg(windows)]
+#[tokio::test]
+async fn configuration_catalog_managed_runtime_converges_without_execution_or_claim() {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("codex-catalog-child.exe");
+    let output = std::process::Command::new("rustc")
+        .args(["--edition=2024", "--crate-name", "codex_catalog_child"])
+        .arg(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/codex_catalog_child.rs"),
+        )
+        .arg("-o")
+        .arg(&executable)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::write(
+        directory.path().join("schema.json"),
+        crate::agent::codex::compatibility::compatible_schema_for_test().to_string(),
+    )
+    .unwrap();
+
+    for error in [false, true] {
+        let workspace = directory.path().join(format!("workspace-{error}"));
+        std::fs::create_dir_all(&workspace).unwrap();
+        if error {
+            std::fs::write(workspace.join("catalog-error"), "1").unwrap();
+        }
+        let data = directory.path().join(format!("data-{error}"));
+        let store = StateStore::open(data.clone()).await.unwrap();
+        let provider = Arc::new(CodexProvider {
+            store,
+            executable: executable.clone(),
+            backend_error: None,
+            owner: "catalog-test-host".into(),
+            runtime_pool: Default::default(),
+        });
+        let task = tokio::spawn({
+            let provider = provider.clone();
+            let root = workspace.to_string_lossy().into_owned();
+            async move {
+                provider
+                    .configuration_catalog(ProviderConfigurationCatalogContext { cwd: root })
+                    .await
+            }
+        });
+        let process = wait_catalog_pid(&workspace.join("peer-pid.txt")).await;
+        assert_eq!(
+            unsafe { WaitForSingleObject(process.as_raw_handle(), 0) },
+            WAIT_TIMEOUT
+        );
+        std::fs::write(workspace.join("release-model-list"), "1").unwrap();
+        let result = task.await.unwrap();
+        if error {
+            assert_eq!(
+                result.unwrap_err().code,
+                ProviderErrorCode::AgentProviderContractError
+            );
+        } else {
+            let catalog = result.unwrap();
+            assert_eq!(catalog.models[0].id, "visible-wire");
+            assert_eq!(catalog.default_model.as_deref(), Some("visible-wire"));
+        }
+        assert_eq!(
+            unsafe { WaitForSingleObject(process.as_raw_handle(), 5000) },
+            WAIT_OBJECT_0
+        );
+        let connection = rusqlite::Connection::open(data.join("agent-state.db")).unwrap();
+        for table in ["executions", "workspace_claims"] {
+            let count: i64 = connection
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "{table}");
+        }
+        let runtime: (String, String) = connection
+            .query_row(
+                "SELECT state, termination_evidence_state FROM runtime_instances",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(runtime, ("terminated".into(), "complete".into()));
+    }
 }
 
 // Hold only turn/start flush until the fake server has persisted terminal evidence.
@@ -69,7 +431,13 @@ impl tokio::io::AsyncWrite for DelayedTurnFlush {
     }
 }
 
+/// 现有执行场景默认不指定推理强度。
 async fn slice_case(case: &'static str) {
+    slice_case_with_reasoning(case, None).await;
+}
+
+/// 共用 Fresh/Continue RPC 场景验证推理强度与数据库事实。
+async fn slice_case_with_reasoning(case: &'static str, reasoning: Option<&'static str>) {
     let failed = case.starts_with("failed");
     let late_deadline = case.ends_with("late-deadline");
     let invalid_ack = matches!(
@@ -162,6 +530,18 @@ async fn slice_case(case: &'static str) {
         created.execution_id
     );
     let connection = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
+    // 冻结本场景的请求配置，Continue 的产品默认配置也由此显式指定。
+    if reasoning.is_some() {
+        connection
+            .execute(
+                "UPDATE executions SET execution_profile_json=?1 WHERE id=?2",
+                rusqlite::params![
+                    json!({"reasoning": reasoning}).to_string(),
+                    created.execution_id
+                ],
+            )
+            .unwrap();
+    }
     if case != "resume" {
         connection.execute("INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at) VALUES ('R1','fixture','running',1,1)",[]).unwrap();
     }
@@ -196,7 +576,7 @@ async fn slice_case(case: &'static str) {
         }
         reply(&mut s,&req,json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"})).await;
         assert_eq!(recv(&mut s).await["method"], "initialized");
-        let req = recv(&mut s).await;
+        let req = receive_after_model_list(&mut s).await;
         if case == "continue-old-turn" {
             assert_eq!(req["method"], "thread/resume");
             assert_eq!(
@@ -210,6 +590,9 @@ async fn slice_case(case: &'static str) {
             assert_eq!(req["params"]["sandbox"], "read-only");
             assert_eq!(req["params"]["cwd"], request2.canonical_workspace_root);
             assert_eq!(req["params"]["approvalPolicy"], "never");
+            assert_eq!(req["params"]["model"], "gpt-effective");
+            assert!(req["params"].get("effort").is_none());
+            assert!(req["params"].get("reasoning").is_none());
             assert_eq!(req["params"]["dynamicTools"][0]["type"], "namespace");
             assert_eq!(req["params"]["dynamicTools"][0]["name"], "codex_app");
             assert_eq!(req["params"]["dynamicTools"].as_array().unwrap().len(), 1);
@@ -229,6 +612,18 @@ async fn slice_case(case: &'static str) {
         assert_eq!(row.runtime_instance_id.as_deref(), Some("R1"));
         assert_eq!(row.dispatch_state, "dispatching");
         assert_eq!(row.status, "dispatch_pending");
+        assert_eq!(
+            row.effective_execution_profile_json
+                .as_deref()
+                .map(serde_json::from_str::<ExecutionProfile>)
+                .transpose()
+                .unwrap(),
+            (case != "continue-old-turn").then_some(ExecutionProfile {
+                model: Some("gpt-effective".into()),
+                reasoning: reasoning.map(str::to_owned),
+            }),
+            "fresh 必须先于 thread/start 写入，continue 在 resume 校验完成前保持 NULL",
+        );
         if case == "resume" {
             assert!(
                 AgentTaskManager::new(fake_store.clone(), "unused".into())
@@ -247,6 +642,47 @@ async fn slice_case(case: &'static str) {
         assert_eq!(req["method"], "turn/start");
         assert_eq!(req["params"]["threadId"], "THREAD");
         assert_eq!(req["params"]["approvalPolicy"], "never");
+        assert_eq!(req["params"]["model"], "gpt-effective");
+        assert_eq!(
+            req["params"].get("effort"),
+            reasoning.map(|value| json!(value)).as_ref()
+        );
+        assert!(req["params"].get("reasoning").is_none());
+        assert_eq!(
+            fake_store
+                .execution(id.clone())
+                .await
+                .unwrap()
+                .unwrap()
+                .effective_execution_profile_json
+                .as_deref()
+                .map(serde_json::from_str::<ExecutionProfile>)
+                .transpose()
+                .unwrap(),
+            Some(ExecutionProfile {
+                model: Some("gpt-effective".into()),
+                reasoning: reasoning.map(str::to_owned),
+            }),
+            "effective profile 必须先于 exact turn/start 可观察",
+        );
+        // 直接检查数据库 JSON，未指定必须是 null，不能固化目录的 low。
+        let database = rusqlite::Connection::open(
+            std::path::Path::new(&request2.canonical_workspace_root).join("agent-state.db"),
+        )
+        .unwrap();
+        let stored: String = database
+            .query_row(
+                "SELECT effective_execution_profile_json FROM executions WHERE id=?1",
+                [&id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&stored)
+                .unwrap()
+                .get("reasoning"),
+            Some(&json!(reasoning))
+        );
         assert_eq!(
             req["params"]["sandboxPolicy"],
             if case == "continue-old-turn" {
@@ -942,25 +1378,27 @@ async fn slice_case(case: &'static str) {
                             .unwrap()
                             .is_some()
                     );
-                    let duplicate = if case == "continue-old-turn" {
-                        fake_store
-                            .product_create_continuation(
-                                "UNUSED".into(),
-                                "SOURCE".into(),
-                                request2.request_key.clone(),
-                                request2.prompt.clone(),
-                                now(),
-                            )
-                            .await
-                            .unwrap()
-                    } else {
-                        AgentTaskManager::new(fake_store.clone(), "not-a-binary.exe".into())
-                            .execute(request2.clone())
-                            .await
-                            .unwrap()
-                    };
-                    assert!(!duplicate.created);
-                    assert_eq!(duplicate.execution_id, id);
+                    if reasoning.is_none() {
+                        let duplicate = if case == "continue-old-turn" {
+                            fake_store
+                                .product_create_continuation(
+                                    "UNUSED".into(),
+                                    "SOURCE".into(),
+                                    request2.request_key.clone(),
+                                    request2.prompt.clone(),
+                                    now(),
+                                )
+                                .await
+                                .unwrap()
+                        } else {
+                            AgentTaskManager::new(fake_store.clone(), "not-a-binary.exe".into())
+                                .execute(request2.clone())
+                                .await
+                                .unwrap()
+                        };
+                        assert!(!duplicate.created);
+                        assert_eq!(duplicate.execution_id, id);
+                    }
                     reply(&mut s,&req,json!({"data":if round==0 {json!([{"id":"still-active"}])}else{json!([])},"nextCursor":null})).await;
                 }
             }
@@ -1153,22 +1591,24 @@ async fn slice_case(case: &'static str) {
     assert_eq!(row.thread_id.as_deref(), Some("THREAD"));
     assert_eq!(row.turn_id.as_deref(), Some("TURN"));
     assert_eq!(row.runtime_instance_id.as_deref(), Some("R1"));
-    let duplicate = if case == "continue-old-turn" {
-        store
-            .product_create_continuation(
-                "UNUSED-FINAL".into(),
-                "SOURCE".into(),
-                request.request_key.clone(),
-                request.prompt.clone(),
-                now(),
-            )
-            .await
-            .unwrap()
-    } else {
-        manager.execute(request).await.unwrap()
-    };
-    assert!(!duplicate.created);
-    assert_eq!(duplicate.execution_id, created.execution_id);
+    if reasoning.is_none() {
+        let duplicate = if case == "continue-old-turn" {
+            store
+                .product_create_continuation(
+                    "UNUSED-FINAL".into(),
+                    "SOURCE".into(),
+                    request.request_key.clone(),
+                    request.prompt.clone(),
+                    now(),
+                )
+                .await
+                .unwrap()
+        } else {
+            manager.execute(request).await.unwrap()
+        };
+        assert!(!duplicate.created);
+        assert_eq!(duplicate.execution_id, created.execution_id);
+    }
     if case == "resume" {
         assert!(
             manager
@@ -1651,7 +2091,7 @@ fn complete_fixture_runtime(database: &rusqlite::Connection, runtime_id: &str) {
         .execute(
             "UPDATE runtime_instances SET state='terminated',runtime_platform='macos',
              containment_type='macos_process_group',process_identity_scheme='darwin_proc_bsd_start_v1',
-             codex_pid=91,codex_process_start_token='darwin_proc_bsd_start_v1:2:3',
+             process_id=91,process_start_token='darwin_proc_bsd_start_v1:2:3',
              containment_process_group_id=91,containment_session_id=91,containment_verified_at=9,
              termination_evidence_state='complete',termination_evidence_type='macos_live_process_group_empty',
              termination_evidence_at=10 WHERE id=?1",
@@ -1699,7 +2139,7 @@ async fn live_failure_case(case: &'static str, evidence: bool, bind_turn: bool) 
         assert_eq!(req["method"], "initialize");
         reply(&mut s,&req,json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"})).await;
         assert_eq!(recv(&mut s).await["method"], "initialized");
-        let req = recv(&mut s).await;
+        let req = receive_after_model_list(&mut s).await;
         assert_eq!(req["method"], "thread/start");
         if !bind_turn {
             reply(
@@ -1984,6 +2424,132 @@ fn continued_thread_rejects_late_old_turn_activity_and_permission_hints() {
     run(slice_case("continue-old-turn"));
 }
 
+/// continue 的 resume/history authority 未通过时不得提前写入 effective profile。
+#[test]
+fn continuation_history_validation_failure_keeps_effective_profile_null() {
+    run(async {
+        let temp = tempfile::tempdir().unwrap();
+        let store = StateStore::open(temp.path().into()).await.unwrap();
+        let request = input(temp.path());
+        let source = store
+            .product_create_fresh(
+                "SOURCE-INVALID-HISTORY".into(),
+                request.agent_id.clone(),
+                "source-invalid-history-key".into(),
+                "source".into(),
+                request.workspace_id.clone(),
+                Some(
+                    crate::agent::store::transactions::product::WorkspaceSnapshot {
+                        id: request.workspace_id.clone(),
+                        root: request.canonical_workspace_root.clone(),
+                        generation: 1,
+                    },
+                ),
+                1,
+            )
+            .await
+            .unwrap();
+        let database = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
+        database
+            .execute(
+                "INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at)
+                 VALUES ('R0-INVALID-HISTORY','fixture','terminated',1,1)",
+                [],
+            )
+            .unwrap();
+        let final_result = json!({
+            "historyMode":"paginated",
+            "executionId":source.execution_id,
+            "threadId":"THREAD-INVALID-HISTORY",
+            "turnId":"PRIOR-TURN",
+            "sourceRuntimeId":"R0-INVALID-HISTORY"
+        })
+        .to_string();
+        database
+            .execute(
+                "UPDATE executions SET status='completed',dispatch_state='dispatched',
+                 runtime_instance_id='R0-INVALID-HISTORY',thread_id='THREAD-INVALID-HISTORY',
+                 turn_id='PRIOR-TURN',provider_terminal_status='completed',
+                 release_evidence_state='complete',release_evidence_kind='same_runtime_cleanup',
+                 release_evidence_json='{}',result_completeness='complete',final_result_json=?1,
+                 completed_at=2 WHERE id=?2",
+                rusqlite::params![final_result, source.execution_id],
+            )
+            .unwrap();
+        database
+            .execute(
+                "DELETE FROM workspace_claims WHERE execution_id=?1",
+                [&source.execution_id],
+            )
+            .unwrap();
+        let child = store
+            .product_create_continuation(
+                "CONTINUE-INVALID-HISTORY".into(),
+                source.execution_id,
+                request.request_key,
+                request.prompt,
+                3,
+            )
+            .await
+            .unwrap();
+        database
+            .execute(
+                "INSERT INTO runtime_instances(id,owner_host_instance_id,state,created_at,updated_at)
+                 VALUES ('R1-INVALID-HISTORY','fixture','running',3,3)",
+                [],
+            )
+            .unwrap();
+
+        let (wire, server) = tokio::io::duplex(64 * 1024);
+        let (read, write) = tokio::io::split(wire);
+        let client =
+            Client::transport("R1-INVALID-HISTORY".into(), read, write, tokio::io::empty());
+        let fake = tokio::spawn(async move {
+            let mut server = BufReader::new(server);
+            let initialize = recv(&mut server).await;
+            assert_eq!(initialize["method"], "initialize");
+            reply(
+                &mut server,
+                &initialize,
+                json!({"userAgent":"fake","codexHome":"isolated","platformFamily":"windows","platformOs":"windows"}),
+            )
+            .await;
+            assert_eq!(recv(&mut server).await["method"], "initialized");
+            let resume = receive_after_model_list(&mut server).await;
+            assert_eq!(resume["method"], "thread/resume");
+            reply(
+                &mut server,
+                &resume,
+                json!({"thread":{"id":"THREAD-INVALID-HISTORY","turns":[],"historyMode":"legacy"}}),
+            )
+            .await;
+        });
+        client.initialize().await.unwrap();
+        let provider = CodexProvider {
+            store: store.clone(),
+            executable: "unused.exe".into(),
+            backend_error: None,
+            owner: "fixture".into(),
+            runtime_pool: Default::default(),
+        };
+        let error = provider
+            .run_client(&child.execution_id, &client)
+            .await
+            .unwrap_err();
+        assert!(error.contains("continuation requires paginated history"));
+        assert!(
+            store
+                .execution(child.execution_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .effective_execution_profile_json
+                .is_none()
+        );
+        fake.await.unwrap();
+    });
+}
+
 #[test]
 fn child_lifecycle_before_discovery_does_not_bind_root_turn() {
     run(slice_case("unowned-child-first"));
@@ -2161,5 +2727,14 @@ fn real_fixed_root_title_smoke() {
             row.thread_id.unwrap(),
             row.turn_id.unwrap()
         );
+    });
+}
+
+/// Fresh 和 Continue 的显式 high 必须覆盖目录 low，并进入 wire 和数据库。
+#[test]
+fn fresh_and_continue_explicit_reasoning_wire_and_persistence() {
+    run(async {
+        slice_case_with_reasoning("success", Some("high")).await;
+        slice_case_with_reasoning("continue-old-turn", Some("high")).await;
     });
 }

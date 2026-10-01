@@ -1,0 +1,18 @@
+[
+  {
+    "scenario": "read",
+    "promptRpcId": null,
+    "promptSequence": null,
+    "terminalSequence": null,
+    "updateCount": 0,
+    "updates": []
+  },
+  {
+    "scenario": "write",
+    "promptRpcId": null,
+    "promptSequence": null,
+    "terminalSequence": null,
+    "updateCount": 0,
+    "updates": []
+  }
+]

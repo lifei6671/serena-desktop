@@ -1,3 +1,4 @@
+use rmcp::schemars;
 use std::{
     collections::{HashMap, hash_map::Entry},
     sync::Arc,
@@ -8,18 +9,20 @@ use super::{
     port::AgentProvider,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, rmcp::schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum ProviderHealth {
     Available,
     Unavailable,
 }
 
+#[derive(Clone)]
 struct RegistryEntry {
     provider: Arc<dyn AgentProvider>,
     health: ProviderHealth,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct ProviderRegistry {
     entries: HashMap<ProviderId, RegistryEntry>,
 }
@@ -50,7 +53,7 @@ impl ProviderRegistry {
         let entry = self.entries.get(id).ok_or(ProviderError {
             code: ProviderErrorCode::AgentProviderNotFound,
         })?;
-        if entry.health == ProviderHealth::Unavailable {
+        if self.health(id)? == ProviderHealth::Unavailable {
             return Err(ProviderError {
                 code: ProviderErrorCode::AgentProviderUnavailable,
             });
@@ -80,6 +83,18 @@ impl ProviderRegistry {
         Ok(())
     }
 
+    /// 只替换已注册的 admission adapter，旧调用持有的 Arc 不受影响。
+    pub(crate) fn replace_registered(
+        &mut self,
+        provider: Arc<dyn AgentProvider>,
+        health: ProviderHealth,
+    ) -> Result<(), ProviderError> {
+        let id = provider.descriptor().id;
+        self.get_registered(&id)?;
+        self.entries.insert(id, RegistryEntry { provider, health });
+        Ok(())
+    }
+
     pub fn list_descriptors(&self) -> Vec<ProviderDescriptor> {
         let mut descriptors: Vec<_> = self
             .entries
@@ -98,9 +113,31 @@ impl ProviderRegistry {
     }
 
     pub fn health(&self, id: &ProviderId) -> Result<ProviderHealth, ProviderError> {
+        self.admission_status(id).map(|(health, _)| health)
+    }
+
+    /// 返回 Provider 自己声明的确定性 admission 诊断，不推断 provider 身份或错误文本。
+    pub fn diagnostic_code(&self, id: &ProviderId) -> Result<Option<String>, ProviderError> {
+        self.admission_status(id).map(|(_, diagnostic)| diagnostic)
+    }
+
+    /// 单次读取 provider diagnostic，形成内部一致的 effective health 与诊断快照。
+    pub(crate) fn admission_status(
+        &self,
+        id: &ProviderId,
+    ) -> Result<(ProviderHealth, Option<String>), ProviderError> {
         self.entries
             .get(id)
-            .map(|entry| entry.health)
+            .map(|entry| {
+                let diagnostic = entry.provider.admission_diagnostic();
+                // admission diagnostic 只覆盖新执行的有效健康；stored discovery health 保持不变。
+                let health = if diagnostic.is_some() {
+                    ProviderHealth::Unavailable
+                } else {
+                    entry.health
+                };
+                (health, diagnostic)
+            })
             .ok_or(ProviderError {
                 code: ProviderErrorCode::AgentProviderNotFound,
             })

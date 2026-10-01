@@ -1,0 +1,31 @@
+ M src-tauri/src/agent/activity.rs
+ M src-tauri/src/agent/codebuddy/client.rs
+ M src-tauri/src/agent/codebuddy/client_tests.rs
+ M src-tauri/src/agent/codebuddy/execute/tests.rs
+ M src-tauri/src/agent/codebuddy/prompt.rs
+ M src-tauri/src/agent/codebuddy/prompt/activity_tests.rs
+ M src-tauri/src/agent/codebuddy/prompt/tests.rs
+ M src-tauri/src/agent/codebuddy/protocol.rs
+ M src-tauri/src/agent/product.rs
+ M src-tauri/src/agent/product/observe_tests.rs
+ M src-tauri/src/agent/product/tests.rs
+ M src-tauri/src/agent/store/transactions.rs
+ M src-tauri/tests/fixtures/codebuddy_execute_child.rs
+ M src/AgentPanel.test.mjs
+ M src/agentPresentation.ts
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/check.jsonl
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/contract-observations.md
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/design.md
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/freeze-round0.json
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/freeze.json
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/implement.jsonl
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/implement.md
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/implementation-verification.md
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/prd.md
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/review-context.md
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/review-round0.md
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/scope-status.txt
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/task.json
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/validation-results.jsonl
+?? .trellis/tasks/09-28-cb8-002-codebuddy-permission-deny/verification.md
+?? src-tauri/src/agent/codebuddy/permission.rs

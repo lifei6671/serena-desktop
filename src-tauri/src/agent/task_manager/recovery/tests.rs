@@ -44,6 +44,88 @@ async fn retained(manager: &AgentTaskManager, id: &str) -> ExecutionRecord {
     row
 }
 
+/// 启动恢复在触碰 Codex Runtime 前拒绝跨 Provider 绑定，Claim 持久保留。
+#[test]
+fn startup_recovery_rejects_runtime_provider_mismatch_before_runtime_recovery() {
+    run(async {
+        let temp = tempfile::tempdir().unwrap();
+        let (manager, id, db) = fixture(temp.path(), "running", "dispatched").await;
+        original(&db, &id, false);
+        db.execute(
+            "UPDATE runtime_instances SET provider='codebuddy' WHERE id='R1'",
+            [],
+        )
+        .unwrap();
+        let report = manager.recover_startup().await.unwrap();
+        assert!(matches!(
+            report.as_slice(),
+            [RecoveryOutcome::Inconsistent {
+                code: "RUNTIME_PROVIDER_MISMATCH",
+                ..
+            }]
+        ));
+        let row = retained(&manager, &id).await;
+        assert_eq!(row.status, "unknown");
+        assert_eq!(row.provider_terminal_evidence_runtime_instance_id, None);
+        assert_eq!(
+            db.query_row(
+                "SELECT runtime_termination_evidence_at FROM executions WHERE id=?1",
+                [&id],
+                |r| r.get::<_, Option<i64>>(0)
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT state FROM runtime_instances WHERE id='R1'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            "running"
+        );
+    });
+}
+
+/// 独立 reconciliation 入口遇到完整但跨 Provider 的终止证据仍保留 Claim。
+#[test]
+fn direct_reconciliation_rejects_runtime_provider_mismatch() {
+    run(async {
+        let temp = tempfile::tempdir().unwrap();
+        let (manager, id, db) = fixture(temp.path(), "reconciling", "uncertain").await;
+        original(&db, &id, true);
+        db.execute(
+            "UPDATE runtime_instances SET provider='codebuddy' WHERE id='R1'",
+            [],
+        )
+        .unwrap();
+        let outcome = reconcile_execution_after_runtime_end(
+            &manager.store,
+            &manager.executable,
+            &manager.owner,
+            &manager.runtime_pool,
+            None,
+            &id,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(outcome, RecoveryOutcome::Unknown { .. }));
+        let row = retained(&manager, &id).await;
+        assert_eq!(row.status, "unknown");
+        assert_eq!(
+            db.query_row(
+                "SELECT runtime_termination_evidence_at FROM executions WHERE id=?1",
+                [&id],
+                |r| r.get::<_, Option<i64>>(0)
+            )
+            .unwrap(),
+            None
+        );
+        assert_eq!(row.release_evidence_state, "incomplete");
+    });
+}
+
 async fn backend_recovery_result(
     error: &str,
 ) -> Result<Vec<RecoveryOutcome>, StartupRecoveryFailure> {

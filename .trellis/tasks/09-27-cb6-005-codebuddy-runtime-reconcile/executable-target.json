@@ -1,0 +1,77 @@
+{
+  "baseline": "0d96524599189b541bbcb4fc9a961ee2456f8a19",
+  "files": [
+    {
+      "path": "src-tauri/src/agent/codebuddy/client_tests.rs",
+      "sha256": "EEB03DCB0E669C7BE89024D0B12B9857DBA1F2C6777BB3D7A7FD6BADA7A8A2B1"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/mod.rs",
+      "sha256": "8A017D184F6A31D00F39A6E17BDAF6E1ED7A9A50CF2FE822BB37E5DABC7E445C"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/provider.rs",
+      "sha256": "6882387B7DA77C4093CBA80D52D74A2EA7779D22AC7398C0277DAE693CA4ADBF"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/provider/tests.rs",
+      "sha256": "D57E45A02AE411A6FF830A0274860894116DAA6558E83BB35FEB2CAE022CF7DB"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/recovery_windows.rs",
+      "sha256": "4327E6333805CC1275CC7C82206FEE1C4767084F4A8D3F74C717AA7CE734AEFE"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/recovery.rs",
+      "sha256": "7DBC931DD0E88664BCC1D360AEB0CCBBCAE2594220582AB35E599E3AC300C7AC"
+    },
+    {
+      "path": "src-tauri/src/agent/codebuddy/recovery/tests.rs",
+      "sha256": "E4B0067853E2687BE53B218380D8BB13FE928F33398872F326439B43673BD973"
+    },
+    {
+      "path": "src-tauri/src/agent/codex/macos_recovery.rs",
+      "sha256": "F074AA82134B636D3A001FA1CEF1718F0D8D73191871E3BA2AD36F2F4C0CC66D"
+    },
+    {
+      "path": "src-tauri/src/agent/product/fixtures/provider_catalog_codex.json",
+      "sha256": "0F70B8A3364C36288A5A2434FE5E4A6DB30FCC7BFA6139AA7BB5001E525A14F4"
+    },
+    {
+      "path": "src-tauri/src/agent/product/provider_catalog_tests.rs",
+      "sha256": "02DA55E1413CA069972C21CD173F843594500A97154AAF78DF741B8EBC195E00"
+    },
+    {
+      "path": "src-tauri/src/agent/store.rs",
+      "sha256": "17A65E1213825B99126F7446AFD5C07BD33225F304EB5DE2EA2A6AE916039D8E"
+    },
+    {
+      "path": "src-tauri/src/agent/store/codebuddy_runtime.rs",
+      "sha256": "945F664199DE98E22BB46AAD0745B87AE344865428E1A92F524E5FC9418BC620"
+    },
+    {
+      "path": "src-tauri/src/agent/store/codebuddy.rs",
+      "sha256": "658634F02DBC2B8BD673E03C2C621D1776770BB61D2F85B2FF09C4B1183B87F6"
+    },
+    {
+      "path": "src-tauri/src/agent/store/transactions.rs",
+      "sha256": "A63A90F66E7A829D3EEE5E1325B02C89C26771D30C0AF4AFBD58C27B233D8505"
+    },
+    {
+      "path": "src-tauri/src/agent/store/transactions/tests.rs",
+      "sha256": "EB8132045C478373F6606BE6F0C2AB9FD37A86EFC01D37796AB909F92D652697"
+    },
+    {
+      "path": "src-tauri/src/agent/task_manager.rs",
+      "sha256": "F0A4A197951B5C19FEE286C888D9487CF51D9BE70AE79963034D0BD16A2A5DAE"
+    },
+    {
+      "path": "src-tauri/src/agent/task_manager/recovery.rs",
+      "sha256": "570C7D4CB7C368B180BCC4BA1E8BB5DB812671CDCC175CAA59CD91F76928F62D"
+    },
+    {
+      "path": "src-tauri/tests/fixtures/codebuddy_recovery_child.rs",
+      "sha256": "541DCF7377D71C075B5DA71F6DD24243A15B035B80F4C20688022D56ADE75083"
+    }
+  ]
+}

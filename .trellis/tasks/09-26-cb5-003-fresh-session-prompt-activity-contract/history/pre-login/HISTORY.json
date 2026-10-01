@@ -1,0 +1,66 @@
+{
+  "status": "HISTORICAL_PRE_LOGIN_BLOCKED",
+  "note": "Preserved before user-authorized post-login rerun; not current acceptance evidence",
+  "files": [
+    {
+      "path": "evidence/activity-order.json",
+      "sha256": "2a6ada3dfee028fc1bb25d9e45d8d2c0ea96ae59fb74f274caeaa51815341d77"
+    },
+    {
+      "path": "evidence/cargo-fmt.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "evidence/cargo-test.log",
+      "sha256": "271500615abd1ad667242118beb26404088aabc695b30f6c67f119a93d5fda73"
+    },
+    {
+      "path": "evidence/conversation-request-id.json",
+      "sha256": "dab04f9299a6fc309ff6a2f98d3630cbd4e71855ab7a2e5b8af89f33b6368a61"
+    },
+    {
+      "path": "evidence/fresh-session.jsonl",
+      "sha256": "0b9a36360ef1acefdbb7a9656b13fc695d838492a8c5b7f2a0990f12f5be74fe"
+    },
+    {
+      "path": "evidence/isolated-write-result.json",
+      "sha256": "69e1d72dcb5b480e230aebb7a846b566cef8f25b42727628e7715fe836e28203"
+    },
+    {
+      "path": "evidence/process-evidence.json",
+      "sha256": "87a7807dadaaae51b4ce6314b3f92452dee1f0a592d9f01092539afd46a8884d"
+    },
+    {
+      "path": "evidence/read-only-result.json",
+      "sha256": "1dc41a675731d262b3cc6644e1b7acd8ae7501eea9bacc256906d3436be7fd88"
+    },
+    {
+      "path": "evidence/real-run.log",
+      "sha256": "bc458351477fab17801ea3e8f303167f6c73b00371a2216f6ad83c17ac727cbe"
+    },
+    {
+      "path": "evidence/scope-verification.json",
+      "sha256": "ad8f13e5d5b857a077f26a4b8969c8bcb4f9f31b8498664329f05e2453a8fa9a"
+    },
+    {
+      "path": "evidence/sdk-details.json",
+      "sha256": "7a477ee86a74a4c750463bd18d1a7196b238d26a4083d48f15122717bce52e29"
+    },
+    {
+      "path": "verification.md",
+      "sha256": "efa89d86abb90b7fe32623eae47e7fb6d52a260e29fd10a2edbdf873ca4eb88f"
+    },
+    {
+      "path": "delivery-review.md",
+      "sha256": "2284a13c55155599fcb39e3445250687bdb08007d59c10e0a46467c83f846479"
+    },
+    {
+      "path": "review-target.json",
+      "sha256": "3c7ba3b8da19766f0aa48bdd55202430fefcab0766b59630aa979f8349888df6"
+    },
+    {
+      "path": "review-freshness.json",
+      "sha256": "8f7cb710b18497832f8057808c0e0388cc91caf59e0e71c00fd699c2035f9979"
+    }
+  ]
+}

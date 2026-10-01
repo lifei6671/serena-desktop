@@ -5,10 +5,12 @@ use super::{
 };
 use crate::agent::{
     coordinator::{WorkspaceExecutionCoordinator, now},
+    execution::ExecutionProfile,
     execution::state::{DispatchState, Status, Transition},
     provider::{
-        ProviderCancelContext, ProviderCapabilities, ProviderDescriptor, ProviderError,
-        ProviderErrorCode, ProviderExecutionContext, ProviderId, ProviderOutcome,
+        ExecutionConfigurationCatalog, ExecutionModelOption, ProviderCancelContext,
+        ProviderCapabilities, ProviderConfigurationCatalogContext, ProviderDescriptor,
+        ProviderError, ProviderErrorCode, ProviderExecutionContext, ProviderId, ProviderOutcome,
         ProviderResultCompleteness, ProviderRunResult, ProviderStartupContext,
         port::{
             AgentEventSink, AgentProvider, ProviderAcceptanceSink, ProviderContinuationContext,
@@ -19,7 +21,7 @@ use crate::agent::{
     },
     store::{ExecutionRecord, StateStore},
 };
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashSet, path::PathBuf, sync::Arc, time::Duration};
 
 #[cfg(test)]
 use crate::agent::{
@@ -33,6 +35,160 @@ pub(crate) struct CodexProvider {
     pub(crate) backend_error: Option<String>,
     pub owner: String,
     pub runtime_pool: std::sync::Arc<super::pool::CodexRuntimePool>,
+}
+
+impl CodexProvider {
+    /// 用隔离 managed app-server 分页读取 model/list，并在返回前收敛 Job。
+    async fn read_configuration_catalog(
+        &self,
+        context: ProviderConfigurationCatalogContext,
+    ) -> Result<ExecutionConfigurationCatalog, ProviderError> {
+        let executable = if self.executable.as_os_str().is_empty() {
+            let probe_context = crate::agent::task_manager::ProbeContext::from_existing(
+                self.store.clone(),
+                self.owner.clone(),
+                self.runtime_pool.clone(),
+            );
+            super::discover(probe_context)
+                .await
+                .map_err(|_| ProviderError {
+                    code: ProviderErrorCode::AgentProviderUnavailable,
+                })?
+        } else {
+            self.executable.clone()
+        };
+        let runtime_id = crate::agent::task_manager::AgentTaskManager::id("catalog-runtime");
+        let managed = super::connect_managed(
+            self.store.clone(),
+            self.owner.clone(),
+            self.runtime_pool.clone(),
+            runtime_id,
+            executable,
+            PathBuf::from(context.cwd),
+            None,
+        )
+        .await
+        .map_err(codex_catalog_failure)?;
+        let result = async {
+            let models = list_codex_models(&managed.client)
+                .await
+                .map_err(|_| ProviderError {
+                    code: ProviderErrorCode::AgentProviderContractError,
+                })?;
+            let defaults: Vec<_> = models
+                .iter()
+                .filter(|model| model.is_default && !model.hidden)
+                .map(|model| model.id.clone())
+                .collect();
+            Ok(ExecutionConfigurationCatalog {
+                provider_id: ProviderId::new("codex".into()).expect("static provider id is valid"),
+                models,
+                current_model: None,
+                default_model: defaults.into_iter().next(),
+                reasoning_options: Vec::new(),
+                current_reasoning: None,
+                default_reasoning: None,
+            })
+        }
+        .await;
+        managed.shutdown().await.map_err(codex_catalog_failure)?;
+        result
+    }
+}
+
+/// 在同一个受管 Client 内读取完整模型目录，并拒绝重复身份或循环游标。
+async fn list_codex_models(client: &Client) -> Result<Vec<ExecutionModelOption>, ()> {
+    let mut models = Vec::new();
+    let mut ids = HashSet::new();
+    let mut cursors = HashSet::new();
+    let mut cursor = None;
+    for _ in 0..100 {
+        let page = client.model_list(cursor.as_deref()).await.map_err(|_| ())?;
+        for model in page.models {
+            if !ids.insert(model.id.clone()) {
+                return Err(());
+            }
+            models.push(model);
+        }
+        match page.next_cursor {
+            Some(next) if cursors.insert(next.clone()) => cursor = Some(next),
+            Some(_) => return Err(()),
+            None => {
+                if models
+                    .iter()
+                    .filter(|model| model.is_default && !model.hidden)
+                    .count()
+                    > 1
+                {
+                    return Err(());
+                }
+                return Ok(models);
+            }
+        }
+    }
+    Err(())
+}
+
+/// 从当前受管 Client 的完整 model/list 解析本次实际配置；缺失 authority 时拒绝派发。
+async fn resolve_codex_effective_profile(
+    client: &Client,
+    profile: &ExecutionProfile,
+) -> Result<ExecutionProfile, String> {
+    let models = list_codex_models(client)
+        .await
+        .map_err(|_| "CODEX_MODEL_CATALOG_INVALID".to_string())?;
+    resolve_codex_effective_profile_models(&models, profile)
+}
+
+/// 用已验证目录解析实际模型和 reasoning；默认模型必须在可执行集合中唯一。
+fn resolve_codex_effective_profile_models(
+    models: &[ExecutionModelOption],
+    profile: &ExecutionProfile,
+) -> Result<ExecutionProfile, String> {
+    let model = match profile.model.as_deref() {
+        Some(id) => models.iter().find(|model| model.id == id && !model.hidden),
+        None => {
+            let mut defaults = models
+                .iter()
+                .filter(|model| model.is_default && !model.hidden);
+            let model = defaults.next();
+            if defaults.next().is_some() {
+                return Err("EXECUTION_PROFILE_UNAVAILABLE".into());
+            }
+            model
+        }
+    }
+    .ok_or_else(|| "EXECUTION_PROFILE_UNAVAILABLE".to_string())?;
+
+    let reasoning = match profile.reasoning.as_deref() {
+        Some(reasoning)
+            if model
+                .reasoning_options
+                .iter()
+                .any(|option| option.id == reasoning) =>
+        {
+            Some(reasoning.to_owned())
+        }
+        Some(_) => return Err("EXECUTION_PROFILE_UNAVAILABLE".into()),
+        // 未指定时交给 Codex 自身配置；目录默认值不是本次执行事实。
+        None => None,
+    };
+
+    Ok(ExecutionProfile {
+        model: Some(model.id.clone()),
+        reasoning,
+    })
+}
+
+/// 将临时 Runtime failure 压缩成稳定 Provider 目录错误。
+fn codex_catalog_failure(failure: super::runtime_adapter::RuntimeFailure) -> ProviderError {
+    ProviderError {
+        code: if failure.code == "CODEX_APP_SERVER_INCOMPATIBLE" {
+            ProviderErrorCode::AgentProviderContractError
+        } else {
+            ProviderErrorCode::AgentProviderOperationFailed
+        },
+    }
 }
 #[derive(Debug)]
 pub enum ExecutionFailure {
@@ -639,6 +795,9 @@ impl CodexProvider {
             .map_err(|e| e.to_string())?;
         let mode =
             serde_json::from_value(serde_json::json!(row.mode)).map_err(|e| e.to_string())?;
+        let profile = ExecutionProfile::from_json(&row.execution_profile_json)
+            .map_err(|_| "EXECUTION_PROFILE_INVALID".to_string())?;
+        let effective_profile = resolve_codex_effective_profile(client, &profile).await?;
         // A parent is the current continuation authority. A persisted child
         // thread is only the bounded pre-C2 fallback when there is no parent.
         let continuation_thread = self.runtime_continuation_target(&row).await?;
@@ -661,8 +820,17 @@ impl CodexProvider {
             }
             thread
         } else {
+            // fresh 的最后安全边界：CAS 成功后才把同一 effective profile 交给 thread/start。
+            self.store
+                .set_effective_execution_profile(
+                    id.into(),
+                    "codex".into(),
+                    client.runtime_id().into(),
+                    effective_profile.clone(),
+                )
+                .await?;
             client
-                .thread_start(&row.canonical_workspace_root, mode)
+                .thread_start_configured(&row.canonical_workspace_root, mode, &effective_profile)
                 .await
                 .map_err(|e| e.to_string())?
         };
@@ -687,15 +855,27 @@ impl CodexProvider {
                 .save_thread_name(thread.id.clone(), thread.name.clone())
                 .await?;
         }
+        let (flushed_tx, mut flushed_rx) = tokio::sync::oneshot::channel();
+        if continuation_thread.is_some() {
+            // continue 必须先通过 resume/history、bind 与本地持久化前置，再在 turn/start 前写入同一事实。
+            self.store
+                .set_effective_execution_profile(
+                    id.into(),
+                    "codex".into(),
+                    client.runtime_id().into(),
+                    effective_profile.clone(),
+                )
+                .await?;
+        }
         // Product continue is accepted only after exact managed Thread validation.
         acceptance.accepted();
-        let (flushed_tx, mut flushed_rx) = tokio::sync::oneshot::channel();
-        let request = client.turn_start_observed(
+        let request = client.turn_start_observed_configured(
             &thread.id,
             id,
             &row.prompt,
             mode,
             &row.canonical_workspace_root,
+            &effective_profile,
             flushed_tx,
         );
         tokio::pin!(request);
@@ -1170,6 +1350,7 @@ impl AgentProvider for CodexProvider {
             id: ProviderId::new("codex".into()).expect("static Codex provider id is valid"),
             display_name: "Codex".into(),
             version: Some(super::protocol::VERSION.into()),
+            protocol: None,
         }
     }
 
@@ -1182,6 +1363,14 @@ impl AgentProvider for CodexProvider {
             activity: true,
             token_usage: false,
         }
+    }
+
+    /// model/list 查询与普通 health Catalog 分离，不创建 Execution 或 Claim。
+    fn configuration_catalog<'a>(
+        &'a self,
+        context: ProviderConfigurationCatalogContext,
+    ) -> ProviderFuture<'a, Result<ExecutionConfigurationCatalog, ProviderError>> {
+        Box::pin(async move { self.read_configuration_catalog(context).await })
     }
 
     fn execute<'a>(

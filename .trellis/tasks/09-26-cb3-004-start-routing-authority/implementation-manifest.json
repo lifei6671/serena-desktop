@@ -1,0 +1,86 @@
+[
+  {
+    "file": "src-tauri/src/agent/product.rs",
+    "sha256": "98086a5a00dc760bfb041834e80882d52785e5b78a42596ab51e7028d0374fcb",
+    "new": false,
+    "added": 14,
+    "removed": 4
+  },
+  {
+    "file": "src-tauri/src/agent/product/tests.rs",
+    "sha256": "ddf17d7fbc75ddb1e4781639bbe1a893ebdee6be0073281fac93cecde85984f8",
+    "new": false,
+    "added": 121,
+    "removed": 0
+  },
+  {
+    "file": "src-tauri/src/agent/product/work_adapter.rs",
+    "sha256": "a96306b56d89b03f9de24139e12b55d62a0ce20200262480ae3fb562556226cb",
+    "new": false,
+    "added": 35,
+    "removed": 14
+  },
+  {
+    "file": "src-tauri/src/agent/product/work_adapter_tests.rs",
+    "sha256": "5a58936424370f2e120037bf668b91d50962a78b98402381866454c5b44f71fd",
+    "new": false,
+    "added": 18,
+    "removed": 2
+  },
+  {
+    "file": "src-tauri/src/agent/store/transactions/product.rs",
+    "sha256": "dd6a0bf60548f420ed569a353d708dffcf0cf9d5757d6cc84f03d8dc05a8623c",
+    "new": false,
+    "added": 25,
+    "removed": 10
+  },
+  {
+    "file": "src-tauri/src/agent/task_manager.rs",
+    "sha256": "3b061ef499cb0b036708733e67a5426bc8395df5ff10c98ad815da5c5ee70214",
+    "new": false,
+    "added": 91,
+    "removed": 21
+  },
+  {
+    "file": "src-tauri/src/mcp/mod.rs",
+    "sha256": "b7f27f08cb39d69a022feefe613c1c24d890a039a2f7f23c0401519079451020",
+    "new": false,
+    "added": 8,
+    "removed": 1
+  },
+  {
+    "file": "src-tauri/src/mcp/orchestration.rs",
+    "sha256": "f2c8bcd686adfd1b6ed51d38a0cdae27fb9e3af9b1165efb58cf1396efdc5db3",
+    "new": false,
+    "added": 32,
+    "removed": 9
+  },
+  {
+    "file": "src-tauri/src/mcp/orchestration_tests.rs",
+    "sha256": "97080eefd49d8f447d98788c4f2d3aff1679bfe340dee1d811bdc77ff9d55a70",
+    "new": false,
+    "added": 3,
+    "removed": 0
+  },
+  {
+    "file": "src-tauri/src/mcp/start_routing_tests.rs",
+    "sha256": "470c7a62ead4c1998c4957bb7f2a40a3f780933b11dcf4bc040383f1f9cd3cdf",
+    "new": true,
+    "added": 631,
+    "removed": 0
+  },
+  {
+    "file": "src-tauri/src/serena.rs",
+    "sha256": "9c7d2706ec9ef96cfdc62d8c7e669224857107e3442dcdef1cb0265ac2c21823",
+    "new": false,
+    "added": 2,
+    "removed": 0
+  },
+  {
+    "file": "src-tauri/src/workspace_capability.rs",
+    "sha256": "e52bf7d6ee1a8137b1eca34a3b28729e40c13cd9998d92b3b8ff24c98b033f07",
+    "new": false,
+    "added": 4,
+    "removed": 0
+  }
+]

@@ -1,0 +1,1097 @@
+{
+  "name": "agent_query",
+  "description": "【做什么】\n只读查询 Provider 目录、用户角色路由或 observe Work 内 Execution。\n\n【什么时候使用】\nproviders() 读取 Provider Catalog 和 roleRouting，只接受 action，无需 workspaceId，不启动 Runtime、不刷新 health、不修改策略；get(executionId, includeResult?) 读取单个 Execution；list(workRunId, limit?) 查询 Work 内执行；observe(executionId, knownRevision?/knownControlRevision?/knownActivityRevision?/wakeOn?/waitMs?/includeResult?) 有界等待变化。耗时任务优先 observe，Final Result 仅按需 includeResult，可重复读取。\n\n【关键约束】\nobserve 默认 15000ms、范围 0..=20000，0 为即时 snapshot；wakeOn 默认 control。knownRevision 是 knownControlRevision 的 legacy alias，后者优先。activity 模式会因 activity 或 control/terminal/result 变化唤醒，必须读取 wakeReason 与 activityRevision，不能只看 unchanged。返回的是 latest snapshot，可能 coalesce 并跳过中间 Activity revision，不是逐事件流；Activity revision 是 opaque，旧 v1 token 只会 initial mismatch，不迁移。",
+  "inputSchema": {
+    "$defs": {
+      "WakeOn": {
+        "enum": [
+          "control",
+          "activity"
+        ],
+        "type": "string"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "oneOf": [
+      {
+        "additionalProperties": false,
+        "description": "空结构体保留 deny_unknown_fields，目录查询只接受 action。",
+        "properties": {
+          "action": {
+            "const": "providers",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "const": "get",
+            "type": "string"
+          },
+          "executionId": {
+            "type": "string"
+          },
+          "includeResult": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "action",
+          "executionId"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "const": "list",
+            "type": "string"
+          },
+          "limit": {
+            "format": "uint32",
+            "maximum": 100,
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "workRunId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "workRunId"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "const": "observe",
+            "type": "string"
+          },
+          "executionId": {
+            "type": "string"
+          },
+          "includeResult": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "knownActivityRevision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "knownControlRevision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "knownRevision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "waitMs": {
+            "format": "uint32",
+            "maximum": 20000,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "wakeOn": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/WakeOn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "action",
+          "executionId"
+        ],
+        "type": "object"
+      }
+    ],
+    "title": "AgentQuery",
+    "type": "object"
+  },
+  "outputSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "anyOf": [
+      {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/definitions/QueryData"
+          },
+          "ok": {
+            "const": true
+          }
+        },
+        "required": [
+          "ok",
+          "data"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/definitions/ProductError"
+          },
+          "ok": {
+            "const": false
+          }
+        },
+        "required": [
+          "ok",
+          "error"
+        ],
+        "type": "object"
+      }
+    ],
+    "definitions": {
+      "ActivityPhase": {
+        "enum": [
+          "provider",
+          "tool"
+        ],
+        "type": "string"
+      },
+      "ActivitySilence": {
+        "enum": [
+          "fresh",
+          "quiet",
+          "prolonged"
+        ],
+        "type": "string"
+      },
+      "AvailableActions": {
+        "properties": {
+          "canCancel": {
+            "type": "boolean"
+          },
+          "canContinue": {
+            "type": "boolean"
+          },
+          "canResumePending": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "canCancel",
+          "canContinue",
+          "canResumePending"
+        ],
+        "type": "object"
+      },
+      "ExecutionView": {
+        "properties": {
+          "activityRevision": {
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "attention": {
+            "type": "string"
+          },
+          "availableActions": {
+            "$ref": "#/definitions/AvailableActions"
+          },
+          "canonicalWorkspaceRoot": {
+            "type": "string"
+          },
+          "completedAt": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "controlRevision": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "dispatchState": {
+            "type": "string"
+          },
+          "errorCode": {
+            "description": "Last diagnostic only; status and Provider terminal remain lifecycle authorities.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "errorMessage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "executionId": {
+            "type": "string"
+          },
+          "finalResult": true,
+          "interruptAcknowledged": {
+            "type": "boolean"
+          },
+          "interruptRequested": {
+            "type": "boolean"
+          },
+          "interruptTimedOut": {
+            "type": "boolean"
+          },
+          "mismatchKind": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/MismatchKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nextAction": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/NextAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "progress": {
+            "$ref": "#/definitions/Progress"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/definitions/ProviderProduct"
+          },
+          "providerSessionLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "providerTerminalStatus": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resultAvailable": {
+            "type": "boolean"
+          },
+          "resultCompleteness": {
+            "type": "string"
+          },
+          "revision": {
+            "description": "Legacy alias of control_revision; never changes for Activity alone.",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "taskRole": {
+            "description": "创建时持久化的冻结角色；不读取当前 Provider 路由策略。",
+            "type": "string"
+          },
+          "threadId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "threadName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turnId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unchanged": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "usage": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/UsageProduct"
+              }
+            ],
+            "description": "始终存在的公共 Usage 投影；无持久化行时保持 unknown/null。"
+          },
+          "wakeReason": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/WakeReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workspaceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt",
+          "canonicalWorkspaceRoot",
+          "executionId",
+          "agentId",
+          "workspaceId",
+          "provider",
+          "taskRole",
+          "usage",
+          "status",
+          "dispatchState",
+          "threadId",
+          "threadName",
+          "turnId",
+          "providerSessionLabel",
+          "providerTerminalStatus",
+          "errorCode",
+          "errorMessage",
+          "resultCompleteness",
+          "revision",
+          "controlRevision",
+          "activityRevision",
+          "resultAvailable",
+          "progress",
+          "nextAction",
+          "interruptRequested",
+          "interruptAcknowledged",
+          "interruptTimedOut",
+          "attention",
+          "availableActions",
+          "createdAt",
+          "updatedAt",
+          "completedAt"
+        ],
+        "type": "object"
+      },
+      "MismatchKind": {
+        "description": "表示首次 stale token 与当前快照不一致的唯一类别。",
+        "enum": [
+          "control",
+          "activity"
+        ],
+        "type": "string"
+      },
+      "NextAction": {
+        "oneOf": [
+          {
+            "properties": {
+              "action": {
+                "const": "observe",
+                "type": "string"
+              },
+              "waitMs": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "action",
+              "waitMs"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "action": {
+                "const": "review_result",
+                "type": "string"
+              },
+              "includeResult": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "action",
+              "includeResult"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "action": {
+                "const": "continue",
+                "type": "string"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "action": {
+                "const": "resume_pending",
+                "type": "string"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "action": {
+                "const": "manual_resolution",
+                "type": "string"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "action": {
+                "const": "correct_input",
+                "type": "string"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "action": {
+                "const": "activate_workspace",
+                "type": "string"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "action": {
+                "const": "list",
+                "type": "string"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ProductError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "executionId": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "Progress": {
+        "properties": {
+          "activityAgeMs": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "activityPhase": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/ActivityPhase"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastActivityAt": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "phase": {
+            "$ref": "#/definitions/ProgressPhase"
+          },
+          "silenceLevel": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/ActivitySilence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summaryCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toolCategory": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/ToolCategory"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "phase",
+          "activityPhase",
+          "toolCategory",
+          "lastActivityAt",
+          "activityAgeMs",
+          "silenceLevel",
+          "summaryCode"
+        ],
+        "type": "object"
+      },
+      "ProgressPhase": {
+        "description": "表示执行进度，用于在 Activity 映射前固定终结中间态的优先级。",
+        "enum": [
+          "pending",
+          "dispatching",
+          "running",
+          "finalizing",
+          "reconciling",
+          "terminal"
+        ],
+        "type": "string"
+      },
+      "ProviderCapabilitiesProduct": {
+        "description": "只公开 Provider 已声明的能力，不根据 Provider 名称或路由补充能力。",
+        "properties": {
+          "activity": {
+            "type": "boolean"
+          },
+          "canCancel": {
+            "type": "boolean"
+          },
+          "canContinue": {
+            "type": "boolean"
+          },
+          "canExecute": {
+            "type": "boolean"
+          },
+          "canRecover": {
+            "type": "boolean"
+          },
+          "tokenUsage": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "canExecute",
+          "canContinue",
+          "canCancel",
+          "canRecover",
+          "activity",
+          "tokenUsage"
+        ],
+        "type": "object"
+      },
+      "ProviderCatalogEntry": {
+        "description": "注册、策略、健康与能力分别投影，不把不可执行等同于未注册。",
+        "properties": {
+          "availableForNewExecution": {
+            "type": "boolean"
+          },
+          "capabilities": {
+            "$ref": "#/definitions/ProviderCapabilitiesProduct"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "health": {
+            "$ref": "#/definitions/ProviderHealth"
+          },
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "enabled",
+          "health",
+          "availableForNewExecution",
+          "capabilities"
+        ],
+        "type": "object"
+      },
+      "ProviderCatalogSnapshot": {
+        "description": "当前已注册 Provider 的只读目录；路由保留 Local Human 配置中的原始目标。",
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/definitions/ProviderCatalogEntry"
+            },
+            "type": "array"
+          },
+          "roleRouting": {
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "providers",
+          "roleRouting"
+        ],
+        "type": "object"
+      },
+      "ProviderHealth": {
+        "enum": [
+          "available",
+          "unavailable"
+        ],
+        "type": "string"
+      },
+      "ProviderProduct": {
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "displayName",
+          "version"
+        ],
+        "type": "object"
+      },
+      "QueryData": {
+        "anyOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/definitions/ProviderCatalogSnapshot"
+              }
+            ],
+            "description": "直接复用 Product 目录，MCP 不建立第二套 Provider Authority。"
+          },
+          {
+            "$ref": "#/definitions/ExecutionView"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "executions": {
+                "items": {
+                  "$ref": "#/definitions/QuerySummary"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "executions"
+            ],
+            "type": "object"
+          },
+          {
+            "$ref": "#/definitions/QueryObservation"
+          }
+        ]
+      },
+      "QueryDiagnostic": {
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "QueryObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "activityRevision": {
+            "description": "Opaque Activity Revision for the next activity-mode Observe request.",
+            "type": "string"
+          },
+          "attention": {
+            "type": "string"
+          },
+          "error": {
+            "$ref": "#/definitions/QueryDiagnostic"
+          },
+          "executionId": {
+            "type": "string"
+          },
+          "finalResult": {
+            "description": "Exact persisted result, present only when includeResult=true and a result exists."
+          },
+          "mismatchKind": {
+            "$ref": "#/definitions/MismatchKind"
+          },
+          "nextAction": {
+            "$ref": "#/definitions/NextAction"
+          },
+          "progress": {
+            "$ref": "#/definitions/QueryProgress"
+          },
+          "resultAvailable": {
+            "type": "boolean"
+          },
+          "resultCompleteness": {
+            "type": "string"
+          },
+          "revision": {
+            "description": "Current controlRevision, reusable as the next knownRevision opaque token.",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "unchanged": {
+            "type": "boolean"
+          },
+          "usage": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/UsageProduct"
+              }
+            ],
+            "description": "Observe 与 detail 使用同一完整公共 Usage 投影。"
+          },
+          "wakeReason": {
+            "$ref": "#/definitions/WakeReason"
+          }
+        },
+        "required": [
+          "executionId",
+          "usage",
+          "status",
+          "revision",
+          "activityRevision",
+          "unchanged",
+          "resultAvailable",
+          "resultCompleteness",
+          "progress"
+        ],
+        "type": "object"
+      },
+      "QueryProgress": {
+        "additionalProperties": false,
+        "properties": {
+          "phase": {
+            "$ref": "#/definitions/ProgressPhase"
+          },
+          "silenceLevel": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/ActivitySilence"
+              }
+            ],
+            "description": "Display-only age bucket: fresh <30s, quiet 30s–<120s, prolonged >=120s.\nAbsent when no Activity is observable. Quiet/prolonged do not mean stalled,\ntimeout or failure and must never alone justify a control action."
+          },
+          "summaryCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "toolCategory": {
+            "$ref": "#/definitions/ToolCategory"
+          }
+        },
+        "required": [
+          "phase",
+          "summaryCode"
+        ],
+        "type": "object"
+      },
+      "QuerySummary": {
+        "additionalProperties": false,
+        "properties": {
+          "attention": {
+            "type": "string"
+          },
+          "completedAt": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "createdAt": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "dispatchState": {
+            "type": "string"
+          },
+          "executionId": {
+            "type": "string"
+          },
+          "nextAction": {
+            "$ref": "#/definitions/NextAction"
+          },
+          "provider": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/ProviderProduct"
+              }
+            ],
+            "description": "顶层 Provider identity 来自 Execution，Usage 不重复此字段。"
+          },
+          "resultAvailable": {
+            "type": "boolean"
+          },
+          "resultCompleteness": {
+            "type": "string"
+          },
+          "revision": {
+            "description": "Opaque control revision; Activity alone does not change it.",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "threadName": {
+            "type": "string"
+          },
+          "usage": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/UsageProduct"
+              }
+            ],
+            "description": "列表直接携带公共 Usage 摘要，调用方无需为此再读取 detail。"
+          }
+        },
+        "required": [
+          "executionId",
+          "provider",
+          "usage",
+          "status",
+          "dispatchState",
+          "revision",
+          "resultAvailable",
+          "resultCompleteness",
+          "attention",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "ToolCategory": {
+        "enum": [
+          "build",
+          "test",
+          "command",
+          "read",
+          "edit",
+          "tool"
+        ],
+        "type": "string"
+      },
+      "UsageCompletenessProduct": {
+        "description": "Product schema 的 strict completeness enum；仅从 P4-001 generic enum 映射。",
+        "enum": [
+          "unknown",
+          "partial",
+          "complete"
+        ],
+        "type": "string"
+      },
+      "UsageProduct": {
+        "description": "Product 层的公共 Usage shape；不含 runtime、thread、turn 或 Provider-private state。",
+        "properties": {
+          "cacheWriteInputTokens": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "cachedInputTokens": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "completeness": {
+            "$ref": "#/definitions/UsageCompletenessProduct"
+          },
+          "inputTokens": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "modelContextWindow": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "outputTokens": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reasoningTokens": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "totalTokens": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "usageRevision": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "inputTokens",
+          "cachedInputTokens",
+          "cacheWriteInputTokens",
+          "outputTokens",
+          "reasoningTokens",
+          "totalTokens",
+          "modelContextWindow",
+          "completeness",
+          "usageRevision",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "WakeReason": {
+        "description": "表示 Observe 返回当前快照的确定性唤醒原因。",
+        "enum": [
+          "initial_mismatch",
+          "control",
+          "activity",
+          "terminal",
+          "result",
+          "timeout"
+        ],
+        "type": "string"
+      }
+    },
+    "title": "QueryEnvelope",
+    "type": "object"
+  },
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "priorTargetId": "85e8fae817a890d9f5e854ab062aa92cef400f9f0a0d9e7c2851d7eb18117a4f",
+  "originalEvidenceFiles": 18,
+  "allOriginalEvidenceUnchanged": true,
+  "checks": [
+    {
+      "path": "evidence/cancel-after-result.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/cancel-after-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/cancel-before-result.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/cancel-before-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/cancellation.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/permission-deny-result.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/permission-deny-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/permission-options.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/permission.jsonl",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/process-evidence.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/runner-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/scope-baseline.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/scope-verification.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/session-new-diagnostic.identity.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/session-new-diagnostic.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/initial-scenarios/cancel-after-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/initial-scenarios/cancel-before-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    },
+    {
+      "path": "evidence/initial-scenarios/permission-deny-result.json",
+      "originalUnchanged": true,
+      "archiveMatches": true
+    }
+  ],
+  "oldRealAttempts": 7,
+  "newRepairAttempts": 1,
+  "newScenarioAttempts": 0
+}

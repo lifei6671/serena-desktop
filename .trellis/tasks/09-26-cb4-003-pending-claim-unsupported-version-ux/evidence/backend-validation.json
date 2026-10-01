@@ -1,0 +1,74 @@
+[
+  {
+    "name": "provider-policy",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "platform": "native Windows",
+    "command": "cargo test --locked --manifest-path src-tauri/Cargo.toml provider_policy -- --test-threads=1",
+    "exit_code": 0,
+    "seconds": 5.01,
+    "summary": [
+      "warning: linker stdout: \u6b63\u5728\u521b\u5efa\u5e93 E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri\\target\\debug\\deps\\serena_desktop_lib.dll.lib \u548c\u5bf9\u8c61 E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri\\target\\debug\\deps\\serena_desktop_lib.dll.exp",
+      "warning: linker stdout: \u6b63\u5728\u521b\u5efa\u5e93 E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri\\target\\debug\\deps\\serena_desktop_lib-24e6f1aebf860fb7.lib \u548c\u5bf9\u8c61 E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri\\target\\debug\\deps\\serena_desktop_lib-24e6f1aebf860fb7.exp",
+      "warning: `serena-desktop` (lib) generated 1 warning",
+      "warning: `serena-desktop` (lib test) generated 1 warning",
+      "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 1271 filtered out; finished in 4.26s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ]
+  },
+  {
+    "name": "registry-hash",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "platform": "native Windows",
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib mcp::registry::tests:: -- --nocapture",
+    "exit_code": 0,
+    "seconds": 0.63,
+    "summary": [
+      "warning: linker stdout: \u6b63\u5728\u521b\u5efa\u5e93 E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri\\target\\debug\\deps\\serena_desktop_lib-24e6f1aebf860fb7.lib \u548c\u5bf9\u8c61 E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri\\target\\debug\\deps\\serena_desktop_lib-24e6f1aebf860fb7.exp",
+      "warning: `serena-desktop` (lib test) generated 1 warning",
+      "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 1265 filtered out; finished in 0.04s"
+    ]
+  },
+  {
+    "name": "start-routing",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "platform": "native Windows",
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib mcp::orchestration_tests::start_routing_tests -- --nocapture",
+    "exit_code": 0,
+    "seconds": 21.88,
+    "summary": [
+      "warning: linker stdout: \u6b63\u5728\u521b\u5efa\u5e93 E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri\\target\\debug\\deps\\serena_desktop_lib-24e6f1aebf860fb7.lib \u548c\u5bf9\u8c61 E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop\\src-tauri\\target\\debug\\deps\\serena_desktop_lib-24e6f1aebf860fb7.exp",
+      "warning: `serena-desktop` (lib test) generated 1 warning",
+      "test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 1271 filtered out; finished in 21.31s"
+    ]
+  },
+  {
+    "name": "cargo-check",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "platform": "native Windows",
+    "command": "cargo check --manifest-path src-tauri/Cargo.toml --locked",
+    "exit_code": 0,
+    "seconds": 0.59,
+    "summary": []
+  },
+  {
+    "name": "cargo-fmt",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "platform": "native Windows",
+    "command": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
+    "exit_code": 0,
+    "seconds": 1.13,
+    "summary": []
+  },
+  {
+    "name": "clippy",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "platform": "native Windows",
+    "command": "cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings",
+    "exit_code": 101,
+    "seconds": 22.8,
+    "summary": [
+      "error: this `MutexGuard` is held across an await point",
+      "error: could not compile `serena-desktop` (lib test) due to 1 previous error"
+    ]
+  }
+]

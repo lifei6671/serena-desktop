@@ -1,0 +1,33 @@
+{
+  "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+  "command": "node --test src/AgentPanel.test.mjs src/App.test.mjs",
+  "result": "PASS",
+  "exitCode": 0,
+  "tests": 101,
+  "passed": 101,
+  "failed": 0,
+  "durationMs": 24615.785,
+  "diffCheck": {
+    "command": "git diff --check",
+    "exitCode": 0,
+    "result": "PASS"
+  },
+  "files": [
+    {
+      "path": "src/AgentPanel.tsx",
+      "sha256": "07f6a07787840dff43a175a174193e5ef4f99f3013bf16d3c9a71a692d399144"
+    },
+    {
+      "path": "src/api.ts",
+      "sha256": "eabdf21acf70abcacec93deaefb583a7ee80579138af1b5e3ee04d35218d4b5c"
+    },
+    {
+      "path": "src/styles.css",
+      "sha256": "8c1467b03d1bdc1b27571b86faa369466522980b8cf26e805768350ef7c90886"
+    },
+    {
+      "path": "src/AgentPanel.test.mjs",
+      "sha256": "7ab8c5522ed0fada4260894c39292e779287a5e91063df8c4d767cb428fc40ba"
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 use super::*;
-use crate::agent::execution::legacy_pre_workspace_generation_hash;
+use crate::agent::execution::{
+    ExecutionProfile, legacy_pre_workspace_generation_hash, legacy_v2_request_hash,
+};
 use rusqlite::types::Value;
 
 fn context(work: &str) -> WorkExecutionContext {
@@ -200,6 +202,67 @@ async fn terminal_parent(store: &StateStore, id: &str) -> ExecutionRecord {
     let row = store.execution(id.into()).await.unwrap().unwrap();
     assert!(continuation_core_eligible(&row));
     row
+}
+
+/// Fresh 冻结 profile 参与 retry identity；Continue 只继承 source profile。
+#[tokio::test]
+async fn profile_is_frozen_for_start_retry_and_continuation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    let routing = |model: &str| FrozenStartRouting {
+        provider: ProviderId::new("codex".into()).unwrap(),
+        task_role: AgentTaskRole::Testing,
+        execution_profile: ExecutionProfile {
+            model: Some(model.into()),
+            reasoning: Some("high".into()),
+        },
+    };
+    let workspace = WorkspaceSnapshot {
+        id: "W".into(),
+        root: "root".into(),
+        generation: 1,
+    };
+    let first = store
+        .product_create_fresh_with_work_blocking(
+            routing("model-a"),
+            "E1".into(),
+            "A".into(),
+            "source".into(),
+            "prompt".into(),
+            "W".into(),
+            workspace.clone(),
+            None,
+            10,
+        )
+        .unwrap();
+    assert_eq!(
+        first.execution.execution_profile_json,
+        r#"{"model":"model-a","reasoning":"high"}"#
+    );
+    assert_eq!(
+        store
+            .product_create_fresh_with_work_blocking(
+                routing("model-b"),
+                "unused".into(),
+                "A".into(),
+                "source".into(),
+                "prompt".into(),
+                "W".into(),
+                workspace,
+                None,
+                11,
+            )
+            .unwrap_err(),
+        "EXECUTION_REQUEST_KEY_CONFLICT"
+    );
+    terminal_parent(&store, "E1").await;
+    let child = continuation(&store, "E2", "E1", "next", None)
+        .await
+        .unwrap();
+    assert_eq!(
+        child.execution.execution_profile_json,
+        first.execution.execution_profile_json
+    );
 }
 
 #[tokio::test]
@@ -740,9 +803,47 @@ async fn v2_request_retry_and_migrated_v1_retry_require_matching_generation() {
     );
 
     let request = canonicalize_request(
-        input(&first.execution, "key".into(), "prompt".into(), None, None).unwrap(),
+        input(
+            &store.connection.lock().unwrap(),
+            &first.execution,
+            "key".into(),
+            "prompt".into(),
+            None,
+            None,
+        )
+        .unwrap(),
     )
     .unwrap();
+    // Product 创建事务也必须识别冻结的 v2 General hash，并保持原值。
+    let v2 = legacy_v2_request_hash(request.input()).unwrap();
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET request_hash=?2 WHERE id=?1",
+            params![first.execution_id, v2.clone()],
+        )
+        .unwrap();
+    let retry = store
+        .product_create_fresh(
+            "unused".into(),
+            "A".into(),
+            "key".into(),
+            "prompt".into(),
+            "W".into(),
+            Some(WorkspaceSnapshot {
+                id: "W".into(),
+                root: "root".into(),
+                generation: 1,
+            }),
+            13,
+        )
+        .await
+        .unwrap();
+    assert!(!retry.created);
+    assert_eq!(retry.execution.request_hash, v2);
+
     let legacy = legacy_pre_workspace_generation_hash(request.input()).unwrap();
     store
         .connection
@@ -765,7 +866,7 @@ async fn v2_request_retry_and_migrated_v1_retry_require_matching_generation() {
                 root: "root".into(),
                 generation: 1,
             }),
-            13,
+            14,
         )
         .await
         .unwrap();
@@ -784,7 +885,7 @@ async fn v2_request_retry_and_migrated_v1_retry_require_matching_generation() {
                     root: "root".into(),
                     generation: 2,
                 }),
-                14,
+                15,
             )
             .await
             .unwrap_err(),
@@ -897,6 +998,7 @@ async fn pre_c2_null_parent_row_has_only_exact_legacy_retry_compatibility() {
         .unwrap();
     let request = canonicalize_request(
         input(
+            &store.connection.lock().unwrap(),
             &source,
             "next".into(),
             "next".into(),
@@ -922,6 +1024,7 @@ async fn pre_c2_null_parent_row_has_only_exact_legacy_retry_compatibility() {
         .unwrap();
     assert!(!retry.created);
     assert_eq!(retry.execution_id, "E2");
+    assert_eq!(retry.execution.request_hash, legacy);
     assert_eq!(
         store
             .product_create_continuation(
@@ -935,6 +1038,95 @@ async fn pre_c2_null_parent_row_has_only_exact_legacy_retry_compatibility() {
             .unwrap_err(),
         "EXECUTION_REQUEST_KEY_CONFLICT"
     );
+    // 旧 pre-C2 hash 没有角色字段；持久化角色异常时不得再走历史兼容。
+    store
+        .connection
+        .lock()
+        .unwrap()
+        .execute(
+            "UPDATE executions SET task_role='testing' WHERE id='E2'",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        continuation(&store, "unused", "E1", "next", None)
+            .await
+            .unwrap_err(),
+        "EXECUTION_REQUEST_KEY_CONFLICT"
+    );
+}
+
+/// Continue 必须继承父行的冻结角色；父行身份漂移后旧 child key 不得被复用。
+#[tokio::test]
+async fn continuation_inherits_parent_role_and_rejects_forged_identity() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = StateStore::open(dir.path().into()).await.unwrap();
+    let input: CreateExecutionInput = serde_json::from_value(json!({
+        "agent_id":"A","request_key":"source","prompt":"prompt","execution_profile":{},
+        "workspace_id":"W","canonical_workspace_root":"root","workspace_generation":1,
+        "provider":"codex","task_role":"testing","mode":"workspace_write"
+    }))
+    .unwrap();
+    store
+        .create_execution("E1".into(), canonicalize_request(input).unwrap(), 10)
+        .await
+        .unwrap();
+    let parent = terminal_parent(&store, "E1").await;
+    let child = continuation(&store, "E2", "E1", "next", None)
+        .await
+        .unwrap();
+    assert!(child.created);
+    assert_eq!(child.execution.provider, parent.provider);
+    assert_eq!(child.execution.workspace_id, parent.workspace_id);
+    assert_eq!(
+        child.execution.canonical_workspace_root,
+        parent.canonical_workspace_root
+    );
+    assert_eq!(
+        child.execution.workspace_generation,
+        parent.workspace_generation
+    );
+    assert_eq!(child.execution.parent_execution_id.as_deref(), Some("E1"));
+    assert_eq!(
+        store
+            .connection
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT task_role FROM executions WHERE id='E2'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        "testing"
+    );
+    assert_eq!(
+        store.execution("E1".into()).await.unwrap(),
+        Some(parent.clone())
+    );
+    let retry = continuation(&store, "unused", "E1", "next", None)
+        .await
+        .unwrap();
+    assert!(!retry.created);
+    assert_eq!(retry.execution_id, "E2");
+    assert_eq!(retry.execution.request_hash, child.execution.request_hash);
+
+    for change in [
+        "UPDATE executions SET provider='codebuddy' WHERE id='E1'",
+        "UPDATE executions SET provider='codex',task_role='general' WHERE id='E1'",
+    ] {
+        sql(&store, change);
+        assert_eq!(
+            continuation(&store, "unused", "E1", "next", None)
+                .await
+                .unwrap_err(),
+            "EXECUTION_REQUEST_KEY_CONFLICT"
+        );
+        assert_eq!(
+            store.execution("E2".into()).await.unwrap(),
+            Some(child.execution.clone())
+        );
+    }
 }
 
 #[test]

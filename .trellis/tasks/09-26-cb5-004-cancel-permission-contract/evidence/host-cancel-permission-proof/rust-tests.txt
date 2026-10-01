@@ -1,0 +1,35 @@
+   Compiling cb5-004-contract-probe v0.1.0 (E:\wx_lifeilin\github.com\lifei6671\serena-desktop\.trellis\tasks\09-26-cb5-004-cancel-permission-contract\harness)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.06s
+     Running unittests src\bin\host_cancel_permission.rs (.trellis\tasks\09-26-cb5-004-cancel-permission-contract\harness\target\debug\deps\host_cancel_permission-43b4491990378089.exe)
+
+running 12 tests
+test tests::cancel_identity_mismatch_does_not_send ... ok
+test tests::auto_mode_must_come_from_response_catalog ... ok
+test tests::duplicate_and_late_responder_fail_closed ... ok
+test tests::real_argv_is_canonical_baseline ... ok
+test tests::permission_identity_and_typed_kind ... ok
+test tests::evidence_whitelist_redacts_content ... ok
+test tests::malformed_permission_option_and_response ... ok
+test tests::initialize_projection_preserves_actual_values ... ok
+test tests::after_trigger_requires_actual_marker_and_hash ... ok
+test tests::manifest_tracks_hidden_paths ... ok
+test tests::cleanup_kill_failure_bounded ... ok
+test tests::cleanup_wait_failure_bounded ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+
+     Running tests\host_contracts.rs (.trellis\tasks\09-26-cb5-004-cancel-permission-contract\harness\target\debug\deps\host_contracts-b94346c3b4587e7e.exe)
+
+running 9 tests
+test missing_auto_catalog_does_not_send_mode_or_prompt ... ok
+test cancel_terminal_and_late_update_ordering ... ok
+test exact_init_and_early_config_notification ... ok
+test permission_deny_then_exact_terminal ... ok
+test new_response_precedes_catalog_mode_then_prompt ... ok
+test cancel_no_terminal_timeout ... ok
+test permission_deny_without_terminal_times_out ... ok
+test failed_or_unknown_new_stops_dependent_requests ... ok
+test before_requires_correlated_activity_and_zero_delta ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.32s
+

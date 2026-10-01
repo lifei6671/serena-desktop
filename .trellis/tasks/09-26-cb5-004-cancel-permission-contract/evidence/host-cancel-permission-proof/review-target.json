@@ -1,0 +1,68 @@
+{
+  "status": "HARNESS_READY_REAL_NOT_RUN",
+  "files": [
+    {
+      "path": "evidence/host-cancel-permission-proof/README.md",
+      "sha256": "4d978d9e787be132ba91373267369890cca449efd9f455365a78586a9c851609"
+    },
+    {
+      "path": "evidence/host-cancel-permission-proof/python-tests.txt",
+      "sha256": "30364e2504ee04e69a65687ea4079544962ac2f8fee56301387809f1182e8123"
+    },
+    {
+      "path": "evidence/host-cancel-permission-proof/review-context.md",
+      "sha256": "4cc4a00a70c2cdacd14cf5c36a4a708bc9bb91cc907581efe46b82d9199f8ee0"
+    },
+    {
+      "path": "evidence/host-cancel-permission-proof/rust-tests.txt",
+      "sha256": "9c0f285fcb9c06190196fbb40fa94bf8f5dc14dd76d4ad6c2899bd0a20896433"
+    },
+    {
+      "path": "evidence/host-cancel-permission-proof/scope-baseline.json",
+      "sha256": "373182a5148d5e57e0a538f7eed5d6dc40d9d761e3db0d7333f3cf8d973d88f1"
+    },
+    {
+      "path": "evidence/host-cancel-permission-proof/scope-verification.json",
+      "sha256": "2f522892d6c801c5c6388eea9c61cc6cd4ef1408ed1a4a5327bdc32905c925a2"
+    },
+    {
+      "path": "evidence/host-cancel-permission-proof/verification.md",
+      "sha256": "e1da7c75dfb2c4f5c9e64a2f63a7a35a908372e7e1af4f67f434897e8a619012"
+    },
+    {
+      "path": "harness/Cargo.lock",
+      "sha256": "5f7aef89f5890a7aafbddfc38e990e5489e139761a9640e11f52517fdd03bbd6"
+    },
+    {
+      "path": "harness/Cargo.toml",
+      "sha256": "8fd88856bde99c35404bf04079ea5c73aa3c7e74af98e665c95849b9203edfdb"
+    },
+    {
+      "path": "harness/src/base.rs",
+      "sha256": "19950af2a65d58deaa92e2a9fc35f57cb28682fea88d6cd6016dd3c13fb9bc29"
+    },
+    {
+      "path": "harness/src/bin/host_cancel_permission.rs",
+      "sha256": "2fdbcb4ce170dca23e8f24a902488a4b5032eb4b3425d73c1d2b4219360958cd"
+    },
+    {
+      "path": "harness/src/host_transport.rs",
+      "sha256": "c3a54d4bbad7a73464c59767bab75dce76fa0cc37b51c612c8de3fd5aaa73d6a"
+    },
+    {
+      "path": "harness/tests/host_contracts.rs",
+      "sha256": "edac5e88d1c7b61a13ee7f7a7874d80acd3a19d44b6543cd51c78a595e2a0229"
+    },
+    {
+      "path": "run_host_cancel_permission.py",
+      "sha256": "f4a1dfec5787f123781ecec8511a4038408e5436df5c88d9747eac2ebd3b827d"
+    },
+    {
+      "path": "test_host_cancel_permission.py",
+      "sha256": "ecf31858a5b63afcddc131d70acf9800c49df6bd7866778cbc8c6fa6eeeff9d5"
+    }
+  ],
+  "binarySha256": "b0414f524cedcab110df9d6ca2a3605ad9f8e5357faa21958fc4b36f39c6fffb",
+  "sdkVersion": "2.2.0",
+  "realCodeBuddyCallsByImplementAgent": 0
+}

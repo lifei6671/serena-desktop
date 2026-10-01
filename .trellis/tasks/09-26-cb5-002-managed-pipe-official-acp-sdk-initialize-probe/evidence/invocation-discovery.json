@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\CodeBuddy CN.exe",
+    "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app\\out\\cli.js",
+    "--acp"
+  ],
+  "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-discovery-vuj8jdb1",
+  "pid": 57004,
+  "timeout": false,
+  "exit": 0,
+  "stdout": "",
+  "stderr": "Warning: 'acp' is not in the list of known options, but still passed to Electron/Chromium.\n",
+  "stdin": "closed without initialize; entry discovery only"
+}

@@ -1,0 +1,65 @@
+{
+  "predicate": "initializeSucceeded && negotiatedProtocolVersion == supportedProtocolVersion",
+  "supportedProtocolVersion": 1,
+  "supportedJsonType": "number",
+  "authority": "docs/technical-design-multi-agent-provider-codebuddy-v0.1.md stable ACP v1; SHA256 cc350803c0c58b41724b6543c52cadd6d809cac84505231b6ef3960ad18f32ea",
+  "productVersionAndHashUsedForGate": false,
+  "capabilitiesUsedForGate": false,
+  "runs": {
+    "real-default": {
+      "initializeSucceeded": false,
+      "negotiatedProtocolVersion": null,
+      "negotiatedJsonType": null,
+      "protocolCompatible": false
+    },
+    "real-auto": {
+      "initializeSucceeded": false,
+      "negotiatedProtocolVersion": null,
+      "negotiatedJsonType": null,
+      "protocolCompatible": false
+    },
+    "eof-before": {
+      "initializeSucceeded": false,
+      "negotiatedProtocolVersion": null,
+      "negotiatedJsonType": null,
+      "protocolCompatible": false
+    },
+    "eof-during": {
+      "initializeSucceeded": false,
+      "negotiatedProtocolVersion": null,
+      "negotiatedJsonType": null,
+      "protocolCompatible": false
+    },
+    "mismatch": {
+      "initializeSucceeded": true,
+      "negotiatedProtocolVersion": 999,
+      "negotiatedJsonType": "number",
+      "protocolCompatible": false
+    },
+    "missing-capability": {
+      "initializeSucceeded": true,
+      "negotiatedProtocolVersion": 1,
+      "negotiatedJsonType": "number",
+      "protocolCompatible": true
+    },
+    "hang": {
+      "initializeSucceeded": false,
+      "negotiatedProtocolVersion": null,
+      "negotiatedJsonType": null,
+      "protocolCompatible": false
+    }
+  },
+  "realProviderCapabilities": {
+    "canExecute": "unknown / not enabled",
+    "canContinue": "unknown / not enabled",
+    "canCancel": "unknown / not enabled",
+    "canRecover": "unknown / not enabled",
+    "activity": "unknown / not enabled",
+    "tokenUsage": "unknown / not enabled"
+  },
+  "missingCapabilityFixture": {
+    "loadSession": false,
+    "protocolCompatible": true
+  },
+  "status": "BLOCKED"
+}

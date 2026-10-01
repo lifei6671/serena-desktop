@@ -1,0 +1,14 @@
+# Baseline HEAD: c631a6707d2da0d3e0c8dbf440701e30e5739461
+# SHA-256 of the UTF-8 manifest lines below joined by LF and terminated by LF:
+# 660b09c8998e2a5eae0fca2d2c9a76150f727c3b993aa9397785ed1823fe5a27
+8fc8c2e1880d980ed578de7a90b5c07e822eaef2d12aaffb22330a223cf43d59  .trellis/tasks/09-28-cb9-002-usage-product-ui-regression/check.jsonl
+d30704b78a0e1bbb03670a8965554830420a4ecd980776bc2b458f6b0a6136ae  .trellis/tasks/09-28-cb9-002-usage-product-ui-regression/design.md
+fe0ffb090e9c3f7d00844b12af5592a9167738fbb4ecf981095aaf12aa82248f  .trellis/tasks/09-28-cb9-002-usage-product-ui-regression/evidence.md
+1eefafed341c81f0b1c90b0df9100192662cbc69bf48fb14ba3fc6fea45629bb  .trellis/tasks/09-28-cb9-002-usage-product-ui-regression/implement.jsonl
+2bd9c4edbe7c3d73b0f919e6030df712043269593fecf513524a9966239b6aa8  .trellis/tasks/09-28-cb9-002-usage-product-ui-regression/implement.md
+8b7821bc6635d41e01b2d8cf08dadf4978393cf6300c9787a0c99ea6e6c1a9fb  .trellis/tasks/09-28-cb9-002-usage-product-ui-regression/prd.md
+db8d50849e91423ce1d2f4da0ac6e997bb160db1205c6ba5a87b2cee55bd0352  .trellis/tasks/09-28-cb9-002-usage-product-ui-regression/review-context.md
+4daa69ca013e510a43eb1d6bd8f29266c804e3566c8a94b184586fff2851115d  .trellis/tasks/09-28-cb9-002-usage-product-ui-regression/task.json
+b527a863a1c24606ae2b360cecb37ae78678ae023e31ab9af37d9f4d8b16f8cc  .trellis/tasks/09-28-cb9-002-usage-product-ui-regression/verification.md
+e2eb098ec19b21ffc2f7bd52dbe2458d1432379d26a8da3061fca6c7545fbf75  src-tauri/src/agent/product/usage_projection_tests.rs
+0349325b082219e08b3230737d5df749e665ba8390a0e56cdc9b5b75394c4f7e  src/AgentPanel.test.mjs

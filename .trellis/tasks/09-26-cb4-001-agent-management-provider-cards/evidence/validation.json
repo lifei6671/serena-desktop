@@ -1,0 +1,102 @@
+[
+  {
+    "name": "frontend-focused",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "node --test src/AgentPanel.test.mjs src/App.test.mjs",
+    "status": "PASS",
+    "exitCode": 0,
+    "result": "95 passed / 0 failed",
+    "log": "frontend-focused-final.log",
+    "environment": "Windows native x86_64-pc-windows-msvc"
+  },
+  {
+    "name": "frontend-full",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "npm test",
+    "status": "PASS",
+    "exitCode": 0,
+    "result": "150 passed / 0 failed",
+    "log": "frontend-full.log",
+    "environment": "Windows native x86_64-pc-windows-msvc"
+  },
+  {
+    "name": "build-typecheck",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "npm run build",
+    "status": "PASS",
+    "exitCode": 0,
+    "result": "tsc and vite build passed",
+    "log": "build.log",
+    "environment": "Windows native x86_64-pc-windows-msvc"
+  },
+  {
+    "name": "eslint",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "npm run lint",
+    "status": "PASS",
+    "exitCode": 0,
+    "result": "eslint passed",
+    "log": "lint.log",
+    "environment": "Windows native x86_64-pc-windows-msvc"
+  },
+  {
+    "name": "backend-catalog",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib agent::product::provider_catalog_tests -- --nocapture",
+    "status": "PASS",
+    "exitCode": 0,
+    "result": "4 passed / 0 failed",
+    "log": "backend-catalog.log",
+    "environment": "Windows native x86_64-pc-windows-msvc"
+  },
+  {
+    "name": "registry",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib mcp::registry::tests:: -- --nocapture",
+    "status": "PASS",
+    "exitCode": 0,
+    "result": "20 passed / 0 failed; frozen query/execute fingerprints passed",
+    "log": "registry.log",
+    "environment": "Windows native x86_64-pc-windows-msvc"
+  },
+  {
+    "name": "cargo-check",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo check --manifest-path src-tauri/Cargo.toml --locked",
+    "status": "PASS",
+    "exitCode": 0,
+    "result": "passed",
+    "log": "cargo-check.log",
+    "environment": "Windows native x86_64-pc-windows-msvc"
+  },
+  {
+    "name": "fmt",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
+    "status": "PASS",
+    "exitCode": 0,
+    "result": "passed",
+    "log": "fmt.log",
+    "environment": "Windows native x86_64-pc-windows-msvc"
+  },
+  {
+    "name": "clippy",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings",
+    "status": "FAIL",
+    "exitCode": 101,
+    "result": "pre-existing usage_tests.rs:987 await_holding_lock only; unchanged baseline file",
+    "log": "clippy.log",
+    "environment": "Windows native x86_64-pc-windows-msvc"
+  },
+  {
+    "name": "diff-check",
+    "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+    "command": "git diff --check",
+    "status": "PASS",
+    "exitCode": 0,
+    "result": "passed; line ending advisory warnings only",
+    "log": "diff-check.log",
+    "environment": "Windows native x86_64-pc-windows-msvc"
+  }
+]

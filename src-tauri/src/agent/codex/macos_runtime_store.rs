@@ -72,9 +72,9 @@ pub(super) fn prepare(
     write_one(store, |transaction| {
         transaction.execute(
             "INSERT INTO runtime_instances(
-                id,owner_host_instance_id,codex_executable_path,state,created_at,updated_at,
+                id,owner_host_instance_id,executable_path,provider,state,created_at,updated_at,
                 runtime_platform,containment_type,process_identity_scheme)
-             VALUES(?1,?2,?3,'preparing',?4,?4,'macos','macos_process_group',
+             VALUES(?1,?2,?3,'codex','preparing',?4,?4,'macos','macos_process_group',
                     'darwin_proc_bsd_start_v1')",
             params![id, owner, executable, now],
         )
@@ -90,8 +90,8 @@ pub(super) fn start(
 ) -> Result<(), MacosRuntimeStoreError> {
     write_one(store, |transaction| {
         transaction.execute(
-            "UPDATE runtime_instances SET state='starting',codex_pid=?2,
-                codex_process_start_token=?3,containment_process_group_id=?4,
+            "UPDATE runtime_instances SET state='starting',process_id=?2,
+                process_start_token=?3,containment_process_group_id=?4,
                 containment_session_id=?5,containment_verified_at=?6,
                 started_at=?6,updated_at=?6
              WHERE id=?1 AND state='preparing'",
@@ -117,8 +117,8 @@ pub(super) fn initialized(
 ) -> Result<(), MacosRuntimeStoreError> {
     write_one(store, |transaction| {
         transaction.execute(
-            "UPDATE runtime_instances SET state='running',codex_version=?2,
-                protocol_schema_sha256=?3,updated_at=?4
+            "UPDATE runtime_instances SET state='running',executable_version=?2,
+                protocol_contract_sha256=?3,updated_at=?4
              WHERE id=?1 AND state='starting' AND containment_verified_at IS NOT NULL",
             params![id, version, schema, now],
         )

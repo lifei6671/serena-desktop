@@ -145,3 +145,88 @@ fn projector_stays_provider_agnostic_and_telemetry_stays_closed() {
     assert!(source.contains("AgentTelemetryEvent::Usage"));
     assert!(source.contains("project_execution_usage"));
 }
+
+/// typed Direct 分支写入当前 Execution，失败仍只丢 telemetry，不改变 lifecycle。
+#[tokio::test]
+async fn projector_routes_direct_usage_without_codex_private_state() {
+    use crate::agent::usage::{UsageCompleteness, UsageSnapshot};
+    let directory = tempfile::tempdir().unwrap();
+    let store = StateStore::open(directory.path().into()).await.unwrap();
+    let mut request = input(directory.path(), "direct-projector");
+    request.provider = ProviderId::new("codebuddy".into()).unwrap();
+    store
+        .create_execution(
+            "direct-projector".into(),
+            canonicalize_request(request).unwrap(),
+            1,
+        )
+        .await
+        .unwrap();
+    let before = store
+        .execution("direct-projector".into())
+        .await
+        .unwrap()
+        .unwrap();
+    let snapshot = UsageSnapshot {
+        execution_id: "direct-projector".into(),
+        provider_id: ProviderId::new("codebuddy".into()).unwrap(),
+        input_tokens: Some(2),
+        cached_input_tokens: None,
+        cache_write_input_tokens: None,
+        output_tokens: Some(0),
+        reasoning_tokens: None,
+        total_tokens: Some(2),
+        model_context_window: None,
+        completeness: UsageCompleteness::Complete,
+        revision: 0,
+        updated_at: 2,
+    };
+    let projector = ExecutionTelemetryProjector::new(store.clone(), "direct-projector".into());
+    let mut foreign = snapshot.clone();
+    foreign.execution_id = "foreign".into();
+    projector
+        .publish(AgentTelemetryEvent::Usage(UsageEvent::direct(foreign)))
+        .await;
+    assert!(
+        store
+            .execution_usage("direct-projector".into())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    projector
+        .publish(AgentTelemetryEvent::Usage(UsageEvent::direct(
+            snapshot.clone(),
+        )))
+        .await;
+    let usage = store
+        .execution_usage("direct-projector".into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(usage.total_tokens, Some(2));
+    assert_eq!(usage.input_tokens, Some(2));
+    assert_eq!(usage.completeness, UsageCompleteness::Complete);
+    // 不同的 late final 被拒绝；AgentEventSink 的成功返回不升级成 Provider failure。
+    let mut late = snapshot;
+    late.total_tokens = Some(3);
+    projector
+        .publish(AgentTelemetryEvent::Usage(UsageEvent::direct(late)))
+        .await;
+    assert_eq!(
+        store
+            .execution_usage("direct-projector".into())
+            .await
+            .unwrap()
+            .unwrap(),
+        usage
+    );
+    assert_eq!(
+        store
+            .execution("direct-projector".into())
+            .await
+            .unwrap()
+            .unwrap(),
+        before
+    );
+}

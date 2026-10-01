@@ -1,0 +1,11 @@
+{
+  "target": "2BB4143A8B92E49C5A0E73EBA79AB967C8219F1268CE093D3AB91E959AAF0957",
+  "freshness": "FRESH",
+  "reviewGate": "PASSED",
+  "head": "8499fef2378fdf18ec61ef6a472b2bc485491ed5",
+  "coverage": "COMPLETE",
+  "hashMismatches": 0,
+  "implementationFiles": 10,
+  "contextFiles": 8,
+  "scopeDelta": 0
+}

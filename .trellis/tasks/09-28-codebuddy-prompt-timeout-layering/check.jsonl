@@ -1,0 +1,1 @@
+{"file":".trellis/tasks/09-28-codebuddy-prompt-timeout-layering/research/timeout-contract.md","reason":"审查 timeout 分层、fail-closed 与 cancel deadline 是否保持既有契约"}

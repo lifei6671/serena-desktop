@@ -1,0 +1,13 @@
+ M src-tauri/src/agent/codebuddy/provider/tests.rs
+ M src-tauri/src/agent/product/provider_catalog_tests.rs
+?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/audit.md
+?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/baseline.json
+?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/check.jsonl
+?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/executable-target.json
+?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/fmt-results.jsonl
+?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/implement.jsonl
+?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/prd.md
+?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/results.jsonl
+?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/snapshots.md
+?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/task.json
+?? .trellis/tasks/09-27-cb7-001-codebuddy-provider-capabilities/verification.md

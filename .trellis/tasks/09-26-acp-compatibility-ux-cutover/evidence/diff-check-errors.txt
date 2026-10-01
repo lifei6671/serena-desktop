@@ -1,0 +1,11 @@
+docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md:758: trailing whitespace.
+docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md:759: trailing whitespace.
+docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md:763: trailing whitespace.
+docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md:771: trailing whitespace.
+docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md:798: trailing whitespace.
+docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md:906: trailing whitespace.
+docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md:909: trailing whitespace.
+docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md:911: trailing whitespace.
+docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md:912: trailing whitespace.
+docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md:921: trailing whitespace.
+docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md:924: trailing whitespace.

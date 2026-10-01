@@ -72,8 +72,14 @@ impl StateStore {
                         if row.workspace_id != workspace_id {
                             return Err("EXECUTION_REQUEST_KEY_CONFLICT".into());
                         }
-                        let request =
-                            canonicalize_request(input(&row, request_key, prompt, None, None)?)?;
+                        let request = canonicalize_request(input(
+                            &tx,
+                            &row,
+                            request_key,
+                            prompt,
+                            None,
+                            None,
+                        )?)?;
                         (row, request)
                     }
                     Action::Continue {
@@ -90,18 +96,19 @@ impl StateStore {
                         };
                         require_retry_context(&tx, &row.id, &work)?;
                         let request = canonicalize_request(input(
+                            &tx,
                             &parent,
                             request_key,
                             prompt,
                             Some(parent.id.clone()),
                             None,
                         )?)?;
-                        return continuation_prior_outcome(row, &parent, &request)
+                        return continuation_prior_outcome(&tx, row, &parent, &request)
                             .map(|outcome| Some(outcome.execution_id));
                     }
                     _ => return Err("WORK_INVALID_ARGUMENT".into()),
                 };
-                Ok(Some(prior_outcome(prior, &request)?.execution_id))
+                Ok(Some(prior_outcome(&tx, prior, &request)?.execution_id))
             })())
         })
         .await?

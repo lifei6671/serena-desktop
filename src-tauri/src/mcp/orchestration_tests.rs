@@ -3,6 +3,12 @@ use crate::agent::{product::AgentProductService, store::StateStore};
 use crate::workspace_registry::WorkspaceRegistry;
 use rmcp::{ServiceExt, model::CallToolRequestParams, transport::StreamableHttpClientTransport};
 
+#[path = "provider_query_tests.rs"]
+mod provider_query_tests;
+
+#[path = "start_routing_tests.rs"]
+mod start_routing_tests;
+
 pub(crate) fn fixture(root: &std::path::Path) -> Arc<Broker> {
     let paths = crate::config::AppPaths {
         runtime_directory: root.join("runtime"),
@@ -152,6 +158,140 @@ async fn call(broker: &Broker, name: &str, args: Value) -> Value {
         .unwrap()
 }
 
+/// 私有 identity 落盘后，真实 MCP、Product 与 Work 只读投影保持逐值不变。
+#[tokio::test]
+async fn codebuddy_private_state_is_absent_from_public_projections() {
+    use crate::agent::{
+        codebuddy::store::{CodeBuddyStore, Mutation, Ownership, PromptRpcId},
+        store::transactions::product::{WorkExecutionContext, WorkspaceSnapshot},
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_string_lossy().into_owned();
+    let store = StateStore::open(dir.path().join("state")).await.unwrap();
+    store
+        .create_work_run(
+            "work".into(),
+            "W".into(),
+            root.clone(),
+            1,
+            "projection".into(),
+            None,
+            1,
+        )
+        .await
+        .unwrap();
+    store
+        .product_create_fresh_with_work(
+            "E".into(),
+            "work".into(),
+            "key".into(),
+            "projection".into(),
+            "W".into(),
+            Some(WorkspaceSnapshot {
+                id: "W".into(),
+                root,
+                generation: 1,
+            }),
+            Some(WorkExecutionContext {
+                work_run_id: "work".into(),
+                parent_execution_id: None,
+                delegation_context_json: None,
+            }),
+            1,
+        )
+        .await
+        .unwrap();
+    // 仅构造持久化 fixture，不启动 Runtime、不生成终止或 Claim 释放证据。
+    let db = rusqlite::Connection::open(dir.path().join("state/agent-state.db")).unwrap();
+    db.execute_batch(
+        "INSERT INTO runtime_instances (id,owner_host_instance_id,provider,state,created_at,updated_at)
+         VALUES ('private-runtime-sentinel','host','codebuddy','unknown',1,1);
+         UPDATE executions SET provider='codebuddy',runtime_instance_id='private-runtime-sentinel' WHERE id='E';",
+    ).unwrap();
+    drop(db);
+    let broker = fixture(dir.path());
+    let product = Arc::new(AgentProductService::new(store.clone()));
+    assert!(broker.product.set(product.clone()).is_ok());
+    let queries = [
+        (
+            "agent_query",
+            json!({"action":"get","executionId":"E","includeResult":true}),
+        ),
+        ("agent_query", json!({"action":"list","workRunId":"work"})),
+        (
+            "agent_query",
+            json!({"action":"observe","executionId":"E","waitMs":0}),
+        ),
+        ("work_query", json!({"action":"get","workRunId":"work"})),
+        ("work_query", json!({"action":"list"})),
+    ];
+    let mut before = Vec::new();
+    for (name, args) in &queries {
+        let response = call(&broker, name, args.clone()).await;
+        assert_eq!(response["ok"], true, "{response}");
+        before.push(response);
+    }
+    let local_args = json!({"action":"observe","executionId":"E","waitMs":0});
+    let local_before = product.operation(local_args.clone(), None).await;
+    assert_eq!(local_before["ok"], true);
+    let owner = Ownership {
+        execution_revision: store.execution("E".into()).await.unwrap().unwrap().revision,
+        runtime_instance_id: Some("private-runtime-sentinel".into()),
+    };
+    let private = CodeBuddyStore(store.clone());
+    let mut state = private.create("E".into(), owner.clone()).await.unwrap();
+    for mutation in [
+        Mutation::NegotiatedProtocol(1),
+        Mutation::ExactSession("private-session-sentinel".into()),
+        Mutation::ExactProviderRequest("private-provider-request-sentinel".into()),
+        Mutation::MarkSent {
+            rpc_id: Some(PromptRpcId::from_json("\"private-rpc-sentinel\"").unwrap()),
+        },
+    ] {
+        state = private
+            .mutate("E".into(), owner.clone(), state.revision, mutation)
+            .await
+            .unwrap();
+    }
+    assert_eq!(private.read("E".into()).await.unwrap(), state);
+    assert!(state.revision > 0);
+    let mut after = Vec::new();
+    for (name, args) in &queries {
+        after.push(call(&broker, name, args.clone()).await);
+    }
+    assert_eq!(after, before);
+    let local_after = product.operation(local_args, None).await;
+    assert_eq!(local_after, local_before);
+    after.push(local_after);
+    // 同时锁定字段名与真实私有值；公共 generic revision 允许存在，但不能随 private revision 改变。
+    for view in after {
+        let wire = serde_json::to_string(&view).unwrap();
+        for forbidden in [
+            "sessionId",
+            "session_id",
+            "conversationRequestId",
+            "conversation_request_id",
+            "providerRequestId",
+            "provider_request_id",
+            "promptRpcId",
+            "prompt_rpc_id",
+            "privateRevision",
+            "private_revision",
+            "private-runtime-sentinel",
+            "private-session-sentinel",
+            "private-provider-request-sentinel",
+            "private-rpc-sentinel",
+            state.conversation_request_id.as_str(),
+        ] {
+            assert!(
+                !wire.contains(forbidden),
+                "public projection leaked {forbidden}: {wire}"
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace_authority() {
     let dir = tempfile::tempdir().unwrap();
@@ -191,6 +331,22 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     ];
     config.desktop_selected_workspace_id = Some("B".into());
     broker.supervisor.replace_config(config).unwrap();
+    broker
+        .supervisor
+        .mutate_provider_settings(|settings| {
+            settings
+                .role_defaults
+                .entry("general".into())
+                .or_default()
+                .insert(
+                    "codex".into(),
+                    crate::config::AgentRoleProviderDefaults {
+                        model: Some("frozen-model".into()),
+                        reasoning: Some("high".into()),
+                    },
+                );
+        })
+        .unwrap();
     let server = active(&broker, &root_b).await;
     {
         let mut active = broker.workspace.write().await;
@@ -233,7 +389,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
         let response = call(
             &broker,
             "agent_execute",
-            json!({"action":"start","workRunId":work_run_id,"workspaceId":workspace_id,"requestKey":"key","prompt":"p"}),
+            json!({"action":"start","workRunId":work_run_id,"workspaceId":workspace_id,"providerId":"codex","taskRole":"general","requestKey":"key","prompt":"p"}),
         )
         .await;
         // 测试专用 Provider 在接受前拒绝；durable 创建先于派发失败完成。
@@ -251,6 +407,10 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
         assert_eq!(execution.workspace_id, workspace_id);
         assert_eq!(execution.canonical_workspace_root, root.to_string_lossy());
         assert_eq!(execution.workspace_generation, generation);
+        assert_eq!(
+            execution.execution_profile_json,
+            r#"{"model":"frozen-model","reasoning":"high"}"#
+        );
     }
 
     WorkspaceRegistry::new(&broker.supervisor)
@@ -264,7 +424,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     let retry = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-a","workspaceId":"A","requestKey":"key","prompt":"p"}),
+        json!({"action":"start","workRunId":"work-a","workspaceId":"A","providerId":"codex","taskRole":"general","requestKey":"key","prompt":"p"}),
     )
     .await;
     assert_eq!(retry["ok"], true);
@@ -281,6 +441,39 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
         .unwrap();
     assert_eq!(frozen.canonical_workspace_root, root_a.to_string_lossy());
     assert_eq!(frozen.workspace_generation, 3);
+
+    // 同一 requestKey 在角色默认值变化后属于不同 canonical identity，不能借用旧 profile。
+    broker
+        .supervisor
+        .mutate_provider_settings(|settings| {
+            settings
+                .role_defaults
+                .get_mut("general")
+                .unwrap()
+                .get_mut("codex")
+                .unwrap()
+                .model = Some("new-model".into());
+        })
+        .unwrap();
+    let profile_conflict = call(
+        &broker,
+        "agent_execute",
+        json!({"action":"start","workRunId":"work-a","workspaceId":"A","providerId":"codex","taskRole":"general","requestKey":"key","prompt":"p"}),
+    )
+    .await;
+    assert_eq!(
+        profile_conflict["error"]["code"],
+        "EXECUTION_REQUEST_KEY_CONFLICT"
+    );
+    assert_eq!(
+        store
+            .execution(before_retry[0].execution_id.clone())
+            .await
+            .unwrap()
+            .unwrap()
+            .execution_profile_json,
+        r#"{"model":"frozen-model","reasoning":"high"}"#
+    );
 
     let mut changed = broker.config();
     let workspace_a = changed
@@ -301,7 +494,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     let stale = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-stale","workspaceId":"A","requestKey":"key","prompt":"p"}),
+        json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"work-stale","workspaceId":"A","requestKey":"key","prompt":"p"}),
     )
     .await;
     assert_eq!(stale["error"]["code"], "WORKSPACE_CONTEXT_MISMATCH");
@@ -326,7 +519,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     let unknown = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-unknown","workspaceId":"unknown","requestKey":"key","prompt":"p"}),
+        json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"work-unknown","workspaceId":"unknown","requestKey":"key","prompt":"p"}),
     )
     .await;
     assert_eq!(unknown["error"]["code"], "WORKSPACE_NOT_FOUND");
@@ -351,7 +544,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     let mismatch = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-mismatch","workspaceId":"B","requestKey":"key","prompt":"p"}),
+        json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"work-mismatch","workspaceId":"B","requestKey":"key","prompt":"p"}),
     )
     .await;
     assert_eq!(mismatch["error"]["code"], "WORKSPACE_CONTEXT_MISMATCH");
@@ -378,7 +571,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
     let missing_context = call(
         &broker,
         "agent_execute",
-        json!({"action":"start","workRunId":"work-no-context","requestKey":"key","prompt":"p"}),
+        json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"work-no-context","requestKey":"key","prompt":"p"}),
     )
     .await;
     assert_eq!(
@@ -396,7 +589,7 @@ async fn agent_execute_start_resolves_the_work_snapshot_without_active_workspace
         let invalid = call(
             &broker,
             "agent_execute",
-            json!({"action":"start","workRunId":"work-no-context","workspaceId":workspace_id,"requestKey":"key","prompt":"p"}),
+            json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"work-no-context","workspaceId":workspace_id,"requestKey":"key","prompt":"p"}),
         )
         .await;
         assert_eq!(invalid["error"]["code"], "INVALID_PARAMS");
@@ -725,7 +918,7 @@ async fn http_work_projection_guards_errors_and_reopen_preserve_public_contract(
         ),
         (
             "agent_execute",
-            json!({"action":"start","workRunId":"missing","workspaceId":"W","requestKey":"k","prompt":"p"}),
+            json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"missing","workspaceId":"W","requestKey":"k","prompt":"p"}),
             "WORK_NOT_FOUND",
         ),
     ] {
@@ -954,6 +1147,18 @@ process.stdin.on('end', () => {
       invalid.push({...response, data:{executions:[{...row, prompt:'must be absent'}]}});
       const missing = {...row}; delete missing.revision;
       invalid.push({...response, data:{executions:[missing]}});
+    } else if (response.ok && response.data.providers) {
+      for (const field of ['providers', 'roleRouting', 'roleDefaults']) {
+        const missing = {...response.data}; delete missing[field];
+        invalid.push({...response, data:missing});
+      }
+      const provider = response.data.providers[0];
+      for (const field of ['id', 'displayName', 'enabled', 'health', 'availableForNewExecution', 'capabilities']) {
+        const missing = {...provider}; delete missing[field];
+        invalid.push({...response, data:{...response.data, providers:[missing]}});
+      }
+      invalid.push({...response, data:{...response.data, providers:[{...provider, health:'unknown'}]}});
+      invalid.push({...response, data:{...response.data, providers:[{...provider, enabled:null}]}});
     } else if (response.ok && !('prompt' in response.data)) {
       for (const field of ['unchanged', 'revision', 'resultAvailable', 'progress']) {
         const missing = {...response.data}; delete missing[field];
@@ -1112,7 +1317,7 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     assert_eq!(
         list,
         json!({"ok":true,"data":{"executions":[{
-            "executionId":"E","provider":{"id":"codex","displayName":"Codex"},
+            "executionId":"E","provider":detail["data"]["provider"],
             "usage":{"inputTokens":null,"cachedInputTokens":null,"cacheWriteInputTokens":null,
                 "outputTokens":null,"reasoningTokens":null,"totalTokens":null,"modelContextWindow":null,
                 "completeness":"unknown","usageRevision":0,"updatedAt":null},
@@ -1269,7 +1474,7 @@ async fn http_agent_query_compact_views_preserve_revision_persisted_result_and_e
     assert_eq!(
         terminal_list,
         json!({"ok":true,"data":{"executions":[{
-            "executionId":"E","provider":{"id":"codex","displayName":"Codex"},
+            "executionId":"E","provider":detail["data"]["provider"],
             "usage":{"inputTokens":null,"cachedInputTokens":null,"cacheWriteInputTokens":null,
                 "outputTokens":null,"reasoningTokens":null,"totalTokens":null,"modelContextWindow":null,
                 "completeness":"unknown","usageRevision":0,"updatedAt":null},
@@ -1734,7 +1939,7 @@ fn typed_registry_validation_rejects_cross_action_fields_and_preserves_context_a
         ),
         (
             "agent_execute",
-            json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","delegationContextJson":"{}"}),
+            json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","delegationContextJson":"{}"}),
         ),
         (
             "agent_execute",
@@ -1742,7 +1947,7 @@ fn typed_registry_validation_rejects_cross_action_fields_and_preserves_context_a
         ),
         (
             "agent_execute",
-            json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"unknown":true}}),
+            json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"unknown":true}}),
         ),
     ] {
         assert!(registry::validate(name, &args).is_err(), "{name} {args}");
@@ -1781,23 +1986,23 @@ fn typed_registry_validation_rejects_cross_action_fields_and_preserves_context_a
     assert_eq!(
         registry::validate(
             "agent_execute",
-            &json!({"action":"start","workRunId":"w","requestKey":"k","prompt":"p"})
+            &json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"w","requestKey":"k","prompt":"p"})
         )
         .unwrap_err(),
         "WORKSPACE_CONTEXT_REQUIRED"
     );
     for workspace_id in [json!(""), json!(false)] {
         assert!(
-            registry::validate("agent_execute", &json!({"action":"start","workRunId":"w","workspaceId":workspace_id,"requestKey":"k","prompt":"p"}))
+            registry::validate("agent_execute", &json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"w","workspaceId":workspace_id,"requestKey":"k","prompt":"p"}))
                 .unwrap_err()
                 .starts_with("INVALID_PARAMS")
         );
     }
     // Continue 的 Authority 仅来自 parentExecutionId；公共 DTO 不接受第二个 Workspace 输入。
     assert!(registry::validate("agent_execute", &json!({"action":"continue","workRunId":"w","parentExecutionId":"e","workspaceId":"W","requestKey":"k","prompt":"p"})).is_err());
-    assert!(registry::validate("agent_execute",&json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"summary":null}})).is_err());
+    assert!(registry::validate("agent_execute",&json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"summary":null}})).is_err());
     // This is structurally valid transport input. Phase 6 must reject its values.
-    assert!(registry::validate("agent_execute",&json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"files":[{"path":"../escape","sha256":"bad"}]}})).is_ok());
+    assert!(registry::validate("agent_execute",&json!({"taskRole":"general","providerId":"codex","action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","context":{"files":[{"path":"../escape","sha256":"bad"}]}})).is_ok());
     assert_eq!(
         registry::validate("agent", &json!({"action":"list"})).unwrap_err(),
         "UNKNOWN_TOOL"

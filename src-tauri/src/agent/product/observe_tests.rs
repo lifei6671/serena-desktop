@@ -265,6 +265,45 @@ async fn persisted_result_is_opt_in_repeatable_and_does_not_change_revision_or_s
 }
 
 #[tokio::test]
+async fn legacy_plain_text_result_projects_to_public_final_answer_without_rewriting_storage() {
+    let (dir, store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    let raw = json!({"text":"ROLE_DEFAULTS_CODEBUDDY_OK"});
+    db.execute(
+        "UPDATE executions SET final_result_json=?1 WHERE id='e'",
+        [raw.to_string()],
+    )
+    .unwrap();
+
+    let before = store.execution("e".into()).await.unwrap().unwrap();
+    let full = service
+        .checked_operation(
+            json!({"action":"observe","executionId":"e","includeResult":true,"waitMs":0}),
+            None,
+        )
+        .await;
+    assert_eq!(
+        full["data"]["finalResult"],
+        json!({"finalResult":[{"type":"agentMessage","phase":"final_answer","text":"ROLE_DEFAULTS_CODEBUDDY_OK"}]})
+    );
+    assert_eq!(store.execution("e".into()).await.unwrap().unwrap(), before);
+
+    let complex = json!({"text":"arbitrary","prompt":"never result"});
+    db.execute(
+        "UPDATE executions SET final_result_json=?1 WHERE id='e'",
+        [complex.to_string()],
+    )
+    .unwrap();
+    let preserved = service
+        .checked_operation(
+            json!({"action":"observe","executionId":"e","includeResult":true,"waitMs":0}),
+            None,
+        )
+        .await;
+    assert_eq!(preserved["data"]["finalResult"], complex);
+}
+
+#[tokio::test]
 async fn revisions_separate_control_activity_and_store_cas() {
     let (dir, _store, service) = pending().await;
     let mut view = service.observe("e".into(), false).await.unwrap();
@@ -1101,6 +1140,10 @@ async fn diagnostic_projection_never_exposes_raw_provider_payload() {
             json!({"error":{"message":"secret","codexErrorInfo":"secret"}}).to_string(),
         ),
         ("CODEX_PERMISSION_DENIED", "command".into()),
+        (
+            "CODEBUDDY_PERMISSION_DENIED",
+            "private command secret argv env source".into(),
+        ),
         ("secret", "raw stdout stderr secret".into()),
     ] {
         store
@@ -1302,4 +1345,33 @@ async fn persisted_activity_contract_and_result_priority_fail_closed() {
         )
         .await;
     assert_eq!(terminal["data"]["wakeReason"], "terminal");
+}
+
+#[tokio::test]
+/// 显式拒绝摘要只允许 provider/none，未知或非法持久化组合必须关闭投影。
+async fn permission_denied_activity_contract_is_explicit() {
+    let (dir, _store, service) = pending().await;
+    let db = rusqlite::Connection::open(dir.path().join("agent-state.db")).unwrap();
+    for (phase, category, summary, valid) in [
+        ("provider", None, "provider.permission_denied", true),
+        ("provider", None, "provider.processing", true),
+        ("tool", Some("read"), "provider.permission_denied", false),
+        ("provider", None, "provider.unknown", false),
+    ] {
+        db.execute("UPDATE executions SET status='running',dispatch_state='dispatched',last_activity_at=1,activity_phase=?1,tool_category=?2,activity_summary_code=?3 WHERE id='e'",rusqlite::params![phase, category, summary]).unwrap();
+        let view = service
+            .checked_operation(
+                json!({"action":"observe","executionId":"e","waitMs":0}),
+                None,
+            )
+            .await;
+        if valid {
+            assert_eq!(view["data"]["progress"]["summaryCode"], summary, "{view}");
+        } else {
+            assert_eq!(
+                view["error"]["code"], "AGENT_ACTIVITY_CONTRACT_ERROR",
+                "{view}"
+            );
+        }
+    }
 }

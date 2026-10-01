@@ -1,0 +1,35 @@
+{
+  "head": "a3ed7962d0cfdcf213de7bcfd02cf48bdf195aef",
+  "files": [
+    {
+      "path": "src/types.ts",
+      "hash": "235D2821C980D536A35F127720BF9C7699E0570586654FA6573A189742BAE63A"
+    },
+    {
+      "path": "src/api.ts",
+      "hash": "53DB62032F3ED3C19D3864D7F1BC3B24E80E989DC0BC7F4840F715D8191C6515"
+    },
+    {
+      "path": "src/app/useAppController.ts",
+      "hash": "DA76A5D5FB3E25D3D2148E9995A3D73D5443DF51E98DC5EA53872014CDFB5469"
+    },
+    {
+      "path": "src/App.test.mjs",
+      "hash": "1DD0F63D9915779CA40E6E84A4154A3270E70AEA85A18FB957796FBCFA188778"
+    },
+    {
+      "path": "src/AgentPanel.test.mjs",
+      "hash": "3CC4C752B3A6EABF97E54EECDCB4AD987F8B5AED7AB6E925C5DB94C7ABCB7040"
+    },
+    {
+      "path": "src/configFixtures.mjs",
+      "hash": "EDF19848F9E550C014B404E53C6B0E5FB5343797333408527498B283481A78EA"
+    },
+    {
+      "path": "src/configModel.test.mjs",
+      "hash": "A549E7FFD36F2A8E234372BC258FAADCCBDA4763BFC2DC1B796686A1D72839D4"
+    }
+  ],
+  "baselinePreserved": true,
+  "baselineFileCount": 33
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "path": "src-tauri/src/agent/product.rs",
+    "sha256": "39fa0bae702bdfc355869c6761ed78ab1e2bc6146ce00c1d8bfa6147dc9cf5de"
+  },
+  {
+    "path": "src-tauri/src/agent/provider/control.rs",
+    "sha256": "20c5cce0f12563a141440e81f9b77b805e6fa7634de7d378976c3c58cdd37167"
+  },
+  {
+    "path": "src-tauri/src/agent/provider/registry.rs",
+    "sha256": "88c97cff13078e32091d4357ebc90f3bda978389ee88a88f6e74d9d711a6b4c1"
+  },
+  {
+    "path": "src-tauri/src/agent/task_manager.rs",
+    "sha256": "c33ab92361278ad84000bcf4633324e37b2e798c3cecfc57c053e40a2c13d682"
+  },
+  {
+    "path": "src-tauri/src/commands.rs",
+    "sha256": "328d8a5f47793e93bfcdfbc38a0b46e07465b69fb344a81f1d3d78e9b3b7185b"
+  },
+  {
+    "path": "src-tauri/src/lib.rs",
+    "sha256": "63d46cbaa9009b13a04481272574448b0c8b9bb14fd9416391b2de896404d2d9"
+  },
+  {
+    "path": "src-tauri/src/serena.rs",
+    "sha256": "aae649c90705fefc73085ef8c992b9858115da875bc0b11f98632b860c820f57"
+  },
+  {
+    "path": "src-tauri/src/provider_policy_tests.rs",
+    "sha256": "74fd37574b00b7a1fb10f4220e7af55fbcd104510b6597764e5ad36d7d252143"
+  },
+  {
+    "path": "src-tauri/src/agent/task_manager/tests.rs",
+    "sha256": "655926819623707dfb3ade3916b0344ff536074fe4988b58e3d3cdce0ace8ec2"
+  }
+]

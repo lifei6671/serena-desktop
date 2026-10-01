@@ -1,0 +1,4018 @@
+[
+  {
+    "path": ".codex/agents/trellis-check.toml",
+    "hash": "C4388B10FFF67AB41174E81CA2E61675625BED43D8655225553AA25A0A84B4F8"
+  },
+  {
+    "path": ".codex/agents/trellis-implement.toml",
+    "hash": "145A1952E9725F46DCA1AD507700CB04B36324F209D26A98DDF8B8430B7E9A34"
+  },
+  {
+    "path": ".codex/agents/trellis-research.toml",
+    "hash": "23D224B2F02BE496580A2650B1E55F8984189B00D4AB6EDCB9503C7CCF7FA5D6"
+  },
+  {
+    "path": ".codex/config.toml",
+    "hash": "B36C58BDB6E616AABC68F6E12BBCAACD4B58508A999EB94188DFE788662E12F2"
+  },
+  {
+    "path": ".codex/hooks.json",
+    "hash": "33B9442423213CEDC074D986D7CDFC773C0806BD797AC2BD895184699D973396"
+  },
+  {
+    "path": ".codex/hooks/inject-subagent-context.py",
+    "hash": "7AD9E90F548D6DE57A4228E51FF3F2AFE0FA2877B9F8E7918FBE9DDA5282F571"
+  },
+  {
+    "path": ".codex/hooks/inject-workflow-state.py",
+    "hash": "4FD136D1890410BAB641132BA2CA4D7E21E81CE0405D316E4A457A83A97C7FDF"
+  },
+  {
+    "path": ".codex/hooks/session-start.py",
+    "hash": "6C5054AC526F813C74A9C2211D3002EFA63A7F5DB535F1775E1FF6D8C41B4028"
+  },
+  {
+    "path": ".gitattributes",
+    "hash": "2637C8B163B05B19C99D7B04E52EAD2E2F00EB70F02E4240012AA79B23F5A209"
+  },
+  {
+    "path": ".github/workflows/ci.yml",
+    "hash": "4E9A22D5182BE2ADA9CE61FAB2A1577B57CE6FD9438CF3F4406B98CA37A17C71"
+  },
+  {
+    "path": ".github/workflows/release.yml",
+    "hash": "6A9583300500B7887771FFD4C212AD637CB27F285AEF32F322D537F726E2798D"
+  },
+  {
+    "path": ".gitignore",
+    "hash": "CD677548540D3A4D1696F601216A66D3BF8440C2083AFD9D81A40F5E06F4AAD0"
+  },
+  {
+    "path": ".serena/.gitignore",
+    "hash": "441F89B8BBA2252C9F7797EBC2FCA741B760712E1C8261A7AD5C282175DD52F2"
+  },
+  {
+    "path": ".serena/project.yml",
+    "hash": "235CDBAF834671F06D1C7F5F30F9D70E2A188466C73C62E2E59FE3AC6C74B99D"
+  },
+  {
+    "path": ".trellis/.gitignore",
+    "hash": "3D6C16331D7D4B09098FFF33208E048F419FA00DB42299F19D21542379D5CB44"
+  },
+  {
+    "path": ".trellis/.template-hashes.json",
+    "hash": "C36A0E70EC6819729464EADADFD174BD1979CF59800EFE7C81474567E1DDA153"
+  },
+  {
+    "path": ".trellis/.version",
+    "hash": "A0DFC0B7C9462A77CDD38A47C563A9BCC025F626258B590EF0417052E06FC47D"
+  },
+  {
+    "path": ".trellis/agents/check.md",
+    "hash": "03D9F3E45DBA629FD659A967C3EF17EFFBA886DB527870E4D2FAB6930282A8DA"
+  },
+  {
+    "path": ".trellis/agents/implement.md",
+    "hash": "6DA19490FA082E0A65B44764D41A5C29C05BDB74F34E8917F8B04CB193C29550"
+  },
+  {
+    "path": ".trellis/config.yaml",
+    "hash": "C472BA851165F9C5FA22ED93A9C91DEAA8E2DE30F4DD5ED988D938F5AD2207AC"
+  },
+  {
+    "path": ".trellis/scripts/__init__.py",
+    "hash": "4371CB0CDD6D3EFAC5822D54A230F5D4FE7B6D45785AA3D73A9D0D4664F15C46"
+  },
+  {
+    "path": ".trellis/scripts/add_session.py",
+    "hash": "BF426A5325227513050184A81DBB23F5F49528339EC3C356E53D932F0B57D2D6"
+  },
+  {
+    "path": ".trellis/scripts/common/__init__.py",
+    "hash": "04CFB43CB26744328766340C6EDBE8FC5746E47B71DD9245F0F771399B1FCD96"
+  },
+  {
+    "path": ".trellis/scripts/common/active_task.py",
+    "hash": "727B2881A9A45C5F4739632EB7D41D68EE63997DE036DA785F1DF96088CB0AE3"
+  },
+  {
+    "path": ".trellis/scripts/common/cli_adapter.py",
+    "hash": "C0AAD912322F5F11A87C09FA1E84AB4B76E62F3904F860477E521A7F71EA691C"
+  },
+  {
+    "path": ".trellis/scripts/common/config.py",
+    "hash": "9308097C4F236F88EBB205EFA248417BBC06696A1182C4F5B22978FEF322CF2D"
+  },
+  {
+    "path": ".trellis/scripts/common/developer.py",
+    "hash": "F0E217F24FBC602EB4F93B5FF42C11D4A0C3986DC8C6D20DFBDBE5404F7EF49F"
+  },
+  {
+    "path": ".trellis/scripts/common/git_context.py",
+    "hash": "2D38CF945BC3B929B34C854E869945057A32054055CCC00E4F538E679070868D"
+  },
+  {
+    "path": ".trellis/scripts/common/git.py",
+    "hash": "B89C74C3A6E4EA816298F1C7C8DBE4A97DB6E020D0E0523A8ED8B79503FD2390"
+  },
+  {
+    "path": ".trellis/scripts/common/io.py",
+    "hash": "34AF20D40C866A2EE6F75CDB65347B4E7298F4E5A2CC9C150F20ECC33C2429A8"
+  },
+  {
+    "path": ".trellis/scripts/common/log.py",
+    "hash": "6BC674C028D51A3F0BCCE11DC19B25CF905398688CA12416FE5ADC6CC75B1041"
+  },
+  {
+    "path": ".trellis/scripts/common/packages_context.py",
+    "hash": "4EB92E4F5BA229B1162EA83326B3968F719F318166E30D120EBC1CF32F39EA2F"
+  },
+  {
+    "path": ".trellis/scripts/common/paths.py",
+    "hash": "B122956B9BABB6142FB35CEC9374E6C8F89A9A8AD35C4F4E6978CE85E22D2785"
+  },
+  {
+    "path": ".trellis/scripts/common/safe_commit.py",
+    "hash": "A2BA3EB3EE0D6A0EE2311AD584377C14642DE6B4812C814937D9BC0803E7ECF4"
+  },
+  {
+    "path": ".trellis/scripts/common/session_context.py",
+    "hash": "5B9CA62172EAA8CEF21C6C45EDA75C061A619CE7581886B7F9E55D6E02C6ADB7"
+  },
+  {
+    "path": ".trellis/scripts/common/task_context.py",
+    "hash": "405D67A1426DFA91B2A2FD58EC48735E8729F5E5BFEB05E3CEEA0094F4C90735"
+  },
+  {
+    "path": ".trellis/scripts/common/task_queue.py",
+    "hash": "68A047C88A281C6933B2C039ABAEBBA141F3A97245567F0B79FDDAAFFCA9730E"
+  },
+  {
+    "path": ".trellis/scripts/common/task_store.py",
+    "hash": "C3FB305B631A556D2062F376C3CD3D075CD9D506931FB67400E4BF0CE3889CFF"
+  },
+  {
+    "path": ".trellis/scripts/common/task_utils.py",
+    "hash": "7A386B676843D95B82CD5880460E8AFA7AD5D829A75F8BA803D9D0B4259E4B3A"
+  },
+  {
+    "path": ".trellis/scripts/common/tasks.py",
+    "hash": "CF25AF8C0118FA9D98EF4BA378F72A572926095DCB1286719297C5242E3CA7F4"
+  },
+  {
+    "path": ".trellis/scripts/common/trellis_config.py",
+    "hash": "0951732B07716A3B89EFDE5A8F97037969DAF1DE36E323C49796DF357512CEDF"
+  },
+  {
+    "path": ".trellis/scripts/common/types.py",
+    "hash": "BA596AC3EE9F56A4411D6BE507A9BF6AB4063828B7678EFA910E243E23FCD182"
+  },
+  {
+    "path": ".trellis/scripts/common/workflow_phase.py",
+    "hash": "5A6E11281FD8B97E8A6B4F4268D881F3B7EC0C2DFECD29CBE6B7AC7D159C636C"
+  },
+  {
+    "path": ".trellis/scripts/get_context.py",
+    "hash": "A41E97DE2A456BE978F39032870FA20DDAF029E4F8A9E2506708ECDFC2CB6E4A"
+  },
+  {
+    "path": ".trellis/scripts/get_developer.py",
+    "hash": "748B6102C30647FE2C93CAEEF632239C1414F066A3CD38F1AA5D7BA7FF16C5EB"
+  },
+  {
+    "path": ".trellis/scripts/hooks/linear_sync.py",
+    "hash": "43D1F2B41ED981A24F12704E825AC56ACA3B25C22646DE303658DFF65A98B560"
+  },
+  {
+    "path": ".trellis/scripts/init_developer.py",
+    "hash": "2A2A338B50C44D1AE42BD0520DE09E0DC1BF186BC955D93F8ABF65DF90233993"
+  },
+  {
+    "path": ".trellis/scripts/task.py",
+    "hash": "4606409BF9682E5281D960C3225AB463C7344D834C7C1629B1437141ED8260B2"
+  },
+  {
+    "path": ".trellis/spec/frontend/component-guidelines.md",
+    "hash": "B6C7D41486FC3A7B501ECC6C13941C45AAC3E99700F7AFD63AE4D3F339C0A67B"
+  },
+  {
+    "path": ".trellis/spec/frontend/directory-structure.md",
+    "hash": "5CFA60D7FCADF249BF979E3B79C6596BF3C2560677DDAD28C0E6154A11353B86"
+  },
+  {
+    "path": ".trellis/spec/frontend/hook-guidelines.md",
+    "hash": "D2DB38FAF545403386A6A3BFDEDE30B6F1E139796CCC66FE1ACE3AC7C0961CB8"
+  },
+  {
+    "path": ".trellis/spec/frontend/index.md",
+    "hash": "DA69420EB4AA777A3E21234602D58B2FC5EA117FA330E03C07D73A785E5447A5"
+  },
+  {
+    "path": ".trellis/spec/frontend/quality-guidelines.md",
+    "hash": "1E9046A97FC85080C9B5DEE9B1A738D90CA089714F1DEE6A6C055FDEDB3C55D5"
+  },
+  {
+    "path": ".trellis/spec/frontend/state-management.md",
+    "hash": "AF4C5531BE475477D2B731B8F46051DE810F092D519EFF9B9F4BC343D3CBCAE3"
+  },
+  {
+    "path": ".trellis/spec/frontend/type-safety.md",
+    "hash": "D0AA0F766E94CFAEFC6141D82A03B16A8559BA6545AFCF136345C6B07EDB2782"
+  },
+  {
+    "path": ".trellis/spec/guides/code-reuse-thinking-guide.md",
+    "hash": "21044B97BA03682BE2F3A6496FF75AC475211878D065F54823BC784DC6F6D961"
+  },
+  {
+    "path": ".trellis/spec/guides/cross-layer-thinking-guide.md",
+    "hash": "1F82D4743A526695148A1DE61AE529E465E09C1C1EFF0E71F25CE178C9E323BE"
+  },
+  {
+    "path": ".trellis/spec/guides/index.md",
+    "hash": "5E87F7EE825C0D53B2066FDA879D692C7618DE0E3D8CE4506270725B2E1059EF"
+  },
+  {
+    "path": ".trellis/tasks/00-bootstrap-guidelines/prd.md",
+    "hash": "030414110510088502490C2B8CBDF17EC8997B17BDF2A7C826DE8C6BAC42ECA2"
+  },
+  {
+    "path": ".trellis/tasks/00-bootstrap-guidelines/task.json",
+    "hash": "11FF25D0B1AE9DFA9ED740D85555FB6019E374C59417487AA4D83267D8759331"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-002-canonical-root-identity-helper/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-002-canonical-root-identity-helper/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-002-canonical-root-identity-helper/prd.md",
+    "hash": "B18D6252456676C0BD14163AEF66931F015AD795516F4E8CC1E2DDF3C78BDE31"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-002-canonical-root-identity-helper/task.json",
+    "hash": "B4C24906C8624D0019282BB685D4223DC3512E4390E0C46326B0FA6FBB9D4667"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-003-workspace-registry-read-api/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-003-workspace-registry-read-api/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-003-workspace-registry-read-api/prd.md",
+    "hash": "3A7CACD78F3CE7E3A4C151DB3CE1AA20064ADFDA7CF986DA6D7A2C24B0C34872"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-003-workspace-registry-read-api/task.json",
+    "hash": "1E03004E58F1BCB5BDEF3141AB0C2B9586B15B174002809842D48AEFA78781E7"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-004-workspace-inspect-directory/check.jsonl",
+    "hash": "1FF7FAB383C2EF843E0EA0A210164244BA72A08981406B94761CD15ECF99A4E1"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-004-workspace-inspect-directory/implement.jsonl",
+    "hash": "7AB7C662589967C47AC963CE59C1F87E4B3C84C817A0A1E2A7F1518C4B822F97"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-004-workspace-inspect-directory/prd.md",
+    "hash": "E44E3591B6D23A46EB0E929E981C82A40F84304ED9D4D2E8B689AFBA5022E011"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-004-workspace-inspect-directory/task.json",
+    "hash": "093C39233D9B7DF1A6B1E4A7DFBB17E272F37BC9F3323060FB0FBCCF9FB36DE3"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-005-native-directory-picker/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-005-native-directory-picker/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-005-native-directory-picker/prd.md",
+    "hash": "8FA26DB882227DCED5DC0BA2E8363EF6687306709FBABC234FDD2F826934155B"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a1-005-native-directory-picker/task.json",
+    "hash": "D34584CB6CCD3ABDCFF35923D81789AAC9E8874C1F67651D1DEEA60786AACBF8"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a2-006-workspace-generation-persistence/check.jsonl",
+    "hash": "2CA6750F754FF3911BC76C585917BB6ACBB2A3FD8E2C5DC21E569FB533CC3F7B"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a2-006-workspace-generation-persistence/design.md",
+    "hash": "D676EBA4DA601BAA2CDAC0499D267D5877301BE7DD79969D707987570D890A23"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a2-006-workspace-generation-persistence/implement.jsonl",
+    "hash": "BBBAD57EF3718031A1AA5FF8A64D32EC4D7DDD15C4C27CC344B07FFB88427E17"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a2-006-workspace-generation-persistence/implement.md",
+    "hash": "EA2CF625142CC33B9D478BC4ACA26C01DDC02E00406E2EA045978B111A609FB5"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a2-006-workspace-generation-persistence/prd.md",
+    "hash": "B6ED1E21170A86F4D12A3DCA0F31A9C4033BC372499E3789F5A139AD826E8E17"
+  },
+  {
+    "path": ".trellis/tasks/09-16-p2a2-006-workspace-generation-persistence/task.json",
+    "hash": "B1508B8B2368F09298721C8F11FF0AAFEB5E12034608EC9A3EC2E61C243BFC3B"
+  },
+  {
+    "path": ".trellis/tasks/09-17-p2a2-008-continue-workspace-inheritance/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-17-p2a2-008-continue-workspace-inheritance/design.md",
+    "hash": "B1ECE87C6318BB7BF2C3A7DB1C318E9ED238840AB41CB3D5C02B1222DB1F78EC"
+  },
+  {
+    "path": ".trellis/tasks/09-17-p2a2-008-continue-workspace-inheritance/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-17-p2a2-008-continue-workspace-inheritance/implement.md",
+    "hash": "C5AB4BF71A83ACF0258AA2E56F73DF70F5FC520FF1BBDCF8250290AF2E331F5C"
+  },
+  {
+    "path": ".trellis/tasks/09-17-p2a2-008-continue-workspace-inheritance/prd.md",
+    "hash": "9D73723C92ECC1249FAB5118B5ECEA340A9A6955AB22CA2D3B9565634B1FCD8F"
+  },
+  {
+    "path": ".trellis/tasks/09-17-p2a2-008-continue-workspace-inheritance/task.json",
+    "hash": "926EBCF5EA6429709C92F277C1D307F0BF8761C71C274A3368C2FD78671B9B70"
+  },
+  {
+    "path": ".trellis/tasks/09-17-p2a3-004-capacity-lru-eviction/check.jsonl",
+    "hash": "EE469633EB46769CCC4924C0D74CE041C349B1DC33A5520D077443AEAF0C0115"
+  },
+  {
+    "path": ".trellis/tasks/09-17-p2a3-004-capacity-lru-eviction/design.md",
+    "hash": "7E2AD7CC5619869A90B10007A1EB5A590B5C0B3EFCEDD4AF23A9427A7F4BBDE5"
+  },
+  {
+    "path": ".trellis/tasks/09-17-p2a3-004-capacity-lru-eviction/implement.jsonl",
+    "hash": "C6549E3D99B69F3E9D1F942ED22234D223CE4E9CD7B16E89778C49522FD64617"
+  },
+  {
+    "path": ".trellis/tasks/09-17-p2a3-004-capacity-lru-eviction/implement.md",
+    "hash": "C3B3B11CD99983E2CB95701D94C50D5AB216243A8EC302B07A87D516E9BC93B5"
+  },
+  {
+    "path": ".trellis/tasks/09-17-p2a3-004-capacity-lru-eviction/prd.md",
+    "hash": "39BE989C896B51F20AC8A21ACE2642899F0BE4E757D857E106DE79A0DD6936AE"
+  },
+  {
+    "path": ".trellis/tasks/09-17-p2a3-004-capacity-lru-eviction/task.json",
+    "hash": "F1C8958D99CB485237B701EA659052DC63C70449CE89F594F50C118B0ECED535"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p0-008-codex-usage-wire-contract-evidence/check.jsonl",
+    "hash": "C6A25B70FF7565A6A63845854E3502D1750D2533EE1761E3B6DD1753902A8F97"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p0-008-codex-usage-wire-contract-evidence/design.md",
+    "hash": "5E27CACED10025A802D4B410BB2FD206E2FF7F316AD044DD967BE69754DD98D3"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p0-008-codex-usage-wire-contract-evidence/implement.jsonl",
+    "hash": "022C9CE54ADCD76EEAAA627AF4014F2D274C72670CAEF31210505606EC412AB7"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p0-008-codex-usage-wire-contract-evidence/implement.md",
+    "hash": "CA0C11A6D897DECCFB6CAF540AFD3D5ADE111433B35AEFD67E954F1018A58BA9"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p0-008-codex-usage-wire-contract-evidence/prd.md",
+    "hash": "11F5AA581CA800BB20CECA13337D2A166CB5A5338931082F2DB082285F4FE240"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p0-008-codex-usage-wire-contract-evidence/task.json",
+    "hash": "402AB7638DACD53F9C3330493E738AE499C9B8C7146670150602976E6EDF65B6"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p0-008-dcr-usage-contract-revision/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p0-008-dcr-usage-contract-revision/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p0-008-dcr-usage-contract-revision/prd.md",
+    "hash": "34AF414E8201D35B463D0C97D2B0014A70CB135C98057CC6E3887C00D6F0CFFC"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p0-008-dcr-usage-contract-revision/task.json",
+    "hash": "A551795849587021389EFF18818131937262DF5ADCCE76A6525F8DAA32C583D6"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-001-summarycode-deterministic-mapping/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-001-summarycode-deterministic-mapping/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-001-summarycode-deterministic-mapping/prd.md",
+    "hash": "AC5DD9911E4AEAABFBE7442CB0A3046772B8A82F3CA206323775F46979EB1A12"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-001-summarycode-deterministic-mapping/task.json",
+    "hash": "77014A594CB95A53738B5C2C347718E34A581C3FDCC4128C09124DF6C9D02EAF"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-002-activity-schema-migration/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-002-activity-schema-migration/design.md",
+    "hash": "91F2CCE4B0B55349C05020F2F0A055DEB95ACD1F21D91FB35209C40C3E9BB1AA"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-002-activity-schema-migration/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-002-activity-schema-migration/implement.md",
+    "hash": "206636171F18F9CC344679897638D29B549FB9103D15CA3D276958487674AD7C"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-002-activity-schema-migration/prd.md",
+    "hash": "5C4368F8CC2193A1BCE61A09C33ED0F3336260BA56D4BF567C904AE9B366E77C"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-002-activity-schema-migration/task.json",
+    "hash": "FB2B1599EFD9E9A41B17EC4289F0FE372905E8A22E9A90650FB79CA068E36D05"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-003-activity-store-history/check.jsonl",
+    "hash": "B7DB4BB4452FB753DE10AACCB9E7AD2BD5C68FF5288E6AAF61B5EC9A339176E0"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-003-activity-store-history/design.md",
+    "hash": "895D94D9C41C2691994D37D6A8A93648359209743EFDF1055BE241F974393F6B"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-003-activity-store-history/implement.jsonl",
+    "hash": "8F3D6BD87E90E7EE73B94CD31AFE09F182ADBAFE09C40D7E654971CECB7677D1"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-003-activity-store-history/implement.md",
+    "hash": "F4F178FB66AFB08F217FB5C9E2342C570F11A82814D72E51E4807BB2AB4DD1D7"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-003-activity-store-history/prd.md",
+    "hash": "E6E1F1A260A4BFE932C9A7A7B83B0FB175987906D8705A5B5DFD8178E6D5B0E0"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p3-003-activity-store-history/task.json",
+    "hash": "CDED99DE1DE9333D9A2832C941871DCF9BE34B2C0AC36CE069E474DC81BCAC7F"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-001-public-usage-domain/check.jsonl",
+    "hash": "A00B71DDE6D30578FC87BB85B7BDED1020519E1C8AFBC100BF8079D6DC021FF7"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-001-public-usage-domain/evidence.md",
+    "hash": "2481FB22AC45A3F2E535CA5F7BFB76AEA4D200FD1B283698642827C2921AB378"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-001-public-usage-domain/implement.jsonl",
+    "hash": "3108DDF21D14F058572AEC6F7CC7961F8B9DCCA0A6882EDC7164D52C139DBCB8"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-001-public-usage-domain/prd.md",
+    "hash": "7ACD87026DFE7423E22020497BAAF076D9C80D4B632E9FDBBBDE83752BB7735D"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-001-public-usage-domain/task.json",
+    "hash": "AEADFC20594528C2D66734F1BC76651441D822BD541D1A2DE5A0A8D30782BE40"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-002-usage-database-migration/check.jsonl",
+    "hash": "544E56440F0D27F9CEC7438A1E76151F7A40D691C63287279C397D5D539DAC8F"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-002-usage-database-migration/design.md",
+    "hash": "E29C78B6DA22BAE73D426E701A16417237CD6DDA435AEBEF49DA660D1A9EC365"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-002-usage-database-migration/evidence.md",
+    "hash": "49BED6205B8C977838203C0C3D61DB689132D31375B714CAB813818D32069B2E"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-002-usage-database-migration/implement.jsonl",
+    "hash": "544E56440F0D27F9CEC7438A1E76151F7A40D691C63287279C397D5D539DAC8F"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-002-usage-database-migration/implement.md",
+    "hash": "8D385B59900124F93B4CF1351C07F3C9A9412DFB1C73290D9104E40389222B25"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-002-usage-database-migration/prd.md",
+    "hash": "A0875FED1410ECE1E25AF8AA669ED4E275DC18D9B499AB15BF5C5F843D2EBCD8"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-002-usage-database-migration/research/authority.md",
+    "hash": "D6CFC04965F61E6582FC74BCDBF1EA376EE485B37E89D3324BC3016B8AEFCA14"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-002-usage-database-migration/task.json",
+    "hash": "173BFA4325E79B87D601DBD1B6C85E1263FF0B02315CFFA6D78A72A2B05CFEFE"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-003-codex-usage-parser-identity/check.jsonl",
+    "hash": "1D34E96B7A08AC4D530BB28ED02D508E4ED6D974AACF72CA61116E39FAF99038"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-003-codex-usage-parser-identity/design.md",
+    "hash": "B57D0020BAC02A02546561AF04A688168A207101B3EDE081784CFF9947A667BF"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-003-codex-usage-parser-identity/evidence.md",
+    "hash": "F8B89C218C791085DE14C22AF417FF800336D2D7B1E60445ACCEFD14E61D94D0"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-003-codex-usage-parser-identity/implement.jsonl",
+    "hash": "E201F41D13402C5AEB66B5CD7781455533FB0DB2F133037DF352B0E2D1612FBC"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-003-codex-usage-parser-identity/implement.md",
+    "hash": "2D6A84C3D1786BA24B8C9D44E09017347CD5B5E38705B31E9D4559D362AD9973"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-003-codex-usage-parser-identity/prd.md",
+    "hash": "20FE9C7263A86A10987A79B6F3DF0248B8CF9D8698BA874E69B3DF55327CE27F"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-003-codex-usage-parser-identity/task.json",
+    "hash": "2AE8B0AE04C757FB04C2B4118196E730F3113555F16C52F2EDF9116F123816BC"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-004-usage-epoch-baseline-delta/check.jsonl",
+    "hash": "7BD0916CFDFFAAA1672F4C027FD4807F1FC4511267A30117E044A4D7B97BBF82"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-004-usage-epoch-baseline-delta/design.md",
+    "hash": "476F297D0F2CAA059AD756A1E579ACC773BD57B7D0136369B6AC590DC9503489"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-004-usage-epoch-baseline-delta/evidence.md",
+    "hash": "DF401A5921553433BBC5B9FE721943DDFECFBD1F57F7D2FE3E2E65C971A41061"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-004-usage-epoch-baseline-delta/implement.jsonl",
+    "hash": "186EA0F307E12BD127E98FFE968B8774E7B7CB1D3753B4DD47DA0E1A7021C6B4"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-004-usage-epoch-baseline-delta/implement.md",
+    "hash": "16FF89015197ECED8924E62A280A00DD140FD3B537BF78B6E5680D897452873D"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-004-usage-epoch-baseline-delta/prd.md",
+    "hash": "C7E8CA8A9A1C67A9C3F5E353FD26A99D9D0AE63D35DD86601CD9BF7F277E44A4"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-004-usage-epoch-baseline-delta/task.json",
+    "hash": "0D0720CA7DF14B29220037A3C921E14E9C9406309C21979B31DB74971EC9AC86"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-005-terminal-grace-freeze-late-events/check.jsonl",
+    "hash": "DCFDE4EFE43A3EB49CC1D21B7870BF4EB74BF82D6D3D6AD7D213B87482918134"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-005-terminal-grace-freeze-late-events/design.md",
+    "hash": "2F5F7170A7880AD2416731FE8525979D9B86FBF72BA100946CB2A35759781BFC"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-005-terminal-grace-freeze-late-events/evidence.md",
+    "hash": "48937203B981B6C2FE6275C5180B72CB9F717802231AD3F6398A1575B63B12FF"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-005-terminal-grace-freeze-late-events/implement.jsonl",
+    "hash": "6A3F3CF78D6C0B5711E44B2D61528029E18E16192F8FC7148C9192B651E2E0D3"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-005-terminal-grace-freeze-late-events/implement.md",
+    "hash": "9E7C9FAC2814AE8A7DBA06E62D60A3AB4E3F1BEF98781E1BBD4AFC86210E53E2"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-005-terminal-grace-freeze-late-events/prd.md",
+    "hash": "98FA23E20D8EBDEBC8732A080BC659D35347AEBA62539E4DBA6D606C42CDFBF0"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-005-terminal-grace-freeze-late-events/task.json",
+    "hash": "25027157D9618E97DF6ECAEA91D0E1539EF9473070DD4F7F1BF2BE303376C79A"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-006-usage-product-projection/check.jsonl",
+    "hash": "A294C5CA961B3302133058F4A56D1D5AF23ED516E1A5339EFA9362B5B0C57AA6"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-006-usage-product-projection/design.md",
+    "hash": "392AD63E1066CBCB4F27C13FA573F7AE31C11B6AF5F811E977AC5F539D997CC1"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-006-usage-product-projection/evidence.md",
+    "hash": "351D9AE9411AAB0CA3C51AEEAAFCA5BE1DD74D940D1E68356531683EDE427514"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-006-usage-product-projection/implement.jsonl",
+    "hash": "D968819DE1DB76EE0ADCB1D5A3E2ABCF079A2E735B6E7C1CBA70AF2F9F361976"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-006-usage-product-projection/implement.md",
+    "hash": "54D3475D2DEB75A26594150A056CCB8B69275F49C31008EB84DE64B384B84DD8"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-006-usage-product-projection/prd.md",
+    "hash": "11774FCC5A4BC7BD37C5293DA63E9BDCFDC58A53A5227542F5E18F46ADDE420B"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-006-usage-product-projection/task.json",
+    "hash": "11AAEB4BA7DAC11EAFE9A8EE2F411A9927F2A94D9EBB40F01E868118CF7B4C68"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-007-usage-regression-gate/check.jsonl",
+    "hash": "0E57D8F4F545DB3A2464156B740A3A7548F775DACD9C5B750E6BF75871F0DD80"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-007-usage-regression-gate/design.md",
+    "hash": "8A863F2A11D2AE1FEA69B87DA4CE9E99E60577ADEA505D96CECBA54148A8AB5C"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-007-usage-regression-gate/implement.jsonl",
+    "hash": "A8715B3FA05BF3AD252A7DA61C31B65BE2EB9F248021BF0C775907CE0E92DE1A"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-007-usage-regression-gate/implement.md",
+    "hash": "8A15CE102CBE3B90138B5C0A0B62ECFF3C96CCE3C402C334017682A3C6FC5136"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-007-usage-regression-gate/prd.md",
+    "hash": "EDAF6871B58BA4D1BF46A583C5FADE2CFEB0FC8776281472BB7E9438FF1D2D13"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-007-usage-regression-gate/research/authority.md",
+    "hash": "F791C830BE20CF6AF2D6FA04B99C4AEB253A472603D710AAAF691B1B914C3E76"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-007-usage-regression-gate/research/verification.md",
+    "hash": "0AA7DD93368EAEEF0571AB2E43EA1D58D9B47559AD3AC083585839F044A69A89"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p4-007-usage-regression-gate/task.json",
+    "hash": "01C9A255230FA4017EF07A10DDCD80C9F8B9C23DA11B9696DCD44BD7BFDC133E"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p5-001-003-agent-detail-display/check.jsonl",
+    "hash": "C5C83B6FD2A41A0780220BD8E5F2E7600D9CDF5662496B692C604C9F0EB13EE6"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p5-001-003-agent-detail-display/design.md",
+    "hash": "B27637CA9033B43E8500AD8ECF692B94F77B38BFF37D3102E63B57A1E824D70E"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p5-001-003-agent-detail-display/implement.jsonl",
+    "hash": "864002DD1057F2B47F7952F05DE1D520E2B651612C3A7B5B74DE27AFD4413D6F"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p5-001-003-agent-detail-display/implement.md",
+    "hash": "FBCA42B38DEA03C6C75BE9C4E049D59B77F0D7C747EF50142D443FAB1C191FBC"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p5-001-003-agent-detail-display/prd.md",
+    "hash": "F753DAB539418F53A6EA0C6D2E1A0F9D95C275C0AFAAB85B8EBC586343C25809"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p5-001-003-agent-detail-display/task.json",
+    "hash": "FB115DEC0F43410CA667E247CD2D53CB4214219DCDFD81B14A05485B1CE91F30"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p5-004-task-list-hover-usage/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p5-004-task-list-hover-usage/design.md",
+    "hash": "1A22CE869A4F72973094922F883F7B5B9E9CF5FD5211E257EB273DDE89B6B0A8"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p5-004-task-list-hover-usage/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p5-004-task-list-hover-usage/implement.md",
+    "hash": "FD3C81A21604CB60F23C526C4711750183B1893E0504C00E55E13F76EFCA62AB"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p5-004-task-list-hover-usage/prd.md",
+    "hash": "E976C66AB0D7B60A50339C3C9E30C7F547AB4365145C2F25C18EE5177DEFFE55"
+  },
+  {
+    "path": ".trellis/tasks/09-19-p5-004-task-list-hover-usage/task.json",
+    "hash": "9824B7D3AC4E8CF1D7675C09E148D1810F21C534B58FC07011AC95D89C49A17B"
+  },
+  {
+    "path": ".trellis/tasks/09-20-local-capability-presentation/check.jsonl",
+    "hash": "EE47529ED35C37A988EB3FF182EFF9EA9E46B09FBD9417A23CF0F93A2EE85461"
+  },
+  {
+    "path": ".trellis/tasks/09-20-local-capability-presentation/implement.jsonl",
+    "hash": "7C9FA5AA0FCD50213FBBE9BBE687E80FA12FF96260AD099762F91AA607C89ECF"
+  },
+  {
+    "path": ".trellis/tasks/09-20-local-capability-presentation/prd.md",
+    "hash": "F7A4F910A4E3AFF8927617CEDC88F0019F053B9FCDAE1ED9B664729EBB439898"
+  },
+  {
+    "path": ".trellis/tasks/09-20-local-capability-presentation/task.json",
+    "hash": "97A2E915B0A64A76596D755E26465B3BFABC2BAF244ACF62663DB2274D1ADBBE"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-07b-lint-expectations/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-07b-lint-expectations/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-07b-lint-expectations/prd.md",
+    "hash": "9A00E5CD9A8398D957F86EE8DC546804DEB33B4CBC7CB02ECA58E239875ACA4F"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-07b-lint-expectations/task.json",
+    "hash": "6E61818CDBDB3213A52FCE7FF9CFD8FEB2632D1CD563E8A2DEBAEAABDE325668"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-09a-store-lint-expectations/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-09a-store-lint-expectations/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-09a-store-lint-expectations/prd.md",
+    "hash": "8651D6790B54C7F23B3173DB78B404D571F8C8EE20CBE462BF5EA9D1BCF54656"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-09a-store-lint-expectations/task.json",
+    "hash": "8B9238BF1171B284D6B88BB1A54DD00718C213FA618BAEBC4B5D5D11639AE18B"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-09b-mcp-source-lint-expectations/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-09b-mcp-source-lint-expectations/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-09b-mcp-source-lint-expectations/prd.md",
+    "hash": "CD2D223AF0CE09C4AF695CAD002EE621CB9FDE51EEDCEC1676BF5A30FDE9EF61"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-09b-mcp-source-lint-expectations/task.json",
+    "hash": "F0BBCF9810152BB1BC35D89D699B27C38A9472679933DFFF68D403079A1C25AF"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-10a-source-write-content-lint/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-10a-source-write-content-lint/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-10a-source-write-content-lint/prd.md",
+    "hash": "158EFFBCB442E171404C1B174F1167526855146D0246734D5E96858A1B50FACA"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-10a-source-write-content-lint/task.json",
+    "hash": "CF46D8865F5CA6E842DEADAF0188B1A1A8FC9890FFE485F469C5C8C631086006"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-10c-readonly-permissions/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-10c-readonly-permissions/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-10c-readonly-permissions/prd.md",
+    "hash": "08AFAE4F674C93834E584F55E378ED38574B051D55729ECA40C32F4A06DDED21"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-10c-readonly-permissions/task.json",
+    "hash": "29EBA03B5FEEC73672247D53F6F9167DBC5B98E494FE94D079CA90B73A63A71A"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-13a-source-read-workspace-id/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-13a-source-read-workspace-id/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-13a-source-read-workspace-id/prd.md",
+    "hash": "2DC83DDF6CF720DDFF59CFA34E7F28CCDAA9CF9B53848DF2AEAA54C78337A497"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-13a-source-read-workspace-id/task.json",
+    "hash": "3646D0408B5F8C9AA1BD0017920A7FE06A04D259FCEE648B78F442E2C688972F"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-13b-remote-ready-contract/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-13b-remote-ready-contract/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-13b-remote-ready-contract/prd.md",
+    "hash": "9034999E752EB4834C7E344363D9571B3BC2C337277D9756F4D7D3AB683EB95B"
+  },
+  {
+    "path": ".trellis/tasks/09-20-p6-rg-13b-remote-ready-contract/task.json",
+    "hash": "97A26D81B12E2BA8412E431EA3D3EF45614DB0303286A9DCB89CA657676BBDFA"
+  },
+  {
+    "path": ".trellis/tasks/09-20-remote-source-write-toggle/check.jsonl",
+    "hash": "5B9FB027D8B95C6211C733062DFB14F22E79CB8E13AF7B648C01281679636B04"
+  },
+  {
+    "path": ".trellis/tasks/09-20-remote-source-write-toggle/design.md",
+    "hash": "3D83ACD9BCECBC00774DB0A6922E7CA19BEE921CD77471D985F80F2462BFC052"
+  },
+  {
+    "path": ".trellis/tasks/09-20-remote-source-write-toggle/implement.jsonl",
+    "hash": "4BC3B8FB528B3B234E68640A30D413E12A93C46001965DA4115BA1F71C32DCDE"
+  },
+  {
+    "path": ".trellis/tasks/09-20-remote-source-write-toggle/implement.md",
+    "hash": "BBF65BB1551E4D003627B326623D4E59158A7FB33548AED2349221C1EF5A4D83"
+  },
+  {
+    "path": ".trellis/tasks/09-20-remote-source-write-toggle/prd.md",
+    "hash": "7361A6FBB57173B2A7822733E392E8B8C0E9FE36A4BA1F14D57B36541B90840B"
+  },
+  {
+    "path": ".trellis/tasks/09-20-remote-source-write-toggle/task.json",
+    "hash": "471B9AA92DF895F856F9A392CCFF5F10B2F22EADF8EE89B95EC5FAF187E387C8"
+  },
+  {
+    "path": ".trellis/tasks/09-20-sidebar-brand-tag-version/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-sidebar-brand-tag-version/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-sidebar-brand-tag-version/prd.md",
+    "hash": "8CACC4D608AC97395F73CC0748A5B59CC53E7EE7E994324DA55A8D893D0F0046"
+  },
+  {
+    "path": ".trellis/tasks/09-20-sidebar-brand-tag-version/research/release-version.md",
+    "hash": "1595757EB437B6F721DA6F7F18576A60DB957C07F8F8695D5E6DA158AB533527"
+  },
+  {
+    "path": ".trellis/tasks/09-20-sidebar-brand-tag-version/task.json",
+    "hash": "76497CE3315D76B9CDA0646A8FC6732175B6456587CF50A21BB928ED7D523F3D"
+  },
+  {
+    "path": ".trellis/tasks/09-20-source-list-root-dot/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-source-list-root-dot/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-source-list-root-dot/prd.md",
+    "hash": "E6171C276658333883E0C324DC10E2EC0E13D49E9DF087A7F1AD525CC6E72772"
+  },
+  {
+    "path": ".trellis/tasks/09-20-source-list-root-dot/task.json",
+    "hash": "F54FD302E184031AC77AA11B3F7DE9CE6A06F8BF72619C045A35900F81A3EE35"
+  },
+  {
+    "path": ".trellis/tasks/09-20-source-read-trailing-newline/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-source-read-trailing-newline/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-source-read-trailing-newline/prd.md",
+    "hash": "2813E600533DF3D45E731C40E7F9A35280891671A87852C41C0606ABC808B2B3"
+  },
+  {
+    "path": ".trellis/tasks/09-20-source-read-trailing-newline/task.json",
+    "hash": "0D1C3B5084C2006BCE9D7A5810FAA224FB942092AAB86CCC608205BE5773F88C"
+  },
+  {
+    "path": ".trellis/tasks/09-20-source-replace-content-max-replacements/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-source-replace-content-max-replacements/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-20-source-replace-content-max-replacements/prd.md",
+    "hash": "FFE4CDECD581160B34656E79C2384D2200CC31ACE39D55A384F7D0A54CC18D74"
+  },
+  {
+    "path": ".trellis/tasks/09-20-source-replace-content-max-replacements/task.json",
+    "hash": "A0495AD12C10E4ABB776774C115FD2FA71BB1D64E2F266CF91541D69C5744ADC"
+  },
+  {
+    "path": ".trellis/tasks/09-21-agent-terminal-notification-title/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-agent-terminal-notification-title/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-agent-terminal-notification-title/prd.md",
+    "hash": "26B553AC08D4D0F2FD0621AAF84CDD48A5C1AD8C0A3AA9E59E29C85F70C6BB8E"
+  },
+  {
+    "path": ".trellis/tasks/09-21-agent-terminal-notification-title/task.json",
+    "hash": "DC4E37C61AAD3651942700316FC04DFD6F43C9F8C779D69A8988328F5E3C6948"
+  },
+  {
+    "path": ".trellis/tasks/09-21-clippy-release-gate/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-clippy-release-gate/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-clippy-release-gate/prd.md",
+    "hash": "A8A64BB92E1C7146A508DEBC5C9FA43834B651243A7456DCA03855F333558026"
+  },
+  {
+    "path": ".trellis/tasks/09-21-clippy-release-gate/task.json",
+    "hash": "52400A738493ED4B81D25B95DBB72929C05762785CF2BC39AE89BA3B9A8CB95D"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p3-cli-process-tree/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p3-cli-process-tree/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p3-cli-process-tree/prd.md",
+    "hash": "72EB79CAFA85D4B872891D8C838C87371940B9E52BCEE1EA56DE75402F1B39B4"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p3-cli-process-tree/task.json",
+    "hash": "3DEFFA5A26DF89412A72773868A2E2E2197FD110D9C2310B8B79F7DB7B583B49"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p4-desktop-integration/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p4-desktop-integration/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p4-desktop-integration/prd.md",
+    "hash": "3755D8BF909F8F2C5E4CA25A4A6BB81004DC9161EF1F3DDC76425166B48819EC"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p4-desktop-integration/task.json",
+    "hash": "66C334305F14B28BCB792D6DCC238350F7AE63A632F7E3CC420CCFB395D80147"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p5-packaging-release/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p5-packaging-release/design.md",
+    "hash": "7D2559E671A92EBEA42F4A20B1DC772D2F8FFB4514517F16DC06EBA67EC16A06"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p5-packaging-release/evidence.md",
+    "hash": "AFD140FF9FE9B4B3304D1E9B8734A1969FF9769E39B8D71C4D9B5B50BFB87FA0"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p5-packaging-release/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p5-packaging-release/implement.md",
+    "hash": "454BE49595B78FEA2DE0FD352A63657958AF8A2350B68593B4562B7B3B57FE5F"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p5-packaging-release/prd.md",
+    "hash": "478E8B9B076CF340DFE24F2DEB561D696B32A4E83AE73084100036FF5E1FB1A8"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p5-packaging-release/task.json",
+    "hash": "39A0942E8A0955379FAD8065C22ACEA7CB30F5044A29AB843F0CBB21C2635A93"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p6-regression-acceptance/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p6-regression-acceptance/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p6-regression-acceptance/prd.md",
+    "hash": "D6F8276DE329FF951D6237560225F260E5C7D05D743557168B1BFCCBE4B51E4A"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-p6-regression-acceptance/task.json",
+    "hash": "68E1E5C4E276A64F077208BC0428DF6C337CEE413C57FB1E74901DA352A41A59"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-platform-porting/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-platform-porting/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-platform-porting/prd.md",
+    "hash": "D4DC620B0940ADCB2F15A06FDFDAC0F7095A1BB656104A7AD88E2F2011E09C42"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-platform-porting/research/macos-release-constraints.md",
+    "hash": "5EF76EFB7313530184E4C70564CA8CEF78A2AA8AC3DDA7909E162992B26F1B92"
+  },
+  {
+    "path": ".trellis/tasks/09-21-macos-platform-porting/task.json",
+    "hash": "5D0ACE1A939090531A551567C3D371D42B6D0DF61CFACE62C84242AE5DF3B95D"
+  },
+  {
+    "path": ".trellis/tasks/09-22-chatgpt-oauth-discovery-compat/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-22-chatgpt-oauth-discovery-compat/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-22-chatgpt-oauth-discovery-compat/prd.md",
+    "hash": "26F7C9F788589F9F3CAD8920D597B2CF6E74E29C594696F17516E7838D77BDF2"
+  },
+  {
+    "path": ".trellis/tasks/09-22-chatgpt-oauth-discovery-compat/research/cloudflare-mcp-sync-auth-difference.md",
+    "hash": "BF03C1B00501A51A7421AFAF59C7CE6576E4798F22E516DB664074EB5397806B"
+  },
+  {
+    "path": ".trellis/tasks/09-22-chatgpt-oauth-discovery-compat/task.json",
+    "hash": "BB789EDCCD024671CDE28664C8AE56A36BC468B664EFF568F669FFD51831C11D"
+  },
+  {
+    "path": ".trellis/tasks/09-22-macos-p3-closeout/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-22-macos-p3-closeout/design.md",
+    "hash": "1EEBE771122E13B80117721CB7E926309372B5EBA479557501993925FF2B659B"
+  },
+  {
+    "path": ".trellis/tasks/09-22-macos-p3-closeout/evidence.md",
+    "hash": "A093CD6FEF87B1452E30248538EB650EAF1C15ADC15B8F1B7942EFD1C8936F8E"
+  },
+  {
+    "path": ".trellis/tasks/09-22-macos-p3-closeout/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/09-22-macos-p3-closeout/implement.md",
+    "hash": "B46822FDED4C5307E5FEF254E7B7731DE54A8BF5B2F24FAE8D125455346B665D"
+  },
+  {
+    "path": ".trellis/tasks/09-22-macos-p3-closeout/prd.md",
+    "hash": "728023B1079B8A1D07C8125DD26ABBE342E1F3B3CC267E5772BBB2E45D358D26"
+  },
+  {
+    "path": ".trellis/tasks/09-22-macos-p3-closeout/research/baseline.md",
+    "hash": "15FA160D2A1111946B7F3CAF00C04BB7BCFB49E80AB53EA2198FD90A6F8FEC42"
+  },
+  {
+    "path": ".trellis/tasks/09-22-macos-p3-closeout/task.json",
+    "hash": "89FF25F7DB8D5275CD6124A8345931943A72FF71A374DA34CEC470DD2C6E941E"
+  },
+  {
+    "path": ".trellis/tasks/09-26-agent-management-surface-cleanup/check.jsonl",
+    "hash": "FA47BA2A6E046CA97ABF5F832D3EB2979FBBD651F2B28A48AD953074A3B2AF64"
+  },
+  {
+    "path": ".trellis/tasks/09-26-agent-management-surface-cleanup/design.md",
+    "hash": "783D984088614E8FB186073508EFC633AC012DA35D5C054422DADAD0D48D297C"
+  },
+  {
+    "path": ".trellis/tasks/09-26-agent-management-surface-cleanup/evidence.md",
+    "hash": "6BBB702FE7F675C9EBFE221FD23B266030E435AA71BF3B4A32A0336242E609D9"
+  },
+  {
+    "path": ".trellis/tasks/09-26-agent-management-surface-cleanup/implement.jsonl",
+    "hash": "42998C1B1F5FA2018D286B933123F7C700013DD97C7C33B1D4D1ED8489DEEE73"
+  },
+  {
+    "path": ".trellis/tasks/09-26-agent-management-surface-cleanup/implement.md",
+    "hash": "93F0B399D2170CC70757BF95DBCEE3E66CC43970ABD2CC981378C6EBC2B88981"
+  },
+  {
+    "path": ".trellis/tasks/09-26-agent-management-surface-cleanup/implementation-delta.patch",
+    "hash": "5EF496F87A64321EFFB0A5B9E689298DAD53986D6E4815E9F75A4B0BCDD938FB"
+  },
+  {
+    "path": ".trellis/tasks/09-26-agent-management-surface-cleanup/prd.md",
+    "hash": "057C39C8257C443C9F05ADE387482DF353836448177FC23CF1CE0CFF9A4F9675"
+  },
+  {
+    "path": ".trellis/tasks/09-26-agent-management-surface-cleanup/preservation-check.json",
+    "hash": "841C83E89A251CA73079849F511215EA0BC8829E1B8FC8E1FA9B8C0CB724D112"
+  },
+  {
+    "path": ".trellis/tasks/09-26-agent-management-surface-cleanup/review.md",
+    "hash": "92122E3DF43C02188B83162B23A95CE47FD70D96601B921456F7D90B60FB301A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-agent-management-surface-cleanup/source-hashes.json",
+    "hash": "099811B46063172B94C1FC7944669753558226A55878742EF435E4157BAFDD56"
+  },
+  {
+    "path": ".trellis/tasks/09-26-agent-management-surface-cleanup/task.json",
+    "hash": "29BB0400D93F58A1AF988446E3B86A2CEFE4343E0A094D201AA2FAA64EF42BE3"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/check.jsonl",
+    "hash": "F25C49DC44ECE78CDE1DAFE298218A4CA71E247D95F1A83740A79255F725C09C"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/design.md",
+    "hash": "B284EBC227195CE52B45FDDEFB17DE7B6AB74A58896B643E4D06203BB97FEF8F"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/implement.jsonl",
+    "hash": "88F68299C97332C9D83D0C25922F89E6EF691B7CF636A0A320B692FE7B589463"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/implement.md",
+    "hash": "C367604F0D5B5687987E76DBBF273502864B7250E2674B1663EA508C7C7287A6"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/prd.md",
+    "hash": "9EAF6506544B676C7473658F18C092D02616FAF872E70066EB9A0EE7A6A9161D"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/research/contract.md",
+    "hash": "E11687D1F542C9978ED11677452754C6FA9D9D795583ED34F2A7AE797E69CF37"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-002-provider-admission-policy/task.json",
+    "hash": "6A4F071B506484729486A3F02962CC19EAAB7191190C113183FE5182E0311ABF"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/baseline-summary.json",
+    "hash": "AFC7F62716990E68F56AB811F9E63B10B85D66BF05FE4A3950F1683EFC25144C"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/changes.json",
+    "hash": "F05045D3F1CA5370C800275BC4880120D659242A929ECA10C3FE2BBB83D9ECA7"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/check.jsonl",
+    "hash": "EBF66FB2750672A9DB00723DE2203BB3E17D3697D9AE61904CA8ADE91B48FFAB"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/delivery.patch",
+    "hash": "AF057CDACC2B7041684D9F17404E300BE342E39F0DC7B28399E9FD12A21C1A02"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/design.md",
+    "hash": "2415D7212579BBB3279D82947747EADABA7E59E3FB989F6A343E3867A76FB11A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/implement.jsonl",
+    "hash": "EBF66FB2750672A9DB00723DE2203BB3E17D3697D9AE61904CA8ADE91B48FFAB"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/implement.md",
+    "hash": "C0B97BE3F4F4988849280A7A64A65D93C3A0D0F13850E4E0677E17FA17FAB992"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/prd.md",
+    "hash": "5FAF78C61A20FBC25596E9CD52F60703520D126C4CB6DE5F37D20C69B15DFA7B"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/review-context.md",
+    "hash": "32329B522EA2C788514DD0B4937985C7BA7E728F7B6FE6227B1395D5D887222E"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/review.md",
+    "hash": "B360D92339C0191BDC5924CD4AEA936AB497A23DF58686151F0E8A74617BEC3F"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/task.json",
+    "hash": "7C161E1ED0BD7078F230808EA611C6AB64EEA03EF0EF978AD02BC2C6FB00FFDC"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-003-local-provider-policy/verification.md",
+    "hash": "65955CC0578C70B01277F2CF8E5D7E069BADEC76F87E210505CF6B3D8E8C1D89"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/baseline.json",
+    "hash": "AC20B5BC40BAED6C3BEFCE32DAB6720A636B2FC6BE148A47F787D9A996779AE1"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/check.jsonl",
+    "hash": "41D340870FD6F3BC78781BB6848F5139ED4F7F80F5B8C59D21AC63DA0EDC31D9"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/design.md",
+    "hash": "8E2751512192EF8357119E1394E13CAD03287B0083A6A0012096BC42E858EC0B"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/implement.jsonl",
+    "hash": "7CB60A55FCAD36143C3F6071AB1932D7CA808950A5DA92BDE04F63D34CE16DAA"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/implement.md",
+    "hash": "38AE8B3C70DB147159CE89326B8F19A5AD974D8CEB928C22E9DB96470F545A87"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/prd.md",
+    "hash": "61A4109B32BFE9AC76313A26530429AD640FD1E1FE33DD8078E985C8A80854B6"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/review-context.md",
+    "hash": "E0FDDA4B43A52178CFA8476C8C9EC6CF5ABE21DF3D6764527889781BC931C7AD"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/review.md",
+    "hash": "D10CAA68ACDDAE224270F2413D0CA90196B0B10C5F943B7144EE75FDF84D1FC8"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/target.json",
+    "hash": "E31C7BD7FE11754440CA4F9E0B12F5591E1FFBB415C93408303DD3AB4BF61464"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/task.json",
+    "hash": "A1FB50789571B7A7E588EE15F50E6832E4055BDB8D15D8433D052A3745E3E0C7"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-004-frontend-config/verification.md",
+    "hash": "B426036476605E0C02C7856E06B41040056040FFED3415BBA8FBAA08636B93B0"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/baseline-hashes.json",
+    "hash": "D722C3607B24658CAFDF96BC0257951127B0707D627B274DC33B1681D1C7428A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/baseline.patch",
+    "hash": "BFA91D588CDD925AA930BF5919F7ADB99C2842F3C2B2FA355F182375A669AD2A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/check.jsonl",
+    "hash": "B11B92CA1461543BCF35CD016D34C07E88FB0A7E938269B7BE8004A5F1134061"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/code-hashes.json",
+    "hash": "3A1507E82B98D8393823FF91E78A2FDC1F2A91D0292CD57261F75CABF5007AA1"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/design.md",
+    "hash": "A907DB1BD0CC3FC24BD53368E7F13A53451A28D716DC61657D289210AF7190B6"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/evidence.md",
+    "hash": "412AD8846968C0C283896F02395C6B933A4DE5592F53D2095C55B8BACC270B91"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/implement.jsonl",
+    "hash": "B11B92CA1461543BCF35CD016D34C07E88FB0A7E938269B7BE8004A5F1134061"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/implement.md",
+    "hash": "9DBE6ABB092CC6EA7568B0A00D0444FB8EA780627FE99E7F8AAF2F174956CED1"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/matrix.jsonl",
+    "hash": "C33BCF3EF2E9B0DE171ACD6476D663ED2370E0CA647A2D1A1FD573B21664E5FE"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/prd.md",
+    "hash": "CABF93FDD3DD41D5EBAB9930559EBF0E19CB791306276BD9456772AAD105FAB9"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/review.md",
+    "hash": "F6D82D782CF9194B01D9BCAF1947F29F32531CCDA3FD3ACF357B053C15A16D71"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/task.json",
+    "hash": "C25BA01906F98BC56CABF366EC489E16888195F7E3A625A255A3A19D5C250580"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb2-005-drain-pending-claim/test-inventory.txt",
+    "hash": "FEA0A5C6147202B992C8FF9101B08253EEFFB4ADFC51E3EC830367E33F344568"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/baseline-hashes.json",
+    "hash": "D88CA724882656B045C49BCFA2A7CC3C7222659194ED0EA13727929647187250"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/baseline-head.txt",
+    "hash": "D2D530F4254C5668BBFBD1D99E0C8C7EFD310190A19287291715E5B9B8138791"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/baseline-status.txt",
+    "hash": "A419D9D0FF9AC0FFC71AE2FE58001426ED32D2CD7B0173BF25AF9DA00CE9907D"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/baseline/product-tests.rs",
+    "hash": "F6EC81F37F1B653474BB4945805C86C89A27D91BF34F9648599F9D2F7089F7BB"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/baseline/product.rs",
+    "hash": "39FA0BAE702BDFC355869C6761ED78AB1E2BC6146CE00C1D8BFA6147DC9CF5DE"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/baseline/registry.rs",
+    "hash": "88C97CFF13078E32091D4357EBC90F3BDA978389EE88A88F6E74D9D711A6B4C1"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/check.jsonl",
+    "hash": "6C149FC899DCECEB3957D3EB2A059482B56760C39FE3A5500AB63F858C8477AE"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/code-hashes.json",
+    "hash": "555AE6C96B4F0B9F6B1A335FC96A1409AB71C51462C7A9062FC1CBD152BE05B4"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/design.md",
+    "hash": "99D830515D74B196BBA14153AC41800D4F2F4238C0AD9EB6771C8F042C0A0CF6"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/evidence.md",
+    "hash": "4AEA7CB015199AE54A84CA411EC6D080D1D02944AD4DC51B84C733F1DD927AD5"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/handoff.md",
+    "hash": "FEE50F46FAA272FA52483FE9739D14006BB6F2DE44E8AB673DF0C9AD84195A64"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/implement.jsonl",
+    "hash": "FFBEB893EFB5A57499671CA88F4081DDA3ED285ADD81748B1E67F94C7A8D094E"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/implement.md",
+    "hash": "773241FE58476BCDFF927D6116B4997470935ADB14E56AA31D5CFB44D66FA853"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/prd.md",
+    "hash": "997AF4D4AA29D103430C52938997DBDBF5BCD7C32FF80756F2D04A708A15BCDA"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/review.md",
+    "hash": "DFDEE3419BFC18F3A0F7F502AF84A136B81C5A35EF58FC0F6800F3F1747BADC0"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-001-provider-catalog/task.json",
+    "hash": "9A9E97E45D6D67F9108088FFDAE1D0CF12AEB840B829FB8590CC38D3B6ABD020"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/agent-query-descriptor.json",
+    "hash": "79A118468B0D68E14208584BB7E363F69DDA5C9291CC2484F97AC49DAEC5D623"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/agent-query-input-schema.json",
+    "hash": "61D4B882F9339583F1044421CDC2D94C3E53AD3404957121E6E4D4E3FE2CD18D"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/agent-query-output-schema.json",
+    "hash": "1160454AAB7E2D8A784D61229473662B28D36C88C29F18389DA99655F1EB1359"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/baseline-hashes.json",
+    "hash": "09C7CE3EAE784C8ED4C13B25ADD1F0CB4694AD9A0E6AD017DBB32DF618199DE9"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/baseline-head.txt",
+    "hash": "D2D530F4254C5668BBFBD1D99E0C8C7EFD310190A19287291715E5B9B8138791"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/baseline-status.txt",
+    "hash": "D672DDF2A2B88226BE30AE267ED6FEEB495349FC6F1651CD32DB63E6936336AE"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/baseline/product.rs",
+    "hash": "B0905536770AF90F8DF87E3C9C17860625F4D8591F495B163D2C08191E3033A5"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/baseline/provider-mod.rs",
+    "hash": "35B2D4B96A3E06FC02137FBF13E0EFDE71820C0E801BDA737ED71F7F00885A3D"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/baseline/provider-registry.rs",
+    "hash": "88C97CFF13078E32091D4357EBC90F3BDA978389EE88A88F6E74D9D711A6B4C1"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/check.jsonl",
+    "hash": "F3066CEC73B5F285AF065D60F914B97CA16ADE2889D87D830F3A82C1B24D83B3"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/code-hashes.json",
+    "hash": "1E5638E896409D7787820C7CE69C2456E7DE4FD6FA2C7B4A8B735667A7569965"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/design.md",
+    "hash": "BA47D0C4842580CBEB40CE3F694A94E98879F65445B74128FC70E47C6A6ED387"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/evidence.md",
+    "hash": "760187598BDFE3192EF792022F878A5D42D65AC562EECB12209776F13F75D7DF"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/handoff.md",
+    "hash": "3AE74544E47AB18E2ECBDDEAD4C4DEA38F761D843ADE58201C1C5C6090B86588"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/implement.jsonl",
+    "hash": "F3066CEC73B5F285AF065D60F914B97CA16ADE2889D87D830F3A82C1B24D83B3"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/implement.md",
+    "hash": "288F8BD631582566FD725B722E853DFF4F63FA0B256304279B656673AB933D90"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/mcp-input.json",
+    "hash": "DCA26043099EF7C16E0BCD3B6BD012801AC1A3A82783F1BA031C68C6A48704B2"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/mcp-output.json",
+    "hash": "48E51063747325E83225FE549071C3C25D8D4EDAB0B74C8C6BAE7467A93DFBAC"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/prd.md",
+    "hash": "1750E3328F5D225E171D5854C9F1ECB74F7DE85A73946463BD9B704CE1FDB15D"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/review-context.md",
+    "hash": "A55EC734CA0D77AF1F36E6E6A41E4790A52B6D35F89B243198CD1B36BE93475A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/review.md",
+    "hash": "B22C58A30D4EC3D2ED65701F60BAB0CD222633EF7849D16A5C8A395DCC2E640E"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-002-provider-query/task.json",
+    "hash": "C3082CB813E032988F5ECD4BAF7FDAB029EBE7B15AAFF5D1E00EF2F0FB586143"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/agent-execute-descriptor.json",
+    "hash": "FE6DCE0BE88C1FCCB4137ADBFBC2ADFB58F43B2B0D37F00C29D904792FC9DCD9"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/agent-query-descriptor.json",
+    "hash": "FF9BEBC9805B5A0F63D2D787493AEAFC87BA3451AE054C5BD29846B5553E071A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/check.jsonl",
+    "hash": "E9E648238F762C240421E32F6857AAC6085A1E0445735513C76AD7E0E18B359E"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/delivery-delta.patch",
+    "hash": "E998DE30C4B50B426BD9DD7F1DDFCA386078F1DC1343926EAD341E0D48F3D3B2"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/descriptor-hashes.json",
+    "hash": "A42FB0B4A2C4E578E5D31312D40750DEF732F4464E4313B1CB4BB9441C60BFFB"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/design.md",
+    "hash": "698E497E2DD87A291F00C30979D33CD030E395D8BF9FA8831AF5EF46A6C18C39"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/evidence.md",
+    "hash": "BBA3F6739ECC1BFCED94DBDA09EA5D63C43D92A172D6B79471F5DAD94E09C424"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/implement.jsonl",
+    "hash": "933274A4CA8F4057D3D84B0CD2DADA851AA6E9ED8F07D2CD7DF163B1565ADD2E"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/implement.md",
+    "hash": "6F950C514CD00836831FDABB5BDEA7745D4CE34C610B7568962CDF32A737BE96"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/parse-schema-matrix.json",
+    "hash": "098303209939F50C9246FD3DE3CD9C68AC3678CC18D61E5CC2F3663B49BE4199"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/prd.md",
+    "hash": "03DE61764970D260B18FEC1B699EF2AAAA7A9D1E42670B750AF5DC0E9E5C1007"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/preservation-check.json",
+    "hash": "1D1E0934F6E31297258AD7EBE6D0E2FD0D7F20ED359FDC3471F67349EFE30C36"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/review-context.md",
+    "hash": "1A2AB64719765E606161115FB044067339A980A6BD53B75C1F5AA99E58E1C714"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/review.md",
+    "hash": "93F42982BF144D746A5D2821BCD130C65FDC8FED61DC310F0364CD246FE872D9"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/source-hashes.json",
+    "hash": "443635BC7473F6A714EF9D86CF520FC6B806210B2AEDD5A593D19DDE6581D948"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/start-examples.json",
+    "hash": "071D132FAECD45A7175D462B3E0E76753329104E0A123473321795E6CF1A1C43"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/task.json",
+    "hash": "FEB304172AD8E746CBE49142AD966AA6526CF44D42932E0919758F1F59A9AD98"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto-compatibility-parser/test-names.json",
+    "hash": "09492F770D6F7408F516383BF42CBA221C5675745C1FA10E9E28EE3A2AC7D9A5"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/baseline-hashes.json",
+    "hash": "0B8F41F3667D6D4F227A3370ED6CA9D402500D5D4BC7674D226E8B73376EB5C1"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/baseline-head.txt",
+    "hash": "7BADF0FA73462FEF75027EF1CFF0D67118474407B956223B65069FFC62F719D5"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/baseline-status.txt",
+    "hash": "06E10B737DEB0E80AEB3D9E3D3B83EB89CD19134ABB6F38D0035090DAD34A36C"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/baseline/src-tauri/src/mcp/orchestration_tests.rs",
+    "hash": "9657B5E5EFA0F9A968B8DCEE85155089ACD2F11E1745CEB5F78DB7EDCF73B8FB"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/baseline/src-tauri/src/mcp/orchestration.rs",
+    "hash": "9C93CA3C04872E0FFB93C6E1D34A07E8C45980C84BE3704C2BE2646CD643FFF5"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/baseline/src-tauri/src/mcp/orchestration/dto.rs",
+    "hash": "8D7BF8DBF71645FF6A27C3FDED9FCB0E451C848B3BA2F488E028C820840AEA88"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/baseline/src-tauri/src/mcp/provider_query_tests.rs",
+    "hash": "5ACF910A18B1C1C4CE58A4286592C728618440D1AEB9109F858F1029A2D2EEA5"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/baseline/src-tauri/src/mcp/registry.rs",
+    "hash": "73114384CCAE242FBF745F4A7B69DAD5B086A7AD1502B9DAF8771EAED7DD8E3F"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/check.jsonl",
+    "hash": "1DA6633A0EF68CB7D422ED0DECBF32B425BA85806F4EEAFBC32C40C0DDA71239"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/design.md",
+    "hash": "5927B5BDDF90E044836D96FFACF93165A6EAD16D95F7BF1870B3A380C7EC301A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/implement.jsonl",
+    "hash": "1DA6633A0EF68CB7D422ED0DECBF32B425BA85806F4EEAFBC32C40C0DDA71239"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/implement.md",
+    "hash": "FC809F32899A30947A018596CD00000701EFC141F250C86322DBFEC593C4E1FA"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/implementation-delta.patch",
+    "hash": "60AEF352EAE17E748C5A5D1F3FFAE2CF8DDC2E5A2351D0596FAECB0240C62EB2"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/implementation-status.md",
+    "hash": "11C89E385CA4C3CA005068AE8552529D56BBB3464878F6FCEF2FD141437513A0"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/prd.md",
+    "hash": "7866759BAE7E815F75EDF4EAD633451BAC20FA471AA467E4929A6EA131B45A98"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/review-context.md",
+    "hash": "7D9569186E5BE1ADBA0B83106AF0493A8A219FC31019356EF513BD148C71DD5B"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-003-start-dto/task.json",
+    "hash": "5C1202AEAD4A9F63E307A8E9935E27AC8752061AA70315B097320A08E200ED4B"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/baseline-existing.diff",
+    "hash": "AC86DC62F3EDBD71EB2B2AE74AA986D48C7A8A82C8302F0BB65672D5CAE7D9B6"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/baseline/src-tauri/src/agent/product.rs",
+    "hash": "C8E7BA23BAADE5F87F4DDF48F7840AEE1211315467669ACFD0D6F803A9BE1DE1"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/baseline/src-tauri/src/agent/product/tests.rs",
+    "hash": "F6EC81F37F1B653474BB4945805C86C89A27D91BF34F9648599F9D2F7089F7BB"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/baseline/src-tauri/src/agent/product/work_adapter_tests.rs",
+    "hash": "65B3EFA5BC0CAA1BC02FA8F0A646597E635B959821EE72F2C671B3BA82DF494E"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/baseline/src-tauri/src/agent/product/work_adapter.rs",
+    "hash": "4B905CFBB8D21912A7655792AEA70AFA797348C17BA8D5C8B30D49EC7D564248"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/baseline/src-tauri/src/agent/store/transactions/product.rs",
+    "hash": "94AD0CDA1DB90478A3E54E1A79DB2D9E50C82E106DDD7BB6AF59407D5F9F9839"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/baseline/src-tauri/src/agent/task_manager.rs",
+    "hash": "C33AB92361278AD84000BCF4633324E37B2E798C3CECFC57C053E40A2C13D682"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/baseline/src-tauri/src/mcp/mod.rs",
+    "hash": "C0DE1F3CC3B08D51387112387EA14BE558798D99EB60EB7E727D5BB562AB7062"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/baseline/src-tauri/src/mcp/orchestration_tests.rs",
+    "hash": "9657B5E5EFA0F9A968B8DCEE85155089ACD2F11E1745CEB5F78DB7EDCF73B8FB"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/baseline/src-tauri/src/mcp/orchestration.rs",
+    "hash": "3760F34991E6385B2779635E54CD10140A0408B627782CF38C2C277ACB0F7044"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/baseline/src-tauri/src/serena.rs",
+    "hash": "AAE649C90705FEFC73085EF8C992B9858115DA875BC0B11F98632B860C820F57"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/baseline/src-tauri/src/workspace_capability.rs",
+    "hash": "F064334888D9FA1AEFFCB2B93CED38D8D19BA69F76B9443984D1D621B496CB78"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/check.jsonl",
+    "hash": "C3CFD1C6D5D718A22B61A3AC51A6361AB8526D7CAB4A9C607ADC0A0DAA3385E2"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/delivery.md",
+    "hash": "1819AF7F61F3F731AC8BB9413CD65A9742BA793DAA924CBFF823832597498EE2"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/DESIGN_BLOCKER.md",
+    "hash": "F42662EC8F4D7AED7140C50CBF12E8F4539D12D23938CBDBCF4463FAD84870C1"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/design.md",
+    "hash": "B79BDEBDAB8A0E1F16F7DD012E029578F02764E352F60D27B51DF0AE93D1FA4E"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/fixture-repair-baseline/src-tauri/src/agent/product.rs",
+    "hash": "DED58DB7DB1A50A7878B98FF25219F5B9CAEC8FCD2E299B816433A007207046E"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/fixture-repair-baseline/src-tauri/src/agent/product/tests.rs",
+    "hash": "F6EC81F37F1B653474BB4945805C86C89A27D91BF34F9648599F9D2F7089F7BB"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/fixture-repair-manifest.json",
+    "hash": "D76A00400ED5350E449616BDE02BA91CA76C781A79A3169C8C2957EB5CC332E5"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/fixture-repair.diff",
+    "hash": "F9E840A2909A5780E1931FCA3F2CAC0F23DF2CF728BC5D71D5FD61509D6EE23B"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/HOST_RESOLUTION.md",
+    "hash": "EBEE17F095FCB1D1CD3BD0B5E94C56B93FACAB85F30128B3ECEE8B3B340AFF4B"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/implement.jsonl",
+    "hash": "5C4CF21DFB19AFE0BCD7A67148B6DA3D90F468F990CADD34AD3E3CB1159863D1"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/implement.md",
+    "hash": "CD7566A414DCD675E561BE4EF484850F53672D3BCA0A9CE8D8932A893768C68C"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/implementation-manifest.json",
+    "hash": "E91055B9F0D2D29D249D33CEF779E000485D89B3808657AD31DF4DE7677F12E7"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/implementation.diff",
+    "hash": "4DB4ED121271C4C8647AAB8C363E4E139CFD9816940F4AEB4401904F07127768"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/prd.md",
+    "hash": "EB281AD81057D3F02D4AA30F54531897EBC5F0CC0E0AC14CEAD6B708E8E4B7AB"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/review.md",
+    "hash": "8E36C59619E1525996067F9420994E21CFE93CA55A75710D7B163016E6B6B35A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-004-start-routing-authority/task.json",
+    "hash": "0473BC0D42ED3690F1675AC21D9F43751050496A02D7E9D25F9BCB21B527574B"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/check.jsonl",
+    "hash": "944789DCB676BBF2C83F6A864170E95E1427A9ED693FF7D75BA88A918B23A1A4"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/delivery.md",
+    "hash": "3BD94B38A52980013ED0544F59F8CE22CF0C290927A938815C634583A40D50A6"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/design.md",
+    "hash": "D085E5AC6430078A9672E864C339917C868C31273BDF1BE7B44BD47126BA8048"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/evidence/baseline-hashes.json",
+    "hash": "236D54DF61163B7699B69B4D42EEF7190A8B44570EC548D8D810477967A5E051"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/evidence/baseline-head.txt",
+    "hash": "D2D530F4254C5668BBFBD1D99E0C8C7EFD310190A19287291715E5B9B8138791"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/evidence/baseline-status.txt",
+    "hash": "5568A66425555153F2DFFC4B9024371232A0F021A99677A98414A1D0B9F5BFA0"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/evidence/baseline.zip",
+    "hash": "3295DE06E7CAF18769932EDE6E42C8770EDC5B417DCFF3FAB4F59A6695339980"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/evidence/context.md",
+    "hash": "19E593F3B3A552C1EED80414BAD887924B6763BF71A15285DF302FE829351686"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/evidence/contract-matrix.md",
+    "hash": "6F174103FBDCBCD5052C13097CC1245DE641655435B665641495106E29599574"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/evidence/implement-initial-focused.md",
+    "hash": "7AA2DFEF473C8556B3CB41C57E6D5635B11488810A8B55C2CDEC977F200C88C1"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/evidence/implementation-manifest.json",
+    "hash": "4887FEB1364B4958D18E46288E6CCE230A2C482328EE7C9B22068F152F566773"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/evidence/implementation.diff",
+    "hash": "8F2F75B1B107E8CB5F5C8F58DE477FBE62DA998B5B4BA28BA01C0E55EBCF7DE3"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/evidence/preservation-check.json",
+    "hash": "786C6EE8CC0AC009A96636903E658B00BAFD273EFE53A285D07DA88594D1D7E0"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/evidence/review.md",
+    "hash": "959611BF84E9CD16869538CC3FA79180C14C3C98839770072F8F3677C51B1493"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/evidence/validation.json",
+    "hash": "D45D2AFE6040E77FF2BAF565702643D7AB7FC06564DB1DCAB52E884A360D6BF9"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/implement.jsonl",
+    "hash": "9CB4365BB68E8D71DC0B57F915EBABC02474A68ED771F1A3534833DF46984B8F"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/implement.md",
+    "hash": "7D27AC323B8B2834CDCF490E97CB68CD99AF3F81B72D3B24D1EBCB95B9534625"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/prd.md",
+    "hash": "080189CD19BED1E7D2DE6A9DC153E6CD3C9F4EF6A3DAA9C0DF387C7E7E9DA680"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb3-005-continue-resume-routing-mcp-gate/task.json",
+    "hash": "5BD1108F14B5C6127458C242FC9B9DEEE1EC67B8EBFA61E4A3A585FB0F665408"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/check.jsonl",
+    "hash": "E01C53EAD7A407F299EF481B6C1CB9AA70E4666096AC547C8572617EEAADE92D"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/delivery.md",
+    "hash": "F719EFA9460AF4684BA6C55087C6B1925E2F401109C65AB0CDE8FEE85EA3073C"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/design.md",
+    "hash": "CCD451823081AE065A640202AC55CB28BE0B3D3858659EF826B2FD0B743B65A5"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/evidence/baseline-preservation.json",
+    "hash": "38A9452960E53F9578809CA074D6443A214DA55AF5D586616DEBE6DC8A79A25D"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/evidence/changed-files.json",
+    "hash": "E0129B939944087E77F572D027745D46B8CE59C965BB0C6137DB75FC38C9F4B0"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/evidence/dom-state-matrix.md",
+    "hash": "17378892E4C4429F3E12D786CBC987E4636799F204D89B6810D076665FADAD58"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/evidence/final-git-status.txt",
+    "hash": "9A12E776AC903220A0031983DBF3E53D52CA02A235C2BC0B73590A3D12348375"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/evidence/implementation.diff",
+    "hash": "9D6AD533FE3588EBFD232C509226C4FD4EA10FE2738FBF38838B59F80368BA49"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/evidence/provider-catalog-example.json",
+    "hash": "6BCAF1E767E071410F49E398678198CDEBC43B238C481DE117227B4D3884B65E"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/evidence/review.md",
+    "hash": "08F628D19B03B2C4DC1B2968F0B08B4B2B256CBC061DB61D15AD3A39AF5AA3A4"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/evidence/validation.json",
+    "hash": "7D3E333E6BC6D6BF66A5863D2AD78B92F41745B5D9C4EEA9D4AF0CF535F5D94D"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/implement.jsonl",
+    "hash": "EA309E714FC399528041D69BBBD644459A375BFF3051CF3D9F02BFFAC7DA5456"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/implement.md",
+    "hash": "DA239286ACCB2DF49F1E0E640C19EDB994677110921EE311689CEF0285E082DE"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/prd.md",
+    "hash": "2EC873F8677B47C396E6E43B2A4E9B9FC6ED4A92D8F0710035E13DBEB5079C0A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-001-agent-management-provider-cards/task.json",
+    "hash": "79D8097F5A7E6146C65A20C99F0D412D74DCB56EB1343480402D899B1597112B"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/baseline/frontend-hashes.txt",
+    "hash": "3DECB85CA46929CAB7476AEC76D1132C655A4C1B28517F05F5A5D6F65947AC88"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/baseline/src/AgentPanel.test.mjs",
+    "hash": "62F089693823EA12BECE0A5E1BBBFC6281ECE8992D8B7002C3211BDAD4FDAD26"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/baseline/src/AgentPanel.tsx",
+    "hash": "B90ED7822A2967B0AAB13815470EB6D48FD4F2188B4A92EBC86F83D4F94D0683"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/baseline/src/api.ts",
+    "hash": "4E4A8949D18283D4260BAFAC92A03F1372189D35337D1D3034FA017E343D32C2"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/baseline/src/styles.css",
+    "hash": "AF9D92BD1023EFDC6B178F33FDE00469CF617D8A69F94670581DF14C914E933A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/check.jsonl",
+    "hash": "41F558F9451C88A28D003F0589451FEDAA85BCBDE5BC86E7B33BE4AC3EF30BFA"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/delivery.md",
+    "hash": "0F60C99B392209AB60994B2666CF6D38A1778E441BA97F91C6CBA1E3C2A17284"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/design.md",
+    "hash": "50A92A53AA40CB8673BFD5DCB8F94B627A58FD7ED47AFC44EDEF826383F6422B"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/evidence/baseline-preservation.json",
+    "hash": "777E07CAEE2754D12C7F363C9832BFEAB87493F07BEDFFAC69570F636170EC07"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/evidence/changed-files.json",
+    "hash": "121371B97B3A34BD999135B99296945478BE51BC87C0F7AAAD8E82E189C441A0"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/evidence/frontend-final.json",
+    "hash": "5DFB173ABA5E8CEF8BD9031F4A2E8D7229C54524F87FF02F09A37F80EE90032C"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/evidence/frontend-role-matrix.md",
+    "hash": "2082985E69258D0EC5BDB0A43B4EE833E2E2F695CD7B69BD6076047805846D38"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/evidence/implementation.diff",
+    "hash": "3AB89607589E111DFB227441EB05C87F8F1394B45E30B6BDBE36C3B2F17BE823"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/evidence/review.md",
+    "hash": "5572325E052B81F61448492D946BE5B7D31BCA43B17BD6C9D1427AA66C56D745"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/evidence/starting-head.txt",
+    "hash": "7BADF0FA73462FEF75027EF1CFF0D67118474407B956223B65069FFC62F719D5"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/evidence/starting-status.txt",
+    "hash": "F76F4618B1153A14A688397EE74D768BFD7A1CFACD7236E7B8DBB145E7D516BE"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/evidence/validation.json",
+    "hash": "AD72A5745708E928FFB63371B68FFFE934BD9197112269F4D745879CEB91807F"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/evidence/workspace-baseline-hashes.json",
+    "hash": "8A15917E130222CE5F629A43274E6CA5E14751AEBB7AC5A33FA24E707602F911"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/implement.jsonl",
+    "hash": "4E2B9425827A3B2DF886CC5D7EA1B598D1DA5DC2C7D5C987D6A94AA2F6C3CE45"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/implement.md",
+    "hash": "693762E607FDC742CC6259BADB75150BFD27AD456725144336089D1227C95FDF"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/prd.md",
+    "hash": "AFD49FC7564F622E4D8E9850FC19AE4F58394C04532A83788F2B64BCC1E97CA9"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-002-role-routing-editor/task.json",
+    "hash": "83BF0B0B9A10AEDEA160683CA73E96F49243CBC0B442A742170DEA05305AA2E0"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/check.jsonl",
+    "hash": "D47B8C7512F30E8A4FF1FC54F6564CDBB818E29B53F37C24765BCC11545B1ADB"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/delivery.md",
+    "hash": "B2E0109C0E0AE0CE9577E9AC01EEB38A54860C897DADE857703BFB184187D934"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/design.md",
+    "hash": "2AACE3A0600FA2B3D76AA3994FB27F24F3B235019E05E660405567FF54508C36"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/backend-validation.json",
+    "hash": "F15D1508BC0025A3F3B5E5F3715D7D414C0CD61D095ACC78E91C1AFF87A6952A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/baseline-status.txt",
+    "hash": "20BB42A562BAEE58167BB2703AE870ED8116A0F469B0B34CCB772DBDBCE52E6A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/baseline.json",
+    "hash": "F72650B85582D1FF609CE776B8AD4563E5E195581E9F305134A00D4ECEDED881"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/cleanup.md",
+    "hash": "B66EF30CEFA3B2B92D9BF2ADA7FF4529AD5DF33927B7EF0B21FA12D4EFE84BB0"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/context.md",
+    "hash": "65D05E6617D3BB3675093FE073835AFF7BFC16DEAA1D258629A1C0B911BCFC6E"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/freshness.json",
+    "hash": "70326EE97E7CFB75E33268B3AEAD5D4A07B3B118A8932F60BD891EAF5E2AE2D2"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/frontend-delivery.diff",
+    "hash": "CC1DAA060ABF4FEC9BC7DF8BBDCD21FCB1B57053C3F38D21DE06E22CC62CFE04"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/frontend-final-hashes.json",
+    "hash": "F6C2CEDB86D02F4D973ADCAD29E9391FE026CBE3C0A6EB2B51073B2A52161EBD"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/implementation.diff",
+    "hash": "3DC06BBEE77E6F3BA75E474878E620666E036471B081839ECDCBAD52D0D78A84"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/implementation.md",
+    "hash": "4DAD8BEFCA0974789ACE2F9AC3D30ADDA91257C1291B24614ADD971D57B593A5"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/preservation.json",
+    "hash": "6B8342167E7F241F98B20F8D33D89ADD19370E1406BD43BE01941F20DD57F9DD"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/review.md",
+    "hash": "0C93095314322132AF32851E42C83D308F72C504FCDB38E866B8FECA31F8606C"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/evidence/spec-sync.md",
+    "hash": "6BE22242E731462BEF4923FE6DE29FAF9BEC08BC57105569EB75BCB1F509E8C3"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/implement.jsonl",
+    "hash": "7E34705E053926B6212046797C4CA3BFF7A9B473B9EFFE47CF0480347649AE76"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/implement.md",
+    "hash": "B76F9E1BBB52570D857265F06954B2C1E69DC96E57E265BD3583EFBD82D49F80"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/prd.md",
+    "hash": "C1259AE2C0FD058EE425D079D4F9D6EE3E652707E761BA081618C82DE81D241D"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb4-003-pending-claim-unsupported-version-ux/task.json",
+    "hash": "6FE526025B855C7712E5DE6120A053698C75801C80DFD3FFAAE1CB7F14264DC9"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/binary.sha256",
+    "hash": "67D4351DC3B8191280420925E7784045605794D547C2D39F1C2518FADD30428E"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/check.jsonl",
+    "hash": "97380FE6A84349D531761D8199FAC460D343ACEAEE71C8B02E801EE7AC3703FB"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/design.md",
+    "hash": "0FEAA68CAE7A85309B2634861F2D22E2C304D0A6BF1C6A8B20425D642A8A3C92"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/evidence.sha256",
+    "hash": "5385855BF6E7F523E0FA846FDF885CF6885359B26EFC8C6431E04E44C5C103EC"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/HOST_REVIEW.md",
+    "hash": "75D65618B1C488EC016FE2B105E4CE3B748A424D7B97B84F88DB4DAD4DC14E0D"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/implement.jsonl",
+    "hash": "0A7C678552BD6920F6E43A46BBF67BB6A8BE144C4930FDD255053A65BEDD6A63"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/implement.md",
+    "hash": "72EDDAF7623034590214DEE0662DC97F2A77738C6BC68F2EDB9FC0459F670D5B"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/prd.md",
+    "hash": "8CA23F052EC5ACF658A4EF283A1A4E9B485024FE521D790692BF47ACC68E470B"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/probe-result.json",
+    "hash": "469B26A888F7DE49A20989A68FC77DEE1531295DD57D2CCBA298670FFBF372B4"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/probe.py",
+    "hash": "F18E7CBD2A8A09756593703B959F79F7E4A91129BB32E2655ADBF2E279A36D0C"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/product-baseline.json",
+    "hash": "42C2B4891FEF176D9F85E506657B5A13B1DAB65D68E06861F4411FF50D2F8080"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/review-result.json",
+    "hash": "C941CE2DA1A0936D41C869E7F7EE1E1E5D71FE89D845C2198FB9C511E6254060"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/scope-verification.json",
+    "hash": "9EA8505EEFD4AF48B267DFB829F30E3909D4268942FA8B683AE8D8FB55F82DAE"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/task.json",
+    "hash": "DB92AE866C493C55843704A40973E81B1E6944737EE4456F95806605F0C51C79"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/test_probe.py",
+    "hash": "E79045FA020956EDA3341B22ED262DC5F0D329AF2260A98DCE0CC8095FD57675"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/test-output.txt",
+    "hash": "737E273FBFB51B1C357AFA2DC75D01F4B2A2ECDF947F2EE1D188B78641A119C3"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/verification.md",
+    "hash": "C99E9F10DAC513EE07115C09D38C14716B34034D8980D281A8348A98008866F9"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/worktree-baseline.txt",
+    "hash": "0E93A35748BA62972863E19861B2F4F568E7394724579421A96D070FCEA84F82"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1-compile-baseline/check.jsonl",
+    "hash": "5253A1F34B73EEF98D02B016D8CB3A9B5DA972749642089F6CD3F5D98CC41A1C"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1-compile-baseline/design.md",
+    "hash": "9EBA9A8C229913B42D35CCAE3806C9E4D9CD4D84851CCAB6924EE42D580A3850"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1-compile-baseline/implement.jsonl",
+    "hash": "621DA59E46552F57EFEC2591AA6DAAC236A21F73BEFEFA1ABBAE7DA44FFCBBC3"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1-compile-baseline/implement.md",
+    "hash": "82E4C043036C830A731548F32BE8787C1A6D877FD2F7E02ADA26E293A8587CE0"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1-compile-baseline/prd.md",
+    "hash": "66743462344890572F55FFB125E3C9B1F5A0F9E8EC2841AE3B435C1657BA162A"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1-compile-baseline/research/compile-baseline.md",
+    "hash": "594A073CA2D6709CBDACA52BC772100E519A44ADFD14CE33FD27EF32A85EC7E3"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1-compile-baseline/task.json",
+    "hash": "E25D18491CB535F91A961D77CB280E0EA663B7DA34920B63BDAE10646C2930B8"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1b-app-bundle/check.jsonl",
+    "hash": "9D71C6F308B6402C7100307696CE6FD6754C3FE039EB44813473BC3EAA140F8D"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1b-app-bundle/design.md",
+    "hash": "2BF4BA050432DCAADD5BD23F34B0747B89D2A68D70B7D41E079C2694E53B4DD5"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1b-app-bundle/implement.jsonl",
+    "hash": "442DFF79530D3957E0DF4A7B5DA39C883B2FF101330AC06B2A4FCF9FC14122FD"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1b-app-bundle/implement.md",
+    "hash": "DFE367A15658DDFB41ABA5DBF38551D8F7FAC862DCCE9589E196F4C278C94E1B"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1b-app-bundle/prd.md",
+    "hash": "D4862A42BF0B5470DDD944A578AE71D8B6DB76F9999EDBBC4D678766D1163AAD"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p1b-app-bundle/task.json",
+    "hash": "2F699C001E0E687C9A04058F63A8E52A5DBF62107A5F48C05C14A7E87ABAE772"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2a-runtime-contract/check.jsonl",
+    "hash": "86650B1E0E7FC6BAD8F034FBAFEDF3239A963718BA7815AEF760FD419BF30372"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2a-runtime-contract/design.md",
+    "hash": "1A8D747B18CC4065411540C1F87F841B43870BD847766F0ADD57A3283FEF4D50"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2a-runtime-contract/implement.jsonl",
+    "hash": "3D7D924545BCDF6612621C5FE0DEDA9B931955A22A27ED97756BBE9B8FB9923F"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2a-runtime-contract/implement.md",
+    "hash": "B7C8C9E87BE27A163907D4BE3CD2B7A91434F5B2252F137ECC92A6E65888A259"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2a-runtime-contract/prd.md",
+    "hash": "90760AB9B65366DC1091E63A08344DD362561BC849632F354F84D18684F285D4"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2a-runtime-contract/research/macos-process-contract.md",
+    "hash": "3A87014AA0845853646ADD7CACA9E603CFC872E0C4BE85F0E0907639C61F4BAC"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2a-runtime-contract/task.json",
+    "hash": "5E85EFD60FC976594E853DC242F962BE85B5D9AC9DC25C14C6AF28AFECD6BFBD"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2b-state-recovery/check.jsonl",
+    "hash": "7AC81084E9E28909E34C68967DD9B6C5F20963E9D118323FAD275E1054890D32"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2b-state-recovery/design.md",
+    "hash": "04AC2F0FF9BFD3FE6D6838811D65498AADB110AF45F08DC41A7C7EE08B532B4A"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2b-state-recovery/implement.jsonl",
+    "hash": "8A34AB29B8FCB4ECDAEE56CB7B6AD7DBC6D4DE5A9653B5142B69CF13A3843032"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2b-state-recovery/implement.md",
+    "hash": "9CC2536A59A823F23108611E94CEE21128BB1541EB6E18A3756E1A322A2F0C7D"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2b-state-recovery/prd.md",
+    "hash": "791F5943CC0D14B616E6A949BBE50AB7DD651C9EAEE41245AEF000BC00FC7327"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-21-macos-p2b-state-recovery/task.json",
+    "hash": "885C7D00E4A68BFEF06CD6B4735DEABF17A8F42A0CF89FC56FB3ED2ADDB2C2B5"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-codex-protocol-compatibility/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-codex-protocol-compatibility/design.md",
+    "hash": "E3F6058F9C3F8ECCD249216F99A54D189BF506EDA29ACAF800B08B479C6BFA77"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-codex-protocol-compatibility/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-codex-protocol-compatibility/implement.md",
+    "hash": "76EF78EC82094DAA3F3B76238A82D0DD3BAF3A30AB7D06E5D5D6FDF57466BAD6"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-codex-protocol-compatibility/prd.md",
+    "hash": "93470BAF172CDAFEB3F9C557ADF88538D91CBB1C0AF2FC3BD9A8D5BEAEEA203C"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-codex-protocol-compatibility/task.json",
+    "hash": "5C1CD7F16FEAF246383F38FE05A43911C6DEAD36FF9B77378D02E7121BB6DAD0"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-cli-status-detection/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-cli-status-detection/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-cli-status-detection/prd.md",
+    "hash": "F2AA9B53FBDD142F701EDF3434FB4E86935ACEF79DFEBFA18431D6F3ED9AE977"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-cli-status-detection/task.json",
+    "hash": "7A2B2F61B419F737FB9C961684093D557348600ED5CD8BB016C68A5AE60F5B2E"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-dock-quit-serena-cleanup/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-dock-quit-serena-cleanup/design.md",
+    "hash": "4AA8FC23ECADA48CC26F848F4515E39AB403E026525E98B66A4B9E08EDB57213"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-dock-quit-serena-cleanup/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-dock-quit-serena-cleanup/implement.md",
+    "hash": "A16125E22A7032CC7BEE9560B78153A5F47BE61B1670B84118094B39614C43F2"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-dock-quit-serena-cleanup/prd.md",
+    "hash": "F5D73C92548A83FFA6E74820E16C2056311E464DB4E7AED9FD49F936B3296551"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-dock-quit-serena-cleanup/task.json",
+    "hash": "FDC097DD121A432627C5162A3D61068F9E4E31D671A79610D3E72B81E5B2A94D"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p3a-codex-provider/check.jsonl",
+    "hash": "B1F950FA76ACBC0C8249AE52F186D587E0E202BF57FCC3F15AA29A44ECBA60C3"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p3a-codex-provider/design.md",
+    "hash": "5C3FC0B289CCC082BC19F53EADF4630A7F9F8436A465DE1F89623FFD9F7563E4"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p3a-codex-provider/implement.jsonl",
+    "hash": "C89F5C19477EABBE4385560316341647DA2E42594887C77B928F9DB7BD93D588"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p3a-codex-provider/implement.md",
+    "hash": "0529F964305E98B202BC4E43D7E363EBD5ADA9CD74ACF8AEB302647AB4D38C37"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p3a-codex-provider/prd.md",
+    "hash": "0C6BE8758BC20FAB50089CC9D0AF4823B298C026AE19223AE1CE15222FBF8700"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p3a-codex-provider/task.json",
+    "hash": "DF7C9D714025D478993F60B4779E93C02C4A4E7C8B0D7845A1603745BC993F12"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p3b-process-tree-installer/check.jsonl",
+    "hash": "7683AE68093024413C286A14A040EE4B1A9EE390D75875915E37CB9CB2E37126"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p3b-process-tree-installer/design.md",
+    "hash": "0797847A2D203BBF0D2B7310771CC5F11AFC0BD1B1B7ADA8AA1784F2C4EB8682"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p3b-process-tree-installer/implement.jsonl",
+    "hash": "334A3B3A3463765FA22170FA5D28ED16017B9646A412DED335E1723B78C7E42A"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p3b-process-tree-installer/implement.md",
+    "hash": "3D877015902163850CF65DA87C3FF1BADC8FA8EC338F97141AC4D54D39778776"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p3b-process-tree-installer/prd.md",
+    "hash": "3D1A768153303ED4BD0B9347180B2010CD80E15E5A7E05CFC3C75AB7755BE4C0"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p3b-process-tree-installer/task.json",
+    "hash": "C4F288697BA9FF25DAA9B0AE0262CEDF39F95BD20ADDB6E1B29B28E393819848"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p4a-desktop-shell/check.jsonl",
+    "hash": "408374A870AA1E8527C7BAE6C5C351BBF44B616C7602CFD05FEA18638DB92168"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p4a-desktop-shell/design.md",
+    "hash": "4DBF202EBA9A391B5E68BE1C292A29B1F7F2E738DBB8CBBF8C05AFBC756BA89B"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p4a-desktop-shell/implement.jsonl",
+    "hash": "234CE5B831F7C9312C6A8CE89B149EFAA99452FA681CC2A5A5500B419DEDB77E"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p4a-desktop-shell/implement.md",
+    "hash": "A126DD14DB107C502C56A79EA4438D2A81EE7917F78729B55EF1E5ED577B1CEE"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p4a-desktop-shell/prd.md",
+    "hash": "B37E50E2B4C5F493B02B3A0D3B805F9A391433FAD6E477D5AC1BAF75B9945F6F"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p4a-desktop-shell/task.json",
+    "hash": "BCE76C91B12D2547087BDCF4732AC6C2CBB0C83FD5C86AD52BDB9121CD4B4450"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p4b-notification-sound/check.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p4b-notification-sound/design.md",
+    "hash": "894743F72C7167D3CF41EFCE4471DA16B3BC6CEDEF50C51DB6083610CF05BA44"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p4b-notification-sound/implement.jsonl",
+    "hash": "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p4b-notification-sound/implement.md",
+    "hash": "FAA143782D5629D356105E01867221ED0FEE4877A0AD8CF0EABDC68C3B07F73E"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p4b-notification-sound/prd.md",
+    "hash": "C73659DE267A2C17193275F0CB8A8F80441CE506E1B0ABBA095FB3766A992707"
+  },
+  {
+    "path": ".trellis/tasks/archive/2026-09/09-22-macos-p4b-notification-sound/task.json",
+    "hash": "6C161ED79AE4BF272864B38EF89ADAC619B0AB2A1D69DB5C428A5EF89A6A0208"
+  },
+  {
+    "path": ".trellis/workflow.md",
+    "hash": "6D5A695867FA77FB061F628D8B70384DEA289521BCB1D502F2629FA86306455E"
+  },
+  {
+    "path": ".trellis/workspace/codex/index.md",
+    "hash": "6F45D13A49AFACB17E48E84410DA176D47BAEABB2A4DA450FF00C74C5FB5D040"
+  },
+  {
+    "path": ".trellis/workspace/codex/journal-1.md",
+    "hash": "1053C61169376C58D7638FEB64705F93551E9EE9BDAD0CEC9ECD99E2DAFF588C"
+  },
+  {
+    "path": ".trellis/workspace/index.md",
+    "hash": "6209BCFD24F9117C31EDB97BBC17ADE6B3805B038535041C32C6AED1697456D0"
+  },
+  {
+    "path": "AGENTS.md",
+    "hash": "8626B21626191A099B854E7B93DFE854700F205A5845AC532B62649157B7DD32"
+  },
+  {
+    "path": "components.json",
+    "hash": "3A6242DCCC543578990D9255E4A89C93BC2AB990776A757EA60CFE9783E14F3B"
+  },
+  {
+    "path": "docs/agent-disconnection-recovery.md",
+    "hash": "3841682FD4F89205C4CE3307F86C0385C901E0B07596CC12C17D5EAAF5B8F9CA"
+  },
+  {
+    "path": "docs/agent-quick-tunnel.md",
+    "hash": "7A15891F198D5460914AC535D37337233BF9A06587CEC535734B226C3C8DC069"
+  },
+  {
+    "path": "docs/agent-tool-contract-gate.md",
+    "hash": "4DDBC59679AEA2CABFCEB4FDFC173BE0E6D75A8406604350C514F50D06B29872"
+  },
+  {
+    "path": "docs/assets/serena-desktop-v0.3-project-lifecycle.png",
+    "hash": "1F422CC53116D983DD555612F5A87AD362E92E3C43DF5DE0C2FB7DC5E67EB6F0"
+  },
+  {
+    "path": "docs/assets/serena-desktop-v0.3-project-lifecycle.prompt.md",
+    "hash": "A972C19AD3622855F00303A179FBD310217A66BD0F1E0590973C29FF41775179"
+  },
+  {
+    "path": "docs/codex-agent-context-optimization.md",
+    "hash": "B50C5FA54E7955B611856931A89EA67FD756D72B4C74893BC837AA1334F729FB"
+  },
+  {
+    "path": "docs/codex-agent-observe.md",
+    "hash": "A2ED44970B308208FD1F2EE8929504DBA26BA97503A65ACB2179AFF3A41EC21B"
+  },
+  {
+    "path": "docs/codex-agent-runtime.md",
+    "hash": "8A7DF9D1F81B5699D27C39AF7353609296255CF806F9AF68B68E80442966EB11"
+  },
+  {
+    "path": "docs/command-runtime-v0.1.md",
+    "hash": "0F9F1F28054AF703AC63610069D54467DF3B5A1C616C0E661F886C6D412708D0"
+  },
+  {
+    "path": "docs/core-work-orchestration.md",
+    "hash": "17CDEFE70A1CD8E234285269574A897525A398279CEB8C7E2B733570010FE85A"
+  },
+  {
+    "path": "docs/implementation-task-breakdown-agent-platform-v0.2-revision003.md",
+    "hash": "A06E15BF1E9F28688F80EE4B348876CC6CD761D4AD2D3F9E0E45EF3C43E23ADA"
+  },
+  {
+    "path": "docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md",
+    "hash": "0CC8D9318C6A637A880B36E99EE88355118775CD36BDB26108569062B877029F"
+  },
+  {
+    "path": "docs/implementation-v0.3.md",
+    "hash": "065157B1634F4DDE2A7A2DF66BC82F62AAF12BD03E1EEEDEC63CBC43294F9ED1"
+  },
+  {
+    "path": "docs/macos-porting-checklist.md",
+    "hash": "5CE0646531B3B61CA9B741A61C16AA59EA9216B41796A3FB28A825993A881DC1"
+  },
+  {
+    "path": "docs/remote-access-ui.md",
+    "hash": "B50389B6B11562B76DFCF0D94F49B13988AB4003E3E98B812AB0BF22BD14C6D6"
+  },
+  {
+    "path": "docs/root-thread-title.md",
+    "hash": "E7F702172BB508F30166A7513A15760D43303948CFF2AAA3E11FB24892C2827E"
+  },
+  {
+    "path": "docs/runtime-attempt-quarantine-decision.md",
+    "hash": "990784EEBAB9EDF0AFD007C30839C723EE9C6226A0A9AB6D619EE582CAA5D2AF"
+  },
+  {
+    "path": "docs/runtime-persistence-decision.md",
+    "hash": "C9A882E127EF2B6E7AFFC3F796F85569A688619118950F78BBA1CB6E1E391731"
+  },
+  {
+    "path": "docs/static/chatgpt-1.png",
+    "hash": "075EF6160236DBE632B54F7D117AB1F1553B55005D0D24909F1A56850EE15DBD"
+  },
+  {
+    "path": "docs/static/chatgpt-2.png",
+    "hash": "CC748AD0AF0CAFCDE252B3D9DACBC9604756CE45FAC8ECA32BAAD60F3FD0D324"
+  },
+  {
+    "path": "docs/static/home-1.png",
+    "hash": "E8505E41AA4EB0BE9DD5A57D9224C271100E3DD45C627F1D71F4C8ABFA39560B"
+  },
+  {
+    "path": "docs/static/home-2.png",
+    "hash": "60532B72D13E67BEA01E524B346C634A2F90F7BE9D4B24AD4CA15329E4B590B8"
+  },
+  {
+    "path": "docs/static/home-3.png",
+    "hash": "D87B3E7F0AF81E53DEBA59B7C238AB646300076222A1A8E982BAC12B2D20FEBA"
+  },
+  {
+    "path": "docs/static/home-4.png",
+    "hash": "19B1AF4E079A8F1D9AAAD6192AA7C83E7ABC00FA58CCF5EB2BF1C2181BB516C1"
+  },
+  {
+    "path": "docs/static/home-5.png",
+    "hash": "42F3793BCA0BF518C65DC557281841FDD0D665937EA228899FDC16919306D99D"
+  },
+  {
+    "path": "docs/static/Square310x310Logo.png",
+    "hash": "EC5AAA7E4B64456E5E05B0C049055357BEE77F169E3EBED993D46DA3AD71393C"
+  },
+  {
+    "path": "docs/technical-design-agent-platform-v0.2.md",
+    "hash": "73F31FD083ACE803FCC28E7DB54AAE64840582590204C7B248E4053CE202EBB0"
+  },
+  {
+    "path": "docs/technical-design-multi-agent-provider-codebuddy-v0.1.md",
+    "hash": "25F71439F5B361EE7F612F4BAAD3B17E18B523646F129A249D10FECBC5C4EA0C"
+  },
+  {
+    "path": "docs/technical-design-v0.1.md",
+    "hash": "236701B44C4DC237B2A2E4615A2BED9A2FE80E8F78B43CA7D94EF2225E0AB745"
+  },
+  {
+    "path": "docs/technical-design-v0.2.md",
+    "hash": "524007A1D96006D78DBA85B9BA36887E16B35819A0983AF42DE76695E504B0D3"
+  },
+  {
+    "path": "docs/technical-design-v0.3.md",
+    "hash": "E34834E9161DD563E2233037618DBE333B03234AEFD5B0B6C8FAF429567E4093"
+  },
+  {
+    "path": "docs/ui/agent/detail/code.html",
+    "hash": "D0F7C5E8F21E24B45F922A2E9B4E197B8648D77698FDC17A5D6ECD4936B46D5B"
+  },
+  {
+    "path": "docs/ui/agent/detail/screen.png",
+    "hash": "76F1A755170A90B9748EFBA10B0C9FD8286C2F7D002D658C23B76D384EDB4F51"
+  },
+  {
+    "path": "docs/ui/agent/list/code.html",
+    "hash": "9E372F724149298F9964DEC4E8B951A24B10FA1DF352E30BD603A87047C607A8"
+  },
+  {
+    "path": "docs/ui/agent/list/screen.png",
+    "hash": "5843128596E33AACD6F728EF0AD2215DFDEFEBE0A5730D447103F6F78FFF16C7"
+  },
+  {
+    "path": "docs/ui/archive/agent-legacy/code.html",
+    "hash": "1B5D9CCB0A81502FD9BF89DCA510C41AF1778AAE05E178C7E475E81087D5164B"
+  },
+  {
+    "path": "docs/ui/archive/agent-legacy/screen.png",
+    "hash": "2B9AE8FF324E00FF6C68A3F1E86EB2952B4628793E3FBE1ED8965BB111413706"
+  },
+  {
+    "path": "docs/ui/components/gallery/code.html",
+    "hash": "84538BAF2D9CABFE755F803A3CEC3E9B2137086A7DFBCBD32D10186002ABC07E"
+  },
+  {
+    "path": "docs/ui/components/gallery/screen.png",
+    "hash": "5CCAF79134A8DC5892B2B1AFA8555D96A609730FA7E6F9B2C3D6FA7B3F9207D9"
+  },
+  {
+    "path": "docs/ui/DESIGN.md",
+    "hash": "819677D9B6F6837084A701F5F8E3FFB0ECB3B6A0BBA023B93CB1560E25199E5E"
+  },
+  {
+    "path": "docs/ui/home/code.html",
+    "hash": "33AD66C79F1CE6CBB4CDC76EB6557423CCB08A792D178351E1F83112C766287F"
+  },
+  {
+    "path": "docs/ui/home/screen.png",
+    "hash": "69E56A283B4F68AC1FF1295A1D2828B8AA5543B2EC71CEAA2EB3225ACEB91450"
+  },
+  {
+    "path": "docs/ui/logs/default/code.html",
+    "hash": "C1B4AD709059EF6D683ED4BFCE2CE4881478C39220B1003985065890466B7A9D"
+  },
+  {
+    "path": "docs/ui/logs/default/screen.png",
+    "hash": "6888C0E29987D1AC5F5F5713E78E7764D7878E068852653873B0761C338B9506"
+  },
+  {
+    "path": "docs/ui/logs/multi-select/code.html",
+    "hash": "0BA82CA57076C42FF3CC8383B3380013EC3CB393AFDB0F8DA1F2D6D695361BC9"
+  },
+  {
+    "path": "docs/ui/logs/multi-select/screen.png",
+    "hash": "8AC1EE9AF0910843EDC6F634EDA6281F8CBCC573BF503892FD424F7A1E6D6206"
+  },
+  {
+    "path": "docs/ui/README.md",
+    "hash": "B65722BC1CE88A76EDFB8C39292A04EF7998543FEFD9569B54A7C5D67774F49D"
+  },
+  {
+    "path": "docs/ui/remote-access/mcp-only/code.html",
+    "hash": "AA702760C6EB1A474F2B7D3520B872E956F01445EF173764AEA472C7C38844D7"
+  },
+  {
+    "path": "docs/ui/remote-access/mcp-only/screen.png",
+    "hash": "1408997ACE291AD28A233FFEC07DAE5848237758A2B5DE40830078C5D687218D"
+  },
+  {
+    "path": "docs/ui/remote-access/ngrok-connected/code.html",
+    "hash": "866BB8BCCF8F5E9676364FFD99D36FFB23E5FF6751A51DCA878ACB35B0C1A0F1"
+  },
+  {
+    "path": "docs/ui/remote-access/ngrok-connected/screen.png",
+    "hash": "2075A84FD0C31E59FD9F050A21AE2055678E89E267CBF37074A1D8945032B2AD"
+  },
+  {
+    "path": "docs/ui/remote-access/ngrok-ready/code.html",
+    "hash": "12ED52991F61E0151D6C5A5CB441906180BF3130311EAF06062FC0A55A25BE10"
+  },
+  {
+    "path": "docs/ui/remote-access/ngrok-ready/screen.png",
+    "hash": "C518F7E1BFB64B9F1889522F41D43C261BDD7609C7B0250D5562E775335C6FA4"
+  },
+  {
+    "path": "docs/ui/remote-access/quick-tunnel/code.html",
+    "hash": "6F67EDB891814343970C3F3B128E9B6B5303C0C1D47D75FDE76DD114F660BFCB"
+  },
+  {
+    "path": "docs/ui/remote-access/quick-tunnel/screen.png",
+    "hash": "D6FD3ADA54CA2281264DF5016F8443F30A84ABE8B294C14DB0F656A90BC4FF09"
+  },
+  {
+    "path": "docs/ui/remote-access/self-hosted-https/code.html",
+    "hash": "35096DFF19BB87C6A3CDDD7CC7300C51B83D0345A9C92EB55A7206AF9099DEF1"
+  },
+  {
+    "path": "docs/ui/remote-access/self-hosted-https/screen.png",
+    "hash": "A004B7496C7DAE9D5D1784DFC7A14DC65BA7EBA3C8093C7A145A05B9D11A3EF3"
+  },
+  {
+    "path": "docs/ui/settings/code.html",
+    "hash": "3EC386AA14E2B09028B9A10430BDE7B7C2572F4BB7ACE248F1BFD6276265936E"
+  },
+  {
+    "path": "docs/ui/settings/screen.png",
+    "hash": "B31562BE9509517AAED66EE0548CA2EE9BA6B361020F674DFFE827BB74660908"
+  },
+  {
+    "path": "docs/ui/status/code.html",
+    "hash": "7AC819B7BA99CF12469B6A988E66E6103AFBBA328B0A49DC0DAF2A7B009A4F6F"
+  },
+  {
+    "path": "docs/ui/status/screen.png",
+    "hash": "3E1B93A685B348D5758D71674A08348FF05DB00CEF6B35244E6ED4DE8600A38C"
+  },
+  {
+    "path": "docs/ui/stitch/design-tokens.md",
+    "hash": "A627A25C92F07E4636259A5402CB373E38E82A161DEEF4170D54BDF9B394E683"
+  },
+  {
+    "path": "eslint.config.js",
+    "hash": "E92F5E1B0066A66FB56CFF314BAD5F43429565FA3ADEF97216E5767A5FCFA797"
+  },
+  {
+    "path": "index.html",
+    "hash": "3C1066FC2F414E3BFE947BF70F992B81828BDD0063D086EED7C94C12AD5DF46C"
+  },
+  {
+    "path": "LICENSE",
+    "hash": "AAD126E1D8CBC41D71E28DBF41BF0F626F1EF246CB5ED7C456B0398D91A96F46"
+  },
+  {
+    "path": "p5-gate-evidence.html",
+    "hash": "60D17027A244B8D8E2606BFAB8DCD93442DB3CC6A09CA4382ED42EF713AAE781"
+  },
+  {
+    "path": "package-lock.json",
+    "hash": "D531C34B1B4C25E207312845D43031D976E5EDB664624A904CE43D98F31874B9"
+  },
+  {
+    "path": "package.json",
+    "hash": "57970557DE7A7BD8F29317C52D8F41DB2478D660A8F0D000D20DF659F0500DBE"
+  },
+  {
+    "path": "README.md",
+    "hash": "B564E0A6447CA5B273EB836EFF23C6A672A98E1FBE6110B401A35A313B567A0F"
+  },
+  {
+    "path": "scripts/apply-release-version.mjs",
+    "hash": "9D46114749B752566808AAD01C43093905575DE23345C6DE16E67CB4DB772986"
+  },
+  {
+    "path": "scripts/apply-release-version.test.mjs",
+    "hash": "7B9DE7D29B6605D10FBCB75A73D1AA0466800529A28B9B6AB2D3456C2643064C"
+  },
+  {
+    "path": "scripts/check-version.mjs",
+    "hash": "E7091A1ABC9B077828DFA473736019008F91C72C81F9D6DD70D6DC722AFD9867"
+  },
+  {
+    "path": "scripts/check-version.test.mjs",
+    "hash": "2D512E4EC8D6772DBA6F47C22854AF99EC4B7AF596FA11BE1965ED3CDBF2B6C1"
+  },
+  {
+    "path": "scripts/ci-workflow.test.mjs",
+    "hash": "0430403CB4E039FECA2ECA8066F65C8D357E681C7AFDC7DD5BD5DA23352A6AEC"
+  },
+  {
+    "path": "scripts/macos-bundle-config.test.mjs",
+    "hash": "987035D229F1EF752D5FDCD0BC7CB2C8565461CE5B86B8B2523BF8322DFC1AA7"
+  },
+  {
+    "path": "scripts/release-workflow.test.mjs",
+    "hash": "505D0910C1F756377094F470153BD0E6E330D2B30F5E75EDE31508807E18611F"
+  },
+  {
+    "path": "scripts/test-quick-tunnel-host-crash.ps1",
+    "hash": "28281C603971DC13544C37ABAE808660493B9982D02CB5043150662D49AEB066"
+  },
+  {
+    "path": "scripts/verify-installer.mjs",
+    "hash": "A376080B8582F768B7809C033EEF8A93A0C1E4758E9735C719877A55A49D923F"
+  },
+  {
+    "path": "scripts/verify-installer.test.mjs",
+    "hash": "79C654151FC2206E41B2EDA8E7CC2A56A0F47FCC96A62BE354C1FE947D433FA8"
+  },
+  {
+    "path": "scripts/verify-macos-release.mjs",
+    "hash": "0D9D275243F60888ACE14802966580A64624A0C257AF74D59DED10CBC748662C"
+  },
+  {
+    "path": "scripts/verify-macos-release.test.mjs",
+    "hash": "DBC0C36ACE809330A66B5C854FAC77C52E0A52D4FD73650A3ACDD52DB2096F4F"
+  },
+  {
+    "path": "scripts/verify-uninstall-policy.mjs",
+    "hash": "E29D5B0B7BA2655FD9EAE31F72C7DB953CADD4A2241C4AB1A7D70A88F16454BD"
+  },
+  {
+    "path": "scripts/verify-uninstall-policy.test.mjs",
+    "hash": "966E0F5E90CB7D8E49EBFF59518C108486C376D6CF01053C1F2206592D0F6610"
+  },
+  {
+    "path": "src-tauri/build.rs",
+    "hash": "FF2ABEFADC921BE1DC6671BDFDF0072ADFC9DE7B332B8CABEF4306157D3CC761"
+  },
+  {
+    "path": "src-tauri/capabilities/default.json",
+    "hash": "D116365AC80786DCE2A85AF3D9D53EBC14387C2D5B05A9835A70AB27F314CE49"
+  },
+  {
+    "path": "src-tauri/Cargo.lock",
+    "hash": "02E11F2AB9C7C8A76AFED894C550BB2C96F92701870B00D8EC206B438C6E93B8"
+  },
+  {
+    "path": "src-tauri/Cargo.toml",
+    "hash": "34F62032B577CE11CB2A96DE5B899B7F30413E57D8303F845A93915EBB750738"
+  },
+  {
+    "path": "src-tauri/icons/107x107.png",
+    "hash": "3DA9CFC7EF82811376849D14C8AEA30864159AC6DB6CA6FF004C49110D7E3B33"
+  },
+  {
+    "path": "src-tauri/icons/128x128.png",
+    "hash": "8372EB11F288401986609D698BBA1B2B052695109D4171A31EEA8B75FFB6FF21"
+  },
+  {
+    "path": "src-tauri/icons/128x128@2x.png",
+    "hash": "65ABDED6AA7D6F47629B183A3D558AD638F474D441C0FEBC8A7C69E6AB8A2A5E"
+  },
+  {
+    "path": "src-tauri/icons/142x142.png",
+    "hash": "3B4166C767C500BAEB339A60151ACE31A504909A772DF01AA3D82DD67D1AC77B"
+  },
+  {
+    "path": "src-tauri/icons/150x150.png",
+    "hash": "8FCC491A37B076B9606258BCC8EA3944FFB21EA254E7E3E5CB9BC59EB889D549"
+  },
+  {
+    "path": "src-tauri/icons/256x256.png",
+    "hash": "65ABDED6AA7D6F47629B183A3D558AD638F474D441C0FEBC8A7C69E6AB8A2A5E"
+  },
+  {
+    "path": "src-tauri/icons/284x284.png",
+    "hash": "80223266198795C92E137F53A7EFDF024122BEA9AC6EA94324FD2F69F8F2C2F5"
+  },
+  {
+    "path": "src-tauri/icons/30x30.png",
+    "hash": "7DD16EBB19AFB61EA8243A378F9833EB85A1938CA784F85DAF261583E9AA5F97"
+  },
+  {
+    "path": "src-tauri/icons/310x310.png",
+    "hash": "EC5AAA7E4B64456E5E05B0C049055357BEE77F169E3EBED993D46DA3AD71393C"
+  },
+  {
+    "path": "src-tauri/icons/32x32.png",
+    "hash": "F2A9BAE244CA9C050709224D9F28067D024EE9B6EC66BE6E6E40751D3B2C1C11"
+  },
+  {
+    "path": "src-tauri/icons/44x44.png",
+    "hash": "9AB5F55928F1254AA770A1C2550B27C70A4BE7E54D4803760D96D1BDCA63CEC6"
+  },
+  {
+    "path": "src-tauri/icons/512x512.png",
+    "hash": "4DACEDE0AB615F1FA94E9DA8720FA87255CB9E04499060AF65B45416ADBEF167"
+  },
+  {
+    "path": "src-tauri/icons/71x71.png",
+    "hash": "A920E7C8B2B5CF1991C506BD5CD57EB62D1B27BFCF89E9AD221B0830AE8A3343"
+  },
+  {
+    "path": "src-tauri/icons/89x89.png",
+    "hash": "6308343F89A2575991C9155D5DD8FBFB52A1802806FFDB78283F7436092386B4"
+  },
+  {
+    "path": "src-tauri/icons/icon.icns",
+    "hash": "7CB2BC167FD6B953F520AA98E6D7CB4B206448E8C7353BBC21DDD9AEC8880F53"
+  },
+  {
+    "path": "src-tauri/icons/icon.ico",
+    "hash": "413757422EAD95B31AC0AD3CE479B07E5BA2D9D381A090D14FC086C5B75F3468"
+  },
+  {
+    "path": "src-tauri/icons/icon.png",
+    "hash": "76080424B4AD20E90CB1650310573FC29F73CFD8B5CA9117FBBA32D775FA979E"
+  },
+  {
+    "path": "src-tauri/icons/Square107x107Logo.png",
+    "hash": "3DA9CFC7EF82811376849D14C8AEA30864159AC6DB6CA6FF004C49110D7E3B33"
+  },
+  {
+    "path": "src-tauri/icons/Square142x142Logo.png",
+    "hash": "3B4166C767C500BAEB339A60151ACE31A504909A772DF01AA3D82DD67D1AC77B"
+  },
+  {
+    "path": "src-tauri/icons/Square150x150Logo.png",
+    "hash": "8FCC491A37B076B9606258BCC8EA3944FFB21EA254E7E3E5CB9BC59EB889D549"
+  },
+  {
+    "path": "src-tauri/icons/Square284x284Logo.png",
+    "hash": "80223266198795C92E137F53A7EFDF024122BEA9AC6EA94324FD2F69F8F2C2F5"
+  },
+  {
+    "path": "src-tauri/icons/Square30x30Logo.png",
+    "hash": "7DD16EBB19AFB61EA8243A378F9833EB85A1938CA784F85DAF261583E9AA5F97"
+  },
+  {
+    "path": "src-tauri/icons/Square310x310Logo.png",
+    "hash": "EC5AAA7E4B64456E5E05B0C049055357BEE77F169E3EBED993D46DA3AD71393C"
+  },
+  {
+    "path": "src-tauri/icons/Square44x44Logo.png",
+    "hash": "9AB5F55928F1254AA770A1C2550B27C70A4BE7E54D4803760D96D1BDCA63CEC6"
+  },
+  {
+    "path": "src-tauri/icons/Square71x71Logo.png",
+    "hash": "A920E7C8B2B5CF1991C506BD5CD57EB62D1B27BFCF89E9AD221B0830AE8A3343"
+  },
+  {
+    "path": "src-tauri/icons/Square89x89Logo.png",
+    "hash": "6308343F89A2575991C9155D5DD8FBFB52A1802806FFDB78283F7436092386B4"
+  },
+  {
+    "path": "src-tauri/icons/StoreLogo.png",
+    "hash": "7CC474FA3A6DEB2AFF4BC00AC678779CCAEE1268C4D2B4F0D39CC1F1C7E6385A"
+  },
+  {
+    "path": "src-tauri/macos/Info.plist",
+    "hash": "C9C0040ED380345E6889C9E886DDDAB0977DA8C602EA5377AD8EA23230B7BB6E"
+  },
+  {
+    "path": "src-tauri/src/agent_notification.rs",
+    "hash": "7D78C120C8886F991F3DD5FF84F107578675A90EA2E0FF1E5B4DAD71AE200008"
+  },
+  {
+    "path": "src-tauri/src/agent/activity.rs",
+    "hash": "0621E412522375DB9DBD7F82D3BF2AB5EFF2C8BEF4C8CAD31EE34BC197CFF10C"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/app_server.rs",
+    "hash": "A30249B5687A5ACE417794DB15B797F4698DC9347A29357D9BCED6518E739471"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/app_server/binding.rs",
+    "hash": "A95FDF0F902FDA925B1579EF9FCD1B9888AFC59E58FE2207E4DADCDA6667CE2F"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/app_server/macos_managed.rs",
+    "hash": "56F7A51BFBD7186D190B918F998D9B3FCDFD0791F3FF210A563C2E3253E733D9"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/app_server/managed.rs",
+    "hash": "B51542AD3F9EB788DC326F023591A03377FD84F42830274EBD6C1864F8D14D89"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/app_server/recovery.rs",
+    "hash": "C23D6286E11E763F1D4EEF8617105452EDF1AF3692FBB560CCAB70D47A0742E5"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/app_server/session.rs",
+    "hash": "6951064A66CC05CCAA51116772F4C29B54BF0F4E82DCFE28CF08B779BCFC81C3"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/app_server/tests.rs",
+    "hash": "E6C194F0BD4EC1374C07AF5C40C602C9AE0D8CF230B449632C054D3CCD2AD9D7"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/app_server/title.rs",
+    "hash": "BB560B57BFA2C871DD754C9B086B1FA7C042DD5D7814567B7D47A0D59D1F315C"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/app_server/title/tests.rs",
+    "hash": "B8EC1F7D2B3F7A351EF58753CEC3F008D183C115EA38E90E0FA220ECB3A90ECF"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/compatibility.rs",
+    "hash": "B1715D275B40AF17DA563CE3CB86348B7B7C44B45BE842329C34ED93B203729F"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/discovery.rs",
+    "hash": "34C06DABBDA1243106FB8FA1DB18E908148A35A7548D4EE67896F5D9C1B3EC05"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/macos_discovery.rs",
+    "hash": "B09DD53014375C7F999BC7C5ED11ECAB45DB02743D05C56D2ECF26D24C65A37F"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/macos_launcher.rs",
+    "hash": "15DD61841F272E5E566AA3F2307FD1B5A2DE09BD4A6B50F682113B3851A4480C"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/macos_launcher/tests.rs",
+    "hash": "14A61C727AB99B71B8E118A5216F68E3975972BD1086E49CE02D32E456EC497B"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/macos_recovery.rs",
+    "hash": "F105D292700C0A0606A26F609A9C614AAC288A6840967A378A83A21A77A04904"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/macos_recovery/tests.rs",
+    "hash": "EB1E77D886CCA97379D4706E0C8316E897CAC51CD52E129B448141D8D17D896E"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/macos_runtime_adapter.rs",
+    "hash": "F06299F59169CA1F106BA5FAA0FB11488123E520C244F748856AF8E21786698D"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/macos_runtime_store.rs",
+    "hash": "5227B682DEAC02C783287FD2EA29DB76EDED5BECB0313BD8D076934C8D1A2704"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/macos_runtime.rs",
+    "hash": "BBD2790DC527EE39D29CBE41B736F80520AF8EDAE50A88319648449306EDA130"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/macos_runtime/tests.rs",
+    "hash": "A5AAB4C38D0E684A3A7B08FD60C4C36A466392195DA96E1FB01FACAF72C0EFD1"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/mod.rs",
+    "hash": "E3FFD32430AF5624420A99BE12BF94E1F11AF5D4555AF864D7CA2A72F0027859"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/platform_windows.rs",
+    "hash": "FD4B67A832C1FE3F7E91DB2973118EE39F07ACB4218673332663258660D3FD3F"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/pool.rs",
+    "hash": "FEEF1286B74FFCBE4E2CAD67DC476F06A688530939DE6570C1CA4481A971D4FA"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/protocol.rs",
+    "hash": "1F0AA0A478D9DEEEEC3AFBFA24F52E0D446AE06640A1B130E7FE12394021F09D"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/provider.rs",
+    "hash": "E41EC27AD9433F7EE3887ED07D47E76B8885A179173EF77A46F8B8F81A058D7B"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/provider/adapter_tests.rs",
+    "hash": "A4EA1D453812BEC99319E056F2E31BA723DB1E4BD8AF1ACA45ED69E966240419"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/provider/cancellation_tests.rs",
+    "hash": "B1B213BD5122FD54ED14A398486638526CF1BBF678A5203AF1531C62028296BC"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/provider/tests.rs",
+    "hash": "11A1CB355FFA466D8F9C5AD173EEE8C286DC5A84FAA87468CC8C274FBEFD0076"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/runtime.rs",
+    "hash": "3A13F4734310FFC045A41ED0AA97CC8F0CD39DA5CBC4293A4DFBA8F12D05C6D2"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/runtime/tests.rs",
+    "hash": "F455184D5AC9943560676C75431FD28A9B275531B53EFA9F370BBD3555D5FC6B"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/unavailable/discovery.rs",
+    "hash": "81254D720FA6131173290FF81D26FD5CA726A06A6289AD822863F8CF3911A747"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/unavailable/pool.rs",
+    "hash": "451EB08B3704EC1821DC401B0F55FEB081486FF9B23E585AE8EC9752414DCB51"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/unavailable/provider.rs",
+    "hash": "470B689B95884B5B2573291C74B5B939ADF047597F97F74A763E4728A6126B68"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/windows_launcher.rs",
+    "hash": "BABA993C96F850673FF262E1FB7B3B970EDA60C6D705A9652C39E05A0E4ABD2F"
+  },
+  {
+    "path": "src-tauri/src/agent/codex/windows_launcher/tests.rs",
+    "hash": "4A4A9F4C361766F1CA5A3977B06E924118696792A40B05DA93EA783115A79924"
+  },
+  {
+    "path": "src-tauri/src/agent/coordinator.rs",
+    "hash": "D3DDEB5BE6EFA7600CA875DEFAD7EF159CD26818ECDD3751AF3048CB61FECFA0"
+  },
+  {
+    "path": "src-tauri/src/agent/execution.rs",
+    "hash": "566A05C286CDDDE8F5C4A65DAE164DA24161EFB4E2BD8850236FEF9927AC26B8"
+  },
+  {
+    "path": "src-tauri/src/agent/execution/state.rs",
+    "hash": "AC52EF505D50C557B198BCA500DE3E63BC2C538C1CBD1BA9BFB5ACE4393A6C67"
+  },
+  {
+    "path": "src-tauri/src/agent/execution/tests.rs",
+    "hash": "503A0FE76389AA8000A3B97FFCA55669B079C5517CE5111D0F6B01889792B35C"
+  },
+  {
+    "path": "src-tauri/src/agent/mod.rs",
+    "hash": "420F31C054F3A68DAC343F813B776B42EF38891C1D1CBDA292E021F8C1DDE555"
+  },
+  {
+    "path": "src-tauri/src/agent/notification.rs",
+    "hash": "D7D869A42F619F0F39882A1910D09997F73208E1FE804FF432DA4D74886A2757"
+  },
+  {
+    "path": "src-tauri/src/agent/product.rs",
+    "hash": "98086A5A00DC760BFB041834E80882D52785E5B78A42596AB51E7028D0374FCB"
+  },
+  {
+    "path": "src-tauri/src/agent/product/control_tests.rs",
+    "hash": "85B932E683C70817337E85287EE1CD7147120D113837DBAD30A4F5D0F8DCCF06"
+  },
+  {
+    "path": "src-tauri/src/agent/product/control.rs",
+    "hash": "D293722D220C96DA439300EB84E8AB2CBC6DB4E2D507DD0586D1FB3183DBFB47"
+  },
+  {
+    "path": "src-tauri/src/agent/product/fixtures/provider_catalog_codex.json",
+    "hash": "A4FE4EDF5ABFDFFCC16ACDAFA47ED97F291B7630964BEBE5E7C4BFA00D93F8E6"
+  },
+  {
+    "path": "src-tauri/src/agent/product/fixtures/provider_catalog_current_policy.json",
+    "hash": "C85FCCAAE303D2BAB46A7E4DD92542E0518A0CEBF3BC4E1FAD00702212C67495"
+  },
+  {
+    "path": "src-tauri/src/agent/product/observe_tests.rs",
+    "hash": "D270BE941F48B30763E4FD69A81F29A9E866D5449A513B1EA819DF0933D3A051"
+  },
+  {
+    "path": "src-tauri/src/agent/product/orchestration_tests.rs",
+    "hash": "E2950F13A6DB3BD66F941143A0DF3198457F40756B37F76492CD443775116BE0"
+  },
+  {
+    "path": "src-tauri/src/agent/product/persistence_tests.rs",
+    "hash": "08DBC5581EC21709467E296EC6ED01AA13BA4112D4C7995E37663D1A7BEF0972"
+  },
+  {
+    "path": "src-tauri/src/agent/product/provider_catalog_tests.rs",
+    "hash": "8562B4C75D92079A019E83901D6C5A86D6AC36A4FE4198D9D16014AA0825A966"
+  },
+  {
+    "path": "src-tauri/src/agent/product/provider_projection_tests.rs",
+    "hash": "51E79081185E2836494DE54D6DCEB7398E9AA2FC82AE7AC1A2B761E997041FBE"
+  },
+  {
+    "path": "src-tauri/src/agent/product/restart_tests.rs",
+    "hash": "A223F1A0E7511CC26459AA918B42809420848327EB2DB19F10DAA1A08E9E508F"
+  },
+  {
+    "path": "src-tauri/src/agent/product/role_projection_tests.rs",
+    "hash": "38D5D775050F17DD22256F2B5A055742D03D50D38B2057ED6FFD06B7F20B3530"
+  },
+  {
+    "path": "src-tauri/src/agent/product/tests.rs",
+    "hash": "DDF17D7FBC75DDB1E4781639BBE1A893EBDEE6BE0073281FAC93CECDE85984F8"
+  },
+  {
+    "path": "src-tauri/src/agent/product/usage_projection_tests.rs",
+    "hash": "DAE3AF7D87E7CA601EAC82FE8B9D4C2F5F9CB15A4D3F4D307F0B233CEDEA4066"
+  },
+  {
+    "path": "src-tauri/src/agent/product/work_adapter_tests.rs",
+    "hash": "5A58936424370F2E120037BF668B91D50962A78B98402381866454C5B44F71FD"
+  },
+  {
+    "path": "src-tauri/src/agent/product/work_adapter.rs",
+    "hash": "A96306B56D89B03F9DE24139E12B55D62A0CE20200262480AE3FB562556226CB"
+  },
+  {
+    "path": "src-tauri/src/agent/product/work_context_tests.rs",
+    "hash": "681F06D4529C13262B8CAB95DDBFE3BEE9179AAF0D04CB56F07E4B9CC86D512C"
+  },
+  {
+    "path": "src-tauri/src/agent/product/work_context.rs",
+    "hash": "C6934E7B583FADBD6C958D31B49D7555C1C05D7EF556B82C1F180C1300AFFF2A"
+  },
+  {
+    "path": "src-tauri/src/agent/product/work_crash_tests.rs",
+    "hash": "BEC15FA6C1E5905158660F64B814B4BEA84FBAD98B1720A8BFED07815DA5F234"
+  },
+  {
+    "path": "src-tauri/src/agent/product/workspace_write_tests.rs",
+    "hash": "3E40B8B7B820F2C57A1BE2C1F246DA4992A9EF006D9B81143ACD64C55DCF860F"
+  },
+  {
+    "path": "src-tauri/src/agent/provider/control.rs",
+    "hash": "20C5CCE0F12563A141440E81F9B77B805E6FA7634DE7D378976C3C58CDD37167"
+  },
+  {
+    "path": "src-tauri/src/agent/provider/mod.rs",
+    "hash": "0B5869E47FAA24CB397B1920C8D406BEC1826F322020A7BAD440B91FE8BA9114"
+  },
+  {
+    "path": "src-tauri/src/agent/provider/port.rs",
+    "hash": "6142F3552593100724F297D332F642792654B01DA36F1B2985866F8B23841325"
+  },
+  {
+    "path": "src-tauri/src/agent/provider/port/tests.rs",
+    "hash": "27C48AF61DCAE832E59B6F812C8DA9C64A17009C773320AEBB203310BFF19B58"
+  },
+  {
+    "path": "src-tauri/src/agent/provider/registry.rs",
+    "hash": "0A351C98D7F13BE114E7A782A6F8888810DDBA85FDAFB18854AFA4006D49B2E2"
+  },
+  {
+    "path": "src-tauri/src/agent/provider/registry/tests.rs",
+    "hash": "3A835DFBBE3F729C6B791B19F8B9576B43EC2883F966C0343C115692EFDA19E4"
+  },
+  {
+    "path": "src-tauri/src/agent/provider/telemetry.rs",
+    "hash": "4816ECA14E63D86C32A0BB6785FC6BC7D3A8F264679A267C6112C07099D1957B"
+  },
+  {
+    "path": "src-tauri/src/agent/provider/tests.rs",
+    "hash": "FF93E65EB4DE6CBEA4FBFBC5B43961E74F78B020D5E87E1771F73418C82EBD75"
+  },
+  {
+    "path": "src-tauri/src/agent/schema_v1.sql",
+    "hash": "1CE0D1855B6C2E3B1F78B034B934D94EDBEF9876A0D816A6411560382A7D1938"
+  },
+  {
+    "path": "src-tauri/src/agent/schema_v10.sql",
+    "hash": "C7DB9B69BB928EC877B5C6FBD43C4EFC76D992C3F30E93E155751D288ABC33F9"
+  },
+  {
+    "path": "src-tauri/src/agent/schema_v11.sql",
+    "hash": "E62E8973CB3AE832A1799B8EEC28882BE04B06AB9145133195F629C2DAAE7648"
+  },
+  {
+    "path": "src-tauri/src/agent/schema_v12.sql",
+    "hash": "CE03BD693CE91308A004CDB2FF84AD280F44F25041CDEC6D66599B34A19B65BE"
+  },
+  {
+    "path": "src-tauri/src/agent/schema_v3.sql",
+    "hash": "3EA41A7492579035239EDD23B42FCFDC9627D829DF307FBFE9F7B596957D9629"
+  },
+  {
+    "path": "src-tauri/src/agent/schema_v4.sql",
+    "hash": "5D408AAB18983A4B86627B96A6FB96148B61FBAD64151E1934B8EE2735900B70"
+  },
+  {
+    "path": "src-tauri/src/agent/schema_v5.sql",
+    "hash": "B9F9DBCB1D2A97FC47DA713BC37847FB4E41344EBF5866EF977548D8703E9D13"
+  },
+  {
+    "path": "src-tauri/src/agent/schema_v6.sql",
+    "hash": "CD9C73EB8DE47F5CD73EECCA07560BA4855C721D4D9B9D47034278D24D2886C8"
+  },
+  {
+    "path": "src-tauri/src/agent/schema_v7.sql",
+    "hash": "E631B85A1A757C27CA2DE4D2EAC74DBCFFA3C860713FC760EAAD9E67C8552938"
+  },
+  {
+    "path": "src-tauri/src/agent/schema_v8.sql",
+    "hash": "6625440FF4EB0B1BA96808824C124B7DC045620FFE8122FA944AA78D23869A46"
+  },
+  {
+    "path": "src-tauri/src/agent/schema_v9.sql",
+    "hash": "F2067A1B4C56FE724B614492472911CE865BBC73F29A69AD359B1C040C82C84F"
+  },
+  {
+    "path": "src-tauri/src/agent/store.rs",
+    "hash": "E329787BCB97543717C7B1AF10C4EAECA8F86154E3088F4EFD1DC6B5EBEC64C2"
+  },
+  {
+    "path": "src-tauri/src/agent/store/command_runs.rs",
+    "hash": "C288A246CE1A841756F7DEAFD01C30F63972FA3F52A56DFEC4512230EAE6DF50"
+  },
+  {
+    "path": "src-tauri/src/agent/store/runtime_attempts.rs",
+    "hash": "1E16A3C3FDB7288855A1C2E81BAD2B222C9CEA45D80F23F8D5AEE6AF98BD6D5B"
+  },
+  {
+    "path": "src-tauri/src/agent/store/runtime_store.rs",
+    "hash": "0E518C33188E280531C4F7238FF86329819BB76C3BFA0DE82AC2B573D6D94EE3"
+  },
+  {
+    "path": "src-tauri/src/agent/store/tests.rs",
+    "hash": "5A892CE067D5033DE497F1C8277FFAB6A08C3B932AAAC879C5578CDFD2A24084"
+  },
+  {
+    "path": "src-tauri/src/agent/store/tests/v11_fixture.rs",
+    "hash": "43A7A81BC84417E30883D8F5F3E1B5F6FDA505C90491F8E5C695FF90640E2BDB"
+  },
+  {
+    "path": "src-tauri/src/agent/store/tests/v12_migration.rs",
+    "hash": "488178B2866EFB0568CFBE16C3B3DDA15BB010DEC347CE30CC39A8D983E2E17D"
+  },
+  {
+    "path": "src-tauri/src/agent/store/tests/work_runs.rs",
+    "hash": "A6F443CA5BA55BD64A59A0092D34553C83A0BF7D1EEEC76AA1F11E25EA74936A"
+  },
+  {
+    "path": "src-tauri/src/agent/store/transactions.rs",
+    "hash": "2CFEF3672DF14EED311AF1F47F52147BEB2CA6F395A9541FA0DEF8E1A4AA0E15"
+  },
+  {
+    "path": "src-tauri/src/agent/store/transactions/product.rs",
+    "hash": "DD6A0BF60548F420ED569A353D708DFFCF0CF9D5757D6CC84F03D8DC05A8623C"
+  },
+  {
+    "path": "src-tauri/src/agent/store/transactions/product/work.rs",
+    "hash": "B578857D5805C325232E789AE0E096A17801F0CB04064AB1C0F75D8B77B46312"
+  },
+  {
+    "path": "src-tauri/src/agent/store/transactions/product/work/tests.rs",
+    "hash": "2866B71FD3AFBB4DA8D72C1335FFE5E20BA21BFAC16C627B91DCBD8A718DC726"
+  },
+  {
+    "path": "src-tauri/src/agent/store/transactions/tests.rs",
+    "hash": "D8A7FB742113986A877254D211DDA818CCC71EE0D9BBFD35E0AAD93405DFF31A"
+  },
+  {
+    "path": "src-tauri/src/agent/store/usage_tests.rs",
+    "hash": "C90595FCE0E1D57460648E3E28B2DC33A2C6E6AE7656C39C90AE96980958A778"
+  },
+  {
+    "path": "src-tauri/src/agent/store/usage.rs",
+    "hash": "67E2D30AB6F8C46CE66B08BA34E9262518E5A6F2C8495740BC1616C4136F6B90"
+  },
+  {
+    "path": "src-tauri/src/agent/store/work_runs.rs",
+    "hash": "663A35CD0254020C40EB0873D4669E1650BE60395A22CE84AAD44F68B6617BBD"
+  },
+  {
+    "path": "src-tauri/src/agent/store/work_runs/terminal.rs",
+    "hash": "F66D78CC4567FA58F98460AC6E6413FCB7D8E22AE82DFDFCFC1AB949DD21BB36"
+  },
+  {
+    "path": "src-tauri/src/agent/task_manager.rs",
+    "hash": "3B061EF499CB0B036708733E67A5426BC8395DF5FF10C98AD815DA5C5EE70214"
+  },
+  {
+    "path": "src-tauri/src/agent/task_manager/automatic_recovery.rs",
+    "hash": "03ED4FD01DE514F7D8CB184EA4C130FA05EC495B7F821D5A397AA2E84A150F88"
+  },
+  {
+    "path": "src-tauri/src/agent/task_manager/recovery.rs",
+    "hash": "A6E21E520C4AD898423ADA08D655A95D41E6A329082853F17B48D1F3A029618B"
+  },
+  {
+    "path": "src-tauri/src/agent/task_manager/recovery/tests.rs",
+    "hash": "F5F8B22F31302904B856CC0E8511C7FA9393605E03EEBF92429DB80F531D8007"
+  },
+  {
+    "path": "src-tauri/src/agent/task_manager/tests.rs",
+    "hash": "655926819623707DFB3ADE3916B0344FF536074FE4988B58E3D3CDCE0ACE8EC2"
+  },
+  {
+    "path": "src-tauri/src/agent/telemetry_projector.rs",
+    "hash": "DAEC729D75A3AB733B4C726EB51CB356D8BC0CFEADCA12A7CCDECE305609CC1E"
+  },
+  {
+    "path": "src-tauri/src/agent/telemetry_projector/tests.rs",
+    "hash": "74B046F479DDF8F1D7AC39A3BBAA0CC7F950F47D47722FBF4AB69277C938724A"
+  },
+  {
+    "path": "src-tauri/src/agent/usage.rs",
+    "hash": "F1EC46D875F01D7B5EB69AD25DE1EFD21B8463F5A93F5AA8F0706DCCD7703600"
+  },
+  {
+    "path": "src-tauri/src/agent/work.rs",
+    "hash": "AB7A405D296FBA022E70993C82DA110556DB65957789DA54439FBB6E87F43F7E"
+  },
+  {
+    "path": "src-tauri/src/agent/work/terminal_tests.rs",
+    "hash": "412B74DBFC7C15548D541791CECEA448BC206459CE4357442F419DE89050003C"
+  },
+  {
+    "path": "src-tauri/src/agent/work/tests.rs",
+    "hash": "AAA286D69645FC23984E9D1491975872C578F406539452B043329D33FBB96621"
+  },
+  {
+    "path": "src-tauri/src/autostart.rs",
+    "hash": "4B98C96457C175BAB00A8C2573112ADAF460FAAAEDF69A75DC22CCBDDEDEA564"
+  },
+  {
+    "path": "src-tauri/src/codegraph_capability.rs",
+    "hash": "62C06BFB4EC7A280AE3CD1ADA80E72AAD38E796B95DACF4B3D72871071FB8DD8"
+  },
+  {
+    "path": "src-tauri/src/command/macos_launcher.rs",
+    "hash": "2DDB7D4A2C432DC9E695DCCCC6F63BF09DAAFFD4AFFD3BF5086560F8C7278A33"
+  },
+  {
+    "path": "src-tauri/src/command/macos_tests.rs",
+    "hash": "2435CA5AF54EF55EAFAE85AA3652910FAAE98DCFF76D44D5C91700D3BE74D2BA"
+  },
+  {
+    "path": "src-tauri/src/command/mod.rs",
+    "hash": "C7CA7C51F374DA0AE2C0DB33D65418F6D31352CD092508D9A6C389D7AA7A74AE"
+  },
+  {
+    "path": "src-tauri/src/command/windows_launcher.rs",
+    "hash": "2D64A0B0118D0C5C9ACDE4E24E9E358C6414A80359AC03994BE1B4B230E0E142"
+  },
+  {
+    "path": "src-tauri/src/commands.rs",
+    "hash": "C3989090808B14C5FC58AC915FA1E6737287195120A7EAE871E9FEACB94552B5"
+  },
+  {
+    "path": "src-tauri/src/config.rs",
+    "hash": "C0DDA8019DD0002C22E527175DE35C59780729278A1FF7A06921426CFA343A03"
+  },
+  {
+    "path": "src-tauri/src/discovery.rs",
+    "hash": "7648C53E61F289A885B42CC77AFBE02F2350A89CDFA74F79D2AEE003B3A8DA07"
+  },
+  {
+    "path": "src-tauri/src/installer.rs",
+    "hash": "135BDB3648ED23A3D14040BD2E2F9803AB8DBA8167EDA9252397A2812960A560"
+  },
+  {
+    "path": "src-tauri/src/lib.rs",
+    "hash": "495140A1CBE6DF891F37D8A1582616680FD8C409998C0224B8308F2B7060A938"
+  },
+  {
+    "path": "src-tauri/src/load_error.html",
+    "hash": "EEE6FF97B9E78E3491073BA310D42A17187E2CF848CF3D3040389D9C5F482236"
+  },
+  {
+    "path": "src-tauri/src/load_error.rs",
+    "hash": "4FA8CC5008621E867047E67340F7E05C4A2496477A76CDFE425D1D7AB89B3341"
+  },
+  {
+    "path": "src-tauri/src/logs.rs",
+    "hash": "853742D37323054F7FD8C8B7E20E7CBD02A60421D4AFD4EE4013063C473B3389"
+  },
+  {
+    "path": "src-tauri/src/macos_process.rs",
+    "hash": "D9C996CA56A7A1FE225666A2CE17344D50FC0C373C409ECF8081D0B8BD39EDDB"
+  },
+  {
+    "path": "src-tauri/src/macos_termination.rs",
+    "hash": "5748D0E5171DEDFC034CC0F0C563379AB150FB09FD0E37755DBA0D14E9D8B7A0"
+  },
+  {
+    "path": "src-tauri/src/macos_user_path.rs",
+    "hash": "8C25F3F088D5B6E10DCBFF115E7187F601A84B07DE5CFFD11D61B95194436737"
+  },
+  {
+    "path": "src-tauri/src/main.rs",
+    "hash": "988487B1E3FE31C5DCE612C4AC0DF63D6B2988CCD8B3A86C340D84CD3DD21D13"
+  },
+  {
+    "path": "src-tauri/src/mcp/capability_adapters.rs",
+    "hash": "9436850933B65D68EF225B2013E23781937A39FF97F15371D0CBF5115891EC78"
+  },
+  {
+    "path": "src-tauri/src/mcp/codegraph_tests.rs",
+    "hash": "DC891D8CBB84019056813AD496E446BD3F287BF841866E22B79B3BF6FBBE2108"
+  },
+  {
+    "path": "src-tauri/src/mcp/codegraph.rs",
+    "hash": "887FAF4ADEDB5A0988DD07507AA5F4511E4C9735D75DB936A211913CE4140A46"
+  },
+  {
+    "path": "src-tauri/src/mcp/command.rs",
+    "hash": "C73429B65D472F5C6931A8DBC60044623CC8D63CBDCE530AE9EBFB643315680B"
+  },
+  {
+    "path": "src-tauri/src/mcp/continuation_routing_tests.rs",
+    "hash": "2F846B53437E2E7D761EAFA08647AFF206AE017B6B4F1F91A0AE8D39BD3BDAE5"
+  },
+  {
+    "path": "src-tauri/src/mcp/git.rs",
+    "hash": "9EE78C0EDB7BCDC6F6716ECDA53AB8C7EE56AC625B01C681E7626A0C8308A7F3"
+  },
+  {
+    "path": "src-tauri/src/mcp/media_tests.rs",
+    "hash": "4B258B97E6DDFC15DA5A1BE396DA95450E0A4584EC5409965E4EE30B32806F7B"
+  },
+  {
+    "path": "src-tauri/src/mcp/media.rs",
+    "hash": "C0C0A117A998613527D47DF1D2A7FB751595E29C102A0E3E01E165F3380A621F"
+  },
+  {
+    "path": "src-tauri/src/mcp/mod.rs",
+    "hash": "B7F27F08CB39D69A022FEEFE613C1C24D890A039A2F7F23C0401519079451020"
+  },
+  {
+    "path": "src-tauri/src/mcp/orchestration_tests.rs",
+    "hash": "97080EEFD49D8F447D98788C4F2D3AFF1679BFE340DEE1D811BDC77FF9D55A70"
+  },
+  {
+    "path": "src-tauri/src/mcp/orchestration.rs",
+    "hash": "F2C8BCD686ADFD1B6ED51D38A0CDAE27FB9E3AF9B1165EFB58CF1396EFDC5DB3"
+  },
+  {
+    "path": "src-tauri/src/mcp/orchestration/dto.rs",
+    "hash": "FD03616FE7BE1A59891F9F81699F195CF15DF8063111CBE48FCE3C71BB2F6A9C"
+  },
+  {
+    "path": "src-tauri/src/mcp/process.rs",
+    "hash": "6F94404291C6DDFF9F338F264837F33E963712F3DDC75D0B3875A3CC247BF407"
+  },
+  {
+    "path": "src-tauri/src/mcp/projects.rs",
+    "hash": "31A78CA5D879C8827A1253A3FBA670AB502B68CC8B6A52B047A44DDC7AB8ED10"
+  },
+  {
+    "path": "src-tauri/src/mcp/provider_query_tests.rs",
+    "hash": "17818533697AFDA6DB4D6BA3075064CBA797DBB39F0AB2885B1811B7C784ED8A"
+  },
+  {
+    "path": "src-tauri/src/mcp/registry.rs",
+    "hash": "C89802BEAEEB2DCB1C07205033ACE37091E96AC41E1619CC09B126B64A747CC3"
+  },
+  {
+    "path": "src-tauri/src/mcp/serena.rs",
+    "hash": "35ABB8695CA4F6A428D79EDD5F01018C77FE194A4FE6B7C144AE75523D52968F"
+  },
+  {
+    "path": "src-tauri/src/mcp/server.rs",
+    "hash": "27A896841936F6618E6B865FD6537CD6E8BCAF6D2125AF1C94185E40F8688519"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_find_tests.rs",
+    "hash": "432E9273A1BCF53E324A8B5209791AA1A6E05B7BA4F5259105974AD84C93FC00"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_find.rs",
+    "hash": "D3FD729BF3405B75730FCF757E8A6B1CD6A523BEBF46EB031470EC306BB22158"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_list_tests.rs",
+    "hash": "C8278171746108DDF6C5FCD7D8B6677A4B0876BF3AA030B6199B6AB6D94F0343"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_list.rs",
+    "hash": "574F68A48EE754EAF4B6D24E060C4EBC4BEA220941F315DBFEB2F2B40FAAB2CF"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_read_support.rs",
+    "hash": "9099749F3B259ECDABF234496F40BA5F8DF2A8C987F860850FAA1F47219870D3"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_read_tests.rs",
+    "hash": "3E432D1787D605CB6B642483333BEC5350F3818B7C7183069CC437458043FB6C"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_read.rs",
+    "hash": "04EE950536931AB2E9B9BCBF7D2F439A4FD93DFCBD6EB0FE75C5CCE2E19A94E6"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_search_tests.rs",
+    "hash": "70C46F13C1E34E10AC1EAC7010616DA6839F4592DB21192B9EA2947BBE7C31F6"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_search.rs",
+    "hash": "633EBAA3294B71C7173C6FDEF7E78D79D2B7B529DF283E63304362F6BCB91EA1"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_write_atomic_replace.rs",
+    "hash": "0054C5F6BE2190B2B9170C5ACCABC2D77BE818D0F569F9170369AF99FFF9DDD6"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_write_commit.rs",
+    "hash": "4B24784919BD35FB219616048C3BC465C14C3DEAF1444BFB69F666E866E8B959"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_write_content.rs",
+    "hash": "5FB393F941E91748EA00BD89DF36346808B81A6EFCCB55B80782AF187FDCBB25"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_write_create.rs",
+    "hash": "A9AFA1293D7C4DA720C32A129B89AA21D59C766F2906A6ACDCEAB742AA521858"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_write_delete.rs",
+    "hash": "218DD0716C2C313FB727D38840406A765EBCA29AF2ED31722DCAF20873D2C5E8"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_write_domain.rs",
+    "hash": "8F4D53ED37C1E494B559A7E9CB5A88018DEA23647F09006819ED55493DD4AEB3"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_write_file.rs",
+    "hash": "FB6DC408BE0BBAA988148FDFBC451798011D147CAE5CA4E95446E98C8B674102"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_write_insert.rs",
+    "hash": "254C50CC3D0E240BDB19679C3D957FE76C3634D88344B6FE17D42E70F63FCC1F"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_write_replace.rs",
+    "hash": "B1334584A2277426F447EB6ECC11E4CD88A1D92402D0C48F4570E24249F88AFB"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_write_support.rs",
+    "hash": "4F5109EC3AC69320921716F7646B7CB76089C1261B2A73B035BAE361B4A4C092"
+  },
+  {
+    "path": "src-tauri/src/mcp/source_write_text.rs",
+    "hash": "65331982C57393022A9B4C51033659C8C6332FCDA03E4523323A0C648BAC2B8A"
+  },
+  {
+    "path": "src-tauri/src/mcp/start_routing_tests.rs",
+    "hash": "7B31EE3EE71031485FA934F4230F619FD72AD590253DB108498324B0CFBD9A9B"
+  },
+  {
+    "path": "src-tauri/src/oauth/cimd.rs",
+    "hash": "B2FD571C08B2831A44C61E3BE3C43AC058679A10537CC57DC271E7E59A25717E"
+  },
+  {
+    "path": "src-tauri/src/oauth/doh.rs",
+    "hash": "9A0C9F4FFF59086213B4F597F96281C848EEC7EF340E4A50634B133A30B41B3D"
+  },
+  {
+    "path": "src-tauri/src/oauth/http_tests.rs",
+    "hash": "F1160A17684BEFF5C7B5A3A3CE2954229F0DC34C8E91278EA3C42F9783F4CB22"
+  },
+  {
+    "path": "src-tauri/src/oauth/http.rs",
+    "hash": "59D9CE91EA2049D1778B9E75BC2AF185F8B72430B1079A0F5779B3BEB89DCB8A"
+  },
+  {
+    "path": "src-tauri/src/oauth/mod.rs",
+    "hash": "C499E097630D9F17639D2A1048279F178DF916C9F258BD903B3CE0F120AEFADD"
+  },
+  {
+    "path": "src-tauri/src/oauth/runtime.rs",
+    "hash": "331EEBDE83E829FBB95D1DDEA06867959CE312A5FAB3CB86D316783DABE7562F"
+  },
+  {
+    "path": "src-tauri/src/oauth/runtime/persistence.rs",
+    "hash": "3FB73A7F77E1E55A991BDBC5AFEBE08299C32CDC99D35EB26B7CF7AEE266A2EB"
+  },
+  {
+    "path": "src-tauri/src/oauth/runtime/tests.rs",
+    "hash": "69F78845538623F268B81A70D2A24E0EB950096864A82DB3DB2DF1FD3B22FA30"
+  },
+  {
+    "path": "src-tauri/src/provider_policy_drain_tests.rs",
+    "hash": "6DACC140E720BEF7A86A353E9521BC97845B7CAFBCC44676E1BC89CD0D0C93F8"
+  },
+  {
+    "path": "src-tauri/src/provider_policy_tests.rs",
+    "hash": "6CDEE480972979FA290008C20173B73DA8C145CC2CF5B7FF45A9E521E40C48CD"
+  },
+  {
+    "path": "src-tauri/src/remote/boundary_tests.rs",
+    "hash": "7C21E2A342A2BA283C1D9828D77C0945EAC9BCD29BD20F6F458A53340B5E6502"
+  },
+  {
+    "path": "src-tauri/src/remote/fixtures/cloudflared-2026.9.0.json",
+    "hash": "C5F7E44102F7F6AE10771A709FC10962401D30AC8C5191CC8817E621297E65C2"
+  },
+  {
+    "path": "src-tauri/src/remote/host_crash_tests.rs",
+    "hash": "D298C3A48C189C80EFE551EE9864A2C4EEF4A4C66FA97086EA94BBB012DF4DFA"
+  },
+  {
+    "path": "src-tauri/src/remote/manager_tests.rs",
+    "hash": "D607D44E804E902A761D441263DE83FED73A10558E051B08BA5986A7F9794BAC"
+  },
+  {
+    "path": "src-tauri/src/remote/manager.rs",
+    "hash": "A2F093E04FF32BE39BE75856EB68BAFBD5ACDDD91C589F80F7441A35C0A7D812"
+  },
+  {
+    "path": "src-tauri/src/remote/mod.rs",
+    "hash": "B70A6FF01B1EA9BA6C65AAE19EB299C795FEA54461646761775B67E2E6298DA7"
+  },
+  {
+    "path": "src-tauri/src/remote/ngrok_store.rs",
+    "hash": "FC28A045984B1B9E472BF4E8D35F6379F6F6CBFF11D024F5222D0F24C0ECB6F8"
+  },
+  {
+    "path": "src-tauri/src/remote/ngrok_tunnel.rs",
+    "hash": "544F03050C698EB9974E5D5C05668D0CE3F0745AFA102C60CD701942C6EF28C7"
+  },
+  {
+    "path": "src-tauri/src/remote/probe_tests.rs",
+    "hash": "1771170DB3B60AB9759E05E9AC5E3F5FF9627C48328F606DDF03E64E16770652"
+  },
+  {
+    "path": "src-tauri/src/remote/process_macos.rs",
+    "hash": "CD8AFE0EFFAE44FA5B02983BFEFD83034C0541C7D93126ADED841968F62D1B26"
+  },
+  {
+    "path": "src-tauri/src/remote/process_windows.rs",
+    "hash": "FD20A0D3DF4B2C8D9EFA7262A4A8EBCABF73794E0B6A0613C1F061385FFBA2F2"
+  },
+  {
+    "path": "src-tauri/src/remote/process.rs",
+    "hash": "53E7E84B6EC78EA654D7FF6BD60EF0D9E4760AB17FC70CCAC9DC5B48317420F3"
+  },
+  {
+    "path": "src-tauri/src/remote/quick_tunnel.rs",
+    "hash": "ACDB91CE7790EFD2119C9F9F0F46730E0DA9EB965770ED45780EB2D54D9F2291"
+  },
+  {
+    "path": "src-tauri/src/serena_capability.rs",
+    "hash": "29695D39A78E742634F4E5342C10A0FE103265244089DC106C0F712676619285"
+  },
+  {
+    "path": "src-tauri/src/serena.rs",
+    "hash": "9C7D2706EC9EF96CFDC62D8C7E669224857107E3442DCDEF1CB0265AC2C21823"
+  },
+  {
+    "path": "src-tauri/src/serena/remote_fixture.rs",
+    "hash": "F709C601A8E5BF298B667E5529D67481E41BAD87AB8BAFB223482990FA66B947"
+  },
+  {
+    "path": "src-tauri/src/test_support.rs",
+    "hash": "EC85545F9D9724E00832C231C7D5BD0F5C527DE76532833BC2C88641279C6BBE"
+  },
+  {
+    "path": "src-tauri/src/tray.rs",
+    "hash": "DDC8805E191D7EF583F30425F4349D1A4B06AB6FBC64F8D6688FDBB482DE74BE"
+  },
+  {
+    "path": "src-tauri/src/workspace_capability.rs",
+    "hash": "E52BF7D6EE1A8137B1ECA34A3B28729E40C13CD9998D92B3B8FF24C98B033F07"
+  },
+  {
+    "path": "src-tauri/src/workspace_capability/health.rs",
+    "hash": "30A4ACE91C4CE455181F84E8E0AD1AC5908452380182DEEA8D8BFB7AC5A24FE6"
+  },
+  {
+    "path": "src-tauri/src/workspace_inspection.rs",
+    "hash": "31A6D3F1647F0C142AB85FB308F1AD997966C44FD50AE820A2DD0FD69FAFF4B9"
+  },
+  {
+    "path": "src-tauri/src/workspace_path.rs",
+    "hash": "5000E415DC9FAE0BB38641432433EEF5918B011EC8398E62557DA879C5980DF8"
+  },
+  {
+    "path": "src-tauri/src/workspace_picker.rs",
+    "hash": "D8293CD7CBAFB42B13C00119D927A89AF73B712CA7970A5CBDEE697886EBDAAC"
+  },
+  {
+    "path": "src-tauri/src/workspace_registry.rs",
+    "hash": "FF94DBD4CCDD16F1FA551BD4E1C85380082C2B233537B51E61679303BE31FD43"
+  },
+  {
+    "path": "src-tauri/src/workspace_resolver.rs",
+    "hash": "43F52B3F7F74AE95CE210227CC42634263FB9DEFB7760146ADFA91F22D86000E"
+  },
+  {
+    "path": "src-tauri/tauri.conf.json",
+    "hash": "6FD92F522D72DC554623D2B09A73F7FBCED307054F4338C14FD8211D22DA05C6"
+  },
+  {
+    "path": "src-tauri/tauri.macos.conf.json",
+    "hash": "C09DA7153DBAF9B20D2C7B241939F61F92AB854BC111A9270EF886CD546329CC"
+  },
+  {
+    "path": "src-tauri/tests/fixtures/agent_state_v11.sql",
+    "hash": "BD9578A1BA0920DB795B71B4CE02B2B5C13C960264EA1FC932566E1DA72C35E3"
+  },
+  {
+    "path": "src-tauri/tests/fixtures/agent_state_v9.sql",
+    "hash": "98D5F2F3346F86D2F1E235D19F5382175E9D69A38F633DE0A34074244BA3D565"
+  },
+  {
+    "path": "src-tauri/tests/fixtures/launcher_child.rs",
+    "hash": "BFBF7A38F628A539BAE8FA6B7957021C033D768AE67D5873561A68D9714FEC26"
+  },
+  {
+    "path": "src-tauri/tests/fixtures/macos_runtime_child.rs",
+    "hash": "9996068CBBC2D305CD07148153EFD1698AE910933AEC9A9E58BCB27B6D010ACA"
+  },
+  {
+    "path": "src-tauri/tests/fixtures/runtime_child.rs",
+    "hash": "1D390DE17CB13094BD49FE5DFDCF2FAE1841761AE4EBDE0608CEA519F4E08E7F"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-autostart/api-iife.js",
+    "hash": "6EABB8886F57BB08074EE64BEE8D24762A5AF5F1AB7FA19AE9FEA57E5E387C5B"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-autostart/build.rs",
+    "hash": "A4071242128C141AF1A7116508632BFE45EC877EE193F68EACD78940456CEFA9"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-autostart/Cargo.toml",
+    "hash": "6C65B68D0A3B5B7EE30EFF8A1334F8EFD8624C27B894D979429665E4D05AFCFA"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-autostart/LICENSE_APACHE-2.0",
+    "hash": "1EB85FC97224598DAD1852B5D6483BBCF0AA8608790DCC657A5A2A761AE9C8C6"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-autostart/LICENSE_MIT",
+    "hash": "4F11AB0631FBB692369790E50616579407C117C6D4DF3DE99D399CF433A1AB31"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-autostart/permissions/autogenerated/commands/disable.toml",
+    "hash": "C7B67190D58C8BEF627FE4DCC8AF9AAE6D81183CB4B9F42BC7D555FE1028A9B8"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-autostart/permissions/autogenerated/commands/enable.toml",
+    "hash": "20C4601395580897F3C7FB9F4B0A35C5AC7B0D1E1003C81698B7A663CE93221A"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-autostart/permissions/autogenerated/commands/is_enabled.toml",
+    "hash": "F8F1B604C5EE63A07A546CD290F349167BC96EF4757BD506114F03804B24A7B4"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-autostart/permissions/autogenerated/reference.md",
+    "hash": "3FB3CE6520EEF3FA9091E8EC8BA9225B59D46C5FA431B2790E4422A8FE38470B"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-autostart/permissions/schemas/schema.json",
+    "hash": "556EFA169AE47AFD101EB2FABA9A19BD87BACF62F19A39985C82B70E609457D8"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-autostart/README.serena-patch.md",
+    "hash": "0295525CA7A58DF8C23876EC60A5213EEA350F80306DFE04C25938650F79015F"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-autostart/src/lib.rs",
+    "hash": "7C868E44D1A208A6A6F24BB7C02664CD778E6424093EEF696E4A5A4F2B985AE6"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-single-instance/Cargo.toml",
+    "hash": "C3EB7AD690512A4A95F36E2EFA440A8E0123C640C90772A3D72E89871632DDAF"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-single-instance/LICENSE_APACHE-2.0",
+    "hash": "1D5730B2B43C43EF191849D873D10259B69C8CFC8260865F8FFABF68FAFB6049"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-single-instance/LICENSE_MIT",
+    "hash": "4CA0E5C912E192F3E1EE17954C7387E6B969D9F0D52A8ECA06F4449F9B7D262F"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-single-instance/README.serena-patch.md",
+    "hash": "98B45297DA1599CB60B4B7A3CB6FE70A65C2D11B6B6D2107314D53F4CA0926BF"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-single-instance/src/lib.rs",
+    "hash": "85EDEF281CC3E533F370BC5741B075ECFA980138B93657052E164E2D6CB44851"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-single-instance/src/platform_impl/linux.rs",
+    "hash": "37F85AB6BA28948CE0C6D8FC463DF994E96511AF0788DAEEAF7516F55ABF8D3F"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-single-instance/src/platform_impl/macos.rs",
+    "hash": "FD2A41265BB2473CDF2336AB9081BB6AFC9E0C91B6DF785755F609189EC35CC6"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-single-instance/src/platform_impl/windows.rs",
+    "hash": "605C064078B885D183B2AE67F69CE13887770F7540B0DCDB3C134A213F02AAD5"
+  },
+  {
+    "path": "src-tauri/vendor/tauri-plugin-single-instance/src/semver_compat.rs",
+    "hash": "3995EDD98D24E2BB95A789970DD9449A0B804593A8F310E42D3DF45276D0523F"
+  },
+  {
+    "path": "src/agentContract.test.mjs",
+    "hash": "56B9A8A54A0AA22E03FE3949ED13F8321FDDB03E267E933BBE4A8A169642F43C"
+  },
+  {
+    "path": "src/AgentPanel.test.mjs",
+    "hash": "D3F8D9E31C6AB29979C7C60C5D98B28202B597E885EB5384D8509B6B8EFCE41C"
+  },
+  {
+    "path": "src/AgentPanel.tsx",
+    "hash": "0FE2DF61332E7F8EB6856E101A616614AEC68DEE32B294A86383491B58C2245E"
+  },
+  {
+    "path": "src/agentPresentation.ts",
+    "hash": "7803B85B625D4D13EFC1338AB1BE28B418590BC1B319F298EF72DDC621B54FFE"
+  },
+  {
+    "path": "src/agentRequests.test.mjs",
+    "hash": "84159158B966F850C45ABBC8A5BECFD979FD552C811CDF518705FC8A820460B2"
+  },
+  {
+    "path": "src/agentRequests.ts",
+    "hash": "75E876637FBAD03DD2306CD3BD6AA4EE53B6EF80C1D4407F9B39A21A0BAFE65C"
+  },
+  {
+    "path": "src/api.ts",
+    "hash": "EDB96873F6B2107D31151EC993D4B31EA8D100D540444356AABCBE0EB74892A1"
+  },
+  {
+    "path": "src/App.test.mjs",
+    "hash": "7FA91B127327D1EB92D931C6AF639D7BADF7FA26ECDE547570732984306AD773"
+  },
+  {
+    "path": "src/App.tsx",
+    "hash": "A572C5CB68F3B2BFBC218F36E5E464690592331CF462BFD4FC9C4B04AB1DACAF"
+  },
+  {
+    "path": "src/app/useAppController.ts",
+    "hash": "DA76A5D5FB3E25D3D2148E9995A3D73D5443DF51E98DC5EA53872014CDFB5469"
+  },
+  {
+    "path": "src/appVersion.ts",
+    "hash": "C7AA7F06DE4B797509B02F07C13508FC80DBB49C1980216A350337246AF9C9D9"
+  },
+  {
+    "path": "src/assets/fonts/AlibabaPuHuiTi-3-55-Regular.woff2",
+    "hash": "1CB8418D80B01EC08CB6F2D64B6244AAAF1BB80DC35491B66DDBA16C5E24F444"
+  },
+  {
+    "path": "src/assets/fonts/AlibabaPuHuiTi-3-65-Medium.woff2",
+    "hash": "628A0D5BE684BAE0E7A8E3AD15B7C4F623FD15B3375082624F778326E343467A"
+  },
+  {
+    "path": "src/assets/fonts/AlibabaPuHuiTi-3-75-SemiBold.woff2",
+    "hash": "75E2BA042E1C8AD8CF3DD5BF26F25984FFECA6C4EBB86977C8F8E1ABEEB2652F"
+  },
+  {
+    "path": "src/assets/fonts/AlibabaPuHuiTi-3-85-Bold.woff2",
+    "hash": "5947ECD5447C34865D036740F38AFBF4364B3CF7BB3D399ABA0F169B59C6EC35"
+  },
+  {
+    "path": "src/components/MarkdownContent.tsx",
+    "hash": "5E8999DFA15B62212EE208B41836F1AEE84BAC2FD718460BF5F0174C65C26404"
+  },
+  {
+    "path": "src/components/TooltipHint.tsx",
+    "hash": "D7E92A06918328D2C6E776C9FF303D788DEE0ADF6A921D5E1E4712574A0278AA"
+  },
+  {
+    "path": "src/components/ui/alert.tsx",
+    "hash": "06A660B95F39686D352AD44D1CAA3F18A3744BF1615DAC6DF2D7FFFD712AA56D"
+  },
+  {
+    "path": "src/components/ui/badge.tsx",
+    "hash": "8E6E54079294635AD5AC342590A238A45A078C6FB67FC1C4A069A4121EFCF143"
+  },
+  {
+    "path": "src/components/ui/button.tsx",
+    "hash": "210C9F0F4639F235FB671A21324A0DB16A72702DEE1B1413314E06D0FB5FC4B5"
+  },
+  {
+    "path": "src/components/ui/collapsible.tsx",
+    "hash": "0E2FE309166DFF7497F83F1BB7274B07C0955A6CE897B8BCC7FB3A95E58551BF"
+  },
+  {
+    "path": "src/components/ui/dialog.tsx",
+    "hash": "469EEC2F2D23DD0F2A09AF1D67143BD44941FFAB1F7605CD3195A6B98443B615"
+  },
+  {
+    "path": "src/components/ui/field.tsx",
+    "hash": "B323A04D8E1C666907A2CB424EB67969A6997EF0B26D0453EEF4942ED0D59FF7"
+  },
+  {
+    "path": "src/components/ui/input.tsx",
+    "hash": "676AC5E67D5677550EFDD4853030517E9A4A703A70C6CEBAE51FBB2CC1367D51"
+  },
+  {
+    "path": "src/components/ui/label.tsx",
+    "hash": "C1412B80E0826E56340B7A55D2CC70116C9E603F836013889B5EB33AF474BDC8"
+  },
+  {
+    "path": "src/components/ui/select.tsx",
+    "hash": "8EB184E7C4FB60117F841EF202B666FA46BD29D12B6C1B0CC85B47EED9E3619D"
+  },
+  {
+    "path": "src/components/ui/separator.tsx",
+    "hash": "F6EE2194DB063816084D70BA02FF16E4BC589C55DF19A010B0861DD8ACEE8C28"
+  },
+  {
+    "path": "src/components/ui/sonner.tsx",
+    "hash": "E0A58411FC400893D74AA4B75944F9882CDFFC611E8A77FBE38822C480E7991A"
+  },
+  {
+    "path": "src/components/ui/spinner.tsx",
+    "hash": "C4F2AACD575F9FE4F386670B6244E22B8B07D2516C772520BFAAC52268E81A38"
+  },
+  {
+    "path": "src/components/ui/switch.tsx",
+    "hash": "74C45777B09862A037E9747DD1A938C1D199614B3E81B17F084F22A882BD38D4"
+  },
+  {
+    "path": "src/components/ui/tooltip.tsx",
+    "hash": "5B7CAEA21D191E94035DCBE5D399822237B44F264E53C631AC49B2ABF3444FEF"
+  },
+  {
+    "path": "src/configFixtures.mjs",
+    "hash": "EDF19848F9E550C014B404E53C6B0E5FB5343797333408527498B283481A78EA"
+  },
+  {
+    "path": "src/configModel.test.mjs",
+    "hash": "A549E7FFD36F2A8E234372BC258FAADCCBDA4763BFC2DC1B796686A1D72839D4"
+  },
+  {
+    "path": "src/ExecutionDetails.tsx",
+    "hash": "BC2DE5A193321D750917589612B6FBA4BB4BE02E4E8C33621843EC6AEE6198F2"
+  },
+  {
+    "path": "src/features/settings/SettingsPage.tsx",
+    "hash": "D0227CD563AEAA43978FF4ECBDD66118D9F217666BBC3ECD8040F0A2CBB1F7F3"
+  },
+  {
+    "path": "src/features/status/StatusPage.tsx",
+    "hash": "9CCD8A776DFF2D7660B37AE800F01E79FC381B45676D52F5CDA0905F42BF736E"
+  },
+  {
+    "path": "src/lib/utils.ts",
+    "hash": "55BBDC94CEF3E0C8A8BBA386E94F97228DD2C967FE61466FC565378890550C08"
+  },
+  {
+    "path": "src/main.tsx",
+    "hash": "AB557D98FF26A02EDB7F0B6DA69F7DEC510EE5FF8B0D50DCF9C72080E06BD211"
+  },
+  {
+    "path": "src/mcpLogPresentation.ts",
+    "hash": "55EC7524B859DCD39FEA2C18D4DF0D63CC72609085434752BBCDC461BBBC3CFA"
+  },
+  {
+    "path": "src/McpLogs.test.mjs",
+    "hash": "6FED3B2E7A5E1C1CDFC499D730DA9DE34ABC33911D855942CC6B0937FC020B6C"
+  },
+  {
+    "path": "src/McpLogs.tsx",
+    "hash": "2EA1E39BCA914B8DA9C534B9E2F4C4DDB59A1A31B9B9D541E656A023C6EDD226"
+  },
+  {
+    "path": "src/OAuthApproval.test.mjs",
+    "hash": "5D7C8440B95522B93610B48312EBB2084FC675B68D1C82EB504614FB7B919622"
+  },
+  {
+    "path": "src/p5GateEvidence.tsx",
+    "hash": "923B6EAFFFDB183E96A14F834A481B46CBDEFE251744FAC4A824186086763107"
+  },
+  {
+    "path": "src/ProjectPanel.test.mjs",
+    "hash": "81E7BDC7870E4AA13C1E0F6BAAF1F94631EC0C5554B008F1504B202F08861C5E"
+  },
+  {
+    "path": "src/ProjectPanel.tsx",
+    "hash": "2986915A7F52AE754AF66FE54DA17FC77A6443681E200B22F1BF406884617ECC"
+  },
+  {
+    "path": "src/ProjectTaskNavigation.tsx",
+    "hash": "AA8D76F551F62435A758A9484DDADF7C8EA82B9FF7CD9A7E1F9E3FFCA62C44F5"
+  },
+  {
+    "path": "src/RemoteAccessPage.tsx",
+    "hash": "F7CE14A1BDE9BA0EDEE34CBDE77E4501C4166E2871F0F2BA160C47AB075C7401"
+  },
+  {
+    "path": "src/RemoteApprovalDialog.tsx",
+    "hash": "0FF2015B0876D2EE176FDF80AA3A64019B4FEF766C1B5EBE41C67E6DD27154EB"
+  },
+  {
+    "path": "src/styles.css",
+    "hash": "8C1467B03D1BDC1B27571B86FAA369466522980B8CF26E805768350EF7C90886"
+  },
+  {
+    "path": "src/types.ts",
+    "hash": "D26B98B00EEBA53ECAEFC69A7EA87A2FF7ED471A23ED88D157674A8A60A92FF3"
+  },
+  {
+    "path": "src/useBroker.ts",
+    "hash": "19D72EA0753E559725F08F22F5B50BE4C45C825C0B15BAF4BD3AF06EFAB54167"
+  },
+  {
+    "path": "src/useRemoteAccess.test.mjs",
+    "hash": "F3378653144E6E02CA6991754EF2EEB3D661C12B01E183F9CBCE1CF8DF822160"
+  },
+  {
+    "path": "src/useRemoteAccess.ts",
+    "hash": "6550790A16CBE867D40BA1A1483ADF71604A49F489FC7C84C28D5C93970CAEE8"
+  },
+  {
+    "path": "THIRD_PARTY_NOTICES/AlibabaPuHuiTi-3.0-LICENSE.md",
+    "hash": "412D189A520FD76424F8885C93031689D6FF846D9A527B61311883238D8DA397"
+  },
+  {
+    "path": "tsconfig.json",
+    "hash": "A02AC9FE2A6E365B51290A7DC907E8D2A994BCDBCE95D3CB295F2AE65323E35B"
+  },
+  {
+    "path": "tsconfig.node.json",
+    "hash": "4D899360A26430461F39FA0B9297A566EAB26E2FC53C28C6EB34D3C5F344D9C6"
+  },
+  {
+    "path": "vite.config.ts",
+    "hash": "0B0D5664F5B4A05826C65FC8CD6C49AC9E97683ACFFF7C74C087058C984EC2FA"
+  }
+]

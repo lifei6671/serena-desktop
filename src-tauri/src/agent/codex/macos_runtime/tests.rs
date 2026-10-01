@@ -113,9 +113,10 @@ fn runtime_fixture(mode: &str) -> (tempfile::TempDir, MacosRuntime, PathBuf, Pat
 fn store_identity_is_persisted_after_create() {
     let (_directory, runtime, _marker, ready) = runtime_fixture("tree");
     let mut cleanup = FixtureCleanup::armed(&runtime);
-    let record = tauri::async_runtime::block_on(runtime.store.runtime(runtime.id.clone()))
-        .unwrap()
-        .unwrap();
+    let record =
+        tauri::async_runtime::block_on(runtime.store.as_ref().unwrap().runtime(runtime.id.clone()))
+            .unwrap()
+            .unwrap();
     assert_eq!(record.state, "starting");
     assert_eq!(record.runtime_platform, "macos");
     assert_eq!(record.codex_pid, Some(runtime.identity.pid as u32));
@@ -195,7 +196,7 @@ fn store_terminating_failure_is_unknown_without_signal() {
     let (_directory, runtime, _marker, ready) = runtime_fixture("tree");
     let mut cleanup = FixtureCleanup::armed(&runtime);
     wait_file(&ready);
-    let store = runtime.store.clone();
+    let store = runtime.store.as_ref().unwrap().clone();
     let runtime_id = runtime.id.clone();
     let pgid = runtime.identity.pgid;
     store
@@ -295,7 +296,7 @@ fn shutdown_reaps_term_responsive_child_and_group() {
     let (_directory, runtime, _marker, ready) = runtime_fixture("tree");
     let mut cleanup = FixtureCleanup::armed(&runtime);
     wait_file(&ready);
-    let store = runtime.store.clone();
+    let store = runtime.store.as_ref().unwrap().clone();
     let expected_id = runtime.id.clone();
     let expected_pid = runtime.identity.pid;
     let expected_token = runtime.identity.start_token.clone();
@@ -327,7 +328,7 @@ fn shutdown_records_normal_exit_group_empty_evidence() {
     let (_directory, mut runtime, _marker, ready) = runtime_fixture("leader-only-exit");
     let mut cleanup = FixtureCleanup::armed(&runtime);
     wait_file(&ready);
-    let store = runtime.store.clone();
+    let store = runtime.store.as_ref().unwrap().clone();
     let runtime_id = runtime.id.clone();
     runtime.child.stdin.write_all(b"x").unwrap();
     wait_direct_child_exit(&mut runtime);
@@ -353,7 +354,7 @@ fn store_complete_failure_retains_unknown_runtime() {
     let (_directory, runtime, _marker, ready) = runtime_fixture("tree");
     let cleanup = FixtureCleanup::armed(&runtime);
     wait_file(&ready);
-    let store = runtime.store.clone();
+    let store = runtime.store.as_ref().unwrap().clone();
     let runtime_id = runtime.id.clone();
     let pgid = runtime.identity.pgid;
     store

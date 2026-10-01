@@ -1,0 +1,22 @@
+[
+  {
+    "path": "src/AgentPanel.test.mjs",
+    "before": "62f089693823ea12bece0a5e1bbbfc6281ece8992d8b7002c3211bdad4fdad26",
+    "after": "7ab8c5522ed0fada4260894c39292e779287a5e91063df8c4d767cb428fc40ba"
+  },
+  {
+    "path": "src/AgentPanel.tsx",
+    "before": "b90ed7822a2967b0aab13815470eb6d48fd4f2188b4a92ebc86f83d4f94d0683",
+    "after": "07f6a07787840dff43a175a174193e5ef4f99f3013bf16d3c9a71a692d399144"
+  },
+  {
+    "path": "src/api.ts",
+    "before": "4e4a8949d18283d4260bafac92a03f1372189d35337d1d3034fa017e343d32c2",
+    "after": "eabdf21acf70abcacec93deaefb583a7ee80579138af1b5e3ee04d35218d4b5c"
+  },
+  {
+    "path": "src/styles.css",
+    "before": "af9d92bd1023efdc6b178f33fde00469cf617d8a69f94670581df14c914e933a",
+    "after": "8c1467b03d1bdc1b27571b86faa369466522980b8cf26e805768350ef7c90886"
+  }
+]

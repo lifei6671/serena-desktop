@@ -1,9 +1,11 @@
 use crate::agent::{
     activity::{ActivitySilence, ToolCategory},
+    execution::AgentTaskRole,
     product::{
         ExecutionView, MismatchKind, NextAction, ProductData, ProductError, ProgressPhase,
-        ProviderProduct, UsageProduct, WakeOn, WakeReason,
+        ProviderCatalogSnapshot, ProviderProduct, UsageProduct, WakeOn, WakeReason,
     },
+    provider::ProviderId,
 };
 use rmcp::schemars::{self, JsonSchema};
 use serde::{Deserialize, Serialize};
@@ -19,8 +21,12 @@ pub(super) enum QueryEnvelope {
 #[derive(Serialize, JsonSchema)]
 #[serde(untagged, deny_unknown_fields)]
 pub(super) enum QueryData {
+    /// 直接复用 Product 目录，MCP 不建立第二套 Provider Authority。
+    Providers(ProviderCatalogSnapshot),
     Detail(Box<ExecutionView>),
-    List { executions: Vec<QuerySummary> },
+    List {
+        executions: Vec<QuerySummary>,
+    },
     Observation(Box<QueryObservation>),
 }
 
@@ -240,6 +246,8 @@ pub(super) struct AcceptanceInput {
     deny_unknown_fields
 )]
 pub(super) enum AgentQuery {
+    /// 空结构体保留 deny_unknown_fields，目录查询只接受 action。
+    Providers {},
     Get {
         execution_id: String,
         include_result: Option<bool>,
@@ -267,6 +275,7 @@ pub(super) enum AgentQuery {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
+#[schemars(transform = start_routing_schema)]
 pub(super) enum AgentExecute {
     Start {
         work_run_id: String,
@@ -274,6 +283,11 @@ pub(super) enum AgentExecute {
         request_key: String,
         prompt: String,
         context: Option<Context>,
+        /// 调用方显式声明角色；不根据 Prompt 猜测。
+        #[schemars(with = "String")]
+        task_role: AgentTaskRole,
+        /// 必须匹配 Local Human 的 roleRouting。
+        provider_id: ProviderId,
     },
     Continue {
         work_run_id: String,
@@ -290,6 +304,30 @@ pub(super) enum AgentExecute {
         work_run_id: String,
         execution_id: String,
     },
+}
+/// DTO 的必填字段直接进入公开 Start branch；补充 ProviderId 的字符串边界。
+fn start_routing_schema(schema: &mut schemars::Schema) {
+    let branches = schema
+        .as_object_mut()
+        .expect("action schema is an object")
+        .get_mut("oneOf")
+        .expect("action branches")
+        .as_array_mut()
+        .expect("action branches array");
+    let start = branches
+        .iter_mut()
+        .find(|branch| branch["properties"]["action"]["const"] == "start")
+        .expect("public Start branch");
+    start["properties"]["taskRole"] = serde_json::json!({
+        "type":"string",
+        "enum":[AgentTaskRole::Development, AgentTaskRole::Testing, AgentTaskRole::Review,
+                AgentTaskRole::Analysis, AgentTaskRole::General]
+    });
+    // 与 ProviderId 的 char::is_whitespace/is_control 闭集相同，允许未知但合法的身份。
+    start["properties"]["providerId"] = serde_json::json!({
+        "type":"string", "minLength":1,
+        "not":{"pattern":r"[\u0000-\u0020\u007f-\u009f\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]"}
+    });
 }
 // Only transport types; Phase 6 remains the path/hash/canonicalization authority.
 #[derive(Deserialize, Serialize, JsonSchema)]
@@ -327,9 +365,39 @@ pub(super) fn parse(name: &str, args: Value) -> Result<Request, String> {
         && matches!(args.get("action").and_then(Value::as_str), Some("start"))
     {
         crate::mcp::registry::parse_workspace_id(&args)?;
+        if args.get("taskRole").is_none_or(Value::is_null)
+            || args.get("providerId").is_none_or(Value::is_null)
+        {
+            return Err("INVALID_PARAMS".into());
+        }
     }
+    // 顶层新增/未知参数属于 MCP 参数错误；嵌套旧 context 仍保留历史错误语义。
+    let has_unknown_start_field = name == "agent_execute"
+        && args.get("action").and_then(Value::as_str) == Some("start")
+        && args.as_object().is_some_and(|object| {
+            object.keys().any(|key| {
+                !matches!(
+                    key.as_str(),
+                    "action"
+                        | "workRunId"
+                        | "workspaceId"
+                        | "requestKey"
+                        | "prompt"
+                        | "context"
+                        | "taskRole"
+                        | "providerId"
+                )
+            })
+        });
+    let has_execute_routing = name == "agent_execute"
+        && (args.get("taskRole").is_some() || args.get("providerId").is_some());
     let is_agent_observe = name == "agent_query"
         && matches!(args.get("action").and_then(Value::as_str), Some("observe"));
+    let is_provider_query = name == "agent_query"
+        && matches!(
+            args.get("action").and_then(Value::as_str),
+            Some("providers")
+        );
     let result = match name {
         "work_query" => serde_json::from_value(args).map(Request::WorkQuery),
         "work_update" => serde_json::from_value(args).map(Request::WorkUpdate),
@@ -338,7 +406,9 @@ pub(super) fn parse(name: &str, args: Value) -> Result<Request, String> {
         _ => return Err("UNKNOWN_TOOL".into()),
     }
     .map_err(|_| {
-        if is_agent_observe {
+        if is_provider_query || has_execute_routing || has_unknown_start_field {
+            "INVALID_PARAMS".to_string()
+        } else if is_agent_observe {
             "AGENT_OBSERVE_INVALID_ARGUMENT".to_string()
         } else {
             "WORK_INVALID_ARGUMENT".to_string()
@@ -575,5 +645,276 @@ mod tests {
             error,
             json!({"ok":false,"error":{"code":"AGENT_OPERATION_FAILED","message":"AGENT_OPERATION_FAILED","executionId":"E"}})
         );
+    }
+}
+
+#[cfg(test)]
+mod start_compatibility_tests {
+    use super::*;
+    use serde_json::json;
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+
+    /// 完整矩阵同时走 serde、无业务依赖的 parse、Registry 和公开 JSON Schema。
+    #[test]
+    fn start_routing_serde_parser_and_schema_matrix() {
+        let legacy = json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p"});
+        let mut cases = vec![(legacy.clone(), false)];
+        for role in ["development", "testing", "review", "analysis", "general"] {
+            for provider in [
+                "codex",
+                "codebuddy",
+                "unregistered-provider",
+                "提供者",
+                "a\u{feff}b",
+            ] {
+                let mut args = legacy.clone();
+                args["taskRole"] = json!(role);
+                args["providerId"] = json!(provider);
+                cases.push((args, true));
+            }
+        }
+        let explicit = cases[1].0.clone();
+        for field in ["taskRole", "providerId"] {
+            let mut half = explicit.clone();
+            half.as_object_mut().unwrap().remove(field);
+            assert_eq!(
+                parse("agent_execute", half.clone()).err().unwrap(),
+                "INVALID_PARAMS"
+            );
+            cases.push((half, false));
+            for value in [
+                Value::Null,
+                json!(1),
+                json!(true),
+                json!([]),
+                json!({}),
+                json!(""),
+            ] {
+                let mut args = explicit.clone();
+                args[field] = value;
+                cases.push((args, false));
+            }
+        }
+        for role in ["Testing", "unknown", " testing"] {
+            let mut args = explicit.clone();
+            args["taskRole"] = json!(role);
+            cases.push((args, false));
+        }
+        // 覆盖 Unicode 空白、C0/C1 控制；不是只测 ASCII 空格。
+        for provider in [
+            " ",
+            "a b",
+            "a\tb",
+            "a\nb",
+            "a\n",
+            "a\r",
+            "a\r\n",
+            "a\u{2028}",
+            "a\u{0}b",
+            "a\u{7f}b",
+            "a\u{85}b",
+            "a\u{a0}b",
+            "a\u{1680}b",
+            "a\u{2007}b",
+            "a\u{2028}b",
+            "a\u{202f}b",
+            "a\u{205f}b",
+            "a\u{3000}b",
+        ] {
+            let mut args = explicit.clone();
+            args["providerId"] = json!(provider);
+            cases.push((args, false));
+        }
+        for base in [&legacy, &explicit] {
+            let mut unknown = base.clone();
+            unknown["extra"] = json!(true);
+            assert_eq!(
+                parse("agent_execute", unknown.clone()).err().unwrap(),
+                "INVALID_PARAMS"
+            );
+            cases.push((unknown, false));
+            let mut private = base.clone();
+            private["routing"] = json!("LegacyGeneral");
+            cases.push((private, false));
+            let mut context = base.clone();
+            context["context"] =
+                json!({"summary":"host summary","files":[{"path":"../escape","sha256":"bad"}]});
+            cases.push((context, base.get("taskRole").is_some())); // 保留 transport 形态校验，路径/hash Authority 不在 parser。
+            for invalid in [
+                json!({"summary":null}),
+                json!({"unknown":true}),
+                json!({"files":[{"path":"p"}]}),
+            ] {
+                let mut args = base.clone();
+                args["context"] = invalid;
+                cases.push((args, false));
+            }
+        }
+        for action in ["continue", "cancel", "resume_pending"] {
+            let base = if action == "continue" {
+                json!({"action":action,"workRunId":"w","parentExecutionId":"e","requestKey":"k","prompt":"p"})
+            } else {
+                json!({"action":action,"workRunId":"w","executionId":"e"})
+            };
+            cases.push((base.clone(), true));
+            for pair in [
+                json!({"taskRole":"testing"}),
+                json!({"providerId":"codex"}),
+                json!({"taskRole":"testing","providerId":"codex"}),
+                json!({"taskRole":null}),
+                json!({"providerId":null}),
+                json!({"taskRole":null,"providerId":null}),
+            ] {
+                let mut args = base.clone();
+                args.as_object_mut()
+                    .unwrap()
+                    .extend(pair.as_object().unwrap().clone());
+                cases.push((args, false));
+            }
+        }
+        for (args, valid) in &cases {
+            assert_eq!(
+                serde_json::from_value::<AgentExecute>(args.clone()).is_ok(),
+                *valid,
+                "serde: {args}"
+            );
+            assert_eq!(
+                parse("agent_execute", args.clone()).is_ok(),
+                *valid,
+                "parse: {args}"
+            );
+            assert_eq!(
+                crate::mcp::registry::validate("agent_execute", args).is_ok(),
+                *valid,
+                "registry: {args}"
+            );
+            if !valid && (args.get("taskRole").is_some() || args.get("providerId").is_some()) {
+                assert_eq!(
+                    parse("agent_execute", args.clone()).err().unwrap(),
+                    "INVALID_PARAMS"
+                );
+            }
+        }
+        let tool = super::super::descriptors()
+            .into_iter()
+            .find(|tool| tool.name == "agent_execute")
+            .unwrap();
+        // 直接检查真正公开的 generated Start branch，防止字段只存在于 parser。
+        let public_schema = serde_json::to_value(&tool.input_schema).unwrap();
+        let branches = public_schema["oneOf"].as_array().unwrap();
+        let start = branches
+            .iter()
+            .find(|branch| branch["properties"]["action"]["const"] == "start")
+            .unwrap();
+        for field in ["taskRole", "providerId"] {
+            assert!(
+                start["properties"].get(field).is_some(),
+                "missing exposed {field}"
+            );
+            assert!(
+                start["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!(field)),
+                "not required {field}"
+            );
+        }
+        assert_eq!(start["additionalProperties"], false);
+        for branch in branches
+            .iter()
+            .filter(|branch| branch["properties"]["action"]["const"] != "start")
+        {
+            assert!(branch["properties"].get("taskRole").is_none());
+            assert!(branch["properties"].get("providerId").is_none());
+        }
+        println!(
+            "CB3_EXECUTE_DESCRIPTOR={}",
+            serde_json::to_string(&tool).unwrap()
+        );
+        println!("CB3_START_MATRIX={}", json!(cases));
+        let mut child = Command::new("node").current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap())
+            .args(["-e", r#"
+const Ajv = require('ajv'); let text='';
+process.stdin.on('data', c => text += c);
+process.stdin.on('end', () => {
+ const {schema,cases}=JSON.parse(text); delete schema.$schema;
+ const check=new Ajv().compile(schema);
+ for(const [args,valid] of cases) if(check(args)!==valid) throw Error(JSON.stringify({args,valid,errors:check.errors}));
+});
+"#]).stdin(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(
+                json!({"schema":tool.input_schema,"cases":cases})
+                    .to_string()
+                    .as_bytes(),
+            )
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        println!("CB3_START_MATRIX_COUNT={}", cases.len());
+    }
+
+    /// Workspace 仍优先校验；完整 pair 沿用显式 Start 的 context 参数错误码。
+    #[test]
+    fn explicit_start_workspace_and_context_validation_regression() {
+        let base = json!({"action":"start","workRunId":"w","workspaceId":"W","requestKey":"k","prompt":"p","taskRole":"general","providerId":"codex"});
+        let mut missing = base.clone();
+        missing.as_object_mut().unwrap().remove("workspaceId");
+        assert_eq!(
+            parse("agent_execute", missing).err().unwrap(),
+            "WORKSPACE_CONTEXT_REQUIRED"
+        );
+        let mut null_workspace = base.clone();
+        null_workspace["workspaceId"] = Value::Null;
+        assert_eq!(
+            parse("agent_execute", null_workspace).err().unwrap(),
+            "WORKSPACE_CONTEXT_REQUIRED"
+        );
+        for workspace in [json!(""), json!(" "), json!(false), json!(1)] {
+            let mut args = base.clone();
+            args["workspaceId"] = workspace;
+            assert!(
+                parse("agent_execute", args)
+                    .err()
+                    .unwrap()
+                    .starts_with("INVALID_PARAMS")
+            );
+        }
+        for context in [json!({"summary":null}), json!({"unknown":true})] {
+            let mut args = base.clone();
+            args["context"] = context;
+            assert_eq!(
+                parse("agent_execute", args).err().unwrap(),
+                "INVALID_PARAMS"
+            );
+        }
+    }
+
+    /// 无业务 Authority 时也能解析显式 general 和未知但合法的 Provider 身份。
+    #[test]
+    fn start_routing_intent_preserves_input_without_business_authority() {
+        for role in [AgentTaskRole::General, AgentTaskRole::Testing] {
+            let args = json!({"action":"start","workRunId":"nonexistent","workspaceId":"nonexistent","requestKey":"k","prompt":"p","taskRole":role,"providerId":"not-registered"});
+            let Request::AgentExecute(AgentExecute::Start {
+                task_role,
+                provider_id,
+                ..
+            }) = parse("agent_execute", args).unwrap()
+            else {
+                panic!("expected Start")
+            };
+            assert_eq!(task_role, role);
+            assert_eq!(provider_id.as_str(), "not-registered");
+        }
     }
 }

@@ -1,0 +1,36 @@
+{
+  "generatedAt": "2026-09-28T03:18:16.197Z",
+  "diagnosticsOnly": true,
+  "windowsJobAtCreationProven": false,
+  "entries": [
+    {
+      "runtime": "continuation-r1",
+      "pid": 46000,
+      "startedAt": "2026-09-28T03:17:59.941Z",
+      "exit": {
+        "code": null,
+        "signal": "SIGKILL",
+        "at": "2026-09-28T03:18:16.181Z"
+      },
+      "abrupt": true,
+      "reason": "continuation_error_cleanup",
+      "taskkill": {
+        "status": 1,
+        "signal": null,
+        "errorCode": null,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderrSha256": "ee192228fb1039826ad6fec7ab80f548ca758818eeec34c108e889487c98910d"
+      },
+      "directChildReaped": true,
+      "stderrBytes": 0,
+      "stderrPrefixSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrContentSaved": false,
+      "protocolError": null,
+      "reapError": "TASKKILL_REAP_TIMEOUT",
+      "directKillError": null,
+      "initializeParamsSha256": "921a7bc1ec9fd8049cd908221b742dafb2d4c154cd7be8be2dd13304828f38b4",
+      "windowsJobAtCreationProven": false,
+      "provesOldRuntimeTerminatedForProduction": false
+    }
+  ]
+}

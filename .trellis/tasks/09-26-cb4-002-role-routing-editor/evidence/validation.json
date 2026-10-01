@@ -1,0 +1,88 @@
+{
+  "cwd": "E:\\wx_lifeilin\\github.com\\lifei6671\\serena-desktop",
+  "platform": "native Windows x86_64-pc-windows-msvc; not Linux evidence",
+  "checks": [
+    {
+      "command": "cargo test --locked --manifest-path src-tauri/Cargo.toml provider_policy -- --test-threads=1",
+      "status": "PASS",
+      "exitCode": 0,
+      "passed": 14,
+      "failed": 0,
+      "note": "Also main.rs 0 tests; existing linker warning only. Full stdout available in current session tool record."
+    },
+    {
+      "command": "cargo test --manifest-path src-tauri/Cargo.toml --locked --lib mcp::registry::tests:: -- --nocapture",
+      "status": "PASS",
+      "exitCode": 0,
+      "passed": 20,
+      "failed": 0,
+      "log": "registry.log"
+    },
+    {
+      "command": "cargo check --manifest-path src-tauri/Cargo.toml --locked",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "cargo-check.log"
+    },
+    {
+      "command": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
+      "status": "PASS",
+      "exitCode": 0
+    },
+    {
+      "command": "cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings",
+      "status": "FAIL_PREEXISTING",
+      "exitCode": 101,
+      "error": "src-tauri/src/agent/store/usage_tests.rs:987 await_holding_lock; exactly one error; left unchanged per task",
+      "log": "clippy.log"
+    },
+    {
+      "command": "npm run build",
+      "status": "PASS",
+      "exitCode": 0,
+      "note": "tsc and vite build",
+      "log": "build.log"
+    },
+    {
+      "command": "npm run lint",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "lint.log"
+    },
+    {
+      "command": "npm test",
+      "status": "INTERRUPTED",
+      "exitCode": 1,
+      "note": "Stalled at existing task focus test after sidebar dates; investigating before rerun",
+      "log": "full-test.log"
+    },
+    {
+      "command": "node --test src/AgentPanel.test.mjs src/App.test.mjs",
+      "status": "PASS",
+      "exitCode": 0,
+      "passed": 101,
+      "failed": 0,
+      "evidence": "frontend-final.json"
+    },
+    {
+      "command": "npm test",
+      "status": "PASS",
+      "exitCode": 0,
+      "passed": 156,
+      "failed": 0,
+      "log": "full-test-final.log"
+    },
+    {
+      "command": "npm run lint",
+      "status": "PASS",
+      "exitCode": 0,
+      "log": "lint-final.log"
+    },
+    {
+      "command": "git diff --check",
+      "status": "PASS",
+      "exitCode": 0
+    }
+  ],
+  "initialFailure": "Initial test fixture intercepted JSDOM RAF interval; focus identity assertion then attempted huge DOM inspection and caused OOM. Fixed polling mock to intercept only 1500ms and use real cleanup handles. Equivalent boolean identity assertions retained. Final focused/full pass."
+}

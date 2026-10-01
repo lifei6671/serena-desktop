@@ -1,0 +1,45 @@
+{
+  "focused-final.log": [
+    "mcp::orchestration::dto::start_compatibility_tests::start_legacy_workspace_and_context_validation_regression",
+    "mcp::orchestration::dto::start_compatibility_tests::start_routing_intent_preserves_input_without_business_authority",
+    "mcp::orchestration::dto::start_compatibility_tests::start_routing_serde_parser_and_schema_matrix"
+  ],
+  "registry-final.log": [
+    "mcp::registry::tests::agent_output_contract_stable_fields",
+    "mcp::registry::tests::source_locality_classification_keeps_read_list_and_find_local",
+    "mcp::registry::tests::workspace_id_foundation_preserves_parameter_and_provenance_contracts",
+    "mcp::registry::tests::sources_validate_workspace_context_before_business_arguments",
+    "mcp::registry::tests::workspace_get_validates_required_context_before_registry_lookup",
+    "mcp::registry::tests::orchestration_discovery_is_typed_and_action_specific",
+    "mcp::registry::tests::git_tools_require_explicit_workspace_context_and_minimal_provenance",
+    "mcp::registry::tests::local_source_schemas_keep_the_frozen_public_contracts",
+    "mcp::registry::tests::workspace_discovery_tools_expose_registry_contracts",
+    "mcp::registry::tests::source_descriptions_are_local_stable_and_complete",
+    "mcp::registry::tests::public_schema_root_audit",
+    "mcp::registry::tests::orchestration_toggle_only_adds_four_tools",
+    "mcp::registry::tests::list_succeeds_without_upstream_or_serena",
+    "mcp::registry::tests::fixed_surface",
+    "mcp::registry::tests::all_sources_require_workspace_context_and_keep_their_declared_fields",
+    "mcp::registry::tests::source_required_business_fields_are_non_nullable_in_public_schema",
+    "mcp::registry::tests::execution_descriptions_route_known_commands_and_iterative_coding",
+    "mcp::registry::tests::source_write_toggle_only_adds_the_six_existing_write_descriptors",
+    "mcp::registry::tests::command_toggle_only_adds_query_and_execute_descriptors",
+    "mcp::registry::tests::orchestration_fingerprints_cover_each_descriptor_and_ignore_object_key_order"
+  ],
+  "orchestration-final.log": [
+    "mcp::orchestration_tests::manual_resolution_is_not_a_remote_mcp_mutation",
+    "mcp::orchestration_tests::typed_registry_validation_rejects_cross_action_fields_and_preserves_context_authority",
+    "mcp::orchestration_tests::work_output_requires_all_fields_and_preserves_nullable_values",
+    "mcp::orchestration_tests::provider_query_tests::providers_remote_registry_has_no_mutation_and_start_accepts_explicit_pair",
+    "mcp::orchestration_tests::provider_query_tests::providers_strict_dto_schema_and_descriptor_contract",
+    "mcp::orchestration_tests::provider_query_tests::http_providers_reuses_cb3_001_codex_product_fixture_without_runtime",
+    "mcp::orchestration_tests::http_agent_query_compact_views_preserve_revision_persisted_result_and_execute_receipts",
+    "mcp::orchestration_tests::local_agent_start_resolves_explicit_workspace_without_global_active_workspace",
+    "mcp::orchestration_tests::local_agent_start_holds_supervisor_operation_mutex_from_lease_to_create",
+    "mcp::orchestration_tests::provider_query_tests::http_providers_product_json_strict_input_and_read_failures_are_side_effect_free",
+    "mcp::orchestration_tests::http_command_runtime_executes_observes_cancels_and_links_work_evidence",
+    "mcp::orchestration_tests::agent_execute_start_resolves_the_work_snapshot_without_active_workspace_authority",
+    "mcp::orchestration_tests::four_tools_enforce_disabled_and_uninitialized_policy_and_legacy_is_unknown",
+    "mcp::orchestration_tests::http_work_projection_guards_errors_and_reopen_preserve_public_contract"
+  ]
+}

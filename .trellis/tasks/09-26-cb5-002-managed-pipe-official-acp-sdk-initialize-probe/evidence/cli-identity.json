@@ -1,0 +1,38 @@
+{
+  "packageName": "@tencent-ai/codebuddy-code",
+  "packageVersion": "2.158.0",
+  "bin": {
+    "codebuddy-code": "./bin/codebuddy",
+    "codebuddy": "./bin/codebuddy",
+    "cbc": "./bin/codebuddy",
+    "cbc-prewarm": "./bin/cbc-prewarm",
+    "codebuddy-lowmem": "./bin/codebuddy-lowmem"
+  },
+  "nodeVersion": "v24.19.0",
+  "whereCodebuddy": [],
+  "identities": {
+    "node": {
+      "path": "C:\\nvm4w\\nodejs\\node.exe",
+      "resolvedPath": "C:\\Users\\lifei\\AppData\\Local\\nvm\\v24.19.0\\node.exe",
+      "sha256": "3602f2bb1a10f2cbab4c36886218a33c1ab3db87290e73b033c46c77147d0237"
+    },
+    "npmShim": {
+      "path": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\codebuddy.cmd",
+      "resolvedPath": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\codebuddy.cmd",
+      "sha256": "d3f5dafa6523f71609b5b18548eefd7bef9a339dd493b9f0e2755e47c21592a6"
+    },
+    "cliScript": {
+      "path": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+      "resolvedPath": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+      "sha256": "426186a82e36466d5be485f335ced1b0d664539c53b72a5f10ba3a267e60dab6"
+    },
+    "packageJson": {
+      "path": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\package.json",
+      "resolvedPath": "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\package.json",
+      "sha256": "8fb1a1e781ba5e16741b943745f0a6e69177f20f4479212c038c27345eeea85b"
+    }
+  },
+  "shimText": "@ECHO off\nGOTO start\n:find_dp0\nSET dp0=%~dp0\nEXIT /b\n:start\nSETLOCAL\nCALL :find_dp0\n\nIF EXIST \"%dp0%\\node.exe\" (\n  SET \"_prog=%dp0%\\node.exe\"\n) ELSE (\n  SET \"_prog=node\"\n  SET PATHEXT=%PATHEXT:;.JS;=;%\n)\n\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & \"%_prog%\"  \"%dp0%\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy\" %*\n",
+  "usedForCompatibility": false,
+  "purpose": "read-only diagnostics and reproducibility; no install/update/login performed"
+}

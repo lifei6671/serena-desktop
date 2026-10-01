@@ -1,0 +1,1598 @@
+diff --git a/src-tauri/src/agent/product.rs b/src-tauri/src/agent/product.rs
+index 9858472..5189d3f 100644
+--- a/src-tauri/src/agent/product.rs
++++ b/src-tauri/src/agent/product.rs
+@@ -421,6 +421,8 @@ impl ProductError {
+             "WORKSPACE_ROOT_NOT_FOUND",
+             "WORKSPACE_ROOT_NOT_DIRECTORY",
+             "AGENT_DISABLED",
++            "AGENT_PROVIDER_DISABLED",
++            "AGENT_PROVIDER_UNAVAILABLE",
+             "AGENT_INVALID_ARGUMENT",
+             "AGENT_NO_ACTIVE_WORKSPACE",
+             "AGENT_WORKSPACE_CHANGED",
+@@ -442,9 +444,6 @@ impl ProductError {
+             "CODEX_EXECUTABLE_FORMAT_UNSUPPORTED",
+             "CODEX_EXECUTABLE_NOT_RUNNABLE",
+             "CODEX_COMPATIBILITY_BLOCKED",
+-            // Phase 1 的非 Windows Runtime 请求保留明确的 Provider 不可用诊断。
+-            #[cfg(not(windows))]
+-            "AGENT_PROVIDER_UNAVAILABLE",
+         ];
+         let code = codes
+             .iter()
+@@ -557,6 +556,14 @@ pub struct AgentProductService {
+     manager: AgentTaskManager,
+ }
+ impl AgentProductService {
++    /// 本地健康刷新只进入 Manager 的 admission probe。
++    pub(crate) async fn refresh_provider_health(
++        &self,
++        id: super::provider::ProviderId,
++    ) -> Result<super::provider::registry::ProviderHealth, String> {
++        self.manager.refresh_provider_health(id).await
++    }
++
+     pub(crate) fn work_product(&self) -> super::work::WorkProductService {
+         super::work::WorkProductService::new(self.store.clone())
+     }
+@@ -633,12 +640,27 @@ impl AgentProductService {
+     pub(crate) async fn initialize_with_terminal_notifier(
+         store: StateStore,
+         terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
++    ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
++        Self::initialize_with_terminal_notifier_and_provider_settings(
++            store,
++            terminal_notifier,
++            crate::config::AgentProviderSettings::default(),
++        )
++        .await
++    }
++
++    /// Desktop 启动消费已持久化 Provider 设置，不创建新的设置 authority 或 mutation surface。
++    pub(crate) async fn initialize_with_terminal_notifier_and_provider_settings(
++        store: StateStore,
++        terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
++        provider_settings: impl Into<super::provider::control::ProviderAdmissionPolicy>,
+     ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+         // 先创建唯一 Manager shell，discovery probe 才能共用其 Store/owner/Pool。
+-        let mut manager = AgentTaskManager::new_with_terminal_notifier(
++        let mut manager = AgentTaskManager::new_with_terminal_notifier_and_provider_settings(
+             store.clone(),
+             std::path::PathBuf::new(),
+             terminal_notifier,
++            provider_settings,
+         );
+         #[cfg(test)]
+         let resolution = match TEST_DISCOVERY.try_with(Clone::clone) {
+@@ -676,10 +698,26 @@ impl AgentProductService {
+         store: StateStore,
+         terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
+     ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
+-        let mut manager = AgentTaskManager::new_with_terminal_notifier(
++        Self::initialize_desktop_deferred_with_provider_settings(
++            store,
++            terminal_notifier,
++            crate::config::AgentProviderSettings::default(),
++        )
++        .await
++    }
++
++    /// macOS 延后 discovery 时同样消费启动快照中的 Provider 设置。
++    #[cfg(target_os = "macos")]
++    pub(crate) async fn initialize_desktop_deferred_with_provider_settings(
++        store: StateStore,
++        terminal_notifier: std::sync::Arc<dyn super::notification::AgentTerminalNotifier>,
++        provider_settings: impl Into<super::provider::control::ProviderAdmissionPolicy>,
++    ) -> Result<(Self, Vec<ProviderReconcileItem>), String> {
++        let mut manager = AgentTaskManager::new_with_terminal_notifier_and_provider_settings(
+             store.clone(),
+             std::path::PathBuf::new(),
+             terminal_notifier,
++            provider_settings,
+         );
+         manager.defer_backend_resolution();
+         Self::recover_before_publish(store, manager).await
+diff --git a/src-tauri/src/agent/product/tests.rs b/src-tauri/src/agent/product/tests.rs
+index 463ab36..eb365cc 100644
+--- a/src-tauri/src/agent/product/tests.rs
++++ b/src-tauri/src/agent/product/tests.rs
+@@ -146,6 +146,53 @@ async fn nonterminal_execution_count_reads_product_store_without_runtime_project
+     assert_eq!(service.nonterminal_execution_count().await.unwrap(), 0);
+ }
+ 
++/// Desktop 初始化必须把持久化 disabled policy 带入 Product Start 门禁。
++#[tokio::test]
++async fn product_startup_consumes_persisted_disabled_provider_policy() {
++    let directory = tempfile::tempdir().unwrap();
++    let workspace = directory.path().join("workspace");
++    std::fs::create_dir(&workspace).unwrap();
++    let store = StateStore::open(directory.path().join("store"))
++        .await
++        .unwrap();
++    let mut settings = crate::config::AgentProviderSettings::default();
++    settings.providers.get_mut("codex").unwrap().enabled = false;
++    let (service, _) = TEST_DISCOVERY
++        .scope(
++            Ok(std::path::PathBuf::from("fixture.exe")),
++            AgentProductService::initialize_with_terminal_notifier_and_provider_settings(
++                store.clone(),
++                super::super::notification::noop_agent_terminal_notifier(),
++                settings,
++            ),
++        )
++        .await
++        .unwrap();
++
++    let response = service
++        .checked_operation(
++            start("disabled-agent", "disabled-key"),
++            w(&workspace, "workspace"),
++        )
++        .await;
++    assert_eq!(response["error"]["code"], "AGENT_PROVIDER_DISABLED");
++    assert!(
++        store
++            .product_history_ids(None, None)
++            .await
++            .unwrap()
++            .is_empty()
++    );
++    assert!(
++        store
++            .workspace_claim(workspace.to_string_lossy().into())
++            .await
++            .unwrap()
++            .is_none()
++    );
++    service.shutdown().await.unwrap();
++}
++
+ #[tokio::test]
+ async fn initialize_starts_exactly_one_auto_recovery_worker() {
+     let directory = tempfile::tempdir().unwrap();
+@@ -2199,7 +2246,7 @@ fn unavailable_backend_production_initializer_preserves_recovery_and_local_reads
+ 
+ #[cfg(windows)]
+ #[test]
+-fn unavailable_continuation_never_accepts_or_dispatches() {
++fn unavailable_continuation_rejects_before_creation_or_dispatch() {
+     run(async {
+         let temp = tempfile::tempdir().unwrap();
+         let store = StateStore::open(temp.path().into()).await.unwrap();
+@@ -2220,8 +2267,8 @@ fn unavailable_continuation_never_accepts_or_dispatches() {
+         final_row(&first, &id).await;
+         drop(first);
+         fake.await.unwrap();
+-        // This case tests backend discovery after a safely ended old Runtime.
+-        // An unresolved old Runtime is covered by workspace quarantine tests.
++        // 该场景验证旧 Runtime 已安全结束后，Continue 仍先经过 Provider health admission。
++        // 未收敛旧 Runtime 的隔离行为由 workspace quarantine 测试覆盖。
+         rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap().execute(
+             "UPDATE runtime_instances SET state='terminated',termination_evidence_state='complete',termination_evidence_type='job_active_processes_zero',termination_evidence_at=10 WHERE id='R1'",[]).unwrap();
+ 
+@@ -2239,21 +2286,18 @@ fn unavailable_continuation_never_accepts_or_dispatches() {
+             )
+             .await;
+         assert_eq!(r["ok"], false);
+-        assert_eq!(r["error"]["code"], "BACKEND_UNAVAILABLE");
+-        let row = store
+-            .execution(r["error"]["executionId"].as_str().unwrap().into())
+-            .await
+-            .unwrap()
+-            .unwrap();
+-        assert_eq!(row.status, "dispatch_pending");
+-        assert!(row.runtime_instance_id.is_none());
+-        assert!(row.turn_id.is_none());
++        assert_eq!(r["error"]["code"], "AGENT_PROVIDER_UNAVAILABLE");
++        assert_eq!(r["error"]["executionId"], id);
++        assert_eq!(
++            store.product_history_ids(None, None).await.unwrap().len(),
++            1
++        );
+         assert!(
+             store
+-                .workspace_claim(row.canonical_workspace_root)
++                .workspace_claim(temp.path().to_string_lossy().into())
+                 .await
+                 .unwrap()
+-                .is_some()
++                .is_none()
+         );
+         let db = rusqlite::Connection::open(temp.path().join("agent-state.db")).unwrap();
+         assert_eq!(
+diff --git a/src-tauri/src/agent/provider/mod.rs b/src-tauri/src/agent/provider/mod.rs
+index 9bc49f0..e41c2d3 100644
+--- a/src-tauri/src/agent/provider/mod.rs
++++ b/src-tauri/src/agent/provider/mod.rs
+@@ -1,5 +1,6 @@
+ use serde::{Deserialize, Deserializer, Serialize, de};
+ 
++pub(crate) mod control;
+ pub mod port;
+ pub mod registry;
+ pub mod telemetry;
+@@ -78,10 +79,11 @@ pub struct ProviderStartupContext {}
+ #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+ #[expect(
+     clippy::enum_variant_names,
+-    reason = "五个变体名称与冻结的 AGENT_PROVIDER_* wire 错误码一一对应。"
++    reason = "六个变体名称与冻结的 AGENT_PROVIDER_* wire 错误码一一对应。"
+ )]
+ pub enum ProviderErrorCode {
+     AgentProviderNotFound,
++    AgentProviderDisabled,
+     AgentProviderUnavailable,
+     AgentProviderCapabilityUnsupported,
+     AgentProviderContractError,
+diff --git a/src-tauri/src/agent/provider/registry.rs b/src-tauri/src/agent/provider/registry.rs
+index 3e570af..c8224d0 100644
+--- a/src-tauri/src/agent/provider/registry.rs
++++ b/src-tauri/src/agent/provider/registry.rs
+@@ -8,18 +8,20 @@ use super::{
+     port::AgentProvider,
+ };
+ 
+-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
++#[serde(rename_all = "snake_case")]
+ pub enum ProviderHealth {
+     Available,
+     Unavailable,
+ }
+ 
++#[derive(Clone)]
+ struct RegistryEntry {
+     provider: Arc<dyn AgentProvider>,
+     health: ProviderHealth,
+ }
+ 
+-#[derive(Default)]
++#[derive(Clone, Default)]
+ pub struct ProviderRegistry {
+     entries: HashMap<ProviderId, RegistryEntry>,
+ }
+@@ -80,6 +82,18 @@ impl ProviderRegistry {
+         Ok(())
+     }
+ 
++    /// 只替换已注册的 admission adapter，旧调用持有的 Arc 不受影响。
++    pub(crate) fn replace_registered(
++        &mut self,
++        provider: Arc<dyn AgentProvider>,
++        health: ProviderHealth,
++    ) -> Result<(), ProviderError> {
++        let id = provider.descriptor().id;
++        self.get_registered(&id)?;
++        self.entries.insert(id, RegistryEntry { provider, health });
++        Ok(())
++    }
++
+     pub fn list_descriptors(&self) -> Vec<ProviderDescriptor> {
+         let mut descriptors: Vec<_> = self
+             .entries
+diff --git a/src-tauri/src/agent/provider/tests.rs b/src-tauri/src/agent/provider/tests.rs
+index 91f705e..cba30ed 100644
+--- a/src-tauri/src/agent/provider/tests.rs
++++ b/src-tauri/src/agent/provider/tests.rs
+@@ -108,6 +108,10 @@ fn provider_error_code_wire_values_are_exact() {
+             ProviderErrorCode::AgentProviderNotFound,
+             "AGENT_PROVIDER_NOT_FOUND",
+         ),
++        (
++            ProviderErrorCode::AgentProviderDisabled,
++            "AGENT_PROVIDER_DISABLED",
++        ),
+         (
+             ProviderErrorCode::AgentProviderUnavailable,
+             "AGENT_PROVIDER_UNAVAILABLE",
+diff --git a/src-tauri/src/agent/store.rs b/src-tauri/src/agent/store.rs
+index cf27ffc..0c67daa 100644
+--- a/src-tauri/src/agent/store.rs
++++ b/src-tauri/src/agent/store.rs
+@@ -327,7 +327,7 @@ fn migrate(connection: &mut Connection) -> Result<(), String> {
+     let version: i64 = connection
+         .pragma_query_value(None, "user_version", |r| r.get(0))
+         .map_err(|e| e.to_string())?;
+-    if version > 12 || version < 0 {
++    if !(0..=12).contains(&version) {
+         return Err(format!("unsupported agent state schema version: {version}"));
+     }
+     if version == 12 {
+diff --git a/src-tauri/src/agent/task_manager.rs b/src-tauri/src/agent/task_manager.rs
+index a9fdc05..922f811 100644
+--- a/src-tauri/src/agent/task_manager.rs
++++ b/src-tauri/src/agent/task_manager.rs
+@@ -11,6 +11,7 @@ use super::{
+     provider::{
+         ProviderCancelContext, ProviderError, ProviderErrorCode, ProviderExecutionContext,
+         ProviderId, ProviderStartupContext,
++        control::{ProviderAdmissionCapability, ProviderAdmissionPolicy},
+         port::{
+             ProviderAcceptanceSink, ProviderContinuationContext, ProviderContinuationDecision,
+             ProviderExecutionFailure, ProviderReconcileItem,
+@@ -26,6 +27,7 @@ use super::{
+     },
+     telemetry_projector::ExecutionTelemetryProjector,
+ };
++use crate::config::AgentProviderSettings;
+ use crate::serena::{SupervisorState, WorkspaceStartCreation};
+ use std::{
+     path::PathBuf,
+@@ -44,6 +46,7 @@ pub struct AgentTaskManager {
+     owner: String,
+     pub(crate) runtime_pool: std::sync::Arc<super::codex::pool::CodexRuntimePool>,
+     registry: Arc<Mutex<Option<Arc<ProviderRegistry>>>>,
++    admission: ProviderAdmissionPolicy,
+     auto_recovery: Arc<AutoRecoveryWorker>,
+     terminal_notifier: Arc<dyn AgentTerminalNotifier>,
+     #[cfg(test)]
+@@ -168,6 +171,7 @@ impl ProviderAcceptanceSink for HostAcceptanceSink {
+ fn provider_error_code(code: ProviderErrorCode) -> &'static str {
+     match code {
+         ProviderErrorCode::AgentProviderNotFound => "AGENT_PROVIDER_NOT_FOUND",
++        ProviderErrorCode::AgentProviderDisabled => "AGENT_PROVIDER_DISABLED",
+         ProviderErrorCode::AgentProviderUnavailable => "AGENT_PROVIDER_UNAVAILABLE",
+         ProviderErrorCode::AgentProviderCapabilityUnsupported => {
+             "AGENT_PROVIDER_CAPABILITY_UNSUPPORTED"
+@@ -213,13 +217,8 @@ impl AgentTaskManager {
+         let provider_id = ProviderId::new(provider_value.into())
+             .map_err(|_| "AGENT_CONTINUE_NOT_ALLOWED".to_string())?;
+         let provider = self
+-            .registry()
+-            .map_err(continuation_provider_error)?
+-            .get_registered(&provider_id)
++            .admit_provider(&provider_id, ProviderAdmissionCapability::Continue)
+             .map_err(continuation_provider_error)?;
+-        if !provider.capabilities().can_continue {
+-            return Err("AGENT_CONTINUE_NOT_ALLOWED".into());
+-        }
+         match provider
+             .validate_continuation(ProviderContinuationContext {
+                 source_execution_id: source_execution_id.into(),
+@@ -289,6 +288,21 @@ impl AgentTaskManager {
+         store: StateStore,
+         executable: PathBuf,
+         terminal_notifier: Arc<dyn AgentTerminalNotifier>,
++    ) -> Self {
++        Self::new_with_terminal_notifier_and_provider_settings(
++            store,
++            executable,
++            terminal_notifier,
++            AgentProviderSettings::default(),
++        )
++    }
++
++    /// 注入已经验证的本地 Provider 设置；该快照不新增远程或运行时 mutation authority。
++    pub(crate) fn new_with_terminal_notifier_and_provider_settings(
++        store: StateStore,
++        executable: PathBuf,
++        terminal_notifier: Arc<dyn AgentTerminalNotifier>,
++        provider_settings: impl Into<ProviderAdmissionPolicy>,
+     ) -> Self {
+         Self {
+             store,
+@@ -297,6 +311,7 @@ impl AgentTaskManager {
+             owner: Self::id("host"),
+             runtime_pool: Default::default(),
+             registry: Default::default(),
++            admission: provider_settings.into(),
+             auto_recovery: Default::default(),
+             terminal_notifier,
+             #[cfg(test)]
+@@ -419,6 +434,92 @@ impl AgentTaskManager {
+         *current = Some(registry.clone());
+         Ok(registry)
+     }
++
++    /// 只重新执行 admission discovery，不创建 Execution、Session 或 Agent Runtime。
++    /// macOS 复用受管 CLI probe 的 ownership 记录；只导出 schema，不启动 app-server。
++    pub(crate) async fn refresh_provider_health(
++        &self,
++        id: ProviderId,
++    ) -> Result<super::provider::registry::ProviderHealth, String> {
++        let registry = self
++            .registry()
++            .map_err(|e| provider_error_code(e.code).to_string())?;
++        registry
++            .get_registered(&id)
++            .map_err(|e| provider_error_code(e.code).to_string())?;
++        if id.as_str() != "codex" {
++            return Err("AGENT_PROVIDER_CAPABILITY_UNSUPPORTED".into());
++        }
++        let discovery = self.discover_backend().await;
++        let mut refreshed = ProviderRegistry::new();
++        register_codex_provider_with_discovery(
++            &mut refreshed,
++            self.store.clone(),
++            self.owner.clone(),
++            self.runtime_pool.clone(),
++            discovery,
++        )
++        .map_err(|e| provider_error_code(e.code).to_string())?;
++        let health = refreshed
++            .health(&id)
++            .map_err(|e| provider_error_code(e.code).to_string())?;
++        let provider = refreshed
++            .get_registered(&id)
++            .map_err(|e| provider_error_code(e.code).to_string())?;
++        let mut current = self.registry.lock().unwrap();
++        let mut next = current
++            .as_ref()
++            .expect("registry initialized")
++            .as_ref()
++            .clone();
++        next.replace_registered(provider, health)
++            .map_err(|e| provider_error_code(e.code).to_string())?;
++        *current = Some(Arc::new(next));
++        Ok(health)
++    }
++
++    /// 使用单一 policy owner 解析新工作，避免调用方自行重排 enabled/health/capability。
++    fn admit_provider(
++        &self,
++        provider_id: &ProviderId,
++        capability: ProviderAdmissionCapability,
++    ) -> Result<Arc<dyn super::provider::port::AgentProvider>, ProviderError> {
++        let registry = self.registry()?;
++        self.admission
++            .admit(registry.as_ref(), provider_id, capability)
++    }
++
++    /// Start 创建前只拒绝未注册或 disabled；health/capability 仍在 dispatch 前判定。
++    fn ensure_provider_enabled(&self, provider_id: &ProviderId) -> Result<(), ProviderError> {
++        let registry = self.registry()?;
++        self.admission
++            .registered_enabled(registry.as_ref(), provider_id)
++            .map(|_| ())
++    }
++
++    /// Product Start 在创建 Execution 与 Claim 前完成 registered→enabled 前缀。
++    fn ensure_product_start_enabled(&self) -> Result<(), super::product::ProductError> {
++        let provider_id =
++            ProviderId::new("codex".into()).expect("static Codex provider id is valid");
++        self.ensure_provider_enabled(&provider_id).map_err(|error| {
++            super::product::ProductError::new(provider_error_code(error.code).into(), None)
++        })
++    }
++
++    /// Resume 在 backend/health 前按 Execution 冻结身份完成 registered→enabled 前缀。
++    async fn ensure_persisted_execution_enabled(
++        &self,
++        execution_id: &str,
++    ) -> Result<(), ProviderExecutionFailure> {
++        let row = self
++            .store
++            .execution(execution_id.to_owned())
++            .await?
++            .ok_or_else(|| "EXECUTION_NOT_FOUND".to_string())?;
++        let provider_id = provider_id(row.provider)?;
++        self.ensure_provider_enabled(&provider_id)
++            .map_err(provider_failure)
++    }
+     pub(crate) async fn reconcile_startup(&mut self) -> Result<Vec<ProviderReconcileItem>, String> {
+         let registry = self
+             .registry
+@@ -470,6 +571,12 @@ impl AgentTaskManager {
+     pub(crate) fn use_registry(&mut self, registry: ProviderRegistry) {
+         *self.registry.lock().unwrap() = Some(Arc::new(registry));
+     }
++
++    /// 测试专用开关用于验证 Drain；生产设置变更入口不属于 CB2-002。
++    #[cfg(test)]
++    pub(crate) fn set_provider_enabled_for_test(&self, provider_id: &str, enabled: bool) {
++        self.admission.set_enabled_for_test(provider_id, enabled);
++    }
+     pub(crate) fn id(prefix: &str) -> String {
+         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+         format!(
+@@ -501,6 +608,9 @@ impl AgentTaskManager {
+         &self,
+         input: CreateExecutionInput,
+     ) -> Result<CreateOutcome, ProviderExecutionFailure> {
++        // Start 必须在创建 Execution/Claim 前拒绝未注册或 disabled Provider。
++        self.ensure_provider_enabled(&input.provider)
++            .map_err(provider_failure)?;
+         let mut outcome = self.create(input).await?;
+         if !outcome.created {
+             return Ok(outcome);
+@@ -544,6 +654,7 @@ impl AgentTaskManager {
+         else {
+             return Err("AGENT_INVALID_ARGUMENT".to_string().into());
+         };
++        self.ensure_product_start_enabled()?;
+         let outcome = supervisor.create_workspace_start(
+             &self.store,
+             WorkspaceStartCreation {
+@@ -579,21 +690,24 @@ impl AgentTaskManager {
+                     agent_id,
+                     request_key,
+                     prompt,
+-                } => Some(
+-                    manager
+-                        .store
+-                        .product_create_fresh_with_work(
+-                            Self::id("execution"),
+-                            agent_id,
+-                            request_key,
+-                            prompt,
+-                            workspace_id,
+-                            workspace,
+-                            work,
+-                            super::coordinator::now(),
+-                        )
+-                        .await?,
+-                ),
++                } => {
++                    manager.ensure_product_start_enabled()?;
++                    Some(
++                        manager
++                            .store
++                            .product_create_fresh_with_work(
++                                Self::id("execution"),
++                                agent_id,
++                                request_key,
++                                prompt,
++                                workspace_id,
++                                workspace,
++                                work,
++                                super::coordinator::now(),
++                            )
++                            .await?,
++                    )
++                }
+                 Action::Continue {
+                     execution_id,
+                     request_key,
+@@ -640,12 +754,20 @@ impl AgentTaskManager {
+                     )
+                 }
+                 Action::ResumePending { execution_id } => {
+-                    if let Some(error) = &manager.backend_error {
+-                        return Err(super::product::ProductError::new(
+-                            error.clone(),
+-                            Some(execution_id),
+-                        ));
++                    if let Err(error) = manager
++                        .ensure_persisted_execution_enabled(&execution_id)
++                        .await
++                    {
++                        let error = match error {
++                            ProviderExecutionFailure::State(error) => error,
++                            ProviderExecutionFailure::Runtime { code, message } => {
++                                format!("{code}: {message}")
++                            }
++                        };
++                        return Err(super::product::ProductError::new(error, Some(execution_id)));
+                     }
++                    // 健康刷新后的 Registry/admission 是当前准入 Authority；
++                    // dispatch 自身会校验 health，不再用启动时的 backend_error 拒绝恢复。
+                     let (tx, rx) = tokio::sync::oneshot::channel();
+                     let id = execution_id.clone();
+                     tokio::spawn(async move {
+@@ -837,17 +959,15 @@ impl AgentTaskManager {
+                     .execution(id.clone())
+                     .await?
+                     .ok_or_else(|| "EXECUTION_NOT_FOUND".to_string())?;
++                let provider_id = provider_id(row.provider.clone())?;
++                let provider = manager
++                    .admit_provider(&provider_id, ProviderAdmissionCapability::Execute)
++                    .map_err(provider_failure)?;
+                 let permit = manager.store.guard_pending_dispatch(id.clone()).await?;
+-                Ok::<_, ProviderExecutionFailure>((row, permit))
++                Ok::<_, ProviderExecutionFailure>((permit, provider))
+             }
+             .await?;
+-            let (row, _permit) = admission;
+-            let provider_id = provider_id(row.provider)?;
+-            let provider = manager
+-                .registry()
+-                .map_err(provider_failure)?
+-                .get(&provider_id)
+-                .map_err(provider_failure)?;
++            let (_permit, provider) = admission;
+             let telemetry = Arc::new(ExecutionTelemetryProjector::new(manager.store.clone(), id.clone()));
+ 
+             #[cfg(all(test, any(windows, target_os = "macos")))]
+diff --git a/src-tauri/src/agent/task_manager/tests.rs b/src-tauri/src/agent/task_manager/tests.rs
+index b5c9692..5632d0f 100644
+--- a/src-tauri/src/agent/task_manager/tests.rs
++++ b/src-tauri/src/agent/task_manager/tests.rs
+@@ -341,6 +341,18 @@ fn manager_with_provider(
+     manager
+ }
+ 
++/// 构造 Provider 后切换本地 enabled policy，测试不创建生产 mutation surface。
++fn manager_with_provider_enabled(
++    store: StateStore,
++    provider: Arc<dyn AgentProvider>,
++    health: ProviderHealth,
++    enabled: bool,
++) -> AgentTaskManager {
++    let manager = manager_with_provider(store, provider, health);
++    manager.set_provider_enabled_for_test("codex", enabled);
++    manager
++}
++
+ /// 以记录型 notifier 构造 Manager，验证 core 不依赖任何桌面实现。
+ fn manager_with_provider_and_notifier(
+     store: StateStore,
+@@ -881,6 +893,7 @@ async fn automatic_recovery_schedule_failure_preserves_parent_facts() {
+     manager.wait_for_auto_recovery_worker_for_test().await;
+ }
+ 
++/// Startup reconcile 只依赖 registration/recovery capability，忽略 disabled 与当前 health。
+ #[tokio::test]
+ async fn startup_reconcile_uses_registered_providers_and_isolates_failures() {
+     let directory = tempfile::tempdir().unwrap();
+@@ -924,6 +937,8 @@ async fn startup_reconcile_uses_registered_providers_and_isolates_failures() {
+         notifier.clone(),
+     );
+     manager.use_registry(registry);
++    manager.set_provider_enabled_for_test("alpha", false);
++    manager.set_provider_enabled_for_test("zeta", false);
+ 
+     assert_eq!(
+         manager.reconcile_startup().await.unwrap(),
+@@ -990,7 +1005,7 @@ async fn host_acceptance_is_one_shot_and_receiver_drop_does_not_close_the_sink()
+ fn production_task_manager_has_only_registry_provider_routes() {
+     let source = include_str!("../task_manager.rs");
+ 
+-    assert!(source.contains(".get(&provider_id)"));
++    assert!(source.contains(".admit_provider(&provider_id"));
+     assert!(source.contains(".get_registered(&provider_id)"));
+     assert!(source.contains("ProviderExecutionContext"));
+     assert!(source.contains("ProviderCancelContext"));
+@@ -1019,6 +1034,285 @@ async fn persisted_provider_routes_through_registry_trait_object() {
+     assert_eq!(fake.cancel_calls.load(Ordering::SeqCst), 0);
+ }
+ 
++/// Disabled Start 在任何持久化或 Provider 调用前稳定拒绝。
++#[tokio::test]
++async fn disabled_start_rejects_before_execution_claim_or_provider_call() {
++    let directory = tempfile::tempdir().unwrap();
++    let store = StateStore::open(directory.path().into()).await.unwrap();
++    let fake = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
++    let manager = manager_with_provider_enabled(
++        store.clone(),
++        fake.clone(),
++        ProviderHealth::Available,
++        false,
++    );
++
++    assert_eq!(
++        manager
++            .execute(input(directory.path(), "disabled-start"))
++            .await
++            .unwrap_err(),
++        ProviderExecutionFailure::State("AGENT_PROVIDER_DISABLED".into())
++    );
++    assert!(
++        store
++            .product_history_ids(None, None)
++            .await
++            .unwrap()
++            .is_empty()
++    );
++    assert!(
++        store
++            .workspace_claim(directory.path().to_string_lossy().into())
++            .await
++            .unwrap()
++            .is_none()
++    );
++    assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 0);
++}
++
++/// Disabled Continue 不验证 Provider session，也不创建 child Execution。
++#[tokio::test]
++async fn disabled_continue_rejects_before_child_creation_or_provider_validation() {
++    let directory = tempfile::tempdir().unwrap();
++    let store = StateStore::open(directory.path().into()).await.unwrap();
++    store
++        .product_create_fresh(
++            "source".into(),
++            "routing-agent".into(),
++            "source-key".into(),
++            "source prompt".into(),
++            "routing-workspace".into(),
++            Some(WorkspaceSnapshot {
++                id: "routing-workspace".into(),
++                root: directory.path().to_string_lossy().into(),
++                generation: 1,
++            }),
++            1,
++        )
++        .await
++        .unwrap();
++    let database = rusqlite::Connection::open(directory.path().join("agent-state.db")).unwrap();
++    mark_safe_terminal(&database, "source", "completed");
++    let fake = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
++    let manager = manager_with_provider_enabled(
++        store.clone(),
++        fake.clone(),
++        ProviderHealth::Available,
++        false,
++    );
++
++    let error = manager
++        .product_submit(
++            super::super::product::Action::Continue {
++                execution_id: "source".into(),
++                request_key: "disabled-continue".into(),
++                prompt: "continue".into(),
++            },
++            None,
++        )
++        .await
++        .unwrap_err();
++    assert_eq!(error.code, "AGENT_PROVIDER_DISABLED");
++    assert_eq!(
++        store.product_history_ids(None, None).await.unwrap().len(),
++        1
++    );
++    assert_eq!(fake.continuation_calls.load(Ordering::SeqCst), 0);
++    assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 0);
++}
++
++/// Disabled Resume 不得改变原 Execution 或 Workspace Claim 的任一字段。
++#[tokio::test]
++async fn disabled_resume_preserves_execution_and_claim_byte_for_byte() {
++    let directory = tempfile::tempdir().unwrap();
++    let store = StateStore::open(directory.path().into()).await.unwrap();
++    let fake = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
++    let manager = manager_with_provider_enabled(
++        store.clone(),
++        fake.clone(),
++        ProviderHealth::Available,
++        false,
++    );
++    let created = manager
++        .create(input(directory.path(), "disabled-resume"))
++        .await
++        .unwrap();
++    let before = store
++        .execution(created.execution_id.clone())
++        .await
++        .unwrap()
++        .unwrap();
++    let claim_before = store
++        .workspace_claim(before.canonical_workspace_root.clone())
++        .await
++        .unwrap();
++
++    assert_eq!(
++        manager
++            .resume_pending_execution(&created.execution_id)
++            .await
++            .unwrap_err(),
++        ProviderExecutionFailure::State("AGENT_PROVIDER_DISABLED".into())
++    );
++    assert_eq!(
++        store
++            .execution(created.execution_id)
++            .await
++            .unwrap()
++            .unwrap(),
++        before
++    );
++    assert_eq!(
++        store
++            .workspace_claim(before.canonical_workspace_root)
++            .await
++            .unwrap(),
++        claim_before
++    );
++    assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 0);
++}
++
++/// 同时存在 disabled 与 unavailable 时必须先返回 disabled，且两码稳定可区分。
++#[tokio::test]
++async fn disabled_and_unavailable_are_distinct_and_disabled_wins_ordering() {
++    let directory = tempfile::tempdir().unwrap();
++    let disabled_store = StateStore::open(directory.path().join("disabled"))
++        .await
++        .unwrap();
++    let disabled_provider = Arc::new(FakeProvider::new(
++        disabled_store.clone(),
++        "codex",
++        true,
++        true,
++    ));
++    let disabled = manager_with_provider_enabled(
++        disabled_store.clone(),
++        disabled_provider,
++        ProviderHealth::Unavailable,
++        false,
++    );
++    let disabled_execution = disabled
++        .create(input(directory.path(), "disabled-before-unavailable"))
++        .await
++        .unwrap();
++    assert_eq!(
++        disabled
++            .resume_pending_execution(&disabled_execution.execution_id)
++            .await
++            .unwrap_err(),
++        ProviderExecutionFailure::State("AGENT_PROVIDER_DISABLED".into())
++    );
++
++    let unavailable_store = StateStore::open(directory.path().join("unavailable"))
++        .await
++        .unwrap();
++    let unavailable_provider = Arc::new(FakeProvider::new(
++        unavailable_store.clone(),
++        "codex",
++        true,
++        true,
++    ));
++    let unavailable = manager_with_provider_enabled(
++        unavailable_store,
++        unavailable_provider,
++        ProviderHealth::Unavailable,
++        true,
++    );
++    let unavailable_execution = unavailable
++        .create(input(directory.path(), "enabled-unavailable"))
++        .await
++        .unwrap();
++    assert_eq!(
++        unavailable
++            .resume_pending_execution(&unavailable_execution.execution_id)
++            .await
++            .unwrap_err(),
++        ProviderExecutionFailure::State("AGENT_PROVIDER_UNAVAILABLE".into())
++    );
++}
++
++/// Provider 接受后的在途 Execution 持有既有 handle，后续 disable 只阻止新 Start。
++#[tokio::test]
++async fn running_execution_survives_disable_until_provider_converges() {
++    let directory = tempfile::tempdir().unwrap();
++    let store = StateStore::open(directory.path().into()).await.unwrap();
++    let release = Arc::new(tokio::sync::Notify::new());
++    let mut provider = FakeProvider::new(store.clone(), "codex", true, true);
++    provider.release = Some(release.clone());
++    let provider = Arc::new(provider);
++    let manager = manager_with_provider_enabled(
++        store.clone(),
++        provider.clone(),
++        ProviderHealth::Available,
++        true,
++    );
++    let execution_id = manager
++        .product_submit(
++            super::super::product::Action::Start {
++                workspace_id: "routing-workspace".into(),
++                agent_id: "routing-agent".into(),
++                request_key: "running-before-disable".into(),
++                prompt: "wait".into(),
++            },
++            Some(WorkspaceSnapshot {
++                id: "routing-workspace".into(),
++                root: directory.path().to_string_lossy().into(),
++                generation: 1,
++            }),
++        )
++        .await
++        .unwrap();
++    let running = store
++        .execution(execution_id.clone())
++        .await
++        .unwrap()
++        .unwrap();
++    let claim_before = store
++        .workspace_claim(running.canonical_workspace_root.clone())
++        .await
++        .unwrap();
++
++    manager.set_provider_enabled_for_test("codex", false);
++    assert_eq!(
++        store
++            .execution(execution_id.clone())
++            .await
++            .unwrap()
++            .unwrap(),
++        running
++    );
++    assert_eq!(
++        store
++            .workspace_claim(running.canonical_workspace_root.clone())
++            .await
++            .unwrap(),
++        claim_before
++    );
++    assert_eq!(provider.execute_calls.load(Ordering::SeqCst), 1);
++    assert!(!provider.terminal.load(Ordering::SeqCst));
++
++    assert_eq!(
++        manager
++            .execute(input(directory.path(), "start-after-disable"))
++            .await
++            .unwrap_err(),
++        ProviderExecutionFailure::State("AGENT_PROVIDER_DISABLED".into())
++    );
++    release.notify_one();
++    tokio::time::timeout(std::time::Duration::from_secs(2), async {
++        while !provider.terminal.load(Ordering::SeqCst) {
++            tokio::task::yield_now().await;
++        }
++    })
++    .await
++    .unwrap();
++    assert_eq!(
++        store.execution(execution_id).await.unwrap().unwrap().status,
++        "cancelled"
++    );
++}
++
+ /// 相同 v3 requestKey 重试只读取既有 Execution，不再次调用 Provider。
+ #[tokio::test]
+ async fn v3_retry_does_not_dispatch_provider_twice() {
+@@ -1246,7 +1540,7 @@ async fn fresh_create_rejects_generic_parent_before_persistence_or_dispatch() {
+ }
+ 
+ #[tokio::test]
+-async fn continuation_validation_uses_registration_not_execute_health() {
++async fn continuation_validation_obeys_health_and_capability_admission() {
+     let directory = tempfile::tempdir().unwrap();
+     let store = StateStore::open(directory.path().into()).await.unwrap();
+     let available_for_read = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
+@@ -1255,10 +1549,10 @@ async fn continuation_validation_uses_registration_not_execute_health() {
+         available_for_read.clone(),
+         ProviderHealth::Unavailable,
+     );
+-    assert!(manager.can_continue("source".into(), "codex".into()).await);
++    assert!(!manager.can_continue("source".into(), "codex".into()).await);
+     assert_eq!(
+         available_for_read.continuation_calls.load(Ordering::SeqCst),
+-        1
++        0
+     );
+     assert_eq!(available_for_read.execute_calls.load(Ordering::SeqCst), 0);
+ 
+@@ -1386,14 +1680,28 @@ async fn runtime_failure_keeps_classification_and_safe_receipt_diagnostic() {
+         rx.await.unwrap(),
+         Err("CODEX_RUNTIME_TEST_FAILED: safe diagnostic".into())
+     );
++    assert_eq!(
++        manager
++            .registry()
++            .unwrap()
++            .health(&ProviderId::new("codex".into()).unwrap())
++            .unwrap(),
++        ProviderHealth::Available
++    );
+ }
+ 
++/// Disabled 且 unavailable 的 Provider 仍可按 persisted identity 执行 Cancel。
+ #[tokio::test]
+-async fn unavailable_provider_cancel_uses_registration_and_preserves_manual_resolution() {
++async fn disabled_unavailable_provider_cancel_uses_registration_and_preserves_manual_resolution() {
+     let directory = tempfile::tempdir().unwrap();
+     let store = StateStore::open(directory.path().into()).await.unwrap();
+     let fake = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
+-    let manager = manager_with_provider(store.clone(), fake.clone(), ProviderHealth::Unavailable);
++    let manager = manager_with_provider_enabled(
++        store.clone(),
++        fake.clone(),
++        ProviderHealth::Unavailable,
++        false,
++    );
+     let created = manager
+         .create(input(directory.path(), "unavailable-cancel"))
+         .await
+@@ -1405,7 +1713,7 @@ async fn unavailable_provider_cancel_uses_registration_and_preserves_manual_reso
+         .unwrap_err()
+     {
+         ProviderExecutionFailure::State(error) => {
+-            assert_eq!(error, "AGENT_PROVIDER_UNAVAILABLE")
++            assert_eq!(error, "AGENT_PROVIDER_DISABLED")
+         }
+         error => panic!("unexpected failure: {error:?}"),
+     }
+@@ -1480,3 +1788,49 @@ async fn cancel_capability_and_unknown_registration_fail_closed() {
+         "AGENT_PROVIDER_NOT_FOUND"
+     );
+ }
++
++/// 启动时不可用的诊断不能覆盖刷新后的健康事实；Resume 使用当前 adapter。
++#[tokio::test]
++async fn provider_policy_refresh_recovers_initially_unavailable_resume() {
++    let directory = tempfile::tempdir().unwrap();
++    let store = StateStore::open(directory.path().into()).await.unwrap();
++    let mut manager = AgentTaskManager::new(store.clone(), PathBuf::new());
++    manager.install_backend_resolution(Err("BACKEND_UNAVAILABLE: initial discovery".into()));
++    let codex = ProviderId::new("codex".into()).unwrap();
++    assert_eq!(
++        manager.registry().unwrap().health(&codex).unwrap(),
++        ProviderHealth::Unavailable
++    );
++    let created = manager
++        .create(input(directory.path(), "refresh-resume"))
++        .await
++        .unwrap();
++    assert_eq!(
++        crate::agent::codex::TEST_BACKEND_DISCOVERY
++            .scope(
++                Ok("refreshed-codex.exe".into()),
++                manager.refresh_provider_health(codex.clone())
++            )
++            .await
++            .unwrap(),
++        ProviderHealth::Available
++    );
++    // 仅在 Runtime 执行边界替换 FakeProvider，保持真实 refresh 与 Resume 入口。
++    let fake = Arc::new(FakeProvider::new(store.clone(), "codex", true, true));
++    let mut registry = manager.registry().unwrap().as_ref().clone();
++    registry
++        .replace_registered(fake.clone(), ProviderHealth::Available)
++        .unwrap();
++    *manager.registry.lock().unwrap() = Some(Arc::new(registry));
++    let id = manager
++        .product_submit(
++            super::super::product::Action::ResumePending {
++                execution_id: created.execution_id.clone(),
++            },
++            None,
++        )
++        .await
++        .unwrap();
++    assert_eq!(id, created.execution_id);
++    assert_eq!(fake.execute_calls.load(Ordering::SeqCst), 1);
++}
+diff --git a/src-tauri/src/autostart.rs b/src-tauri/src/autostart.rs
+index 3591fed..d674598 100644
+--- a/src-tauri/src/autostart.rs
++++ b/src-tauri/src/autostart.rs
+@@ -126,8 +126,8 @@ mod tests {
+     #[cfg(windows)]
+     struct RegistrationRestore {
+         app_name: String,
+-        run_value: Option<RegValue>,
+-        startup_approved_value: Option<RegValue>,
++        run_value: Option<RegValue<'static>>,
++        startup_approved_value: Option<RegValue<'static>>,
+         restored: bool,
+     }
+ 
+@@ -260,7 +260,10 @@ mod tests {
+     }
+ 
+     #[cfg(windows)]
+-    fn read_raw_value(key_path: &str, app_name: &str) -> std::io::Result<Option<RegValue>> {
++    fn read_raw_value(
++        key_path: &str,
++        app_name: &str,
++    ) -> std::io::Result<Option<RegValue<'static>>> {
+         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+         let key = match hkcu.open_subkey_with_flags(key_path, KEY_READ) {
+             Ok(key) => key,
+@@ -434,7 +437,7 @@ mod tests {
+     #[test]
+     fn restore_retry_keeps_original_snapshots_after_partial_failure() {
+         let original = RegValue {
+-            bytes: vec![1, 2, 3],
++            bytes: vec![1, 2, 3].into(),
+             vtype: RegType::REG_BINARY,
+         };
+         let mut restore = RegistrationRestore {
+@@ -457,7 +460,7 @@ mod tests {
+         let mut retry = Vec::new();
+         restore
+             .restore_with(|key, _, value| {
+-                retry.push((key.to_owned(), value.map(|raw| raw.bytes.clone())));
++                retry.push((key.to_owned(), value.map(|raw| raw.bytes.to_vec())));
+                 Ok(())
+             })
+             .expect("重试必须仍能取得完整原始快照");
+diff --git a/src-tauri/src/commands.rs b/src-tauri/src/commands.rs
+index fdc7099..20f721b 100644
+--- a/src-tauri/src/commands.rs
++++ b/src-tauri/src/commands.rs
+@@ -1126,3 +1126,101 @@ pub async fn agent_history(
+         .ok_or("BACKEND_UNAVAILABLE: Agent service not initialized")?;
+     product.history_page(before, workspace).await
+ }
++
++/// 读取 Supervisor 已提交策略；不启动任何服务。
++#[tauri::command]
++pub fn agent_provider_settings_get(app: AppHandle) -> crate::config::AgentProviderSettings {
++    agent_provider_settings_get_impl(&crate::mcp::get(&app))
++}
++
++/// 本地 Human Authority 修改开关，合法但未注册的 Provider 仍保留配置。
++#[tauri::command]
++pub async fn agent_provider_set_enabled(
++    app: AppHandle,
++    provider_id: crate::agent::provider::ProviderId,
++    enabled: bool,
++) -> Result<crate::config::AgentProviderSettings, String> {
++    let broker = crate::mcp::get(&app);
++    tauri::async_runtime::spawn_blocking(move || {
++        tauri::async_runtime::block_on(agent_provider_set_enabled_impl(
++            &broker,
++            provider_id,
++            enabled,
++        ))
++    })
++    .await
++    .map_err(|error| error.to_string())?
++}
++
++/// 本地角色路由只修改未来请求策略，null 显式清空。
++#[tauri::command]
++pub async fn agent_provider_set_role_route(
++    app: AppHandle,
++    task_role: crate::agent::execution::AgentTaskRole,
++    provider_id: Option<crate::agent::provider::ProviderId>,
++) -> Result<crate::config::AgentProviderSettings, String> {
++    let broker = crate::mcp::get(&app);
++    tauri::async_runtime::spawn_blocking(move || {
++        tauri::async_runtime::block_on(agent_provider_set_role_route_impl(
++            &broker,
++            task_role,
++            provider_id,
++        ))
++    })
++    .await
++    .map_err(|error| error.to_string())?
++}
++
++/// 刷新 Admission Health，禁止进入 execute/session/ACP。
++#[tauri::command]
++pub async fn agent_provider_refresh_health(
++    app: AppHandle,
++    provider_id: crate::agent::provider::ProviderId,
++) -> Result<crate::agent::provider::registry::ProviderHealth, String> {
++    let broker = crate::mcp::get(&app);
++    let _management = broker.management.lock().await;
++    broker
++        .product
++        .get()
++        .ok_or("BACKEND_UNAVAILABLE: Agent service not initialized")?
++        .refresh_provider_health(provider_id)
++        .await
++}
++
++/// 本地读取与 mutation 测试共用相同已提交快照。
++fn agent_provider_settings_get_impl(
++    broker: &crate::mcp::Broker,
++) -> crate::config::AgentProviderSettings {
++    broker.config().agent_providers
++}
++/// 与其他本地配置管理操作使用同一 Broker 锁。
++async fn agent_provider_set_enabled_impl(
++    broker: &crate::mcp::Broker,
++    provider_id: crate::agent::provider::ProviderId,
++    enabled: bool,
++) -> Result<crate::config::AgentProviderSettings, String> {
++    let _management = broker.management.lock().await;
++    broker.supervisor.mutate_provider_settings(|settings| {
++        settings.providers.insert(
++            provider_id.as_str().into(),
++            crate::config::AgentProviderPolicy { enabled },
++        );
++    })
++}
++/// 角色已由 IPC 的 AgentTaskRole 反序列化校验，保留合法未知 Provider。
++async fn agent_provider_set_role_route_impl(
++    broker: &crate::mcp::Broker,
++    task_role: crate::agent::execution::AgentTaskRole,
++    provider_id: Option<crate::agent::provider::ProviderId>,
++) -> Result<crate::config::AgentProviderSettings, String> {
++    let _management = broker.management.lock().await;
++    broker.supervisor.mutate_provider_settings(|settings| {
++        settings
++            .role_routing
++            .insert(task_role.as_str().into(), provider_id);
++    })
++}
++
++#[cfg(test)]
++#[path = "provider_policy_tests.rs"]
++mod provider_policy_tests;
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index a735c1f..e924470 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -176,17 +176,22 @@ pub fn run() {
+                     app.handle().clone(),
+                     supervisor.clone(),
+                 ));
++            // Desktop 启动只读取已持久化的本地 Provider policy 快照。
++            let provider_settings = supervisor.provider_policy();
+             // macOS Desktop 发布前保留 recovery，但把耗时的 Codex CLI probe 延到首次 Agent execute。
+             #[cfg(target_os = "macos")]
+-            let initialization = agent::product::AgentProductService::initialize_desktop_deferred(
+-                store,
+-                terminal_notifier,
+-            );
++            let initialization =
++                agent::product::AgentProductService::initialize_desktop_deferred_with_provider_settings(
++                    store,
++                    terminal_notifier,
++                    provider_settings,
++                );
+             #[cfg(not(target_os = "macos"))]
+             let initialization =
+-                agent::product::AgentProductService::initialize_with_terminal_notifier(
++                agent::product::AgentProductService::initialize_with_terminal_notifier_and_provider_settings(
+                     store,
+                     terminal_notifier,
++                    provider_settings,
+                 );
+             let (product, outcomes) =
+                 tauri::async_runtime::block_on(initialization).map_err(std::io::Error::other)?;
+@@ -290,6 +295,10 @@ pub fn run() {
+             remote::remote_probe,
+             remote::remote_approve,
+             commands::agent_operation,
++            commands::agent_provider_settings_get,
++            commands::agent_provider_set_enabled,
++            commands::agent_provider_set_role_route,
++            commands::agent_provider_refresh_health,
+             commands::command_query,
+             commands::command_execute,
+             commands::agent_manual_resolve,
+diff --git a/src-tauri/src/serena.rs b/src-tauri/src/serena.rs
+index d18f57f..8ff945d 100644
+--- a/src-tauri/src/serena.rs
++++ b/src-tauri/src/serena.rs
+@@ -172,6 +172,7 @@ pub(crate) struct WorkspaceStartCreation {
+ pub struct SupervisorState {
+     runtime: Arc<Mutex<Runtime>>,
+     operation: Mutex<()>,
++    provider_policy: crate::agent::provider::control::ProviderAdmissionPolicy,
+     capability_manager: Arc<WorkspaceCapabilityManager>,
+     workspace_write_guards: Arc<Mutex<WorkspaceWriteGuardState>>,
+     target_commit_coordinator: crate::mcp::source_write_commit::TargetCommitCoordinator,
+@@ -214,6 +215,9 @@ impl SupervisorState {
+     pub fn new(paths: AppPaths) -> Result<Self, String> {
+         logs::ensure_directory(&paths.log_directory)?;
+         let config = config::load(&paths.config_file)?;
++        let provider_policy = crate::agent::provider::control::ProviderAdmissionPolicy::new(
++            config.agent_providers.clone(),
++        );
+         // Provider 只读取最新配置快照；Registry 构造本身不执行 Serena CLI 或 Runtime 生命周期。
+         let runtime = Arc::new(Mutex::new(Runtime {
+             config,
+@@ -246,6 +250,7 @@ impl SupervisorState {
+         Ok(Self {
+             runtime,
+             operation: Mutex::new(()),
++            provider_policy,
+             capability_manager: Arc::new(WorkspaceCapabilityManager::new(Arc::new(
+                 WorkspaceCapabilityRegistry::new([
+                     serena_provider,
+@@ -749,8 +754,41 @@ impl SupervisorState {
+         Ok(())
+     }
+ 
+-    pub fn replace_config(&self, next: ManagerConfig) -> Result<(), String> {
++    /// Desktop 与 Manager 共享已提交的 admission Authority。
++    pub(crate) fn provider_policy(
++        &self,
++    ) -> crate::agent::provider::control::ProviderAdmissionPolicy {
++        self.provider_policy.clone()
++    }
++
++    /// 在 operation 锁内读取最新配置、原子落盘，然后发布策略。
++    pub(crate) fn mutate_provider_settings(
++        &self,
++        mutate: impl FnOnce(&mut config::AgentProviderSettings),
++    ) -> Result<config::AgentProviderSettings, String> {
++        let _operation = self.operation.lock().expect("operation mutex poisoned");
++        let mut runtime = self.runtime.lock().expect("supervisor mutex poisoned");
++        let mut next = runtime.config.clone();
++        mutate(&mut next.agent_providers);
++        self.provider_policy
++            .commit(next.agent_providers.clone(), || {
++                config::save(&self.paths.config_file, &next)?;
++                runtime.config = next.clone();
++                Ok(())
++            })?;
++        Ok(next.agent_providers)
++    }
++
++    pub fn replace_config(&self, mut next: ManagerConfig) -> Result<(), String> {
+         let _operation = self.operation.lock().expect("operation mutex poisoned");
++        // 整配置入口保留专用入口的最新 Provider 策略。
++        next.agent_providers = self
++            .runtime
++            .lock()
++            .expect("supervisor mutex poisoned")
++            .config
++            .agent_providers
++            .clone();
+         next.validate()?;
+         let installation = discovery::detect(&next, &self.paths);
+         if next.serena_path.is_some() && installation.state != InstallationState::Standard {
+@@ -1396,6 +1434,38 @@ mod tests {
+         )
+     }
+ 
++    /// Provider mutation 必须等待 Supervisor 的既有 operation mutex。
++    #[test]
++    fn provider_policy_waits_for_supervisor_operation_lock() {
++        let (_directory, supervisor, _, _) = workspace_write_guard_fixture();
++        let supervisor = Arc::new(supervisor);
++        let guard = supervisor.operation.lock().unwrap();
++        let (started_tx, started_rx) = std::sync::mpsc::channel();
++        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
++        let worker_supervisor = supervisor.clone();
++        let worker = std::thread::spawn(move || {
++            started_tx.send(()).unwrap();
++            worker_supervisor
++                .mutate_provider_settings(|settings| {
++                    entered_tx.send(()).unwrap();
++                    settings.providers.get_mut("codex").unwrap().enabled = false;
++                })
++                .unwrap();
++        });
++        started_rx.recv().unwrap();
++        assert!(
++            entered_rx
++                .recv_timeout(std::time::Duration::from_millis(50))
++                .is_err()
++        );
++        drop(guard);
++        entered_rx
++            .recv_timeout(std::time::Duration::from_secs(2))
++            .unwrap();
++        worker.join().unwrap();
++        assert!(!supervisor.snapshot().config.agent_providers.providers["codex"].enabled);
++    }
++
+     /// leader 已退出但忽略 SIGTERM 的 leaf 仍在 group 时，stop 必须保留原 owner 与身份。
+     #[cfg(target_os = "macos")]
+     #[test]
+diff --git a/src/AgentPanel.test.mjs b/src/AgentPanel.test.mjs
+index 5d8f4e6..2de401a 100644
+--- a/src/AgentPanel.test.mjs
++++ b/src/AgentPanel.test.mjs
+@@ -1,3 +1,4 @@
++import { providerSettingsFixture } from './configFixtures.mjs';
+ import { test, afterEach } from 'node:test';
+ import assert from 'node:assert/strict';
+ import { registerHooks } from 'node:module';
+@@ -712,7 +713,7 @@ test('list refresh cannot compete with an outstanding detail observation', async
+ test('status caches pending, successful and failed Codex probes until explicit refresh', async () => {
+   const { default: App } = await import('./App.tsx');
+   const originals = { getState: api.getState, broker: api.broker, codexVersion: api.codexVersion, detect: api.detect, openExternal: api.openExternal };
+-  const snapshot = { config: { agentEnabled:false, broker:{enabled:false,port:9120,allowLan:false},workspaces:[],serenaPath:null,port:9121,dashboardEnabled:false,openDashboardOnLaunch:false,autoStartServer:false,minimizeToTray:false }, git:{available:true,status:'available',version:'test',path:null,error:null}, serverStatus:'stopped', installation:null, activeInstallation:null, managedRuntimePresent:false, managedProcessPresent:false, codegraphVersion:'test', dashboardEnabled:false, autostartEnabled:false, autostartError:null, lastError:null };
++  const snapshot = { config: { agentProviders: providerSettingsFixture(), agentEnabled:false, broker:{enabled:false,port:9120,allowLan:false},workspaces:[],serenaPath:null,port:9121,dashboardEnabled:false,openDashboardOnLaunch:false,autoStartServer:false,minimizeToTray:false }, git:{available:true,status:'available',version:'test',path:null,error:null}, serverStatus:'stopped', installation:null, activeInstallation:null, managedRuntimePresent:false, managedProcessPresent:false, codegraphVersion:'test', dashboardEnabled:false, autostartEnabled:false, autostartError:null, lastError:null };
+   let probes = 0; let resolveProbe;
+   const links = [];
+   api.getState = async () => snapshot;
+diff --git a/src/App.test.mjs b/src/App.test.mjs
+index 191ff19..2c39011 100644
+--- a/src/App.test.mjs
++++ b/src/App.test.mjs
+@@ -1,3 +1,4 @@
++import { providerSettingsFixture } from './configFixtures.mjs';
+ import { test, afterEach } from 'node:test';
+ import assert from 'node:assert/strict';
+ import { registerHooks } from 'node:module';
+@@ -59,7 +60,7 @@ test('frontend defaults new Serena and Broker configurations to separate ports a
+ 
+ test('tray navigation events switch to Agent or Remote and ignore unknown values', async () => {
+   const originals = { ...api };
+-  const config = { agentEnabled: true, remoteSourceWriteEnabled: false, agentSuccessNotificationEnabled: true, agentFailureNotificationEnabled: true, agentSystemNotificationEnabled: true, agentSoundEnabled: true, remoteAccess: { mode: 'mcp_only', quickTunnelDesiredRunning: false, selfHosted: { provider: 'custom_https', publicOrigin: null }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } }, broker: { enabled: false, port: 19120, allowLan: false }, workspaces: [], workspaceRegistryRevision: 1, desktopSelectedWorkspaceId: null, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
++  const config = { agentProviders: providerSettingsFixture(), agentEnabled: true, remoteSourceWriteEnabled: false, agentSuccessNotificationEnabled: true, agentFailureNotificationEnabled: true, agentSystemNotificationEnabled: true, agentSoundEnabled: true, remoteAccess: { mode: 'mcp_only', quickTunnelDesiredRunning: false, selfHosted: { provider: 'custom_https', publicOrigin: null }, mcpOnly: { securityDeclaration: 'external_auth', publicOrigin: null } }, broker: { enabled: false, port: 19120, allowLan: false }, workspaces: [], workspaceRegistryRevision: 1, desktopSelectedWorkspaceId: null, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+   const snapshot = { config, desktopSelectedWorkspace: null, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
+   api.getState = async () => structuredClone(snapshot);
+   api.broker = async () => ({ running: false, port: 19120, listenAddress: '127.0.0.1', projects: [], projectSources: [], syncWarnings: [], activeWorkspace: null, codegraph: null, operation: null, lastError: null });
+@@ -86,7 +87,7 @@ test('tray navigation events switch to Agent or Remote and ignore unknown values
+ });
+ test('lazy pages preserve settings draft and keep project navigation mounted', async () => {
+   const project = { id: 'W', name: 'Persistent project', root: 'E:/project', generation: 1 };
+-  const config = { agentEnabled: false, remoteSourceWriteEnabled: false, agentSuccessNotificationEnabled: true, agentFailureNotificationEnabled: true, agentSystemNotificationEnabled: true, agentSoundEnabled: true, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [project], desktopSelectedWorkspaceId: project.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
++  const config = { agentProviders: providerSettingsFixture(), agentEnabled: false, remoteSourceWriteEnabled: false, agentSuccessNotificationEnabled: true, agentFailureNotificationEnabled: true, agentSystemNotificationEnabled: true, agentSoundEnabled: true, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [project], desktopSelectedWorkspaceId: project.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+   const snapshot = { config, desktopSelectedWorkspace: project, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
+   api.getState = async () => structuredClone(snapshot);
+   api.broker = async () => ({ running: false, projects: [{ ...project, configured: true }], projectSources: [], syncWarnings: [], activeWorkspace: null, codegraph: null });
+@@ -126,7 +127,7 @@ test('lazy pages preserve settings draft and keep project navigation mounted', a
+ 
+ test('MCP Only App controls use the broker controller to start and stop the local listener', async () => {
+   const originals = { ...api };
+-  const config = { agentEnabled: false, remoteSourceWriteEnabled: false, broker: { enabled: true, port: 9342, allowLan: true }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
++  const config = { agentProviders: providerSettingsFixture(), agentEnabled: false, remoteSourceWriteEnabled: false, broker: { enabled: true, port: 9342, allowLan: true }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
+   const snapshot = { config, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
+   let brokerRunning = true;
+   let resolveSetBroker;
+@@ -172,7 +173,7 @@ test('Settings keeps its compact contract, truthful detection copy, and broker c
+   const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+   const actualPath = 'D:/Serena/actual-runtime/serena.exe';
+   const installation = { state: 'standard', source: 'managed', version: 'serena-actual-1.8.2', path: actualPath, context: null, error: null };
+-  const config = { agentEnabled: false, agentSuccessNotificationEnabled: true, agentFailureNotificationEnabled: true, agentSystemNotificationEnabled: true, agentSoundEnabled: true, broker: { enabled: true, port: 9234, allowLan: true }, workspaces: [], serenaPath: null, port: 9345, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
++  const config = { agentProviders: providerSettingsFixture(), agentEnabled: false, agentSuccessNotificationEnabled: true, agentFailureNotificationEnabled: true, agentSystemNotificationEnabled: true, agentSoundEnabled: true, broker: { enabled: true, port: 9234, allowLan: true }, workspaces: [], serenaPath: null, port: 9345, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+   const snapshot = { config, git: { available: false, status: 'missing', path: null, version: null, error: null }, serverStatus: 'stopped', installation, activeInstallation: installation, managedRuntimePresent: true, managedProcessPresent: false, activePort: 9345, endpoint: 'http://127.0.0.1:9345/mcp', dashboardEnabled: true, dashboardUrl: 'http://127.0.0.1:24283/dashboard/', autostartEnabled: false, autostartError: null, codegraphVersion: null, lastError: null };
+   let brokerRunning = true;
+   let resolveSetBroker;
+@@ -280,7 +281,7 @@ test('Service Status renders component icons, truthful actions and independent p
+   const originals = { ...api };
+   const project = { id: 'status-workspace', name: 'Active status workspace', root: 'E:/status-workspace', generation: 1 };
+   const installation = { state: 'standard', source: 'managed', version: 'serena-actual-1.8.2', path: 'C:/Serena/runtime/serena.exe', context: 'desktop-context', error: null };
+-  const config = { agentEnabled: false, broker: { enabled: true, port: 19120, allowLan: false }, workspaces: [project], workspaceRegistryRevision: 1, serenaPath: null, port: 19121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
++  const config = { agentProviders: providerSettingsFixture(), agentEnabled: false, broker: { enabled: true, port: 19120, allowLan: false }, workspaces: [project], workspaceRegistryRevision: 1, serenaPath: null, port: 19121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+   const snapshot = { config, git: { available: true, status: 'available', version: 'git-actual-2.51.3', path: 'C:/Git/cmd/git.exe', error: null }, serverStatus: 'running', installation, activeInstallation: installation, managedRuntimePresent: true, managedProcessPresent: true, activePort: 19121, endpoint: 'http://127.0.0.1:19121/mcp', dashboardEnabled: true, dashboardUrl: 'http://127.0.0.1:24283/dashboard/', autostartEnabled: false, codegraphVersion: 'codegraph-actual-1.9.4', lastError: null };
+   const broker = { running: true, port: 19120, listenAddress: '127.0.0.1', lanEndpoints: [], projects: [project], projectSources: [], syncWarnings: [], activeWorkspace: project, codegraph: { status: 'ready', workspaceId: project.id, root: project.root, generation: 1 } };
+   let probes = 0;
+@@ -534,7 +535,7 @@ test('Serena runtime status and Broker port stay distinct while historical diagn
+ 
+ test('task detail clears the Agent main-navigation selection until returning to the list', async () => {
+   const project = { id: 'P', name: 'Task project', root: 'E:/task-project' };
+-  const config = { agentEnabled: true, broker: { enabled: true, port: 9120, allowLan: false }, workspaces: [project], serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
++  const config = { agentProviders: providerSettingsFixture(), agentEnabled: true, broker: { enabled: true, port: 9120, allowLan: false }, workspaces: [project], serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+   const snapshot = { config, git: { available: true, status: 'available' }, serverStatus: 'running', installation: null, activeInstallation: { state: 'standard', version: '1.7.0' }, managedRuntimePresent: true, managedProcessPresent: true, activePort: 9121, autostartEnabled: false, codegraphVersion: '1.6.0' };
+   const task = { executionId: 'task-1', agentId: 'agent-1', workspaceId: 'P', canonicalWorkspaceRoot: project.root, prompt: '验证任务详情导航', status: 'completed', attention: 'none', revision: 'R1', resultAvailable: false, finalResult: null, provider: { id: 'codex', displayName: 'Codex', version: null }, providerSessionLabel: null, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null }, progress: { phase: 'terminal', summaryCode: null, activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null }, nextAction: null, dispatchState: 'accepted', threadId: null, threadName: null, turnId: null, providerTerminalStatus: null, errorCode: null, errorMessage: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: 3000, availableActions: { canCancel: false, canContinue: false, canResumePending: false } };
+   api.getState = async () => structuredClone(snapshot);
+@@ -573,7 +574,7 @@ test('Agent fresh task uses Desktop selection even when the legacy Broker active
+   const originals = { ...api };
+   const selected = { id: 'A', name: 'Desktop selected A', root: 'E:/selected-a', generation: 2 };
+   const active = { id: 'B', name: 'Legacy active B', root: 'E:/legacy-b', generation: 5 };
+-  const config = { agentEnabled: true, broker: { enabled: true, port: 9120, allowLan: false }, workspaces: [selected, active], workspaceRegistryRevision: 9, desktopSelectedWorkspaceId: selected.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
++  const config = { agentProviders: providerSettingsFixture(), agentEnabled: true, broker: { enabled: true, port: 9120, allowLan: false }, workspaces: [selected, active], workspaceRegistryRevision: 9, desktopSelectedWorkspaceId: selected.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+   const snapshot = { config, desktopSelectedWorkspace: selected, git: { available: true, status: 'available' }, serverStatus: 'running', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
+   const requests = [];
+   api.getState = async () => structuredClone(snapshot);
+@@ -598,7 +599,7 @@ test('Agent fresh task uses Desktop selection even when the legacy Broker active
+ 
+ test('homepage keeps the real service and endpoint data in its compact shell', async () => {
+   const workspace = { id: 'W', name: 'serena-desktop', root: 'E:/serena-desktop', generation: 1 };
+-  const config = { agentEnabled: false, broker: { enabled: true, port: 9120, allowLan: true }, workspaces: [workspace], desktopSelectedWorkspaceId: workspace.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
++  const config = { agentProviders: providerSettingsFixture(), agentEnabled: false, broker: { enabled: true, port: 9120, allowLan: true }, workspaces: [workspace], desktopSelectedWorkspaceId: workspace.id, serenaPath: null, port: 9121, dashboardEnabled: true, openDashboardOnLaunch: false, autoStartServer: true, minimizeToTray: true };
+   const snapshot = { config, desktopSelectedWorkspace: workspace, git: { available: true, status: 'available', version: '2.50.0' }, serverStatus: 'running', installation: null, activeInstallation: { state: 'standard', version: '1.7.0' }, managedRuntimePresent: true, managedProcessPresent: true, activePort: 9121, autostartEnabled: false, codegraphVersion: '1.6.0' };
+   api.getState = async () => structuredClone(snapshot);
+   api.broker = async () => ({ running: true, port: 9120, listenAddress: '0.0.0.0', lanEndpoints: ['http://10.0.0.2:9120/mcp', 'http://192.168.1.2:9120/mcp'], projects: [{ ...workspace, configured: true }], projectSources: [], syncWarnings: [], activeWorkspace: workspace, codegraph: { status: 'ready' } });
+@@ -953,7 +954,7 @@ test('Quick Tunnel attempt survives remote page unmount and only toasts once', a
+   const notices = [];
+   toast.error = message => notices.push(message);
+   const originals = { ...api };
+-  const config = { agentEnabled: false, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
++  const config = { agentProviders: providerSettingsFixture(), agentEnabled: false, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
+   const appState = { config, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
+   let remoteState = { mode: 'mcp_only', status: 'stopped', active: false, pending: [], lastError: null, publicContext: null, authorizedClients: 0 };
+   api.getState = async () => structuredClone(appState);
+@@ -986,7 +987,7 @@ test('Quick Tunnel attempt survives remote page unmount and only toasts once', a
+ 
+ test('Quick Tunnel terminal failure renders one visible Sonner toast', async () => {
+   const originals = { ...api };
+-  const config = { agentEnabled: false, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
++  const config = { agentProviders: providerSettingsFixture(), agentEnabled: false, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
+   const appState = { config, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
+   let remoteState = { mode: 'mcp_only', status: 'stopped', active: false, pending: [], lastError: null, publicContext: null, authorizedClients: 0 };
+   api.getState = async () => structuredClone(appState);
+@@ -1029,7 +1030,7 @@ test('Quick Tunnel command rejection shows only its dedicated toast in the mount
+   const notices = [];
+   toast.error = message => notices.push(message);
+   const originals = { ...api };
+-  const config = { agentEnabled: false, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
++  const config = { agentProviders: providerSettingsFixture(), agentEnabled: false, broker: { enabled: false, port: 9120, allowLan: false }, workspaces: [], serenaPath: null, port: 9121, dashboardEnabled: false, openDashboardOnLaunch: false, autoStartServer: false, minimizeToTray: false };
+   const appState = { config, git: { available: false, status: 'missing' }, serverStatus: 'stopped', installation: null, activeInstallation: null, managedRuntimePresent: false, managedProcessPresent: false, activePort: 9121, autostartEnabled: false, codegraphVersion: null };
+   const remoteState = { mode: 'mcp_only', status: 'stopped', active: false, pending: [], lastError: null, publicContext: null, authorizedClients: 0 };
+   api.getState = async () => structuredClone(appState);
+diff --git a/src/api.ts b/src/api.ts
+index d4e7c2f..38135ca 100644
+--- a/src/api.ts
++++ b/src/api.ts
+@@ -44,6 +44,7 @@ export const api = {
+   start: () => invoke<AppState>("start_serena"),
+   stop: () => invoke<AppState>("stop_serena"),
+   restart: () => invoke<AppState>("restart_serena"),
++  // 无损传递配置；Rust 保留最新 Provider policy，策略修改仅走专用 Local IPC。
+   saveConfig: (config: ManagerConfig) =>
+     invoke<AppState>("save_config", { config }),
+   setAutostart: (enabled: boolean) =>
+diff --git a/src/app/useAppController.ts b/src/app/useAppController.ts
+index 188e8ac..3e24735 100644
+--- a/src/app/useAppController.ts
++++ b/src/app/useAppController.ts
+@@ -6,6 +6,11 @@ import { useBroker } from "../useBroker";
+ import type { AppState, ManagerConfig } from "../types";
+ 
+ const initialConfig: ManagerConfig = {
++  // 仅用于首次快照前的占位；旧配置迁移和缺省补齐由 Rust 负责。
++  agentProviders: {
++    providers: { codex: { enabled: true }, codebuddy: { enabled: false } },
++    roleRouting: { development: "codex", testing: "codex", review: "codex", analysis: "codex", general: "codex" },
++  },
+   agentEnabled: false,
+   remoteAccess: { mode: "mcp_only", quickTunnelDesiredRunning: false, selfHosted: { provider: "custom_https", publicOrigin: null }, mcpOnly: { securityDeclaration: "external_auth", publicOrigin: null } },
+   broker: { enabled: false, port: 19120, allowLan: false },
+@@ -60,6 +65,9 @@ export function useAppController(statusVisible: boolean) {
+       setDraft(next.config);
+       setBrokerPort(next.config.broker.port);
+       setBrokerAllowLan(next.config.broker.allowLan);
++    } else {
++      // 策略只接受后端快照，刷新时保留其他尚未保存的普通设置。
++      setDraft((current) => ({ ...current, agentProviders: next.config.agentProviders }));
+     }
+     setState(next);
+   }, []);
+@@ -125,7 +133,7 @@ export function useAppController(statusVisible: boolean) {
+     setBusy(label);
+     try {
+       const next = await action();
+-      setState(next);
++      applySnapshot(next);
+       if (success) toast.success(success);
+     } catch (reason) {
+       toast.error(String(reason), { id: "app-feedback" });
+@@ -136,7 +144,8 @@ export function useAppController(statusVisible: boolean) {
+     }
+   };
+ 
+-  const saveFields = async (patch: Partial<ManagerConfig>, success: string) => {
++  // 普通局部保存不提供 Provider policy mutation；策略修改使用专用 Local IPC。
++  const saveFields = async (patch: Partial<Omit<ManagerConfig, "agentProviders">>, success: string) => {
+     if (!state || busy !== null) return;
+     const unchanged = Object.entries(patch).every(
+       ([key, value]) => state.config[key as keyof ManagerConfig] === value,
+@@ -149,7 +158,7 @@ export function useAppController(statusVisible: boolean) {
+     try {
+       const snapshot = await api.saveConfig({ ...state.config, ...patch });
+       setState(snapshot);
+-      setDraft((current) => ({ ...current, ...patch }));
++      setDraft((current) => ({ ...current, ...patch, agentProviders: snapshot.config.agentProviders }));
+       toast.success(success);
+     } catch (reason) {
+       toast.error(String(reason), { id: "app-feedback" });
+@@ -160,7 +169,7 @@ export function useAppController(statusVisible: boolean) {
+     }
+   };
+ 
+-  const saveToggle = async (patch: Partial<ManagerConfig>, success: string) => {
++  const saveToggle = async (patch: Partial<Omit<ManagerConfig, "agentProviders">>, success: string) => {
+     if (!state) return;
+     const previous = draft;
+     const optimistic = { ...draft, ...patch };
+@@ -172,7 +181,7 @@ export function useAppController(statusVisible: boolean) {
+     try {
+       const snapshot = await api.saveConfig(persisted);
+       setState(snapshot);
+-      setDraft((current) => ({ ...current, ...patch }));
++      setDraft((current) => ({ ...current, ...patch, agentProviders: snapshot.config.agentProviders }));
+       toast.success(success);
+     } catch (reason) {
+       setDraft(previous);
+@@ -217,7 +226,7 @@ export function useAppController(statusVisible: boolean) {
+     setBusy("autostart");
+     try {
+       const snapshot = await api.setAutostart(enabled);
+-      setState(snapshot);
++      applySnapshot(snapshot);
+       toast.success(
+         enabled ? "已启用随系统登录启动。" : "已关闭随系统登录启动。",
+       );
+diff --git a/src/types.ts b/src/types.ts
+index 5032f7c..356b9bc 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -32,7 +32,25 @@ export interface RemoteState {
+   ngrokAuthConfigured: boolean;
+ }
+ 
++/** 单个 Provider 的本地策略，与 Rust camelCase 配置一致。 */
++export interface AgentProviderPolicy {
++  enabled: boolean;
++}
++
++/** Provider ID 保持开放；角色固定，路由允许未知 ID 或显式清空。 */
++export interface AgentProviderSettings {
++  providers: Record<string, AgentProviderPolicy>;
++  roleRouting: {
++    development: string | null;
++    testing: string | null;
++    review: string | null;
++    analysis: string | null;
++    general: string | null;
++  };
++}
++
+ export interface ManagerConfig {
++  agentProviders: AgentProviderSettings;
+   remoteAccess: RemoteAccessConfig;
+   agentEnabled: boolean;
+   remoteSourceWriteEnabled: boolean;

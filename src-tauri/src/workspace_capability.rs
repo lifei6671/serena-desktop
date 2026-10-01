@@ -4041,6 +4041,11 @@ mod tests {
             supervisor.create_workspace_start(
                 &store,
                 WorkspaceStartCreation {
+                    routing: crate::agent::store::transactions::product::FrozenStartRouting {
+                        provider: crate::agent::provider::ProviderId::new("codex".into()).unwrap(),
+                        task_role: crate::agent::execution::AgentTaskRole::General,
+                        execution_profile: Default::default(),
+                    },
                     execution_id: "execution".into(),
                     agent_id: "agent".into(),
                     request_key: "request".into(),

@@ -1,0 +1,1830 @@
+{
+  "scenario": "after",
+  "fake": null,
+  "argv": [
+    "C:\\nvm4w\\nodejs\\node.exe",
+    "C:\\Users\\lifei\\AppData\\Roaming\\npm\\node_modules\\@tencent-ai\\codebuddy-code\\bin\\codebuddy",
+    "--acp"
+  ],
+  "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-YCHFhk",
+  "pid": 36392,
+  "conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74",
+  "identityDurableBeforePrompt": true,
+  "protocol": {
+    "stage": "terminal",
+    "permissionDecisions": [],
+    "protocolVersion": 1,
+    "sessionNew": {
+      "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+      "modes": {
+        "currentModeId": "default",
+        "availableModes": [
+          {
+            "id": "default"
+          },
+          {
+            "id": "acceptEdits"
+          },
+          {
+            "id": "plan"
+          },
+          {
+            "id": "auto"
+          },
+          {
+            "id": "dontAsk"
+          },
+          {
+            "id": "bypassPermissions"
+          },
+          {
+            "id": "fullAccess"
+          },
+          {
+            "id": "delegate"
+          }
+        ]
+      },
+      "configOptions": [
+        {
+          "id": "mode",
+          "category": "mode",
+          "type": "select",
+          "currentValue": "default",
+          "options": [
+            {
+              "value": "default"
+            },
+            {
+              "value": "acceptEdits"
+            },
+            {
+              "value": "plan"
+            },
+            {
+              "value": "auto"
+            },
+            {
+              "value": "dontAsk"
+            },
+            {
+              "value": "bypassPermissions"
+            },
+            {
+              "value": "fullAccess"
+            },
+            {
+              "value": "delegate"
+            }
+          ]
+        },
+        {
+          "id": "model",
+          "category": "model",
+          "type": "select",
+          "currentValue": "hy4-preview-f",
+          "options": [
+            {
+              "value": "hy4-preview-f"
+            },
+            {
+              "value": "hy3"
+            },
+            {
+              "value": "hy3-x"
+            },
+            {
+              "value": "deepseek-v4.1-flash"
+            },
+            {
+              "value": "glm-5.3"
+            },
+            {
+              "value": "glm-5.3-flash"
+            },
+            {
+              "value": "glm-5.2"
+            },
+            {
+              "value": "glm-5.1"
+            },
+            {
+              "value": "glm-5v-turbo"
+            },
+            {
+              "value": "minimax-m3"
+            },
+            {
+              "value": "minimax-m2.7"
+            },
+            {
+              "value": "kimi-k3-1"
+            },
+            {
+              "value": "kimi-k2.8-preview"
+            },
+            {
+              "value": "kimi-k2.7"
+            },
+            {
+              "value": "kimi-k2.6"
+            },
+            {
+              "value": "deepseek-v4-pro"
+            }
+          ]
+        },
+        {
+          "id": "thought_level",
+          "category": "thought_level",
+          "type": "select",
+          "currentValue": "enabled",
+          "options": [
+            {
+              "value": "high"
+            },
+            {
+              "value": "enabled"
+            }
+          ]
+        },
+        {
+          "id": "sandbox",
+          "category": "sandbox",
+          "type": "select",
+          "currentValue": "false",
+          "options": [
+            {
+              "value": "true"
+            },
+            {
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "id": "multitask",
+          "category": "_codebuddy.ai/multitask",
+          "type": "boolean",
+          "currentValue": false
+        }
+      ]
+    },
+    "selectedModeFromCatalog": "auto",
+    "setModeAcknowledged": true,
+    "trigger": {
+      "kind": "actual_marker_exact_bytes",
+      "manifest": {
+        "before-cancel.txt": {
+          "kind": "file",
+          "size": 27,
+          "sha256": "613841732b16579f9417ffa2ffeb2a86dab63957b0c8381976403c6ee4960301"
+        }
+      },
+      "promptRpcId": "63887a82-be47-4ae3-8c34-556da27510f4",
+      "observedThroughSequence": 42
+    },
+    "cancelEnqueued": true,
+    "terminal": {
+      "stopReason": "cancelled",
+      "_meta": {
+        "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+      }
+    }
+  },
+  "prompt": {
+    "request": {
+      "sequence": 11,
+      "direction": "request",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"63887a82-be47-4ae3-8c34-556da27510f4\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "63887a82-be47-4ae3-8c34-556da27510f4",
+        "method": "session/prompt",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      }
+    },
+    "response": {
+      "sequence": 47,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"63887a82-be47-4ae3-8c34-556da27510f4\",\"result\":{\"stopReason\":\"cancelled\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "63887a82-be47-4ae3-8c34-556da27510f4",
+        "result": {
+          "stopReason": "cancelled",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      }
+    }
+  },
+  "cancel": {
+    "sequence": 43,
+    "direction": "request",
+    "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/cancel\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\"}}\n",
+    "message": {
+      "jsonrpc": "2.0",
+      "method": "session/cancel",
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562"
+      }
+    }
+  },
+  "wire": [
+    {
+      "sequence": 1,
+      "direction": "request",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"39f68d04-43de-4aa0-8d49-326ba5e68c06\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientInfo\":{\"name\":\"serena-desktop-gold-band-repro\",\"title\":\"SerenaDesktop Gold Band Repro\",\"version\":\"0.1\"},\"clientCapabilities\":{\"elicitation\":{\"form\":{}}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "39f68d04-43de-4aa0-8d49-326ba5e68c06",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientInfo": {
+            "name": "serena-desktop-gold-band-repro",
+            "title": "SerenaDesktop Gold Band Repro",
+            "version": "0.1"
+          },
+          "clientCapabilities": {
+            "elicitation": {
+              "form": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 2,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"39f68d04-43de-4aa0-8d49-326ba5e68c06\",\"result\":{\"protocolVersion\":1}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "39f68d04-43de-4aa0-8d49-326ba5e68c06",
+        "result": {
+          "protocolVersion": 1
+        }
+      }
+    },
+    {
+      "sequence": 3,
+      "direction": "request",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"2be5774d-6b28-4281-87b6-8ede247d1200\",\"method\":\"session/new\",\"params\":{\"cwd\":\"C:\\\\Users\\\\lifei\\\\AppData\\\\Local\\\\Temp\\\\cb5-004-YCHFhk\",\"mcpServers\":[]}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "2be5774d-6b28-4281-87b6-8ede247d1200",
+        "method": "session/new",
+        "params": {
+          "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-YCHFhk",
+          "mcpServers": []
+        }
+      }
+    },
+    {
+      "sequence": 4,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"config_option_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "config_option_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 5,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"2be5774d-6b28-4281-87b6-8ede247d1200\",\"result\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"modes\":{\"availableModes\":[{\"id\":\"default\"},{\"id\":\"acceptEdits\"},{\"id\":\"plan\"},{\"id\":\"auto\"},{\"id\":\"dontAsk\"},{\"id\":\"bypassPermissions\"},{\"id\":\"fullAccess\"},{\"id\":\"delegate\"}],\"currentModeId\":\"default\"},\"configOptions\":[{\"type\":\"select\",\"id\":\"mode\",\"category\":\"mode\",\"currentValue\":\"default\",\"options\":[{\"value\":\"default\"},{\"value\":\"acceptEdits\"},{\"value\":\"plan\"},{\"value\":\"auto\"},{\"value\":\"dontAsk\"},{\"value\":\"bypassPermissions\"},{\"value\":\"fullAccess\"},{\"value\":\"delegate\"}]},{\"type\":\"select\",\"id\":\"model\",\"category\":\"model\",\"currentValue\":\"hy4-preview-f\",\"options\":[{\"value\":\"hy4-preview-f\"},{\"value\":\"hy3\"},{\"value\":\"hy3-x\"},{\"value\":\"deepseek-v4.1-flash\"},{\"value\":\"glm-5.3\"},{\"value\":\"glm-5.3-flash\"},{\"value\":\"glm-5.2\"},{\"value\":\"glm-5.1\"},{\"value\":\"glm-5v-turbo\"},{\"value\":\"minimax-m3\"},{\"value\":\"minimax-m2.7\"},{\"value\":\"kimi-k3-1\"},{\"value\":\"kimi-k2.8-preview\"},{\"value\":\"kimi-k2.7\"},{\"value\":\"kimi-k2.6\"},{\"value\":\"deepseek-v4-pro\"}]},{\"type\":\"select\",\"id\":\"thought_level\",\"category\":\"thought_level\",\"currentValue\":\"enabled\",\"options\":[{\"value\":\"high\"},{\"value\":\"enabled\"}]},{\"type\":\"select\",\"id\":\"sandbox\",\"category\":\"sandbox\",\"currentValue\":\"false\",\"options\":[{\"value\":\"true\"},{\"value\":\"false\"}]},{\"type\":\"boolean\",\"id\":\"multitask\",\"category\":\"_codebuddy.ai/multitask\",\"currentValue\":false}]}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "2be5774d-6b28-4281-87b6-8ede247d1200",
+        "result": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "modes": {
+            "availableModes": [
+              {
+                "id": "default"
+              },
+              {
+                "id": "acceptEdits"
+              },
+              {
+                "id": "plan"
+              },
+              {
+                "id": "auto"
+              },
+              {
+                "id": "dontAsk"
+              },
+              {
+                "id": "bypassPermissions"
+              },
+              {
+                "id": "fullAccess"
+              },
+              {
+                "id": "delegate"
+              }
+            ],
+            "currentModeId": "default"
+          },
+          "configOptions": [
+            {
+              "type": "select",
+              "id": "mode",
+              "category": "mode",
+              "currentValue": "default",
+              "options": [
+                {
+                  "value": "default"
+                },
+                {
+                  "value": "acceptEdits"
+                },
+                {
+                  "value": "plan"
+                },
+                {
+                  "value": "auto"
+                },
+                {
+                  "value": "dontAsk"
+                },
+                {
+                  "value": "bypassPermissions"
+                },
+                {
+                  "value": "fullAccess"
+                },
+                {
+                  "value": "delegate"
+                }
+              ]
+            },
+            {
+              "type": "select",
+              "id": "model",
+              "category": "model",
+              "currentValue": "hy4-preview-f",
+              "options": [
+                {
+                  "value": "hy4-preview-f"
+                },
+                {
+                  "value": "hy3"
+                },
+                {
+                  "value": "hy3-x"
+                },
+                {
+                  "value": "deepseek-v4.1-flash"
+                },
+                {
+                  "value": "glm-5.3"
+                },
+                {
+                  "value": "glm-5.3-flash"
+                },
+                {
+                  "value": "glm-5.2"
+                },
+                {
+                  "value": "glm-5.1"
+                },
+                {
+                  "value": "glm-5v-turbo"
+                },
+                {
+                  "value": "minimax-m3"
+                },
+                {
+                  "value": "minimax-m2.7"
+                },
+                {
+                  "value": "kimi-k3-1"
+                },
+                {
+                  "value": "kimi-k2.8-preview"
+                },
+                {
+                  "value": "kimi-k2.7"
+                },
+                {
+                  "value": "kimi-k2.6"
+                },
+                {
+                  "value": "deepseek-v4-pro"
+                }
+              ]
+            },
+            {
+              "type": "select",
+              "id": "thought_level",
+              "category": "thought_level",
+              "currentValue": "enabled",
+              "options": [
+                {
+                  "value": "high"
+                },
+                {
+                  "value": "enabled"
+                }
+              ]
+            },
+            {
+              "type": "select",
+              "id": "sandbox",
+              "category": "sandbox",
+              "currentValue": "false",
+              "options": [
+                {
+                  "value": "true"
+                },
+                {
+                  "value": "false"
+                }
+              ]
+            },
+            {
+              "type": "boolean",
+              "id": "multitask",
+              "category": "_codebuddy.ai/multitask",
+              "currentValue": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 6,
+      "direction": "request",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"281b3fe7-0f03-4e6d-8b2f-584293f1e3cc\",\"method\":\"session/set_mode\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"modeId\":\"auto\"}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "281b3fe7-0f03-4e6d-8b2f-584293f1e3cc",
+        "method": "session/set_mode",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "modeId": "auto"
+        }
+      }
+    },
+    {
+      "sequence": 7,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"available_commands_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "available_commands_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 8,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"_codebuddy.ai/command\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\"}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "_codebuddy.ai/command",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562"
+        }
+      }
+    },
+    {
+      "sequence": 9,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"current_mode_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "current_mode_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 10,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"281b3fe7-0f03-4e6d-8b2f-584293f1e3cc\",\"result\":{}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "281b3fe7-0f03-4e6d-8b2f-584293f1e3cc",
+        "result": {}
+      }
+    },
+    {
+      "sequence": 11,
+      "direction": "request",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"63887a82-be47-4ae3-8c34-556da27510f4\",\"method\":\"session/prompt\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "63887a82-be47-4ae3-8c34-556da27510f4",
+        "method": "session/prompt",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 12,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"session_info_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "session_info_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 13,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"session_info_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "session_info_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 14,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"session_info_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "session_info_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 15,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"config_option_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "config_option_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 16,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"session_info_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "session_info_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 17,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"usage_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "usage_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 18,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"usage_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "usage_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 19,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"session_info_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "session_info_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 20,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"available_commands_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "available_commands_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 21,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"session_info_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "session_info_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 22,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 23,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 24,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 25,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"agent_message_chunk\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "agent_message_chunk",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 26,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"session_info_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "session_info_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 27,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"status\":\"in_progress\",\"kind\":\"other\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "status": "in_progress",
+            "kind": "other",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 28,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 29,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 30,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 31,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 32,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 33,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 34,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 35,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 36,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 37,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 38,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 39,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 40,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"tool_call_update\",\"toolCallId\":\"call_478ffb814abb40409d4815bf\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "call_478ffb814abb40409d4815bf",
+            "_meta": {
+              "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+            }
+          }
+        }
+      }
+    },
+    {
+      "sequence": 41,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"session_info_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "session_info_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 42,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"session_info_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "session_info_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 43,
+      "direction": "request",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/cancel\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\"}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/cancel",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562"
+        }
+      }
+    },
+    {
+      "sequence": 44,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"usage_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "usage_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 45,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"_codebuddy.ai/checkpoint\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\"}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "_codebuddy.ai/checkpoint",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562"
+        }
+      }
+    },
+    {
+      "sequence": 46,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"method\":\"session/update\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"update\":{\"sessionUpdate\":\"usage_update\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "method": "session/update",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "update": {
+            "sessionUpdate": "usage_update"
+          }
+        }
+      }
+    },
+    {
+      "sequence": 47,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"63887a82-be47-4ae3-8c34-556da27510f4\",\"result\":{\"stopReason\":\"cancelled\",\"_meta\":{\"codebuddy.ai/conversationRequestId\":\"01a0e0a3d88d76f5b9f822cd6bb2fd74\"}}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "63887a82-be47-4ae3-8c34-556da27510f4",
+        "result": {
+          "stopReason": "cancelled",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      }
+    }
+  ],
+  "updates": [
+    {
+      "sequence": 4,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "config_option_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 7,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "available_commands_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 9,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "current_mode_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 12,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "session_info_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 13,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "session_info_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 14,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "session_info_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 15,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "config_option_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 16,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "session_info_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 17,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "usage_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 18,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "usage_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 19,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "session_info_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 20,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "available_commands_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 21,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "session_info_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 22,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 23,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 24,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 25,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "agent_message_chunk",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 26,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "session_info_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 27,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "status": "in_progress",
+          "kind": "other",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 28,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 29,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 30,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 31,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 32,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 33,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 34,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 35,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 36,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 37,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 38,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 39,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 40,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "tool_call_update",
+          "toolCallId": "call_478ffb814abb40409d4815bf",
+          "_meta": {
+            "codebuddy.ai/conversationRequestId": "01a0e0a3d88d76f5b9f822cd6bb2fd74"
+          }
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 41,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "session_info_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 42,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "session_info_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 44,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "usage_update"
+        }
+      },
+      "afterTerminal": false
+    },
+    {
+      "sequence": 46,
+      "params": {
+        "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+        "update": {
+          "sessionUpdate": "usage_update"
+        }
+      },
+      "afterTerminal": false
+    }
+  ],
+  "before": {},
+  "after": {
+    "before-cancel.txt": {
+      "kind": "file",
+      "size": 27,
+      "sha256": "613841732b16579f9417ffa2ffeb2a86dab63957b0c8381976403c6ee4960301"
+    }
+  },
+  "delta": [
+    "before-cancel.txt"
+  ],
+  "manifestError": null,
+  "markerRetained": true,
+  "error": null,
+  "cleanup": {
+    "streamsClosed": true,
+    "terminated": true,
+    "waited": true,
+    "exitCode": 1,
+    "directChildReaped": true,
+    "stderrJoined": true,
+    "succeeded": true,
+    "errors": [],
+    "stderrBytesDrained": 0,
+    "windowsJobAtCreationProven": false
+  },
+  "elapsedMs": 6827,
+  "postActionTimeoutMs": 20000,
+  "providerTerminalReceived": true,
+  "runtimeTerminationEvidence": true,
+  "claimReleaseAuthorizedByCancel": false,
+  "sessionNew": {
+    "request": {
+      "sequence": 3,
+      "direction": "request",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"2be5774d-6b28-4281-87b6-8ede247d1200\",\"method\":\"session/new\",\"params\":{\"cwd\":\"C:\\\\Users\\\\lifei\\\\AppData\\\\Local\\\\Temp\\\\cb5-004-YCHFhk\",\"mcpServers\":[]}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "2be5774d-6b28-4281-87b6-8ede247d1200",
+        "method": "session/new",
+        "params": {
+          "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-004-YCHFhk",
+          "mcpServers": []
+        }
+      }
+    },
+    "response": {
+      "sequence": 5,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"2be5774d-6b28-4281-87b6-8ede247d1200\",\"result\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"modes\":{\"availableModes\":[{\"id\":\"default\"},{\"id\":\"acceptEdits\"},{\"id\":\"plan\"},{\"id\":\"auto\"},{\"id\":\"dontAsk\"},{\"id\":\"bypassPermissions\"},{\"id\":\"fullAccess\"},{\"id\":\"delegate\"}],\"currentModeId\":\"default\"},\"configOptions\":[{\"type\":\"select\",\"id\":\"mode\",\"category\":\"mode\",\"currentValue\":\"default\",\"options\":[{\"value\":\"default\"},{\"value\":\"acceptEdits\"},{\"value\":\"plan\"},{\"value\":\"auto\"},{\"value\":\"dontAsk\"},{\"value\":\"bypassPermissions\"},{\"value\":\"fullAccess\"},{\"value\":\"delegate\"}]},{\"type\":\"select\",\"id\":\"model\",\"category\":\"model\",\"currentValue\":\"hy4-preview-f\",\"options\":[{\"value\":\"hy4-preview-f\"},{\"value\":\"hy3\"},{\"value\":\"hy3-x\"},{\"value\":\"deepseek-v4.1-flash\"},{\"value\":\"glm-5.3\"},{\"value\":\"glm-5.3-flash\"},{\"value\":\"glm-5.2\"},{\"value\":\"glm-5.1\"},{\"value\":\"glm-5v-turbo\"},{\"value\":\"minimax-m3\"},{\"value\":\"minimax-m2.7\"},{\"value\":\"kimi-k3-1\"},{\"value\":\"kimi-k2.8-preview\"},{\"value\":\"kimi-k2.7\"},{\"value\":\"kimi-k2.6\"},{\"value\":\"deepseek-v4-pro\"}]},{\"type\":\"select\",\"id\":\"thought_level\",\"category\":\"thought_level\",\"currentValue\":\"enabled\",\"options\":[{\"value\":\"high\"},{\"value\":\"enabled\"}]},{\"type\":\"select\",\"id\":\"sandbox\",\"category\":\"sandbox\",\"currentValue\":\"false\",\"options\":[{\"value\":\"true\"},{\"value\":\"false\"}]},{\"type\":\"boolean\",\"id\":\"multitask\",\"category\":\"_codebuddy.ai/multitask\",\"currentValue\":false}]}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "2be5774d-6b28-4281-87b6-8ede247d1200",
+        "result": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "modes": {
+            "availableModes": [
+              {
+                "id": "default"
+              },
+              {
+                "id": "acceptEdits"
+              },
+              {
+                "id": "plan"
+              },
+              {
+                "id": "auto"
+              },
+              {
+                "id": "dontAsk"
+              },
+              {
+                "id": "bypassPermissions"
+              },
+              {
+                "id": "fullAccess"
+              },
+              {
+                "id": "delegate"
+              }
+            ],
+            "currentModeId": "default"
+          },
+          "configOptions": [
+            {
+              "type": "select",
+              "id": "mode",
+              "category": "mode",
+              "currentValue": "default",
+              "options": [
+                {
+                  "value": "default"
+                },
+                {
+                  "value": "acceptEdits"
+                },
+                {
+                  "value": "plan"
+                },
+                {
+                  "value": "auto"
+                },
+                {
+                  "value": "dontAsk"
+                },
+                {
+                  "value": "bypassPermissions"
+                },
+                {
+                  "value": "fullAccess"
+                },
+                {
+                  "value": "delegate"
+                }
+              ]
+            },
+            {
+              "type": "select",
+              "id": "model",
+              "category": "model",
+              "currentValue": "hy4-preview-f",
+              "options": [
+                {
+                  "value": "hy4-preview-f"
+                },
+                {
+                  "value": "hy3"
+                },
+                {
+                  "value": "hy3-x"
+                },
+                {
+                  "value": "deepseek-v4.1-flash"
+                },
+                {
+                  "value": "glm-5.3"
+                },
+                {
+                  "value": "glm-5.3-flash"
+                },
+                {
+                  "value": "glm-5.2"
+                },
+                {
+                  "value": "glm-5.1"
+                },
+                {
+                  "value": "glm-5v-turbo"
+                },
+                {
+                  "value": "minimax-m3"
+                },
+                {
+                  "value": "minimax-m2.7"
+                },
+                {
+                  "value": "kimi-k3-1"
+                },
+                {
+                  "value": "kimi-k2.8-preview"
+                },
+                {
+                  "value": "kimi-k2.7"
+                },
+                {
+                  "value": "kimi-k2.6"
+                },
+                {
+                  "value": "deepseek-v4-pro"
+                }
+              ]
+            },
+            {
+              "type": "select",
+              "id": "thought_level",
+              "category": "thought_level",
+              "currentValue": "enabled",
+              "options": [
+                {
+                  "value": "high"
+                },
+                {
+                  "value": "enabled"
+                }
+              ]
+            },
+            {
+              "type": "select",
+              "id": "sandbox",
+              "category": "sandbox",
+              "currentValue": "false",
+              "options": [
+                {
+                  "value": "true"
+                },
+                {
+                  "value": "false"
+                }
+              ]
+            },
+            {
+              "type": "boolean",
+              "id": "multitask",
+              "category": "_codebuddy.ai/multitask",
+              "currentValue": false
+            }
+          ]
+        }
+      }
+    }
+  },
+  "modeChange": {
+    "request": {
+      "sequence": 6,
+      "direction": "request",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"281b3fe7-0f03-4e6d-8b2f-584293f1e3cc\",\"method\":\"session/set_mode\",\"params\":{\"sessionId\":\"01a0e0a3-dd44-7d2b-a367-5b39163eb562\",\"modeId\":\"auto\"}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "281b3fe7-0f03-4e6d-8b2f-584293f1e3cc",
+        "method": "session/set_mode",
+        "params": {
+          "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+          "modeId": "auto"
+        }
+      }
+    },
+    "response": {
+      "sequence": 10,
+      "direction": "response",
+      "sanitizedRawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"281b3fe7-0f03-4e6d-8b2f-584293f1e3cc\",\"result\":{}}\n",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "281b3fe7-0f03-4e6d-8b2f-584293f1e3cc",
+        "result": {}
+      }
+    }
+  },
+  "sessionId": "01a0e0a3-dd44-7d2b-a367-5b39163eb562",
+  "workspaceDeleted": true,
+  "workspaceDeleteError": null
+}

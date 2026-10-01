@@ -61,6 +61,11 @@ fn provider_contexts_have_only_the_frozen_execution_id_field() {
         "historyMode",
         "runtimeId",
         "runtimeInstanceId",
+        "sessionId",
+        "conversationRequestId",
+        "providerRequestId",
+        "promptRpcId",
+        "privateRevision",
     ] {
         let mut value = json!({ "executionId": "execution-1" });
         value[forged] = json!("forged");
@@ -107,6 +112,10 @@ fn provider_error_code_wire_values_are_exact() {
         (
             ProviderErrorCode::AgentProviderNotFound,
             "AGENT_PROVIDER_NOT_FOUND",
+        ),
+        (
+            ProviderErrorCode::AgentProviderDisabled,
+            "AGENT_PROVIDER_DISABLED",
         ),
         (
             ProviderErrorCode::AgentProviderUnavailable,
@@ -238,6 +247,11 @@ fn provider_run_result_rejects_forged_safety_and_private_identity_fields() {
         "runtimeId",
         "runtimeInstanceId",
         "runtimeIdentity",
+        "sessionId",
+        "conversationRequestId",
+        "providerRequestId",
+        "promptRpcId",
+        "privateRevision",
     ] {
         let mut value = json!({
             "executionId": "execution-1",
@@ -280,6 +294,11 @@ fn production_provider_domain_has_no_private_or_safety_identity_members() {
         "runtime_id",
         "runtime_instance_id",
         "runtime_identity",
+        "session_id",
+        "conversation_request_id",
+        "provider_request_id",
+        "prompt_rpc_id",
+        "private_revision",
     ] {
         assert!(
             !source.lines().any(|line| {

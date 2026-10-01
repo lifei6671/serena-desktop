@@ -1,0 +1,25 @@
+{
+  "crate": "agent-client-protocol",
+  "version": "2.2.0",
+  "schemaVersion": "1.9.1",
+  "directFeatures": [],
+  "defaultFeatures": false,
+  "source": "https://github.com/agentclientprotocol/rust-sdk",
+  "crateSource": "https://static.crates.io/crates/agent-client-protocol/agent-client-protocol-2.2.0.crate",
+  "api": "agent_client_protocol::ByteStreams::new(outgoing, incoming); Client.builder().connect_with(...); schema::v1::InitializeRequest::new(ProtocolVersion::V1); cx.send_request(...).block_task().await",
+  "externalIoSource": {
+    "path": "src/jsonrpc.rs",
+    "sha256": "51cb8aa0d75527e40f28930e204eff6042906c5767b836fa51fba28554d12205",
+    "lines": "6385-6400",
+    "excerpt": "#[derive(Debug)]\npub struct ByteStreams<OB, IB> {\n    outgoing: OB,\n    incoming: IB,\n}\n\nimpl<OB, IB> ByteStreams<OB, IB>\nwhere\n    OB: AsyncWrite + Send + 'static,\n    IB: AsyncRead + Send + 'static,\n{\n    /// Create a new byte stream transport.\n    pub fn new(outgoing: OB, incoming: IB) -> Self {\n        Self { outgoing, incoming }\n    }\n"
+  },
+  "adapter": "tokio::process ChildStdin.compat_write() / ChildStdout.compat(), Tee implements futures AsyncWrite/AsyncRead",
+  "spawnAuthority": "tokio::process::Command in harness, no AcpAgent/AcpAgentConfig/Stdio helper",
+  "evidence": "cargo-test-final.log: 5 unit + 6 external-process integration tests PASS; bootstrap-test.log: 2 mocked failure-path tests PASS",
+  "downloadIssue": "native Cargo Schannel SEC_E_NO_CREDENTIALS; recovered via bounded local Python sparse proxy with validated upstream HTTPS. No SDK API limitation; no NDJSON fallback.",
+  "lockfileSha256": "47430a3c38d3b8bb73f47eaa194851a7b7339987784cfd72490ab44a35c50da3",
+  "realExternalIoProof": "real-cli.json: actual independent Node CLI initialized through official SDK ByteStreams, numeric version 1; child owned by harness, cleanup bounded",
+  "wireProjection": "raw response retains delegateToolsSupport/mainAgentSupport/multitaskSupport; sdkResponse separately shows defaults and discarded unknown extension fields",
+  "authSurface": "raw authMethods public id/name only; no authenticate call",
+  "protocolAuthoritySha256": "200d348ee639b851db708a4392fe19779a4f0d749ca217f9d4917662aab8abad"
+}

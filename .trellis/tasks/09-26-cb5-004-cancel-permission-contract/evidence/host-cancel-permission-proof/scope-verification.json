@@ -1,0 +1,32 @@
+{
+  "head": {
+    "command": "git rev-parse HEAD",
+    "exitCode": 0,
+    "stdout": "314687f9ec0ab8bb6115971cf1edc6e8ef116b2d\n",
+    "stderr": ""
+  },
+  "trackedStatus": {
+    "command": "git status --porcelain --untracked-files=no",
+    "exitCode": 0,
+    "stdout": " M docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md\n M docs/technical-design-multi-agent-provider-codebuddy-v0.1.md\n",
+    "stderr": "warning: unable to access 'C:\\Users\\lifei/.config/git/ignore': Permission denied\n"
+  },
+  "diffCheck": {
+    "command": "git diff --check",
+    "exitCode": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "cachedDiffCheck": {
+    "command": "git diff --cached --check",
+    "exitCode": 0,
+    "stdout": "",
+    "stderr": "warning: unable to access 'C:\\Users\\lifei/.config/git/ignore': Permission denied\n"
+  },
+  "trackedCompared": 755,
+  "changedTrackedFilesSinceUserBaseline": [],
+  "productChangedFiles": [],
+  "preservedArtifactCount": 89,
+  "changedPriorTaskArtifacts": [],
+  "hostOwnedDocChangesPreserved": true
+}

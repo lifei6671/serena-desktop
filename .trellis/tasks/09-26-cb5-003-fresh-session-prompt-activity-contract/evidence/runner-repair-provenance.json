@@ -1,0 +1,50 @@
+{
+  "realExecutionsAfterRepair": 0,
+  "originalRealEvidenceChecks": [
+    {
+      "path": "evidence/fresh-session.jsonl",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/read-only-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/isolated-write-result.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/read-attempt-1.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/read-attempt-2.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/write-attempt-1.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/write-attempt-2.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/process-evidence.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/activity-order.json",
+      "unchanged": true
+    },
+    {
+      "path": "evidence/conversation-request-id.json",
+      "unchanged": true
+    }
+  ],
+  "pythonTests": {
+    "passed": 5,
+    "failed": 0
+  },
+  "rustRerun": "NOT_RUN: unchanged Rust; earlier 14/14 retained"
+}

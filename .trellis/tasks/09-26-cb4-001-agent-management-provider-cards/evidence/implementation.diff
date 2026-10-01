@@ -1,0 +1,454 @@
+--- before/src-tauri/src/agent/product/provider_catalog_tests.rs
++++ after/src-tauri/src/agent/product/provider_catalog_tests.rs
+@@ -229,7 +229,7 @@
+     );
+ }
+ 
+-/// 成功和读取失败都不改 Runtime、已有 Execution/Claim、Registry health 或 policy。
++/// Product 与本地 getter 成功和失败均不改 Runtime、已有 Execution/Claim、health 或 policy。
+ #[tokio::test]
+ async fn success_and_read_failure_have_no_side_effects() {
+     let directory = tempfile::tempdir().unwrap();
+@@ -276,12 +276,22 @@
+     let policy = supervisor.workspace_registry_config();
+     let config_bytes = std::fs::read(&supervisor.paths.config_file).unwrap();
+     let registry = service.manager.registry().unwrap();
+-    service.provider_catalog(&supervisor).unwrap();
++    let expected = serde_json::to_value(service.provider_catalog(&supervisor).unwrap()).unwrap();
++    let local = serde_json::to_value(
++        crate::commands::agent_provider_catalog_get_impl(&service, &supervisor).unwrap(),
++    )
++    .unwrap();
++    assert_eq!(local, expected);
++    // 未知注册 Provider 原样保留，不会被替换为某个已知品牌。
++    assert_eq!(local["providers"][0]["id"], "fake-acp");
++    assert_eq!(local["providers"][0]["displayName"], "Catalog fake-acp");
++    assert!(local["providers"][0].get("version").is_none());
+     adapter.invalid_descriptor.store(true, Ordering::SeqCst);
+     assert_eq!(
+         service.provider_catalog(&supervisor).unwrap_err().code,
+         ProviderErrorCode::AgentProviderNotFound
+     );
++    assert!(crate::commands::agent_provider_catalog_get_impl(&service, &supervisor).is_err());
+     assert_eq!(durable_snapshot(directory.path()), before);
+     assert_eq!(supervisor.workspace_registry_config(), policy);
+     assert_eq!(
+--- before/src-tauri/src/commands.rs
++++ after/src-tauri/src/commands.rs
+@@ -1127,6 +1127,31 @@
+     product.history_page(before, workspace).await
+ }
+ 
++/// 本地只读目录桥接；复用 Product 快照，不探测健康或创建 Runtime。
++#[tauri::command]
++pub fn agent_provider_catalog_get(
++    app: AppHandle,
++) -> Result<crate::agent::product::ProviderCatalogSnapshot, String> {
++    let broker = crate::mcp::get(&app);
++    agent_provider_catalog_get_impl(
++        broker
++            .product
++            .get()
++            .ok_or("BACKEND_UNAVAILABLE: Agent service not initialized")?,
++        &broker.supervisor,
++    )
++}
++
++/// 与 IPC 共用唯一 Product 读取路径，供只读副作用契约测试覆盖。
++pub(crate) fn agent_provider_catalog_get_impl(
++    product: &crate::agent::product::AgentProductService,
++    supervisor: &crate::serena::SupervisorState,
++) -> Result<crate::agent::product::ProviderCatalogSnapshot, String> {
++    product
++        .provider_catalog(supervisor)
++        .map_err(|_| "AGENT_OPERATION_FAILED".into())
++}
++
+ /// 读取 Supervisor 已提交策略；不启动任何服务。
+ #[tauri::command]
+ pub fn agent_provider_settings_get(app: AppHandle) -> crate::config::AgentProviderSettings {
+--- before/src-tauri/src/lib.rs
++++ after/src-tauri/src/lib.rs
+@@ -296,6 +296,7 @@
+             remote::remote_approve,
+             commands::agent_operation,
+             commands::agent_provider_settings_get,
++            commands::agent_provider_catalog_get,
+             commands::agent_provider_set_enabled,
+             commands::agent_provider_set_role_route,
+             commands::agent_provider_refresh_health,
+--- before/src/AgentPanel.test.mjs
++++ after/src/AgentPanel.test.mjs
+@@ -49,8 +49,10 @@
+ const workspace = name => ({ id: name, name, root: `E:\\${name}` });
+ const row = (overrides = {}) => ({ executionId: 'old-E1', agentId: 'old-lineage', workspaceId: 'A', canonicalWorkspaceRoot: 'E:\\frozen-A', prompt: '原始任务 <literal>', status: 'unknown', attention: 'manual_resolution_required', revision: 'R1', resultAvailable: overrides.finalResult !== undefined && overrides.finalResult !== null, provider: { id: 'codex', displayName: 'Codex', version: null }, providerSessionLabel: null, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null }, progress: { phase: 'reconciling', summaryCode: 'execution.reconciling', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null }, nextAction: { action: 'manual_resolution' }, dispatchState: 'uncertain', threadId: null, threadName: null, turnId: null, providerTerminalStatus: null, errorCode: null, errorMessage: null, resultCompleteness: 'none', interruptRequested: false, interruptAcknowledged: false, interruptTimedOut: false, createdAt: 1000, updatedAt: 2000, completedAt: null,
+   availableActions: { canCancel: false, canContinue: false, canResumePending: false }, ...overrides, provider: { id: 'codex', displayName: 'Codex', version: null, ...overrides.provider }, usage: { inputTokens: null, cachedInputTokens: null, cacheWriteInputTokens: null, outputTokens: null, reasoningTokens: null, totalTokens: null, modelContextWindow: null, completeness: 'unknown', usageRevision: 0, updatedAt: null, ...overrides.usage }, progress: { phase: 'reconciling', summaryCode: 'execution.reconciling', activityPhase: null, toolCategory: null, lastActivityAt: null, activityAgeMs: null, silenceLevel: null, ...overrides.progress } });
+-async function mount(rows, handler, props = {}) {
++async function mount(rows, handler, props = {}, catalog = { providers: [], roleRouting: {} }) {
+   const calls = [];
++  // 独立目录 fixture，避免任务行为测试依赖本机 Tauri 环境。
++  api.agentProviderCatalog = typeof catalog === 'function' ? catalog : async () => structuredClone(catalog);
+   api.agent = async request => {
+     calls.push(structuredClone(request));
+     if (handler) { const result = handler(request); if (result !== undefined) return result; }
+@@ -70,6 +72,96 @@
+   return calls;
+ }
+ function button(text, within = document) { return [...within.querySelectorAll('button')].find(b => b.textContent === text); }
++
++/** Catalog fixture 只声明后端已有字段；协议始终缺失。 */
++function catalogProvider(overrides = {}) {
++  return { id: 'codex', displayName: 'Codex', version: '1.2.3', enabled: true, health: 'available',
++    availableForNewExecution: true,
++    capabilities: { canExecute: true, canContinue: false, canCancel: true, canRecover: false, activity: true, tokenUsage: false },
++    ...overrides };
++}
++
++/** 读取可访问的字段名称与值，验证用户看到的独立状态维度。 */
++function cardValues(card) {
++  return Object.fromEntries([...card.querySelectorAll('dl > div')].map(field => [field.querySelector('dt').textContent, field.querySelector('dd').textContent]));
++}
++
++// 逐项验证正常 Idle、停用、健康失败与 draining，避免合并独立状态。
++for (const scenario of [
++  { name: 'idle available + stopped', provider: {}, rows: [], enabled: '已启用', health: '可用', runtime: '已停止', active: '0' },
++  { name: 'disabled without active execution', provider: { enabled: false }, rows: [], enabled: '已停用', health: '可用', runtime: '已停止', active: '0' },
++  { name: 'unavailable independently of enabled', provider: { health: 'unavailable' }, rows: [], enabled: '已启用', health: '不可用', runtime: '已停止', active: '0' },
++  { name: 'disabled and unavailable remain separate', provider: { enabled: false, health: 'unavailable' }, rows: [], enabled: '已停用', health: '不可用', runtime: '已停止', active: '0' },
++  { name: 'draining while execution remains active', provider: { enabled: false }, rows: [row({ status: 'running', attention: 'none' })], enabled: '正在停用', health: '可用', runtime: '运行中', active: '1' },
++]) {
++  test(`provider card: ${scenario.name}`, async () => {
++    await mount(scenario.rows, undefined, {}, { providers: [catalogProvider(scenario.provider)], roleRouting: {} });
++    const cards = document.querySelectorAll('.agent-provider-card');
++    assert.equal(cards.length, 1);
++    assert.equal(cards[0].querySelector('h3').textContent, 'Codex');
++    assert.deepEqual(cardValues(cards[0]), { 接入: scenario.enabled, 可用性: scenario.health, 版本: '1.2.3', 协议: '—', Runtime: scenario.runtime, 活动任务: scenario.active });
++    assert.equal(cards[0].querySelector('[role="alert"]'), null);
++    if (scenario.health === '可用') assert.equal(cards[0].querySelectorAll('.tone-red').length, 0);
++    assert.equal(document.querySelector('h1').textContent, 'Agent 管理');
++    assert.ok(document.querySelector('.agent-providers').compareDocumentPosition(document.querySelector('.agent-composer-section')) & Node.DOCUMENT_POSITION_FOLLOWING);
++    assert.ok(document.querySelector('#agent-prompt'));
++    assert.ok(document.querySelector('[aria-label="最近任务"]'));
++  });
++}
++
++test('provider cards dynamically render two providers and aggregate frozen row provider IDs', async () => {
++  const rows = [
++    row({ executionId: 'a', status: 'running', attention: 'none', provider: { id: 'codex', displayName: 'same name' } }),
++    row({ executionId: 'b', status: 'finalizing', attention: 'none', provider: { id: 'codebuddy', displayName: 'same name' } }),
++    row({ executionId: 'c', status: 'dispatch_pending', attention: 'pending_explicit_resume', provider: { id: 'codebuddy' } }),
++    row({ executionId: 'd', status: 'completed', attention: 'none', provider: { id: 'codebuddy' } }),
++    row({ executionId: 'e', status: 'running', attention: 'none', provider: { id: 'historical-other' } }),
++  ];
++  window.localStorage.setItem('agent-hidden-executions', JSON.stringify(['b']));
++  await mount(rows, undefined, {}, { providers: [catalogProvider(), catalogProvider({ id: 'codebuddy', displayName: 'CodeBuddy', enabled: false })], roleRouting: { general: 'codex' } });
++  const cards = document.querySelectorAll('.agent-provider-card');
++  assert.deepEqual([...cards].map(card => card.querySelector('h3').textContent), ['Codex', 'CodeBuddy']);
++  assert.equal(cardValues(cards[0]).活动任务, '1');
++  assert.equal(cardValues(cards[1]).活动任务, '2');
++  assert.equal(cardValues(cards[1]).接入, '正在停用');
++  assert.equal(cards[1].querySelector('select,[role="combobox"]'), null);
++  assert.match(document.querySelector('.agent-providers').textContent, /当前已加载/);
++  assert.match(document.querySelector('.agent-providers').textContent, /不代表系统进程状态/);
++});
++
++test('unknown provider uses id and missing version/protocol fallbacks with the same card layout', async () => {
++  const unknown = catalogProvider({ id: 'future-agent', displayName: null, version: null });
++  const missing = catalogProvider({ id: 'new-provider' });
++  delete missing.displayName;
++  delete missing.version;
++  await mount([], undefined, {}, { providers: [unknown, missing], roleRouting: {} });
++  const cards = document.querySelectorAll('.agent-provider-card');
++  assert.deepEqual([...cards].map(card => card.querySelector('h3').textContent), ['future-agent', 'new-provider']);
++  for (const card of cards) {
++    assert.equal(cardValues(card).版本, '—');
++    assert.equal(cardValues(card).协议, '—');
++    assert.equal(cardValues(card).Runtime, '已停止');
++    assert.equal(card.querySelectorAll('dl > div').length, 6);
++  }
++});
++
++test('catalog failure leaves composer and existing history usable', async () => {
++  await mount([row({ status: 'completed', attention: 'none' })], undefined, {}, async () => { throw new Error('catalog unavailable'); });
++  assert.match(document.querySelector('.agent-providers [role="alert"]').textContent, /接入信息读取失败/);
++  await input('目录失败时仍可提交任务');
++  assert.equal(button('开始新任务').disabled, false);
++  await click('详情');
++  assert.ok(document.querySelector('details.agent-technical'));
++});
++
++test('provider presentation and card layout contain no provider ID special cases', () => {
++  const presentation = readFileSync('src/agentPresentation.ts', 'utf8');
++  const panel = readFileSync('src/AgentPanel.tsx', 'utf8');
++  assert.doesNotMatch(presentation, /codex|codebuddy/iu);
++  assert.doesNotMatch(panel, /codex|codebuddy/iu);
++  assert.match(panel, /catalog\?\.providers\.map\(provider/u);
++  assert.match(readFileSync('src/api.ts', 'utf8'), /invoke<ProviderCatalogSnapshot>\("agent_provider_catalog_get"\)/u);
++});
+ async function click(text, within) { const b = button(text, within); assert.ok(b, text); assert.equal(b.disabled, false, text); await act(async () => b.click()); }
+ async function refreshTasks() { const b = document.querySelector('button[aria-label="刷新任务列表"]'); assert.ok(b, '刷新任务列表'); assert.equal(b.disabled, false, '刷新任务列表'); await act(async () => b.click()); }
+ async function input(value, selector = '#agent-prompt') {
+@@ -140,7 +232,7 @@
+     row({ executionId: 'interrupted', status: 'interrupted', attention: 'none' }),
+   ]);
+   await click('展开更多（5条）');
+-  assert.match(document.querySelector('.agent-list-page-heading').textContent, /Agent 任务.*Codex Local Runner.*在当前工作区中创建、查看和管理本地 Agent 执行任务/);
++  assert.match(document.querySelector('.agent-list-page-heading').textContent, /Agent 管理.*查看 Agent 接入状态，在当前工作区中创建和管理任务/);
+   assert.match(document.querySelector('.agent-workspace-bar').textContent, /当前工作区:.*A.*E:\\A/);
+   const composer = document.querySelector('.agent-composer-card');
+   assert.ok(composer.querySelector('#agent-prompt'));
+@@ -682,7 +774,7 @@
+ 
+ test('composer describes workspace execution without a permission selector', async () => {
+   await mount([]);
+-  assert.match(document.querySelector('.agent-composer-footer').textContent, /Codex · 当前工作区 \(A\) · Local Runner Active/);
++  assert.match(document.querySelector('.agent-composer-footer').textContent, /当前工作区 \(A\)/);
+   assert.doesNotMatch(document.body.textContent, /只读执行/);
+ });
+ 
+--- before/src/AgentPanel.tsx
++++ after/src/AgentPanel.tsx
+@@ -9,11 +9,9 @@
+ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+ import { api } from "./api";
+ import { agentRequests } from "./agentRequests";
+-import { executionStatus, executionTime, executionDuration, executionWorkspace, resultText, showExecutionDiagnostic, taskSummary, taskTitle } from "./agentPresentation";
++import { activeExecutionStatuses, providerCardPresentation, executionStatus, executionTime, executionDuration, executionWorkspace, resultText, showExecutionDiagnostic, taskSummary, taskTitle } from "./agentPresentation";
+ const ExecutionDetails = lazy(() => import("./ExecutionDetails").then(module => ({ default: module.ExecutionDetails })));
+-import type { AgentAction, ExecutionView, Workspace } from "./types";
+-
+-const activeExecutionStatuses = new Set(["dispatch_pending", "running", "cancel_requested", "cancelling", "finalizing", "reconciling"]);
++import type { AgentAction, ExecutionView, ProviderCatalogSnapshot, Workspace } from "./types";
+ 
+ function StatusIcon({ tone }: { tone: string }) {
+   if (tone === "green") return <CheckCircle2 aria-hidden="true" />;
+@@ -26,6 +24,27 @@
+ export function AgentPanel({ workspace, workspaces = [], onSelectWorkspace, sidebarContainer, onShowTask, onShowAgent, onWorkspaceRename = async () => false, onWorkspaceRemove = async () => false, detailView = true }: { detailView?: boolean; sidebarContainer?: HTMLElement | null; onShowTask?: () => void; onShowAgent?: () => void; workspace: Workspace | null; workspaces?: Workspace[]; onSelectWorkspace?: () => void; onWorkspaceRename?: (id: string, name: string) => Promise<boolean>; onWorkspaceRemove?: (id: string) => Promise<boolean> }) {
+   const [prompt, setPrompt] = useState("");
+   const [rows, setRows] = useState<ExecutionView[]>([]);
++  const [catalog, setCatalog] = useState<ProviderCatalogSnapshot | null>(null);
++  const [catalogError, setCatalogError] = useState(false);
++  // 目录独立读取，失败不阻塞任务列表、Composer 或详情操作。
++  useEffect(() => {
++    let disposed = false;
++    let waiting = false;
++    /** 仅获取当前目录快照，不触发健康刷新。 */
++    async function refreshCatalog() {
++      if (waiting) return;
++      waiting = true;
++      try {
++        const snapshot = await api.agentProviderCatalog();
++        if (!disposed) { setCatalog(snapshot); setCatalogError(false); }
++      } catch {
++        if (!disposed) setCatalogError(true);
++      } finally { waiting = false; }
++    }
++    void refreshCatalog();
++    const timer = setInterval(() => void refreshCatalog(), 1500);
++    return () => { disposed = true; clearInterval(timer); };
++  }, []);
+   const visibleRows = useRef<ExecutionView[]>([]);
+   useEffect(() => { visibleRows.current = rows; }, [rows]);
+   const [workspaceFilter, setWorkspaceFilter] = useState("all");
+@@ -293,13 +312,34 @@
+     </Dialog>
+     <section className={`settings-page agent-page${detailView && detail ? " agent-detail-view" : " agent-list-view"}`}>
+     <div hidden={detailView && !!detail}>
+-    <div className="page-heading agent-list-page-heading"><div><div><h1>Agent 任务</h1><span>Codex Local Runner</span></div><p>在当前工作区中创建、查看和管理本地 Agent 执行任务。</p></div></div>
++    <div className="page-heading agent-list-page-heading"><div><div><h1>Agent 管理</h1></div><p>查看 Agent 接入状态，在当前工作区中创建和管理任务。</p></div></div>
++    <section className="agent-providers" aria-labelledby="agent-providers-heading">
++      <h2 id="agent-providers-heading">Agent 接入</h2>
++      <p className="agent-muted">活动任务按当前已加载的任务统计；Runtime 为任务活动展示，不代表系统进程状态。</p>
++      {catalogError && <p role="alert" className="agent-list-error">Agent 接入信息读取失败，稍后自动重试。{catalog && "以下保留上次读取的接入信息。"}</p>}
++      {!catalog && !catalogError && <p role="status" className="agent-muted">正在加载 Agent 接入…</p>}
++      {catalog?.providers.length === 0 && <p className="agent-muted">暂无已注册的 Agent。</p>}
++      <div className="agent-provider-grid">{catalog?.providers.map(provider => {
++        const card = providerCardPresentation(provider, rows);
++        return <section className="agent-provider-card" key={provider.id} aria-label={`${card.name} 接入`}>
++          <header><h3>{card.name}</h3><code>{provider.id}</code></header>
++          <dl>
++            <div><dt>接入</dt><dd className={`tone-${card.enabledTone}`}>{card.enabledLabel}</dd></div>
++            <div><dt>可用性</dt><dd className={`tone-${card.healthTone}`}>{card.healthLabel}</dd></div>
++            <div><dt>版本</dt><dd><code>{card.version}</code></dd></div>
++            <div><dt>协议</dt><dd>{card.protocol}</dd></div>
++            <div><dt>Runtime</dt><dd className={card.runtime === "running" ? "tone-blue" : "tone-slate"}>{card.runtimeLabel}</dd></div>
++            <div><dt>活动任务</dt><dd>{card.activeExecutions}</dd></div>
++          </dl>
++        </section>;
++      })}</div>
++    </section>
+     <div className="agent-workspace-bar"><div><Folder aria-hidden="true" /><span>当前工作区:</span><strong>{workspace?.name ?? "未选择可用工作区"}</strong>{workspace && <code>{workspace.root}</code>}</div>{onSelectWorkspace && <Button variant="ghost" onClick={onSelectWorkspace}>{workspace ? "管理工作区" : "选择工作区"}</Button>}</div>
+     <section className="agent-composer-section" aria-labelledby="agent-composer-heading">
+       <h2 id="agent-composer-heading"><FileText aria-hidden="true" />新任务</h2>
+       <form className="agent-composer agent-composer-card" onSubmit={event => { event.preventDefault(); if (!disabled && workspace && prompt.trim()) void operate(agentRequests.fresh(prompt, workspace.id)); }}>
+         <div className="agent-composer-input"><textarea ref={input} id="agent-prompt" className="agent-input" value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="描述希望 Agent 在当前工作区完成的任务……例如：检查 src/oauth/cimd.rs 的地址验证逻辑，修复发现的问题并运行相关测试。" /></div>
+-        <footer className="agent-composer-footer"><span>{workspace ? <>Codex · 当前工作区 (<strong>{workspace.name}</strong>) · Local Runner Active</> : "请先选择工作区后再开始任务"}</span><Button className="agent-primary" type="submit" disabled={disabled || !workspace || !prompt.trim()}>{busy ? <LoaderCircle className="animate-spin" /> : <Play />}{busy ? "正在处理…" : "开始新任务"}</Button></footer>
++        <footer className="agent-composer-footer"><span>{workspace ? <>当前工作区 (<strong>{workspace.name}</strong>)</> : "请先选择工作区后再开始任务"}</span><Button className="agent-primary" type="submit" disabled={disabled || !workspace || !prompt.trim()}>{busy ? <LoaderCircle className="animate-spin" /> : <Play />}{busy ? "正在处理…" : "开始新任务"}</Button></footer>
+       </form>
+     </section>
+     {!detail && feedback}
+--- before/src/App.test.mjs
++++ after/src/App.test.mjs
+@@ -44,6 +44,8 @@
+ const { Toaster } = await import('./components/ui/sonner.tsx');
+ const { default: App } = await import('./App.tsx');
+ const { api } = await import('./api.ts');
++// 本地目录独立于应用导航测试。
++api.agentProviderCatalog = async () => ({ providers: [], roleRouting: {} });
+ const { formatBrokerError } = await import('./useBroker.ts');
+ let root;
+ afterEach(async () => { if (root) await act(async () => root.unmount()); root = null; });
+@@ -76,7 +78,7 @@
+     root = createRoot(document.getElementById('root'));
+     await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
+     await emitTrayNavigation('agent');
+-    assert.equal(currentNavigation(), 'Agent');
++    assert.equal(currentNavigation(), 'Agent 管理');
+     await emitTrayNavigation('remote');
+     assert.equal(currentNavigation(), '远程访问');
+     await emitTrayNavigation('unknown');
+@@ -551,7 +553,7 @@
+   assert.ok(taskLink);
+   await act(async () => taskLink.click());
+   await act(async () => { await new Promise(resolve => setTimeout(resolve, 350)); });
+-  const agentNavigation = [...document.querySelectorAll('nav[aria-label="主导航"] button')].find(button => button.textContent === 'Agent');
++  const agentNavigation = [...document.querySelectorAll('nav[aria-label="主导航"] button')].find(button => button.textContent === 'Agent 管理');
+   assert.ok(document.querySelector('.agent-detail'));
+   assert.equal(agentNavigation.getAttribute('aria-current'), null);
+   assert.equal(document.querySelector('.project-task-link').getAttribute('aria-current'), 'page');
+@@ -586,7 +588,7 @@
+   try {
+     root = createRoot(document.getElementById('root'));
+     await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
+-    await act(async () => [...document.querySelectorAll('nav[aria-label="主导航"] button')].find(button => button.textContent === 'Agent').click());
++    await act(async () => [...document.querySelectorAll('nav[aria-label="主导航"] button')].find(button => button.textContent === 'Agent 管理').click());
+     await act(async () => {
+       const input = document.querySelector('#agent-prompt');
+       Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set.call(input, 'use selected workspace');
+@@ -613,7 +615,7 @@
+   await act(async () => root.render(createElement(TooltipProvider, null, createElement(App))));
+   assert.equal(document.querySelector('.app-titlebar'), null);
+   assert.equal(document.querySelector('.sidebar-section-label'), null);
+-  assert.deepEqual([...document.querySelectorAll('nav[aria-label="主导航"] button')].map(button => button.textContent), ['首页', '服务状态', 'Agent', '日志终端', '远程访问', '设置']);
++  assert.deepEqual([...document.querySelectorAll('nav[aria-label="主导航"] button')].map(button => button.textContent), ['首页', '服务状态', 'Agent 管理', '日志终端', '远程访问', '设置']);
+   assert.doesNotMatch(document.querySelector('nav[aria-label="主导航"]').textContent, /Agent 编排/);
+   assert.equal(document.querySelector('nav[aria-label="主导航"] [aria-current="page"]').textContent, '首页');
+   assert.match(document.querySelector('.workspace-summary').textContent, /serena-desktop/);
+--- before/src/App.tsx
++++ after/src/App.tsx
+@@ -97,7 +97,7 @@
+             aria-current={tab === "agent" ? "page" : undefined}
+             onClick={() => setTab("agent")}
+           >
+-            <Bot aria-hidden="true" />Agent
++            <Bot aria-hidden="true" />Agent 管理
+           </Button>
+           <Button
+             variant={tab === "logs" ? "secondary" : "ghost"}
+--- before/src/agentPresentation.ts
++++ after/src/agentPresentation.ts
+@@ -1,4 +1,26 @@
+-import type { ExecutionView, Workspace } from "./types";
++import type { ExecutionView, ProviderCatalogEntry, Workspace } from "./types";
++
++/** 复用任务列表的活动状态集合；不表示真实操作系统进程状态。 */
++export const activeExecutionStatuses = new Set(["dispatch_pending", "running", "cancel_requested", "cancelling", "finalizing", "reconciling"]);
++
++/** 按已加载任务冻结的 Provider 身份统计，与当前路由、显示名称和列表隐藏无关。 */
++export function providerCardPresentation(provider: ProviderCatalogEntry, rows: ExecutionView[]) {
++  const activeExecutions = rows.filter(row => row.provider.id === provider.id && activeExecutionStatuses.has(row.status)).length;
++  const draining = !provider.enabled && activeExecutions > 0;
++  return {
++    name: provider.displayName?.trim() || provider.id,
++    version: provider.version?.trim() || "—",
++    // Catalog 尚未提供协议元数据，不根据 Provider 身份猜测。
++    protocol: "—",
++    enabledLabel: provider.enabled ? "已启用" : draining ? "正在停用" : "已停用",
++    enabledTone: draining ? "amber" : "slate",
++    healthLabel: provider.health === "available" ? "可用" : provider.health === "unavailable" ? "不可用" : "未提供",
++    healthTone: provider.health === "available" ? "green" : provider.health === "unavailable" ? "red" : "slate",
++    runtime: activeExecutions > 0 ? "running" : "stopped",
++    runtimeLabel: activeExecutions > 0 ? "运行中" : "已停止",
++    activeExecutions,
++  };
++}
+ 
+ type ProviderDisplaySource = { provider?: { id?: string | null; displayName?: string | null; version?: string | null } | null };
+ type ActivityDisplaySource = Pick<ExecutionView, "progress">;
+@@ -6,7 +28,7 @@
+ // Presentation only. Never use these labels or tones to authorize an operation.
+ const states: Record<string, { label: string; description: string; tone: string }> = {
+   dispatch_pending: { label: "等待执行", description: "任务已保存，等待发送给 Agent。", tone: "amber" },
+-  running: { label: "执行中", description: "Codex 正在处理任务。", tone: "blue" },
++  running: { label: "执行中", description: "Agent 正在处理任务。", tone: "blue" },
+   cancel_requested: { label: "正在取消", description: "已提交取消请求，等待执行结束。", tone: "blue" },
+   cancelling: { label: "正在取消", description: "正在停止任务并确认执行状态。", tone: "blue" },
+   finalizing: { label: "正在整理结果", description: "正在整理结果并完成收尾。", tone: "blue" },
+--- before/src/api.ts
++++ after/src/api.ts
+@@ -1,5 +1,5 @@
+ import { invoke } from "@tauri-apps/api/core";
+-import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, ExecutionView, RemoteState, RemoteAccessMode, SecurityDeclaration, Workspace, WorkspaceInspection, WorkspaceRegistrySnapshot, WorkspaceCapabilityHealth } from "./types";
++import type { AppState, ManagerConfig, BrokerState, AgentAction, AgentEnvelope, ExecutionView, ProviderCatalogSnapshot, RemoteState, RemoteAccessMode, SecurityDeclaration, Workspace, WorkspaceInspection, WorkspaceRegistrySnapshot, WorkspaceCapabilityHealth } from "./types";
+ 
+ export const api = {
+   remoteState: () => invoke<RemoteState>("remote_state"),
+@@ -12,6 +12,8 @@
+   remoteApprove: (id: string, allow: boolean) => invoke<void>("remote_approve", { id, allow }),
+   codexVersion: () => invoke<string>("get_codex_version"),
+   agent: (request: AgentAction) => invoke<AgentEnvelope>("agent_operation", { request }),
++  // 只读本地 Catalog，不刷新健康状态或创建运行实例。
++  agentProviderCatalog: () => invoke<ProviderCatalogSnapshot>("agent_provider_catalog_get"),
+   // 专用 Local Tauri IPC；不得复用 Remote MCP 的 agent_execute action。
+   agentManualResolve: (executionId: string, resolution: "interrupt_and_release", reason?: string) =>
+     invoke<ExecutionView>("agent_manual_resolve", { executionId, resolution, reason }),
+--- before/src/styles.css
++++ after/src/styles.css
+@@ -1117,6 +1117,20 @@
+ /* Agent workbench: scoped presentation, existing desktop surfaces and signals. */
+ :root { --agent-blue: #2563eb; }
+ .agent-page { max-width: 1080px; }
++/* Provider 接入沿用任务页的紧凑中性色表面，各状态维度独立着色。 */
++.agent-providers { margin-bottom: 24px; }
++.agent-providers h2 { margin: 0 0 8px; font-size: 14px; font-weight: 700; }
++.agent-providers > p { margin: 0 0 12px; }
++.agent-provider-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; }
++.agent-provider-card { min-width: 0; padding: 16px; border: 1px solid var(--console-line); border-radius: 8px; background: white; }
++.agent-provider-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
++.agent-provider-card h3 { margin: 0; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }
++.agent-provider-card code { font-size: 12px; overflow-wrap: anywhere; }
++.agent-provider-card header > code { color: var(--console-muted); }
++.agent-provider-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin: 16px 0 0; font-size: 12px; }
++.agent-provider-card dt { margin-bottom: 4px; color: var(--console-muted); }
++.agent-provider-card dd { margin: 0; overflow-wrap: anywhere; }
++.agent-provider-card .tone-slate { color: var(--console-muted); }
+ .agent-page .page-heading { margin-bottom: 24px; }
+ .agent-local-label, .agent-eyebrow, .agent-muted, .agent-meta, .agent-history-note { color: var(--console-muted); font-size: 12px; }
+ .agent-local-label { white-space: nowrap; }
+--- before/src/types.ts
++++ after/src/types.ts
+@@ -193,6 +193,24 @@
+   | { action: "observe"; executionId: string; knownRevision?: string; knownControlRevision?: string; waitMs?: number; includeResult?: boolean; wakeOn?: "control" | "activity" }
+   | { action: "cancel" | "resume_pending"; executionId: string }
+   | { action: "list"; agentId?: string; workspaceId?: string; limit?: number };
++/** 直接镜像 Product Catalog；缺失 descriptor 元数据只在展示层降级。 */
++export interface ProviderCatalogEntry {
++  id: string;
++  displayName?: string | null;
++  version?: string | null;
++  enabled: boolean;
++  health: "available" | "unavailable";
++  availableForNewExecution: boolean;
++  capabilities: {
++    canExecute: boolean; canContinue: boolean; canCancel: boolean; canRecover: boolean;
++    activity: boolean; tokenUsage: boolean;
++  };
++}
++/** 本地读取现有 Catalog，不引入独立配置或 Runtime Authority。 */
++export interface ProviderCatalogSnapshot {
++  providers: ProviderCatalogEntry[];
++  roleRouting: Record<string, string | null>;
++}
+ export interface ExecutionView {
+   prompt: string; canonicalWorkspaceRoot: string;
+   executionId: string; agentId: string; workspaceId: string; status: string;

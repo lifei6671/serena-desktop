@@ -57,7 +57,7 @@ async fn public_transport_preserves_context_idempotency_and_continuation_pipelin
     let upstream = active(&broker, root).await;
     std::fs::write(root.join("source.txt"), b"abc").unwrap();
     let context = json!({"summary":"Host reference","files":[{"path":"source.txt","sha256":"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"}]});
-    let request = json!({"action":"start","workRunId":"work","workspaceId":"W","requestKey":"key","prompt":"change task","context":context});
+    let request = json!({"action":"start","workRunId":"work","workspaceId":"W","requestKey":"key","prompt":"change task","taskRole":"general","providerId":"codex","context":context});
     let mut stale = request.clone();
     stale["context"]["files"][0]["sha256"] = json!("0".repeat(64));
     let failure = broker
@@ -591,6 +591,7 @@ async fn public_vertical_work_source_start_continue_acceptance_e2e() {
         let expected = [
             ("initialize", 1),
             ("initialized", 1),
+            ("model/list", 1),
             (thread_method, 1),
             ("turn/start", 1),
             ("thread/read", 1),
@@ -687,7 +688,7 @@ async fn public_vertical_work_source_start_continue_acceptance_e2e() {
     assert_eq!(full_source["sha256"], source["sha256"]);
     assert_ne!(full_source["text"], source["text"]);
     let context = json!({"summary":"Host selected a versioned source reference","files":[{"path":source["path"],"sha256":source["sha256"]}]});
-    let start = json!({"action":"start","workRunId":work_id,"workspaceId":"W","requestKey":"vertical-start","prompt":"Run the agreed test task.","context":context});
+    let start = json!({"action":"start","workRunId":work_id,"workspaceId":"W","requestKey":"vertical-start","prompt":"Run the agreed test task.","taskRole":"general","providerId":"codex","context":context});
     let accepted = call(&broker, "agent_execute", start.clone()).await;
     assert_eq!(accepted["ok"], true, "{accepted}");
     let e1 = accepted["data"]["executionId"].as_str().unwrap().to_owned();
@@ -873,7 +874,7 @@ async fn public_vertical_work_source_start_continue_acceptance_e2e() {
         .await["data"]["workRun"],
         work
     );
-    let rejected = call(&broker, "agent_execute", json!({"action":"start","workRunId":work_id,"workspaceId":"W","requestKey":"after-finish","prompt":"Must not dispatch."})).await;
+    let rejected = call(&broker, "agent_execute", json!({"action":"start","workRunId":work_id,"workspaceId":"W","requestKey":"after-finish","prompt":"Must not dispatch.","taskRole":"general","providerId":"codex"})).await;
     assert_eq!(rejected["ok"], false);
     assert_eq!(rejected["error"]["code"], "WORK_NOT_ACTIVE");
     assert_eq!(rejected["control"]["requestAccepted"], false);

@@ -1,0 +1,24 @@
+{
+  "kind": "after_session_new_before_prompt",
+  "status": "FAILED",
+  "windowObserved": false,
+  "sessionId": null,
+  "markerObserved": false,
+  "recovery": {
+    "method": "session/load",
+    "recoveryStrength": "none",
+    "resultCompleteness": "unknown"
+  },
+  "error": {
+    "message": "JSON_RPC_ERROR",
+    "rpcCode": -32603,
+    "rpcMessageSha256": "1dac8deadf07408d9a2d94c7e5e61ff2448f500c654a8474262ca7c2c1d51605"
+  },
+  "boundaries": {
+    "r2ProvesR1Termination": false,
+    "windowsJobAtCreationProven": false
+  },
+  "finalManifest": {},
+  "workspaceDeleted": false,
+  "cleanupError": "EPERM, Permission denied: \\\\?\\C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_session_new_before_prompt-2Hhwbq '\\\\?\\C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-crash-after_session_new_before_prompt-2Hhwbq'"
+}

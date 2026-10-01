@@ -1,0 +1,108 @@
+{
+  "strategy": "FULL_SCOPE",
+  "target": "FE7BF7ACC568032DC4EE42A3CA2F8A75D29ACB06DE9CB63DC14E41E97CB55BD7",
+  "files": [
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "3C5A20C07A62D757510887DED8E0040FCF3BEB540ED9121482DA8E79F3387E1F",
+      "path": ".trellis/tasks/09-27-cb8-001-codebuddy-cancel-runtime/check.jsonl"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "B4FB815195DE612E37267DB226490B831DBB18653FD27AC41E304C8DC429892D",
+      "path": ".trellis/tasks/09-27-cb8-001-codebuddy-cancel-runtime/design.md"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "45260046C157C67597E9C7B29CE738CD35A6BEA8B6106FF4B782437F93D40E0F",
+      "path": ".trellis/tasks/09-27-cb8-001-codebuddy-cancel-runtime/implement.jsonl"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "54B1FF385CBB3139FA97CABF9F2E5ED7465FBDD9CD3E04C9BEAC1CFF1215A1F9",
+      "path": ".trellis/tasks/09-27-cb8-001-codebuddy-cancel-runtime/implement.md"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "9E74290CE7766A3FD82A66E79AF9A60F7DA5B119B164DEB0255ACE9DBF2F4FF2",
+      "path": ".trellis/tasks/09-27-cb8-001-codebuddy-cancel-runtime/prd.md"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "0F6B77EF461EA237397A577336A0D5D8F3F0F890EF8AB4DEE4BA62621DD81F5D",
+      "path": "src-tauri/src/agent/codebuddy/client_tests.rs"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "DD32814F0115C1A4B9FFD08F5028096A58A99DCBDC53E99B0ADF59E8AE2C6FCF",
+      "path": "src-tauri/src/agent/codebuddy/client.rs"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "EFBB27D7F5A865C05892322FDCE3D25FA19F4AB4E9EC5D219A4EC8FEE6EB8EA5",
+      "path": "src-tauri/src/agent/codebuddy/execute/tests.rs"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "226DF48D974019A10EAC1EEE981474E8F6CF688D1C8A55B5B4305980B62BBD06",
+      "path": "src-tauri/src/agent/codebuddy/prompt.rs"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "DEEFF6508CDF1BF064715EBD9E627AF334BEB43F61C29868AD14197919514624",
+      "path": "src-tauri/src/agent/codebuddy/protocol.rs"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "8E42E612BA21BA77937779FF7B00C915EA776C734FF1E7AF077068E11DAC755D",
+      "path": "src-tauri/src/agent/codebuddy/provider.rs"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "08D9DF67E43E9EFE20E1F45A8E7587F5941D76538B3E38312584F187649E7454",
+      "path": "src-tauri/src/agent/codebuddy/provider/tests.rs"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "B5D3BE4D4C9B0BA6C2715C82F9F14A0FF3FA1F98D7E97DFE954905C2E80243AF",
+      "path": "src-tauri/src/agent/product/fixtures/provider_catalog_codex.json"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "A915FB2C95FB224512D7535FD724FCB41DE62712F8933C685A7BF675FFD785BD",
+      "path": "src-tauri/src/agent/product/provider_catalog_tests.rs"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "DE84EA262DADFE54F736FD218EB4CF864469F21156B54CC17D63300DA017D6F7",
+      "path": "src-tauri/src/agent/store/transactions.rs"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "FBE48E507837A96B7F12D34DDFB5FFA0694A9147DADC5BC37144E1B3F7E4DA11",
+      "path": "src-tauri/src/agent/store/transactions/tests.rs"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "03043FEDBC052EA2AF95E5CB208F09CCC3D06416F7BF74482F84CA346A3C262D",
+      "path": "src-tauri/src/agent/task_manager/tests.rs"
+    },
+    {
+      "provenance": "CB8-001 delivery-owned, clean baseline",
+      "sha256": "A603E34C12FE3BA34931C8D876F6C4F0BAADC7715FFA706800160CAC39880C51",
+      "path": "src-tauri/tests/fixtures/codebuddy_execute_child.rs"
+    }
+  ],
+  "mode": "CHILD_AGENT",
+  "branch": "feat/codebuddy",
+  "baseline": "9316bb85dc50de873843d6d73cfce95b7229b1a4",
+  "excluded": "Other tasks and all pre-baseline source; task status/logs/review outputs are context only",
+  "tier": 3,
+  "reviewContext": [
+    ".trellis/tasks/09-27-cb8-001-codebuddy-cancel-runtime/verification.md",
+    ".trellis/tasks/09-27-cb8-001-codebuddy-cancel-runtime/validation-results.jsonl",
+    "user CB8-001 frozen requirements",
+    "docs/technical-design-multi-agent-provider-codebuddy-v0.1.md section 22",
+    "docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md CB8-001"
+  ]
+}

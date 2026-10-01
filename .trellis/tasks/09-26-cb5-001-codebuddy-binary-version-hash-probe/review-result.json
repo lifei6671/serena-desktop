@@ -1,0 +1,34 @@
+{
+  "verdict": "APPROVED",
+  "review_mode": "CHILD_AGENT",
+  "strategy": "FULL_SCOPE",
+  "review_gate": "PASSED",
+  "coverage": "COMPLETE",
+  "freshness": "FRESH",
+  "reviewer": "/root/cb5_review",
+  "target_identity": {
+    "evidence_sha256": "5385855bf6e7f523e0fa846fdf885cf6885359b26efc8c6431e04e44c5c103ec",
+    "scope_verification_sha256": "9ea8505eefd4af48b267dfb829f30e3909d4268942fa8b683ae8d8fb55f82dae"
+  },
+  "tests": {
+    "command": "python -X utf8 -B .trellis/tasks/09-26-cb5-001-codebuddy-binary-version-hash-probe/test_probe.py",
+    "passed": 11,
+    "exit_code": 0,
+    "total": 11
+  },
+  "frozen_files_verified": 6,
+  "product_files_verified": 315,
+  "unresolved_findings": [],
+  "resolved": [
+    "scope-verification.json empty changed_or_missing array corrected from [null] to []; independently rechecked"
+  ],
+  "actual_probe_status": "PARTIAL",
+  "binary_identity_status": "PASS",
+  "remaining": [
+    "PATH discovery differs from Host preflight",
+    "Host empty stdout not reproduced",
+    "ACP compatibility untested"
+  ],
+  "handoff": "Await Host Gate; no CB5-002; task remains in_progress",
+  "scope": "Only CB5-001 task-local probe, tests and evidence; excludes pre-existing product changes"
+}

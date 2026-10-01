@@ -1,4 +1,33 @@
-import type { ExecutionView, Workspace } from "./types";
+import type { ExecutionView, ProviderCatalogEntry, Workspace } from "./types";
+
+/** 复用任务列表的活动状态集合；不表示真实操作系统进程状态。 */
+export const activeExecutionStatuses = new Set(["dispatch_pending", "running", "cancel_requested", "cancelling", "finalizing", "reconciling"]);
+
+/** 按已加载任务冻结的 Provider 身份统计，与当前路由、显示名称和列表隐藏无关。 */
+export function providerCardPresentation(provider: ProviderCatalogEntry, rows: ExecutionView[]) {
+  const activeExecutions = rows.filter(row => row.provider.id === provider.id && activeExecutionStatuses.has(row.status)).length;
+  const draining = !provider.enabled && activeExecutions > 0;
+  const name = provider.displayName?.trim() || provider.id;
+  return {
+    name,
+    // 只消费 Product 的恢复投影，不重新推导 Claim Authority。
+    pendingBlockers: rows.filter(row => row.provider.id === provider.id && (row.attention === "pending_explicit_resume" || row.availableActions.canResumePending)),
+    // 稳定诊断码是唯一兼容性文案入口；产品版本仅作元数据展示。
+    unsupportedVersionNotice: provider.diagnosticCode === "CODEBUDDY_ACP_INCOMPATIBLE"
+      ? `${name} 的 ACP 协议或必需能力与当前 SerenaDesktop 不兼容。请升级 CodeBuddy 或 SerenaDesktop 后重新检测。`
+      : null,
+    version: provider.version?.trim() || "—",
+    // 只展示 Provider 自己声明的协议，不根据身份猜测。
+    protocol: provider.protocol?.trim() || "—",
+    enabledLabel: provider.enabled ? "已启用" : draining ? "正在停用" : "已停用",
+    enabledTone: draining ? "amber" : "slate",
+    healthLabel: provider.health === "available" ? "可用" : provider.health === "unavailable" ? "不可用" : "未提供",
+    healthTone: provider.health === "available" ? "green" : provider.health === "unavailable" ? "red" : "slate",
+    runtime: provider.health === "unavailable" ? "unavailable" : activeExecutions > 0 ? "running" : "idle",
+    runtimeLabel: provider.health === "unavailable" ? "—" : activeExecutions > 0 ? "运行中" : "空闲",
+    activeExecutions,
+  };
+}
 
 type ProviderDisplaySource = { provider?: { id?: string | null; displayName?: string | null; version?: string | null } | null };
 type ActivityDisplaySource = Pick<ExecutionView, "progress">;
@@ -6,7 +35,7 @@ type ActivityDisplaySource = Pick<ExecutionView, "progress">;
 // Presentation only. Never use these labels or tones to authorize an operation.
 const states: Record<string, { label: string; description: string; tone: string }> = {
   dispatch_pending: { label: "等待执行", description: "任务已保存，等待发送给 Agent。", tone: "amber" },
-  running: { label: "执行中", description: "Codex 正在处理任务。", tone: "blue" },
+  running: { label: "执行中", description: "Agent 正在处理任务。", tone: "blue" },
   cancel_requested: { label: "正在取消", description: "已提交取消请求，等待执行结束。", tone: "blue" },
   cancelling: { label: "正在取消", description: "正在停止任务并确认执行状态。", tone: "blue" },
   finalizing: { label: "正在整理结果", description: "正在整理结果并完成收尾。", tone: "blue" },
@@ -57,6 +86,7 @@ export function activityLabel(row: ActivityDisplaySource) {
   const summaryLabels: Record<string, string> = {
     "execution.finalizing": "正在整理结果", "execution.reconciling": "正在恢复执行状态",
     "provider.processing": "Agent 处理中", "tool.read": "正在读取", "tool.edit": "正在修改文件",
+    "provider.permission_denied": "Provider 权限未获批准",
     "tool.command": "正在执行命令", "tool.build": "正在构建", "tool.test": "正在测试", "tool.other": "正在调用工具",
   };
   const summary = progress.summaryCode === null ? undefined : summaryLabels[progress.summaryCode];
@@ -103,7 +133,7 @@ export function usageTotalLabel(row: Pick<ExecutionView, "usage">) {
   const { completeness, totalTokens } = row.usage;
   if (completeness === "unknown" || totalTokens === null || totalTokens === undefined) return "—";
   const total = formatTokenCount(totalTokens);
-  return completeness === "partial" ? `${total} · ${usageCompletenessLabel(completeness)}` : total;
+  return completeness === "partial" ? `≈${total}` : total;
 }
 
 /** 将后端 completeness 枚举转换为展示文本，不从数字字段重新推导。 */

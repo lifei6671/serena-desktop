@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { useEffect, useId, useRef, useState } from "react";
 import { HoverCard, Popover } from "radix-ui";
-import { CalendarDays, ChevronDown, CircleAlert, Ellipsis, Folder, LoaderCircle, Monitor, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { CalendarDays, ChevronDown, CircleAlert, Coins, Ellipsis, Folder, LoaderCircle, Monitor, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { api } from "./api";
 import { executionStatus, executionTime, providerLabel, taskTitle, usageTotalLabel } from "./agentPresentation";
 import type { ExecutionView, Workspace } from "./types";
@@ -64,7 +64,7 @@ function TaskItem({ row, workspace, selected, onSelect, onDelete }: {
         <HoverCard.Content id={infoId} className="project-task-preview" side="right" align="start" sideOffset={12} collisionPadding={16}>
           <strong>{title}</strong>
           <p><Monitor aria-hidden="true" /><span className={`agent-status tone-${status.tone}`}>{status.label}</span> · {provider}</p>
-          <p>总 Token：{usage}</p>
+          <p><Coins aria-hidden="true" />总 Token：{usage}</p>
           <p><Folder aria-hidden="true" />所属项目：{workspace.name}</p>
           <p><CalendarDays aria-hidden="true" />更新于 {executionTime(row.updatedAt)}</p>
         </HoverCard.Content>

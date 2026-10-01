@@ -1,0 +1,6 @@
+{"file":"docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md","reason":"CB8-004 scope, crash matrix, acceptance, and forbidden behavior"}
+{"file":"docs/technical-design-multi-agent-provider-codebuddy-v0.1.md","reason":"Section 23 Job authority and result recovery contract"}
+{"file":".trellis/tasks/09-28-cb5-005-codebuddy-continuation-usage-crash-contract/decision.md","reason":"Frozen Host result recovery strength and no-schema decision"}
+{"file":".trellis/tasks/09-28-cb5-005-codebuddy-continuation-usage-crash-contract/crash-recovery.md","reason":"Observed A-D windows, marker, and partial result evidence"}
+{"file":".trellis/tasks/09-28-cb8-004-codebuddy-crash-result-recovery/design.md","reason":"Reviewed R1/R2 authority and fail-closed orchestration"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Persistent runtime ownership and recovery boundary guidance"}

@@ -1,0 +1,53 @@
+{
+  "task": "CB5-002",
+  "status": "PASS protocol contract probe; PARTIAL full delivery checks due preexisting frozen-document whitespace; independent review and Host Gate pending",
+  "code": {
+    ".gitignore": "7ba08f0c42883ea22ccc2ebcee272f83393101a5e7a3709db5af7fac3e17563f",
+    "cargo_bootstrap.py": "ce6c0c0bbb453129da216dcd5305bc0e010b0836d8b596a25988536d41fb7f06",
+    "harness/Cargo.toml": "eb4e535045daa76f5877ab65180ef9b269ae78fa91c553696ce85e3cd42a7b11",
+    "harness/Cargo.lock": "47430a3c38d3b8bb73f47eaa194851a7b7339987784cfd72490ab44a35c50da3",
+    "harness/src/main.rs": "4bd95c977875ff5c071d46073e4e4b0c4bd978feb08985066f307dcdffcffdd7",
+    "harness/tests/contracts.rs": "6f33298d0f55e48dccbab08de3521ed286172a0f0b7686b064642ae5b3b6f67c",
+    "test_cargo_bootstrap.py": "e558029c5ef304d1e53483303f311b2bf702e4897615c104d38e889deb356aa0",
+    "run_real_probe.py": "3cdeb3c7c4d85cbaa8d71b36878a6eb0808189f8b876879148cf778588f10199"
+  },
+  "reviewContext": [
+    "prd.md",
+    "design.md",
+    "implement.md",
+    "verification.md",
+    "evidence/initialize.jsonl",
+    "evidence/sdk-details.json",
+    "evidence/process-evidence.json",
+    "evidence/protocol-gate.json",
+    "evidence/cli-identity.json",
+    "evidence/real-cli.json",
+    "evidence/real-cli-process-tree.json",
+    "evidence/cargo-test-final.log",
+    "evidence/bootstrap-test.log"
+  ],
+  "excluded": [
+    "Host-owned current review/scope/git-baseline artifacts",
+    "build/download caches",
+    "unrelated product dirty state"
+  ],
+  "repairRound": 1,
+  "resume": "same CB5-002; standalone npm CLI supersedes historical IDE invocation",
+  "reviewContextHashes": {
+    "prd.md": "d946972aad4b25f33daa70e676704e8ed7dc86caefd07d2a59f9f44318903342",
+    "design.md": "756a0a5883d5bfe9c6410a7bdd4c1aa8bead5d5f8cb3c84786d687a4e9b54be3",
+    "implement.md": "a449e7b7046a92f7d0ec5291f50c92a06dd8284ba3eb50bad7f5b3def446d56f",
+    "verification.md": "2291d81684d315f566f26e874e750ed1be21e7d16d129bb639e8c7c8fb1de9bb",
+    "evidence/initialize.jsonl": "91a5ce7213d7239122221f460d68b52120afe2433a534581b32ea19156e5e55a",
+    "evidence/sdk-details.json": "c6ce373f4ad5b7148882f4f6d650cf1d0170359ed586538208c782739d99f4c3",
+    "evidence/process-evidence.json": "b1bf9a4114cd394c9a1c5b4db75522d764b7634e1dbebcf15e721cb38407bdb5",
+    "evidence/protocol-gate.json": "70a2fc6830e190c4385f08579dd2e4189b1d33e9ad866d9af1dc2b898d1a7812",
+    "evidence/cli-identity.json": "c9670e414682537268ad2d93b3056ed9563387868364cda54ad30511d512629f",
+    "evidence/real-cli.json": "cc83676aba95e9d75d779b48195e7348c13f7fb89591319fdf5491a8d00e5009",
+    "evidence/real-cli-process-tree.json": "954b8d7a046fd0a8310d2d2e268bcf2d831b3295f80696aa7330ad9c333a1afb",
+    "evidence/cargo-test-final.log": "35e70e283abf271f6a57a8455923dd0952ac24670b07f883b914818a723c532b",
+    "evidence/bootstrap-test.log": "354c3d828acda6a2a7353175af6f47b9a6ade35a84756ca5433e46f76b8d8b55"
+  },
+  "historicalTarget": "history/ide-attempt-superseded/HISTORY.json",
+  "historicalPreservation": "50/50 files match original hashes; real-default/real-auto remain byte-identical"
+}

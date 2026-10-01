@@ -1,0 +1,24 @@
+{
+  "status": "FAILED",
+  "continuation": {
+    "conclusion": "INCONCLUSIVE",
+    "recoveryMethod": "session/load"
+  },
+  "usage": {
+    "eventCount": 0,
+    "fields": [],
+    "windows": [],
+    "exactPromptBound": false,
+    "publicConclusion": "UNSUPPORTED",
+    "tokenUsageCapability": false,
+    "reason": "NO_REAL_USAGE_EVENT"
+  },
+  "error": {
+    "message": "JSON_RPC_ERROR",
+    "rpcCode": -32603,
+    "rpcMessageSha256": "1dac8deadf07408d9a2d94c7e5e61ff2448f500c654a8474262ca7c2c1d51605"
+  },
+  "cleanupError": "EPERM, Permission denied: \\\\?\\C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-continuation-01CrjX '\\\\?\\C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-20260928-continuation-01CrjX'",
+  "workspaceFinalManifest": {},
+  "workspaceDeleted": false
+}

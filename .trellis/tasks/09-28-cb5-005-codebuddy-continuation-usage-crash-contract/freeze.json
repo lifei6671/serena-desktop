@@ -1,0 +1,35 @@
+{
+  "status": "FINAL_COMPLETED_STATE",
+  "baselineHead": "b83418a3d12681d1cb372eebd9f58c53e08cc98a",
+  "branch": "feat/codebuddy",
+  "scope": ".trellis/tasks/09-28-cb5-005-codebuddy-continuation-usage-crash-contract/**",
+  "targetFileCount": 86,
+  "treeSha256": "e09297f747aa70333fd27081438acfe13e5983c9efd1d8c0a7c5c63184416f5d",
+  "algorithm": "Sort task-relative forward-slash paths; exclude freeze.json and every review*.md; for each file append path + TAB + lowercase SHA256(file bytes) + LF; SHA256 the UTF-8 concatenation.",
+  "excludedReviewMetadata": ["freeze.json", "review*.md"],
+  "evidenceAuthority": {
+    "attempt1And2": "NON_EQUIVALENT_INITIALIZE_PROBE diagnostic history",
+    "attempt3": "EXACT_INITIALIZE_NON_HOST_ENVIRONMENT_PROBE diagnostic history",
+    "attempt4": "HOST_MAIN_USAGE_AND_CRASH_EVIDENCE",
+    "attempt5": "HOST_FINAL_CONTINUATION_AUTHORITY"
+  },
+  "contract": {
+    "continue": "PROVEN_SUPPORTED",
+    "recoveryMethod": "session/load",
+    "resultRecovery": "session+partial-result / partial",
+    "publicUsage": "EXPLICITLY_UNSUPPORTED_FOR_INITIAL_RELEASE",
+    "tokenUsage": false,
+    "crash": "FOUR_WINDOWS_OBSERVED",
+    "privateSchema": "EXISTING_FIELDS_SUFFICIENT"
+  },
+  "productionDiff": "ZERO",
+  "authorityHashesFresh": true,
+  "verification": {
+    "nodeSyntax": "PASS",
+    "unitTests": "PASS 24/24",
+    "jsonAndJsonl": "PASS 55 JSON, 21 JSONL, 826 rows",
+    "gitDiffCheck": "PASS",
+    "tempResidue": "PASS count0",
+    "independentReview": "PASSED; P0/P1/P2=0"
+  }
+}

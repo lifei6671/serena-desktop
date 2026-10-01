@@ -1,0 +1,18 @@
+[
+  {
+    "path": ".trellis/tasks/09-26-cb5-003-fresh-session-prompt-activity-contract/evidence/fresh-session.jsonl",
+    "sha256": "FD3C5AAECA5F04B7A078370BB5755F232B1BC515218A889D525026FC15A66A2A"
+  },
+  {
+    "path": ".trellis/tasks/09-26-cb5-004-cancel-permission-contract/evidence/host-cancel-permission-proof/cancellation-after.jsonl",
+    "sha256": "B10CD349138F6B96F33ADD4A221C191B4D45D2939C79C8A8FDC981CC3B410CD4"
+  },
+  {
+    "path": "docs/technical-design-multi-agent-provider-codebuddy-v0.1.md",
+    "sha256": "A80A5A6FA0B3D263B194F7D4604933A805475CA15761EEAE86C3C7029E0E6E15"
+  },
+  {
+    "path": "docs/implementation-task-breakdown-multi-agent-provider-codebuddy-v0.1.md",
+    "sha256": "7AF023D5E5A84E3106B12DB14AC44EB9B4BA6E003CD3FDC2027C2FE29176F334"
+  }
+]

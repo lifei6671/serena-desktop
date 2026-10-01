@@ -1,0 +1,39 @@
+ M src-tauri/src/agent/codebuddy/mod.rs
+ M src-tauri/src/agent/codebuddy/prompt.rs
+ M src-tauri/src/agent/codebuddy/prompt/tests.rs
+ M src-tauri/tests/fixtures/codebuddy_prompt_child.rs
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/baseline.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/check.jsonl
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/design.md
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/diff-stat.txt
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/final-freshness.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/frozen-contract-baseline.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/full-review.md
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/host-fix-baseline.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/host-fix-source-scope.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/host-fix.md
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/implement.jsonl
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/implement.md
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/prd.md
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/pre-host-fix-final-freshness.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/pre-host-fix-full-review.md
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/pre-host-fix-review-context-hashes.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/pre-host-fix-review-target.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/pre-host-fix-review-target.sha256
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/research/contracts.md
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/research/implementation.md
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/review-context-hashes.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/review-context-round-1-hashes.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/review-context.md
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/review-round-1.md
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/review-target-round-1.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/review-target.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/review-target.sha256
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/scope-status.txt
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/task.json
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/validation-results.jsonl
+?? .trellis/tasks/09-27-cb7-004-codebuddy-activity-projection/verification.md
+?? src-tauri/src/agent/codebuddy/activity.rs
+?? src-tauri/src/agent/codebuddy/activity/tests.rs
+?? src-tauri/src/agent/codebuddy/prompt/activity_tests.rs
+?? src-tauri/tests/fixtures/codebuddy_activity_host.jsonl

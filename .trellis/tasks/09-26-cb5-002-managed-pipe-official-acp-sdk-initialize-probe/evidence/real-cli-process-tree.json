@@ -1,0 +1,138 @@
+{
+  "method": "Toolhelp32Snapshot + held process handles, observed owned tree only",
+  "sampleIntervalMs": 10,
+  "samples": 139,
+  "timeoutSeconds": 40,
+  "timedOut": false,
+  "harnessExitCode": 0,
+  "observedProcesses": [
+    {
+      "pid": 8968,
+      "role": "harness"
+    },
+    {
+      "pid": 53584,
+      "parentPid": 8968,
+      "exe": "node.exe",
+      "firstSeenMs": 16,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 17820,
+      "parentPid": 53584,
+      "exe": "cmd.exe",
+      "firstSeenMs": 687,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 55676,
+      "parentPid": 17820,
+      "exe": "conhost.exe",
+      "firstSeenMs": 703,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 47412,
+      "parentPid": 53584,
+      "exe": "pwsh.exe",
+      "firstSeenMs": 1031,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 54872,
+      "parentPid": 47412,
+      "exe": "conhost.exe",
+      "firstSeenMs": 1031,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 12716,
+      "parentPid": 53584,
+      "exe": "bash.exe",
+      "firstSeenMs": 2766,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 52536,
+      "parentPid": 12716,
+      "exe": "conhost.exe",
+      "firstSeenMs": 2766,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 12436,
+      "parentPid": 12716,
+      "exe": "bash.exe",
+      "firstSeenMs": 2781,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 60920,
+      "parentPid": 12436,
+      "exe": "bash.exe",
+      "firstSeenMs": 2812,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 59720,
+      "parentPid": 12436,
+      "exe": "bash.exe",
+      "firstSeenMs": 2828,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 44400,
+      "parentPid": 12436,
+      "exe": "bash.exe",
+      "firstSeenMs": 2844,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 61408,
+      "parentPid": 12436,
+      "exe": "bash.exe",
+      "firstSeenMs": 2875,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 60352,
+      "parentPid": 61408,
+      "exe": "bash.exe",
+      "firstSeenMs": 2891,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 8820,
+      "parentPid": 60352,
+      "exe": "git.exe",
+      "firstSeenMs": 2922,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    },
+    {
+      "pid": 15496,
+      "parentPid": 12436,
+      "exe": "bash.exe",
+      "firstSeenMs": 2937,
+      "exitedBeforeObserverCleanup": true,
+      "exitObserved": true
+    }
+  ],
+  "errors": [],
+  "allObservedDescendantsExited": true,
+  "windowsJobAtCreationProven": false,
+  "limitation": "sampling is not atomic containment and cannot prove no unobserved short-lived descendant ever existed"
+}

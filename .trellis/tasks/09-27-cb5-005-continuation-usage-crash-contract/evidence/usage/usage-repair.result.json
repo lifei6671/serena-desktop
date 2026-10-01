@@ -1,0 +1,2230 @@
+{
+  "scenario": "usage-repair",
+  "status": "PASS",
+  "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-usage-5pEt1h",
+  "before": {},
+  "recoveryMethod": "session/resume",
+  "windowsJobAtCreationProven": false,
+  "p3Status": "SENT",
+  "r1": {
+    "runtime": 1,
+    "runtimeInstanceId": "01a0e0f2-62a3-7543-a774-a5917fb20f75",
+    "sessionId": "01a0e0f2-0af3-7696-bce7-95ac5a8edc68",
+    "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-usage-5pEt1h",
+    "pid": 48480,
+    "state": {
+      "stage": "terminal",
+      "manifests": [
+        {
+          "turn": "P1",
+          "entries": {}
+        },
+        {
+          "turn": "P2",
+          "entries": {}
+        }
+      ],
+      "initialize": {
+        "protocolVersion": 1,
+        "loadSession": true
+      },
+      "sessionId": "01a0e0f2-0af3-7696-bce7-95ac5a8edc68"
+    },
+    "error": null,
+    "cleanup": {
+      "streamsClosed": true,
+      "terminated": true,
+      "waited": true,
+      "exitCode": 1,
+      "directChildReaped": true,
+      "stderrJoined": true,
+      "succeeded": true,
+      "errors": [],
+      "stderrBytesDrainedCapped8192": 0,
+      "windowsJobAtCreationProven": false
+    },
+    "collection": {
+      "samples": [
+        {
+          "runtime": 1,
+          "sequence": 8,
+          "source": "usage_update",
+          "placement": {
+            "phase": "new",
+            "phaseAtReceipt": "new",
+            "windowTurn": null,
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": true,
+          "fields": [
+            {
+              "path": "/sessionUpdate",
+              "kind": "string"
+            },
+            {
+              "path": "/used",
+              "kind": "number",
+              "value": 0,
+              "semantic": "used"
+            },
+            {
+              "path": "/size",
+              "kind": "number",
+              "value": 1000000,
+              "semantic": "size"
+            },
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#cdb057cfdbd26942c7deb0add5593ce40e01eab9b34ea52965e5af942fcdb8d6",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#f9d35d43770d39092a663e665e82ae1d84a9e0da3d0d10c407acada6a40cd281",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#10182ab855ff772753c05b2fea333666b5f312835d32936b6b03e08ef2cbd6d3",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#32c1cf49a2feee269ed74dd860f72644ac71029839b21b1ce0c212efafa9ef07",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+              "kind": "number",
+              "value": 1,
+              "semantic": null
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 10,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 11,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 12,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 13,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 14,
+          "source": "usage_update",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": true,
+          "fields": [
+            {
+              "path": "/sessionUpdate",
+              "kind": "string"
+            },
+            {
+              "path": "/used",
+              "kind": "number",
+              "value": 45210,
+              "semantic": "used"
+            },
+            {
+              "path": "/size",
+              "kind": "number",
+              "value": 1000000,
+              "semantic": "size"
+            },
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#cdb057cfdbd26942c7deb0add5593ce40e01eab9b34ea52965e5af942fcdb8d6",
+              "kind": "number",
+              "value": 3157,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b",
+              "kind": "number",
+              "value": 24,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#f9d35d43770d39092a663e665e82ae1d84a9e0da3d0d10c407acada6a40cd281",
+              "kind": "number",
+              "value": 41993,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#10182ab855ff772753c05b2fea333666b5f312835d32936b6b03e08ef2cbd6d3",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#32c1cf49a2feee269ed74dd860f72644ac71029839b21b1ce0c212efafa9ef07",
+              "kind": "number",
+              "value": 36,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+              "kind": "number",
+              "value": 1,
+              "semantic": null
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 15,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 17,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 52,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 53,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 54,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 55,
+          "source": "usage_update",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": true,
+          "fields": [
+            {
+              "path": "/sessionUpdate",
+              "kind": "string"
+            },
+            {
+              "path": "/used",
+              "kind": "number",
+              "value": 25708,
+              "semantic": "used"
+            },
+            {
+              "path": "/size",
+              "kind": "number",
+              "value": 1000000,
+              "semantic": "size"
+            },
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#a4e516ff8711756eb2ecc5782e8fca63812e0e4fd823e72d367fe76635fd61e6",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#3e671125ccaf116a96c951412b407e0660d0c5f9d382355b73a45abe8c20190d",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/usage",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/usage/prompt_tokens",
+              "kind": "number",
+              "value": 25708,
+              "semantic": "inputTokens"
+            },
+            {
+              "path": "/_meta/usage/completion_tokens",
+              "kind": "number",
+              "value": 105,
+              "semantic": "outputTokens"
+            },
+            {
+              "path": "/_meta/usage/total_tokens",
+              "kind": "number",
+              "value": 25813,
+              "semantic": "totalTokens"
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/#413e237da0841ffa0d2df2f65e72d6a1b239838fa40d7dc70d00b72619446b6f",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/#56b8fa6bb7eabc6741a298427aaabb9dcbb6da0580b0fc5854379440c7b71884",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/#b375757865478db8aae5abcb8875ed70f6c35fadf4faa27370b4f021064cc40a",
+              "kind": "number",
+              "value": 71,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/#6ff10514ca1770b9f319292481d8eefbeeb66282ca78cb939e0dc7c4c935bbc6",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/cached_tokens",
+              "kind": "number",
+              "value": 0,
+              "semantic": "cachedTokens"
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/#413e237da0841ffa0d2df2f65e72d6a1b239838fa40d7dc70d00b72619446b6f",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/#56b8fa6bb7eabc6741a298427aaabb9dcbb6da0580b0fc5854379440c7b71884",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/#b375757865478db8aae5abcb8875ed70f6c35fadf4faa27370b4f021064cc40a",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/#6ff10514ca1770b9f319292481d8eefbeeb66282ca78cb939e0dc7c4c935bbc6",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/cached_tokens",
+              "kind": "number",
+              "value": 1344,
+              "semantic": "cachedTokens"
+            },
+            {
+              "path": "/_meta/usage/#c4c111052111638eb2f6af1d666abc2048be7e560b0cf5cf77ef375c13be7620",
+              "kind": "number",
+              "value": 1344,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#1965746bede6fe7b62c736eba832f7d369ec9bc28ca39cd395b83305c1226cc3",
+              "kind": "number",
+              "value": 24364,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/cache_read_input_tokens",
+              "kind": "number",
+              "value": 0,
+              "semantic": "cachedReadTokens"
+            },
+            {
+              "path": "/_meta/usage/cache_creation_input_tokens",
+              "kind": "number",
+              "value": 0,
+              "semantic": "cachedWriteTokens"
+            },
+            {
+              "path": "/_meta/usage/#fa7d4dc9415af5bb7d61b48773853a944b0fe6fa7a1d738133ff7fcb3623d281",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#cb8492311d51c8fd3e243a76dd85d40bda170f75dd726e34b517c37889f394fd",
+              "kind": "number",
+              "value": 71,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#ecc4873a1694eb0de0b33d68f0df091d6816127c1422266399700d02599a8628",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/cached_tokens",
+              "kind": "number",
+              "value": 0,
+              "semantic": "cachedTokens"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#cdb057cfdbd26942c7deb0add5593ce40e01eab9b34ea52965e5af942fcdb8d6",
+              "kind": "number",
+              "value": 1652,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b",
+              "kind": "number",
+              "value": 1505,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#f9d35d43770d39092a663e665e82ae1d84a9e0da3d0d10c407acada6a40cd281",
+              "kind": "number",
+              "value": 22266,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#10182ab855ff772753c05b2fea333666b5f312835d32936b6b03e08ef2cbd6d3",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#32c1cf49a2feee269ed74dd860f72644ac71029839b21b1ce0c212efafa9ef07",
+              "kind": "number",
+              "value": 285,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+              "kind": "number",
+              "value": 1,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#517a42778cb62c11ffef7625a30e637c997c4cc57aeafc605ef4077ad5d4c50c",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#1d6f21ea90c6de24052b833f172d702a79ec68014a5a46d18b536807763164e5",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#6f9bbcbf0f10bbd7e0bbdc0d7aee6a55f8ef1c7255a2139a00c6f93a90783b5b",
+              "kind": "string"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 56,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 57,
+          "source": "prompt_result",
+          "placement": {
+            "phase": "P1",
+            "phaseAtReceipt": "P1",
+            "windowTurn": "P1",
+            "attributedTurn": "P1",
+            "attribution": "exact_rpc_id",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 59,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 60,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 61,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 62,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 63,
+          "source": "usage_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": true,
+          "fields": [
+            {
+              "path": "/sessionUpdate",
+              "kind": "string"
+            },
+            {
+              "path": "/used",
+              "kind": "number",
+              "value": 25708,
+              "semantic": "used"
+            },
+            {
+              "path": "/size",
+              "kind": "number",
+              "value": 1000000,
+              "semantic": "size"
+            },
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#a4e516ff8711756eb2ecc5782e8fca63812e0e4fd823e72d367fe76635fd61e6",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#3e671125ccaf116a96c951412b407e0660d0c5f9d382355b73a45abe8c20190d",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#cdb057cfdbd26942c7deb0add5593ce40e01eab9b34ea52965e5af942fcdb8d6",
+              "kind": "number",
+              "value": 1651,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b",
+              "kind": "number",
+              "value": 1519,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#f9d35d43770d39092a663e665e82ae1d84a9e0da3d0d10c407acada6a40cd281",
+              "kind": "number",
+              "value": 22254,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#10182ab855ff772753c05b2fea333666b5f312835d32936b6b03e08ef2cbd6d3",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#32c1cf49a2feee269ed74dd860f72644ac71029839b21b1ce0c212efafa9ef07",
+              "kind": "number",
+              "value": 284,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+              "kind": "number",
+              "value": 1,
+              "semantic": null
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 64,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 65,
+          "source": "usage_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": true,
+          "fields": [
+            {
+              "path": "/sessionUpdate",
+              "kind": "string"
+            },
+            {
+              "path": "/used",
+              "kind": "number",
+              "value": 25708,
+              "semantic": "used"
+            },
+            {
+              "path": "/size",
+              "kind": "number",
+              "value": 1000000,
+              "semantic": "size"
+            },
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#a4e516ff8711756eb2ecc5782e8fca63812e0e4fd823e72d367fe76635fd61e6",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#3e671125ccaf116a96c951412b407e0660d0c5f9d382355b73a45abe8c20190d",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#cdb057cfdbd26942c7deb0add5593ce40e01eab9b34ea52965e5af942fcdb8d6",
+              "kind": "number",
+              "value": 1651,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b",
+              "kind": "number",
+              "value": 1522,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#f9d35d43770d39092a663e665e82ae1d84a9e0da3d0d10c407acada6a40cd281",
+              "kind": "number",
+              "value": 22251,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#10182ab855ff772753c05b2fea333666b5f312835d32936b6b03e08ef2cbd6d3",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#32c1cf49a2feee269ed74dd860f72644ac71029839b21b1ce0c212efafa9ef07",
+              "kind": "number",
+              "value": 284,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+              "kind": "number",
+              "value": 1,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#1d6f21ea90c6de24052b833f172d702a79ec68014a5a46d18b536807763164e5",
+              "kind": "string"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 66,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 93,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 94,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 95,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 96,
+          "source": "usage_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": true,
+          "fields": [
+            {
+              "path": "/sessionUpdate",
+              "kind": "string"
+            },
+            {
+              "path": "/used",
+              "kind": "number",
+              "value": 25859,
+              "semantic": "used"
+            },
+            {
+              "path": "/size",
+              "kind": "number",
+              "value": 1000000,
+              "semantic": "size"
+            },
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#a4e516ff8711756eb2ecc5782e8fca63812e0e4fd823e72d367fe76635fd61e6",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#3e671125ccaf116a96c951412b407e0660d0c5f9d382355b73a45abe8c20190d",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/usage",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/usage/prompt_tokens",
+              "kind": "number",
+              "value": 25859,
+              "semantic": "inputTokens"
+            },
+            {
+              "path": "/_meta/usage/completion_tokens",
+              "kind": "number",
+              "value": 81,
+              "semantic": "outputTokens"
+            },
+            {
+              "path": "/_meta/usage/total_tokens",
+              "kind": "number",
+              "value": 25940,
+              "semantic": "totalTokens"
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/#413e237da0841ffa0d2df2f65e72d6a1b239838fa40d7dc70d00b72619446b6f",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/#56b8fa6bb7eabc6741a298427aaabb9dcbb6da0580b0fc5854379440c7b71884",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/#b375757865478db8aae5abcb8875ed70f6c35fadf4faa27370b4f021064cc40a",
+              "kind": "number",
+              "value": 11,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/#6ff10514ca1770b9f319292481d8eefbeeb66282ca78cb939e0dc7c4c935bbc6",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/cached_tokens",
+              "kind": "number",
+              "value": 0,
+              "semantic": "cachedTokens"
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/#413e237da0841ffa0d2df2f65e72d6a1b239838fa40d7dc70d00b72619446b6f",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/#56b8fa6bb7eabc6741a298427aaabb9dcbb6da0580b0fc5854379440c7b71884",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/#b375757865478db8aae5abcb8875ed70f6c35fadf4faa27370b4f021064cc40a",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/#6ff10514ca1770b9f319292481d8eefbeeb66282ca78cb939e0dc7c4c935bbc6",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/cached_tokens",
+              "kind": "number",
+              "value": 25600,
+              "semantic": "cachedTokens"
+            },
+            {
+              "path": "/_meta/usage/#c4c111052111638eb2f6af1d666abc2048be7e560b0cf5cf77ef375c13be7620",
+              "kind": "number",
+              "value": 25600,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#1965746bede6fe7b62c736eba832f7d369ec9bc28ca39cd395b83305c1226cc3",
+              "kind": "number",
+              "value": 259,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/cache_read_input_tokens",
+              "kind": "number",
+              "value": 0,
+              "semantic": "cachedReadTokens"
+            },
+            {
+              "path": "/_meta/usage/cache_creation_input_tokens",
+              "kind": "number",
+              "value": 0,
+              "semantic": "cachedWriteTokens"
+            },
+            {
+              "path": "/_meta/usage/#fa7d4dc9415af5bb7d61b48773853a944b0fe6fa7a1d738133ff7fcb3623d281",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#cb8492311d51c8fd3e243a76dd85d40bda170f75dd726e34b517c37889f394fd",
+              "kind": "number",
+              "value": 11,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#ecc4873a1694eb0de0b33d68f0df091d6816127c1422266399700d02599a8628",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/cached_tokens",
+              "kind": "number",
+              "value": 0,
+              "semantic": "cachedTokens"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#cdb057cfdbd26942c7deb0add5593ce40e01eab9b34ea52965e5af942fcdb8d6",
+              "kind": "number",
+              "value": 1658,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b",
+              "kind": "number",
+              "value": 1564,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#f9d35d43770d39092a663e665e82ae1d84a9e0da3d0d10c407acada6a40cd281",
+              "kind": "number",
+              "value": 22351,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#10182ab855ff772753c05b2fea333666b5f312835d32936b6b03e08ef2cbd6d3",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#32c1cf49a2feee269ed74dd860f72644ac71029839b21b1ce0c212efafa9ef07",
+              "kind": "number",
+              "value": 286,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+              "kind": "number",
+              "value": 1,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#517a42778cb62c11ffef7625a30e637c997c4cc57aeafc605ef4077ad5d4c50c",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#1d6f21ea90c6de24052b833f172d702a79ec68014a5a46d18b536807763164e5",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#6f9bbcbf0f10bbd7e0bbdc0d7aee6a55f8ef1c7255a2139a00c6f93a90783b5b",
+              "kind": "string"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 97,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 1,
+          "sequence": 98,
+          "source": "prompt_result",
+          "placement": {
+            "phase": "P2",
+            "phaseAtReceipt": "P2",
+            "windowTurn": "P2",
+            "attributedTurn": "P2",
+            "attribution": "exact_rpc_id",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            }
+          ]
+        }
+      ],
+      "turns": [
+        {
+          "turn": "P1",
+          "conversationRequestId": "01a0e0f20c2c70f0a8bc1eb696eb49d5",
+          "promptRpcId": "a618214a-6538-4b19-8568-b9ccff009ff4",
+          "requestSequence": 9,
+          "terminalSequence": 57,
+          "terminalRpcId": "a618214a-6538-4b19-8568-b9ccff009ff4",
+          "stopReason": "end_turn",
+          "typedTerminal": true,
+          "terminalCorrelationMatchedOrAbsent": true,
+          "finalAnswerSha256": "2a0072f57f8ecbe9ba00b9dcee4675006f85bf31382c2dadcd08d9b13c6c6c98",
+          "finalAnswerLength": 177,
+          "unattributedAnswerChunks": 0
+        },
+        {
+          "turn": "P2",
+          "conversationRequestId": "01a0e0f23a40711c894ff65d63557262",
+          "promptRpcId": "3b5d630d-a7a7-4ca7-a055-03191e81b7db",
+          "requestSequence": 58,
+          "terminalSequence": 98,
+          "terminalRpcId": "3b5d630d-a7a7-4ca7-a055-03191e81b7db",
+          "stopReason": "end_turn",
+          "typedTerminal": true,
+          "terminalCorrelationMatchedOrAbsent": true,
+          "finalAnswerSha256": "54dee932ec1fa00f169a2e64da916dc6d3b1e3c43f757e2fd7100273b3a46770",
+          "finalAnswerLength": 342,
+          "unattributedAnswerChunks": 0
+        }
+      ],
+      "rejectedEnvelopes": 0,
+      "projectionComplete": true
+    },
+    "sessionExchange": {
+      "method": "session/new",
+      "rpcId": "7b61ab8d-24c8-46b5-9dcb-59af7862bb42",
+      "responseSequence": 5,
+      "safeParams": {
+        "sessionId": null,
+        "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-usage-5pEt1h",
+        "mcpServersPresent": true
+      },
+      "rpcErrorCode": null
+    }
+  },
+  "r2": {
+    "runtime": 2,
+    "runtimeInstanceId": "01a0e0f2-9fe3-761d-bb94-2cc6896bf2a1",
+    "sessionId": "01a0e0f2-0af3-7696-bce7-95ac5a8edc68",
+    "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-usage-5pEt1h",
+    "pid": 48196,
+    "state": {
+      "stage": "terminal",
+      "manifests": [
+        {
+          "turn": "P3",
+          "entries": {}
+        }
+      ],
+      "initialize": {
+        "protocolVersion": 1,
+        "loadSession": true
+      },
+      "sessionId": "01a0e0f2-0af3-7696-bce7-95ac5a8edc68"
+    },
+    "error": null,
+    "cleanup": {
+      "streamsClosed": true,
+      "terminated": true,
+      "waited": true,
+      "exitCode": 1,
+      "directChildReaped": true,
+      "stderrJoined": true,
+      "succeeded": true,
+      "errors": [],
+      "stderrBytesDrainedCapped8192": 0,
+      "windowsJobAtCreationProven": false
+    },
+    "collection": {
+      "samples": [
+        {
+          "runtime": 2,
+          "sequence": 8,
+          "source": "usage_update",
+          "placement": {
+            "phase": "resume",
+            "phaseAtReceipt": "resume",
+            "windowTurn": null,
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": true,
+          "fields": [
+            {
+              "path": "/sessionUpdate",
+              "kind": "string"
+            },
+            {
+              "path": "/used",
+              "kind": "number",
+              "value": 25859,
+              "semantic": "used"
+            },
+            {
+              "path": "/size",
+              "kind": "number",
+              "value": 1000000,
+              "semantic": "size"
+            },
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#cdb057cfdbd26942c7deb0add5593ce40e01eab9b34ea52965e5af942fcdb8d6",
+              "kind": "number",
+              "value": 1801,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b",
+              "kind": "number",
+              "value": 86,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#f9d35d43770d39092a663e665e82ae1d84a9e0da3d0d10c407acada6a40cd281",
+              "kind": "number",
+              "value": 23952,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#10182ab855ff772753c05b2fea333666b5f312835d32936b6b03e08ef2cbd6d3",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#32c1cf49a2feee269ed74dd860f72644ac71029839b21b1ce0c212efafa9ef07",
+              "kind": "number",
+              "value": 20,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+              "kind": "number",
+              "value": 1,
+              "semantic": null
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 11,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 12,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 13,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 14,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 15,
+          "source": "usage_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": true,
+          "fields": [
+            {
+              "path": "/sessionUpdate",
+              "kind": "string"
+            },
+            {
+              "path": "/used",
+              "kind": "number",
+              "value": 25859,
+              "semantic": "used"
+            },
+            {
+              "path": "/size",
+              "kind": "number",
+              "value": 1000000,
+              "semantic": "size"
+            },
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#cdb057cfdbd26942c7deb0add5593ce40e01eab9b34ea52965e5af942fcdb8d6",
+              "kind": "number",
+              "value": 1758,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b",
+              "kind": "number",
+              "value": 100,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#f9d35d43770d39092a663e665e82ae1d84a9e0da3d0d10c407acada6a40cd281",
+              "kind": "number",
+              "value": 23698,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#10182ab855ff772753c05b2fea333666b5f312835d32936b6b03e08ef2cbd6d3",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#32c1cf49a2feee269ed74dd860f72644ac71029839b21b1ce0c212efafa9ef07",
+              "kind": "number",
+              "value": 303,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+              "kind": "number",
+              "value": 1,
+              "semantic": null
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 16,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 18,
+          "source": "usage_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": true,
+          "fields": [
+            {
+              "path": "/sessionUpdate",
+              "kind": "string"
+            },
+            {
+              "path": "/used",
+              "kind": "number",
+              "value": 25859,
+              "semantic": "used"
+            },
+            {
+              "path": "/size",
+              "kind": "number",
+              "value": 1000000,
+              "semantic": "size"
+            },
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#a4e516ff8711756eb2ecc5782e8fca63812e0e4fd823e72d367fe76635fd61e6",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#3e671125ccaf116a96c951412b407e0660d0c5f9d382355b73a45abe8c20190d",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#cdb057cfdbd26942c7deb0add5593ce40e01eab9b34ea52965e5af942fcdb8d6",
+              "kind": "number",
+              "value": 1657,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b",
+              "kind": "number",
+              "value": 1581,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#f9d35d43770d39092a663e665e82ae1d84a9e0da3d0d10c407acada6a40cd281",
+              "kind": "number",
+              "value": 22335,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#10182ab855ff772753c05b2fea333666b5f312835d32936b6b03e08ef2cbd6d3",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#32c1cf49a2feee269ed74dd860f72644ac71029839b21b1ce0c212efafa9ef07",
+              "kind": "number",
+              "value": 286,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+              "kind": "number",
+              "value": 1,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#1d6f21ea90c6de24052b833f172d702a79ec68014a5a46d18b536807763164e5",
+              "kind": "string"
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 19,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 112,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 113,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 114,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#e27d06c02a8ddebb25e8f2a5b929917d9e5f300c193fc2aa668442e23ac25df9",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 115,
+          "source": "usage_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": true,
+          "fields": [
+            {
+              "path": "/sessionUpdate",
+              "kind": "string"
+            },
+            {
+              "path": "/used",
+              "kind": "number",
+              "value": 25986,
+              "semantic": "used"
+            },
+            {
+              "path": "/size",
+              "kind": "number",
+              "value": 1000000,
+              "semantic": "size"
+            },
+            {
+              "path": "/_meta",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#a4e516ff8711756eb2ecc5782e8fca63812e0e4fd823e72d367fe76635fd61e6",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#3e671125ccaf116a96c951412b407e0660d0c5f9d382355b73a45abe8c20190d",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/usage",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/usage/prompt_tokens",
+              "kind": "number",
+              "value": 25986,
+              "semantic": "inputTokens"
+            },
+            {
+              "path": "/_meta/usage/completion_tokens",
+              "kind": "number",
+              "value": 302,
+              "semantic": "outputTokens"
+            },
+            {
+              "path": "/_meta/usage/total_tokens",
+              "kind": "number",
+              "value": 26288,
+              "semantic": "totalTokens"
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/#413e237da0841ffa0d2df2f65e72d6a1b239838fa40d7dc70d00b72619446b6f",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/#56b8fa6bb7eabc6741a298427aaabb9dcbb6da0580b0fc5854379440c7b71884",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/#b375757865478db8aae5abcb8875ed70f6c35fadf4faa27370b4f021064cc40a",
+              "kind": "number",
+              "value": 252,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/#6ff10514ca1770b9f319292481d8eefbeeb66282ca78cb939e0dc7c4c935bbc6",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#a1c85e24beca657c6a937e77c5e440a9e5e3adb2cbe1ece9133e6990fafc3843/cached_tokens",
+              "kind": "number",
+              "value": 0,
+              "semantic": "cachedTokens"
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/#413e237da0841ffa0d2df2f65e72d6a1b239838fa40d7dc70d00b72619446b6f",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/#56b8fa6bb7eabc6741a298427aaabb9dcbb6da0580b0fc5854379440c7b71884",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/#b375757865478db8aae5abcb8875ed70f6c35fadf4faa27370b4f021064cc40a",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/#6ff10514ca1770b9f319292481d8eefbeeb66282ca78cb939e0dc7c4c935bbc6",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#c7487d41d37524958593a3f447171b2f1a4139cfc3e83039cfe028029e956187/cached_tokens",
+              "kind": "number",
+              "value": 25792,
+              "semantic": "cachedTokens"
+            },
+            {
+              "path": "/_meta/usage/#c4c111052111638eb2f6af1d666abc2048be7e560b0cf5cf77ef375c13be7620",
+              "kind": "number",
+              "value": 25792,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#1965746bede6fe7b62c736eba832f7d369ec9bc28ca39cd395b83305c1226cc3",
+              "kind": "number",
+              "value": 194,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/cache_read_input_tokens",
+              "kind": "number",
+              "value": 0,
+              "semantic": "cachedReadTokens"
+            },
+            {
+              "path": "/_meta/usage/cache_creation_input_tokens",
+              "kind": "number",
+              "value": 0,
+              "semantic": "cachedWriteTokens"
+            },
+            {
+              "path": "/_meta/usage/#fa7d4dc9415af5bb7d61b48773853a944b0fe6fa7a1d738133ff7fcb3623d281",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#cb8492311d51c8fd3e243a76dd85d40bda170f75dd726e34b517c37889f394fd",
+              "kind": "number",
+              "value": 252,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/#ecc4873a1694eb0de0b33d68f0df091d6816127c1422266399700d02599a8628",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/usage/cached_tokens",
+              "kind": "number",
+              "value": 0,
+              "semantic": "cachedTokens"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173",
+              "kind": "object"
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#cdb057cfdbd26942c7deb0add5593ce40e01eab9b34ea52965e5af942fcdb8d6",
+              "kind": "number",
+              "value": 1664,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787b",
+              "kind": "number",
+              "value": 1610,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#f9d35d43770d39092a663e665e82ae1d84a9e0da3d0d10c407acada6a40cd281",
+              "kind": "number",
+              "value": 22425,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#10182ab855ff772753c05b2fea333666b5f312835d32936b6b03e08ef2cbd6d3",
+              "kind": "number",
+              "value": 0,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#32c1cf49a2feee269ed74dd860f72644ac71029839b21b1ce0c212efafa9ef07",
+              "kind": "number",
+              "value": 287,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#3e57cd75bff8a70b61e6867b5f6db9478c485fdc5547e572cc48e2e395229173/#5ca4f3850ccc331aaf8a257d6086e526a3b42a63e18cb11d020847985b31d188",
+              "kind": "number",
+              "value": 1,
+              "semantic": null
+            },
+            {
+              "path": "/_meta/#517a42778cb62c11ffef7625a30e637c997c4cc57aeafc605ef4077ad5d4c50c",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#1d6f21ea90c6de24052b833f172d702a79ec68014a5a46d18b536807763164e5",
+              "kind": "string"
+            },
+            {
+              "path": "/_meta/#6f9bbcbf0f10bbd7e0bbdc0d7aee6a55f8ef1c7255a2139a00c6f93a90783b5b",
+              "kind": "string"
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 116,
+          "source": "session_info_update",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": null,
+            "attribution": "window_only",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            }
+          ]
+        },
+        {
+          "runtime": 2,
+          "sequence": 117,
+          "source": "prompt_result",
+          "placement": {
+            "phase": "P3",
+            "phaseAtReceipt": "P3",
+            "windowTurn": "P3",
+            "attributedTurn": "P3",
+            "attribution": "exact_rpc_id",
+            "lateFor": null
+          },
+          "typedEnvelope": true,
+          "typedUsageUpdate": false,
+          "fields": [
+            {
+              "path": "/_meta",
+              "kind": "object"
+            }
+          ]
+        }
+      ],
+      "turns": [
+        {
+          "turn": "P3",
+          "conversationRequestId": "01a0e0f2690177569dace8da1c36c2d1",
+          "promptRpcId": "a6f0a8a0-1f3b-45ab-ab33-82f4454d3194",
+          "requestSequence": 10,
+          "terminalSequence": 117,
+          "terminalRpcId": "a6f0a8a0-1f3b-45ab-ab33-82f4454d3194",
+          "stopReason": "end_turn",
+          "typedTerminal": true,
+          "terminalCorrelationMatchedOrAbsent": true,
+          "finalAnswerSha256": "1677aa0f6bef5704a1e184b1018ab2e034207b5e8e85181f1ff539bf917c501c",
+          "finalAnswerLength": 229,
+          "unattributedAnswerChunks": 0
+        }
+      ],
+      "rejectedEnvelopes": 0,
+      "projectionComplete": true
+    },
+    "sessionExchange": {
+      "method": "session/resume",
+      "rpcId": "d09885fe-3012-41de-becd-647943fb0d88",
+      "responseSequence": 9,
+      "safeParams": {
+        "sessionId": "01a0e0f2-0af3-7696-bce7-95ac5a8edc68",
+        "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-005-usage-5pEt1h",
+        "mcpServersPresent": false
+      },
+      "rpcErrorCode": null
+    }
+  },
+  "after": {},
+  "manifestComplete": true,
+  "workspaceDelta": [],
+  "workspaceDeleted": true
+}

@@ -1,0 +1,79 @@
+{
+  "argv": [
+    "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\CodeBuddy CN.exe",
+    "C:\\Users\\lifei\\AppData\\Local\\Programs\\CodeBuddy CN\\resources\\app\\out\\cli.js",
+    "--acp"
+  ],
+  "environmentChanges": {
+    "ELECTRON_RUN_AS_NODE": "1",
+    "VSCODE_DEV": null
+  },
+  "cwd": "C:\\Users\\lifei\\AppData\\Local\\Temp\\cb5-002-XkLJ13",
+  "pid": 43100,
+  "initializeTimeoutSeconds": 20,
+  "initializeElapsedMs": 161,
+  "initializeSucceeded": false,
+  "protocolCompatible": false,
+  "supportedProtocolVersion": 1,
+  "response": null,
+  "error": "SDK: Incoming transport closed: {\n  \"reason\": \"incoming_transport_closed\",\n  \"method\": \"initialize\"\n}",
+  "wire": [
+    {
+      "sequence": 1,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": "7b263c3f-0050-4e0d-a2ea-136174caff85",
+        "method": "initialize",
+        "params": {
+          "protocolVersion": 1,
+          "clientCapabilities": {
+            "fs": {
+              "readTextFile": false,
+              "writeTextFile": false
+            },
+            "terminal": false,
+            "auth": {
+              "terminal": false
+            }
+          }
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":\"7b263c3f-0050-4e0d-a2ea-136174caff85\",\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientCapabilities\":{\"fs\":{\"readTextFile\":false,\"writeTextFile\":false},\"terminal\":false,\"auth\":{\"terminal\":false}}}}\n",
+      "redacted": false
+    },
+    {
+      "sequence": 2,
+      "direction": "response",
+      "nonJsonBytes": 69,
+      "nonJsonText": "To read from stdin, append '-' (e.g. 'echo Hello World | buddycn -')\n"
+    },
+    {
+      "sequence": 3,
+      "direction": "request",
+      "message": {
+        "jsonrpc": "2.0",
+        "id": null,
+        "error": {
+          "code": -32700
+        }
+      },
+      "rawLine": "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32700}}\n",
+      "redacted": true
+    }
+  ],
+  "stderrSanitized": "Warning: 'acp' is not in the list of known options, but still passed to Electron/Chromium.\n",
+  "cleanup": {
+    "streamsClosed": true,
+    "terminated": false,
+    "waited": true,
+    "exitCode": 0,
+    "directChildReaped": true,
+    "stderrJoined": true,
+    "succeeded": true,
+    "errors": [],
+    "stderrSanitized": "Warning: 'acp' is not in the list of known options, but still passed to Electron/Chromium.\n",
+    "windowsJobAtCreationProven": false
+  },
+  "totalElapsedMs": 165
+}

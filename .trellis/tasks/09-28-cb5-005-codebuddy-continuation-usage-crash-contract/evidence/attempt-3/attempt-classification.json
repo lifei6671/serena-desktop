@@ -1,0 +1,40 @@
+{
+  "hostFindingBaselineProbeMjsSha256": "33f8d0a7b202362e154fb4a3614f490eedf04abdeea42e42ed4ccc9ace8e5c01",
+  "repairedProbeMjsSha256": "edf75f3e1ba3eb25ef3a6187b9f106113a2eeca02de40e302abf1770b5d4e042",
+  "attempt1": {
+    "classification": "NON_EQUIVALENT_INITIALIZE_PROBE",
+    "contractAuthority": false,
+    "reason": "clientInfo and clientCapabilities._meta differed from the CB5-004 Host PASS baseline",
+    "rawEvidencePreserved": true
+  },
+  "attempt2": {
+    "classification": "NON_EQUIVALENT_INITIALIZE_PROBE",
+    "contractAuthority": false,
+    "reason": "clientInfo and clientCapabilities._meta differed from the CB5-004 Host PASS baseline",
+    "rawEvidencePreserved": true
+  },
+  "attempt3": {
+    "classification": "EXACT_INITIALIZE_NON_HOST_ENVIRONMENT_PROBE",
+    "contractAuthority": false,
+    "reason": "executed from the Codex Agent shell with env process.env, not the SerenaDesktop command_execute Host environment",
+    "initializeParamsSha256": "921a7bc1ec9fd8049cd908221b742dafb2d4c154cd7be8be2dd13304828f38b4",
+    "wireSha256": "74a6439ff305ea06e127086feae518cb5af1cab8c685bd9acc28b42abe493470",
+    "initializeBaselineEvidenceSha256": "70c261f622ff283a499a619b824cf7ff56a18023517c434e6837c42203e404fe",
+    "continuationResultSha256": "ccc9ca9e6055245d614c18cb2ad454418f8dea4af3d1d6d440f6ce2d9e58003f",
+    "processEvidenceSha256": "563ccabbf96ef3075f628efe64e191b8593f956e1aabf52adaa043bc2026d7d3",
+    "initializeSucceeded": true,
+    "sessionNewSucceeded": false,
+    "sessionNewRpcCode": -32603,
+    "promptSent": false,
+    "sessionLoadCalled": false,
+    "crashWindowsCalled": false
+  },
+  "attempt4": {
+    "classification": "PENDING_SERENA_COMMAND_HOST_PROBE",
+    "contractAuthority": "PENDING",
+    "requiredMode": "probe-host-attempt-4",
+    "requiredGate": "SERENA_CB5_HOST_PROBE=1",
+    "evidenceRoot": "evidence/attempt-4",
+    "realProbeRun": false
+  }
+}
