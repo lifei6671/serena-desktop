@@ -693,9 +693,24 @@ async fn occ_conflicts_fail_closed_without_terminal_overwrite() {
             Arc::new(NoopTelemetry),
         ));
         wait_wire(dir.path(), 3).await;
+        // wire 已出现只说明 Prompt 被 peer 收到；generic Dispatch/Running 的 SQLite 提交
+        // 可能仍在进行。先等到稳定 Running，再冻结 revision 制造确定性的 OCC 冲突。
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(12);
+        let row = loop {
+            let row = store.execution(id.clone()).await.unwrap().unwrap();
+            if row.status == "running" && row.dispatch_state == "dispatched" {
+                break row;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "execution did not reach stable running state: status={}, dispatch={}",
+                row.status,
+                row.dispatch_state
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        };
         let private_store = CodeBuddyStore(store.clone());
         let current = private_store.read(id.clone()).await.unwrap();
-        let row = store.execution(id.clone()).await.unwrap().unwrap();
         let mutation = if existing_terminal {
             Mutation::ObserveTerminal {
                 session_id: current.session_id.clone().unwrap(),
