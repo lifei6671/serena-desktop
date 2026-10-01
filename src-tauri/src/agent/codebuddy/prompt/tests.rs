@@ -266,14 +266,16 @@ async fn exact_wire_order_terminal_result_and_late_freeze() {
 }
 
 #[tokio::test]
-/// 长 Prompt 超过 early TTL，持续 drain 不产生假的 QueueExpired；结果内存预算超限会降级。
-async fn continuously_drains_bounded_collector() {
+/// 长 Prompt 总时长超过 queue TTL；transport 留足瞬时调度余量，只验证持续 drain 不产生假的 QueueExpired。
+async fn continuously_drains_stream_past_queue_ttl() {
     let bin = tempfile::tempdir().unwrap();
     let base = build(bin.path());
     let limits = Limits {
-        queue_ttl: Duration::from_millis(100),
-        queue_count: 8,
-        queue_bytes: 1024,
+        // fixture 20 帧 × 20ms = 400ms，仍明确跨过 TTL；250ms 避免 CI 调度抖动伪造过期。
+        queue_ttl: Duration::from_millis(250),
+        // 本测试不验证 transport overflow；为 Windows 高负载时的瞬时 burst 留足确定性余量。
+        queue_count: 32,
+        queue_bytes: 64 * 1024,
         ..Limits::default()
     };
     let (dir, store, session, sink) = setup(&base, limits).await;
@@ -299,6 +301,34 @@ async fn continuously_drains_bounded_collector() {
     let result = completed.result.unwrap();
     assert_eq!(
         result.result_completeness,
+        ProviderResultCompleteness::Complete
+    );
+    assert_eq!(result.result.unwrap()["text"].as_str().unwrap().len(), 2000);
+    assert!(result.diagnostic_code.is_none());
+    completed.session.shutdown().await.unwrap();
+}
+
+#[test]
+/// Collector 正文预算与 transport 调度分离验证：超预算只降级结果，不依赖异步 drain 时序。
+fn collector_over_budget_degrades_to_partial_without_transport_queue_pressure() {
+    let shared = Shared::new(Limits {
+        queue_count: 32,
+        queue_bytes: 64 * 1024,
+        ..Limits::default()
+    });
+    shared.register_route("s").unwrap();
+    for _ in 0..20 {
+        let frame = chunk("s", "c", "agent_message_chunk", &"x".repeat(100));
+        shared
+            .notification("session/update".into(), frame["params"].clone())
+            .unwrap();
+    }
+
+    let mut collector = Collector::default();
+    collector.drain(shared.take_session("s").unwrap(), "s", "c", 1024);
+    let result = collector.finish("e".into(), StopReason::EndTurn).unwrap();
+    assert_eq!(
+        result.result_completeness,
         ProviderResultCompleteness::Partial
     );
     assert_eq!(result.result.unwrap()["text"].as_str().unwrap().len(), 1000);
@@ -306,7 +336,6 @@ async fn continuously_drains_bounded_collector() {
         result.diagnostic_code.as_deref(),
         Some("CODEBUDDY_PROMPT_RESULT_INCOMPLETE")
     );
-    completed.session.shutdown().await.unwrap();
 }
 
 #[tokio::test]
