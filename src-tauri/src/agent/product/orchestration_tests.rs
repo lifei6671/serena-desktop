@@ -591,6 +591,7 @@ async fn public_vertical_work_source_start_continue_acceptance_e2e() {
         let expected = [
             ("initialize", 1),
             ("initialized", 1),
+            ("model/list", 1),
             (thread_method, 1),
             ("turn/start", 1),
             ("thread/read", 1),

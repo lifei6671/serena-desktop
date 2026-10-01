@@ -797,6 +797,11 @@ async fn result_recovery_fixture(
         .await
         .unwrap();
     let r1 = "cb8-r1".to_owned();
+    // 生产 Fresh 在 OS Runtime 创建前先持久化 R1 attempt；恢复 fixture 必须保留同一 binding authority。
+    store
+        .reserve_runtime_attempt("e".into(), r1.clone(), 2)
+        .await
+        .unwrap();
     store
         .prepare_codebuddy_runtime(
             r1.clone(),
@@ -1038,17 +1043,17 @@ async fn continued_child_same_runtime_partial_crash_starts_external_result_recov
                 |row| row.get::<_, i64>(0)
             )
             .unwrap(),
-        1
+        2
     );
     assert_eq!(
         database
             .query_row(
-                "SELECT runtime_instance_id FROM execution_runtime_attempts WHERE execution_id='e'",
-                [],
-                |row| row.get::<_, String>(0)
+                "SELECT count(*) FROM execution_runtime_attempts WHERE execution_id='e' AND runtime_instance_id=?1",
+                [&r2],
+                |row| row.get::<_, i64>(0)
             )
             .unwrap(),
-        r2
+        1
     );
     let before = (
         row.revision,
@@ -1120,7 +1125,7 @@ async fn continued_child_same_runtime_partial_crash_starts_external_result_recov
                 |row| row.get::<_, i64>(0)
             )
             .unwrap(),
-        1
+        2
     );
 }
 
